@@ -2,6 +2,7 @@
 .DS_Store
 .idea
 /target
+*/target
 cargo-system-config.toml
 Cargo.lock
 
@@ -301,3 +302,6 @@ TSWLatexianTemp*
 
 *.txt
 *.zstd
+
+*.tar
+*.parquet
