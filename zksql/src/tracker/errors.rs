@@ -8,10 +8,11 @@
 
 use std::string::String;
 
-use crate::arithmetic::ArithErrors;
+use arithmetic::errors::ArithErrors;
 use displaydoc::Display;
-use crate::subroutines::pcs::prelude::PCSError;
-use crate::transcript::TranscriptError;
+use kit::{ark_serialize, displaydoc};
+use crypto::pcs::prelude::PCSError;
+use transcript::TranscriptError;
 
 
 /// A `enum` specifying the possible failure modes of the PolyIOP.

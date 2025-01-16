@@ -13,13 +13,13 @@
 // use ark_ff::PrimeField;
 // use ark_poly::DenseMultilinearExtension;
 // use std::{borrow::Borrow, sync::Arc};
-// use crate::subroutines::pcs::{prelude::{Commitment, PCSError}, PolynomialCommitmentScheme};
-// use transcript::IOPTranscript;
+// use crate::pcs::{prelude::{Commitment, PCSError}, PolynomialCommitmentScheme};
+// use transcript::Tr;
 
 // /// An accumulator structure that holds a polynomial and
 // /// its opening points
 // #[derive(Debug)]
-// pub(super) struct PcsAccumulator<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
+// pub(super) struct PcsAccumulator<F:PrimeField, PCS: PolynomialCommitmentScheme<F>> {
 //     // sequence:
 //     // - prod(x) at 5 points
 //     // - w_merged at perm check point
@@ -27,16 +27,16 @@
 //     // - selector_merged at zero check points (#selector points)
 //     // - w[0] at r_pi
 //     pub(crate) num_var: usize,
-//     pub(crate) polynomials: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+//     pub(crate) polynomials: Vec<Arc<DenseMultilinearExtension<F>>>,
 //     pub(crate) commitments: Vec<PCS::Commitment>,
-//     pub(crate) points: Vec<Vec<E::ScalarField>>,
-//     pub(crate) evals: Vec<E::ScalarField>,
+//     pub(crate) points: Vec<Vec<F>>,
+//     pub(crate) evals: Vec<F>,
 // }
 
-// impl<E, PCS> PcsAccumulator<E, PCS>
+// impl<F, PCS> PcsAccumulator<F, PCS>
 // where
 //     E: Pairing,
-//     PCS: PolynomialCommitmentScheme<E>,
+//     PCS: PolynomialCommitmentScheme<F>,
 // {
 //     /// Create an empty accumulator.
 //     pub(super) fn new(num_var: usize) -> Self {
@@ -52,9 +52,9 @@
 //     /// Push a new evaluation point into the accumulator
 //     pub(super) fn insert_poly_and_points(
 //         &mut self,
-//         poly: &Arc<DenseMultilinearExtension<E::ScalarField>>,
+//         poly: &Arc<DenseMultilinearExtension<F>>,
 //         commit: &PCS::Commitment,
-//         point: &[E::ScalarField],
+//         point: &[F],
 //     ) {
 //         assert!(poly.num_vars == point.len());
 //         assert!(poly.num_vars == self.num_var);
@@ -72,9 +72,9 @@
 //     pub(super) fn multi_open(
 //         &self,
 //         prover_param: impl Borrow<PCS::ProverParam>,
-//         transcript: &mut IOPTranscript<E::ScalarField>,
+//         transcript: &mut Tr<F>,
 //     ) -> Result<PCS::BatchProof, PCSError> {
-//         let polys = self.polynomials.iter().map(|x| (**x).clone()).collect::<Vec<DenseMultilinearExtension<<E as Pairing>::ScalarField>>>();
+//         let polys = self.polynomials.iter().map(|x| (**x).clone()).collect::<Vec<DenseMultilinearExtension<F>>>();
 //         Ok(PCS::multi_open(
 //             prover_param.borrow(),
 //             &polys.as_slice(),
@@ -249,7 +249,7 @@
 // // }
 
 // // // check perm check subclaim:
-// // // proof.witness_perm_check_eval ?= perm_check_sub_claim.expected_eval
+// // // proof.witness_prescr_perm_check_eval ?= prescr_perm_check_sub_claim.expected_eval
 // // // Q(x) := prod(x) - p1(x) * p2(x)
 // // //     + alpha * frac(x) * g1(x) * ... * gk(x)
 // // //     - alpha * f1(x) * ... * fk(x)

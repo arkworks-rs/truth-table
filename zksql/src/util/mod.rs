@@ -1,10 +1,12 @@
-// Copyright (c) 2023 Espresso Systems (espressosys.com)
-// This file is part of the HyperPlonk library.
+use arithmetic::ark_ff::{Field, PrimeField};
+use arithmetic::ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+use crypto::pcs::PolynomialCommitmentScheme;
+use kit::ark_std::test_rng;
+use kit::rayon::vec;
 
-// You should have received a copy of the MIT License
-// along with the HyperPlonk library. If not, see <https://mit-license.org/>.
-
-//! Utilities for parallel code.
+use crate::{
+    tracker::prelude::{PolyIOPErrors, ProverTrackerRef, VerifierTrackerRef},
+};
 
 /// this function helps with slice iterator creation that optionally use
 /// `par_iter()` when feature flag `parallel` is on.
@@ -19,7 +21,8 @@
 /// #[cfg(not(feature = "parallel"))]
 /// let sum = v.iter().sum();
 #[cfg(feature = "parallel")]
-pub fn parallelizable_slice_iter<T: Sync>(data: &[T]) -> rayon::slice::Iter<T> {
+pub fn parallelizable_slice_iter<T: Sync>(data: &[T]) -> kit::rayon::slice::Iter<T> {
+    use kit::rayon;
     use rayon::iter::IntoParallelIterator;
     data.into_par_iter()
 }
@@ -28,3 +31,17 @@ pub fn parallelizable_slice_iter<T: Sync>(data: &[T]) -> rayon::slice::Iter<T> {
 pub fn parallelizable_slice_iter<T>(data: &[T]) -> core::slice::Iter<T> {
     data.iter()
 }
+
+pub fn test_prelude<F: Field + PrimeField, PCS: PolynomialCommitmentScheme<F>>(
+    nv: usize,
+) -> Result<(ProverTrackerRef<F, PCS>, VerifierTrackerRef<F, PCS>), PolyIOPErrors> {
+    let mut rng = test_rng();
+    let srs = PCS::gen_srs_for_testing(&mut rng, nv)?;
+    let (p_param, v_param) = PCS::trim(&srs, None, Some(10))?;
+    let prover_tracker: ProverTrackerRef<F, PCS> = ProverTrackerRef::new_from_pcs_params(p_param);
+    let verifier_tracker: VerifierTrackerRef<F, PCS> =
+        VerifierTrackerRef::new_from_pcs_params(v_param);
+    Ok((prover_tracker, verifier_tracker))
+}
+
+

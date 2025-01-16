@@ -4,33 +4,41 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ark-bls12-381 = { version = "0.4.0", default-features = false, features = [
-    "curve",
-] }
-ark-ec = { version = "^0.4.0", default-features = false }
-ark-ff = { version = "^0.4.0", default-features = false }
-ark-poly = { version = "^0.4.0", default-features = false }
-ark-serialize = { version = "^0.4.0", default-features = false }
-ark-std = { version = "^0.4.0", default-features = false }
-derivative = { version = "2", features = ["use_core"] }
-displaydoc = { version = "0.2.3", default-features = false }
-itertools = { version = "0.11.0", optional = true }
+kit = { path = "../kit" }
+transcript = { path = "../transcript" }
+arithmetic = { path = "../arithmetic" }
+crypto = { path = "../crypto" }
+sumcheck = { path = "../sumcheck" }
 rand_chacha = { version = "0.3.0", default-features = false }
-rayon = { version = "1.5.2", default-features = false, optional = true }
 uuid = { version = "1.2", features = ["v4"] }
-merlin = { version = "3.0.0", default-features = false }
-datafusion = "42.1.0"
-tokio = "1.41.0"
+datafusion = "43.0.0"
+tokio = { version = "^1.41.0", features = ["rt", "macros", "rt-multi-thread"] }
+zksql-macros = { path = "../zksql-macros" }
+
+[dev-dependencies]
+ark-test-curves = { version = "0.5.0", default-features = false, features = [
+    "bls12_381_curve",
+] }
+
+
 [features]
 default = ["parallel"]
 # extensive sanity checks that are useful for debugging
 extensive_sanity_checks = []
 parallel = [
-    "rayon",
-    "itertools",
-    "ark-std/parallel",
-    "ark-ff/parallel",
-    "ark-poly/parallel",
-    "ark-ec/parallel",
+    "kit/parallel",
+    "crypto/parallel",
+    "arithmetic/parallel",
+    "transcript/parallel",
+    "sumcheck/parallel"
 ]
-print-trace = ["ark-std/print-trace"]
+print-trace = ["kit/print-trace"]
+
+# [[bench]]
+# name = "select-feas-benches"
+# harness = false
+
+
+# [[bench]]
+# name = "groupby-feas-benches"
+# harness = false

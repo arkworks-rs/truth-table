@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::marker::PhantomData;
+use std::{collections::HashMap, fmt::Display, marker::PhantomData};
 
+use arithmetic::{ark_ff, mle::virt::VPAuxInfo};
 use ark_ec::pairing::Pairing;
 use ark_ff::PrimeField;
+use crypto::{ark_ec, pcs::PolynomialCommitmentScheme};
 use derivative::Derivative;
+use kit::derivative;
+use sumcheck::structs::IOPProof;
 
-use crate::arithmetic::VPAuxInfo;
-use crate::subroutines::{IOPProof, PolynomialCommitmentScheme};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd,Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TrackerID(pub usize);
 impl TrackerID {
     pub fn to_int(self) -> usize {
@@ -27,9 +26,9 @@ impl Display for TrackerID {
 pub struct TrackerSumcheckClaim<F: PrimeField> {
     pub label: TrackerID, // a label refering to a polynomial stored in the tracker
     pub claimed_sum: F,
-} 
+}
 
-impl <F: PrimeField> TrackerSumcheckClaim<F> {
+impl<F: PrimeField> TrackerSumcheckClaim<F> {
     pub fn new(label: TrackerID, claimed_sum: F) -> Self {
         Self { label, claimed_sum }
     }
@@ -41,23 +40,31 @@ pub struct TrackerZerocheckClaim<F: PrimeField> {
     pub phantom: PhantomData<F>,
 }
 
-impl <F: PrimeField> TrackerZerocheckClaim<F> {
+impl<F: PrimeField> TrackerZerocheckClaim<F> {
     pub fn new(label: TrackerID) -> Self {
-        Self { label, phantom: PhantomData::default() }
+        Self {
+            label,
+            phantom: PhantomData::default(),
+        }
     }
 }
 
 #[derive(Derivative)]
 #[derivative(
-    Clone(bound = "PCS: PolynomialCommitmentScheme<E>"),
-    Default(bound = "PCS: PolynomialCommitmentScheme<E>"),
-    Debug(bound = "PCS: PolynomialCommitmentScheme<E>"),
+    Clone(bound = "PCS: PolynomialCommitmentScheme<F>"),
+    Default(bound = "PCS: PolynomialCommitmentScheme<F>"),
+    Debug(bound = "PCS: PolynomialCommitmentScheme<F>")
 )]
-pub struct CompiledZKSQLProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
+pub struct CompiledZKSQLProof<F, PCS: PolynomialCommitmentScheme<F>>
+where
+    F: PrimeField,
+{
+    /// The commitments to the polynomials in the tracker
     pub comms: HashMap<TrackerID, PCS::Commitment>,
-    pub sumcheck_claims: HashMap<TrackerID, E::ScalarField>, // id -> [ sum_{i=0}^n p(i) ]
-    pub sc_proof: IOPProof<E::ScalarField>,
-    pub sc_aux_info: VPAuxInfo<E::ScalarField>,
-    pub query_map: HashMap<(TrackerID, Vec<E::ScalarField>), E::ScalarField>, // (id, point) -> eval, // id -> p(comm_opening_point) 
+    pub sumcheck_claims: HashMap<TrackerID, F>, // id -> [ sum_{i=0}^n p(i) ]
+    pub sc_proof: IOPProof<F>,
+
+    pub sc_aux_info: VPAuxInfo<F>,
+    pub query_map: HashMap<(TrackerID, Vec<F>), F>, /* (id, point) -> eval, // id -> p(comm_opening_point) */
     pub pcs_proof: Vec<PCS::BatchProof>,
 }

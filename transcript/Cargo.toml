@@ -1,0 +1,18 @@
+[package]
+name = "transcript"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kit = { path = "../kit" }
+merlin = { version = "3.0.0", default-features = false }
+arithmetic = { path = "../arithmetic" }
+[features]
+default = ["parallel"]
+# extensive sanity checks that are useful for debugging
+extensive_sanity_checks = []
+parallel = [
+    "kit/parallel",
+    "arithmetic/parallel",
+]
+print-trace = ["kit/print-trace"]

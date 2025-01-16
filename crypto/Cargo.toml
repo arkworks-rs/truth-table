@@ -1,0 +1,29 @@
+[package]
+name = "crypto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-ec = { version = "^0.5.0", default-features = false }
+arithmetic = { path = "../arithmetic" }
+transcript = { path = "../transcript" }
+kit = { path = "../kit" }
+sumcheck = { path = "../sumcheck" }
+
+[dev-dependencies]
+ark-test-curves = { version = "0.5.0", default-features = false, features = [
+    "bls12_381_curve",
+] }
+
+
+[features]
+default = ["parallel"]
+# extensive sanity checks that are useful for debugging
+extensive_sanity_checks = []
+parallel = [
+    "kit/parallel",
+    "arithmetic/parallel",
+    "transcript/parallel",
+    "ark-ec/parallel",
+]
+print-trace = ["kit/print-trace","arithmetic/print-trace"]

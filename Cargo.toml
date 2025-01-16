@@ -1,6 +1,3 @@
 [workspace]
 
-members = [
-    "field-adapter",
-    "zksql",
-]
+members = ["arithmetic", "benchmark", "crypto", "field-adapter", "kit", "sumcheck", "transcript",  "zksql", "zksql-macros"]

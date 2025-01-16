@@ -1,0 +1,22 @@
+digraph DAG {
+    "Zero-Check" -> "Sum-Check";
+    "Multiplicity-Check" -> "Rational-Sum-Check";
+    "Rational-Sum-Check" -> "Sum-Check";
+    "Rational-Sum-Check" -> "Zero-Check";
+    "Equality-Check" -> "Multiplicity-Check";
+    "Inclusion-Check" -> "Multiplicity-Check";
+    "No-Zero-Check" -> "Zero-Check";
+    "Multiplicity-Sum-Check" -> "Multiplicity-Check";
+    "Permutation-Check" -> "Zero-Check";
+    "Permutation-Check" -> "Equality-Check";
+    "Sort-Check" -> "Permutation-Check";
+    "Sort-Check" -> "Inclusion-Check";
+    "Strict-Sort-Check" -> "Sort-Check";
+    "Strict-Sort-Check" -> "No-Zero-Check";
+    "Support-Check" -> "Inclusion-Check";
+    "Support-Check" -> "No-Zero-Check";
+    "Support-Check" -> "Strict-Sort-Check" [label="No-Duplicate"];
+    "Disjointness-Check" -> "Strict-Sort-Check" [label="No-Duplicate"];
+    "Disjointness-Check" -> "Zero-Check"; 
+    "Disjointness-Check" -> "Inclusion-Check"; 
+}

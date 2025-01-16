@@ -1,7 +1,6 @@
 
 pub use crate::tracker::{
-    bag::{Bag, BagComm, Table, TableComm},
-    dmle_utils::*,
+    data_structures::{Col, ColComm, Table, TableComm, ColInd},
     errors::PolyIOPErrors,
     prover_wrapper::{ProverTrackerRef, TrackedPoly}, 
     tracker_structs::TrackerID,

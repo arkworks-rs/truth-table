@@ -1,9 +1,10 @@
-pub mod arithmetic;
-pub mod subroutines;
-pub mod transcript;
 pub mod util;
-pub mod zksql_poly_iop;
-
+pub mod col_toolbox;
 pub mod tracker;
+pub mod ra_toolbox;
 
 
+//TODO: Add the following trait
+// pub trait Arg {
+//     fn prove(&self);
+// }

@@ -1,29 +1,23 @@
-#[cfg(test)]
-mod test {
     use std::{
         ops::Neg,
         sync::Arc,
     };
     
-    use ark_bls12_381::{Bls12_381, Fr};
-    use ark_ff::UniformRand;
-    use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-    use ark_std::{One, test_rng, Zero};
+    use arithmetic::ark_ff::UniformRand;
+    use arithmetic::ark_poly::{DenseMultilinearExtension, MultilinearExtension};
+    use ark_test_curves::bls12_381::{Bls12_381, Fr};
+    use crypto::ark_ec;
+    use crypto::pcs::multilinear_kzg::MultilinearKzgPCS;
+    use crypto::pcs::PolynomialCommitmentScheme;
+    use kit::ark_std::{One, test_rng, Zero};
+    use sumcheck::sum_check::SumCheck;
+    use sumcheck::PolyIOP;
     
     use crate::tracker::prelude::*;
     
-    use crate::subroutines::{
-        MultilinearKzgPCS,
-        PolyIOP,
-        pcs::PolynomialCommitmentScheme,
-        poly_iop::{
-            sum_check::SumCheck,
-            // errors::PolyIOPErrors,
-        },
-    };
     
-    use crate::transcript::IOPTranscript;
-    
+    use transcript::Tr;
+    use arithmetic::ark_poly::Polynomial; 
 
     #[test]
     fn test_track_mat_poly() -> Result<(), PolyIOPErrors> {
@@ -31,7 +25,7 @@ mod test {
         let nv = 4;
          let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
 
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -55,7 +49,7 @@ mod test {
         let nv = 4;
         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
 
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -75,20 +69,21 @@ mod test {
         // test evalutation at a random point
         let test_eval_pt: Vec<Fr> = (0..nv).map(|_| Fr::rand(&mut rng)).collect();
         let sum_eval = sum_poly.evaluate(&test_eval_pt).unwrap();
-        let poly1_eval = rand_mle_1.evaluate(&test_eval_pt).unwrap();
-        let poly2_eval = rand_mle_2.evaluate(&test_eval_pt).unwrap();
+        let poly1_eval = rand_mle_1.evaluate(&test_eval_pt);
+        let poly2_eval = rand_mle_2.evaluate(&test_eval_pt);
         assert_eq!(sum_eval, poly1_eval + poly2_eval);
 
         Ok(())
     }
 
+    
     #[test]
     fn test_add_mat_poly_to_virtual_poly() -> Result<(), PolyIOPErrors> {
         let mut rng = test_rng();
         let nv = 4;
          let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
 
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -136,7 +131,7 @@ mod test {
         let nv = 4;
         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -164,13 +159,13 @@ mod test {
         let sum = addend1.add_poly(&addend2);
 
         let test_eval_pt: Vec<Fr> = (0..nv).map(|_| Fr::rand(&mut rng)).collect();
-        let addend1_expected_eval = (rand_mle_1.evaluate(&test_eval_pt).unwrap() + 
-                                    rand_mle_2.evaluate(&test_eval_pt).unwrap()) * 
-                                    rand_mle_3.evaluate(&test_eval_pt).unwrap() * 
-                                    rand_mle_4.evaluate(&test_eval_pt).unwrap();
-        let addend2_expected_eval = (rand_mle_5.evaluate(&test_eval_pt).unwrap() * 
-                                    rand_mle_6.evaluate(&test_eval_pt).unwrap()) + 
-                                    rand_mle_7.evaluate(&test_eval_pt).unwrap();
+        let addend1_expected_eval = (rand_mle_1.evaluate(&test_eval_pt) + 
+                                    rand_mle_2.evaluate(&test_eval_pt)) * 
+                                    rand_mle_3.evaluate(&test_eval_pt) * 
+                                    rand_mle_4.evaluate(&test_eval_pt);
+        let addend2_expected_eval = (rand_mle_5.evaluate(&test_eval_pt)* 
+                                    rand_mle_6.evaluate(&test_eval_pt)) + 
+                                    rand_mle_7.evaluate(&test_eval_pt);
         let sum_expected_eval = addend1_expected_eval + addend2_expected_eval;
 
         let sum_eval = sum.evaluate(test_eval_pt.as_slice()).unwrap();
@@ -185,7 +180,7 @@ mod test {
         let nv = 4;
         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
 
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -196,10 +191,10 @@ mod test {
         let poly3 = tracker.track_and_commit_poly(rand_mle_3.clone())?;
         let poly4 = tracker.track_and_commit_poly(rand_mle_4.clone())?;
         let test_eval_pt: Vec<Fr> = (0..nv).map(|_| Fr::rand(&mut rng)).collect();
-        let poly1_eval: Fr = rand_mle_1.evaluate(test_eval_pt.as_slice()).unwrap();
-        let poly2_eval: Fr = rand_mle_2.evaluate(test_eval_pt.as_slice()).unwrap();
-        let poly3_eval: Fr = rand_mle_3.evaluate(test_eval_pt.as_slice()).unwrap();
-        let poly4_eval: Fr = rand_mle_4.evaluate(test_eval_pt.as_slice()).unwrap();
+        let poly1_eval: Fr = rand_mle_1.evaluate(&test_eval_pt);
+        let poly2_eval: Fr = rand_mle_2.evaluate(&test_eval_pt);
+        let poly3_eval: Fr = rand_mle_3.evaluate(&test_eval_pt);
+        let poly4_eval: Fr = rand_mle_4.evaluate(&test_eval_pt);
 
 
         // test two mat polys
@@ -232,8 +227,8 @@ mod test {
         let nv = 4;
          let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker1 = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param.clone());
-        let mut tracker2 = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker1 = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param.clone());
+        let mut tracker2 = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
         let rand_mle = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
 
@@ -252,7 +247,7 @@ mod test {
         let nv = 4;
          let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
         let rand_mle = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
 
@@ -270,7 +265,7 @@ mod test {
         let nv = 4;
         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -296,7 +291,7 @@ mod test {
         let nv = 4;
         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-        let mut tracker = ProverTrackerRef::<Bls12_381, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
+        let mut tracker = ProverTrackerRef::<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS::<Bls12_381>>::new_from_pcs_params(pcs_param);
         
         let rand_mle_1 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
         let rand_mle_2 = DenseMultilinearExtension::<Fr>::rand(nv,  &mut rng);
@@ -309,7 +304,7 @@ mod test {
         // test sumcheck on mat poly
         let sum1: Fr = rand_mle_1.clone().evaluations.into_iter().sum();
         let arith_virt_poly = poly1.to_arithmatic_virtual_poly();
-        let transcript = IOPTranscript::<Fr>::new(b"test");
+        let transcript = Tr::<Fr>::new(b"test");
         let proof = <PolyIOP<Fr> as SumCheck<Fr>>::prove(&arith_virt_poly, &mut transcript.clone()).unwrap();
         <PolyIOP<Fr> as SumCheck<Fr>>::verify(sum1, &proof, &arith_virt_poly.aux_info, &mut transcript.clone()).unwrap();
         assert!(<PolyIOP<Fr> as SumCheck<Fr>>::verify(Fr::zero(), &proof, &arith_virt_poly.aux_info, &mut transcript.clone()).is_err());
@@ -339,9 +334,9 @@ mod test {
         let poly1 = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let poly2 = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let point = [Fr::rand(&mut rng); NV].to_vec();
-        let eval1 = poly1.evaluate(&point).unwrap();
-        let eval2 = poly2.evaluate(&point).unwrap();
-        let mut prover_tracker: ProverTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
+        let eval1 = poly1.evaluate(&point);
+        let eval2 = poly2.evaluate(&point);
+        let mut prover_tracker: ProverTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
         prover_tracker.track_and_commit_poly(poly1.clone())?;
         prover_tracker.track_and_commit_poly(poly2.clone())?;
         let mut proof = prover_tracker.compile_proof()?;
@@ -352,7 +347,7 @@ mod test {
         // simulate interaction phase
         // [(p(x) + gamma) * phat(x)  - 1]
         println!("making virtual comms");
-        let mut tracker: VerifierTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
+        let mut tracker: VerifierTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
         let comm1 = tracker.track_mat_comm(proof.comms.get(&TrackerID(0)).unwrap().clone())?;
         let comm2 = tracker.track_mat_comm(proof.comms.get(&TrackerID(1)).unwrap().clone())?;
         let gamma = tracker.get_and_append_challenge(b"gamma")?;
@@ -384,11 +379,11 @@ mod test {
 
         let poly = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let point = [Fr::rand(&mut rng); NV].to_vec();
-        let eval = poly.evaluate(&point).unwrap();
+        let eval = poly.evaluate(&point);
         let mut resized_point = vec![Fr::rand(&mut rng); added_nv];
         resized_point.extend(point.clone());
 
-        let mut prover_tracker: ProverTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
+        let mut prover_tracker: ProverTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
         let tracked_poly = prover_tracker.track_and_commit_poly(poly.clone())?;
         let poly2 = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let _ = prover_tracker.track_and_commit_poly(poly2.clone())?; // if this isn't here Hyperplonk's PCS multi_open breaks
@@ -404,7 +399,7 @@ mod test {
         let mut proof = prover_tracker.compile_proof()?;
         proof.query_map.insert((TrackerID(1), resized_point.clone()), eval.clone());
 
-        let mut verifier_tracker: VerifierTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
+        let mut verifier_tracker: VerifierTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
         verifier_tracker.set_compiled_proof(proof);
         let og_comm = verifier_tracker.transfer_prover_comm(TrackerID(0));
         let _ = verifier_tracker.transfer_prover_comm(TrackerID(1)); // to match extra poly above
@@ -417,7 +412,7 @@ mod test {
         // check that the ProverTracker and VerifierTracker are in the same state
         let p_tracker = prover_tracker.clone_underlying_tracker();
         let v_tracker = verifier_tracker.clone_underlying_tracker();
-        assert_eq!(p_tracker.id_counter, v_tracker.id_counter);
+        assert_eq!(p_tracker.num_tracked_polys, v_tracker.num_tracked_polys);
 
         Ok(())
     }
@@ -435,11 +430,11 @@ mod test {
 
         let poly = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let point = [Fr::rand(&mut rng); NV].to_vec();
-        let eval = poly.evaluate(&point).unwrap();
+        let eval = poly.evaluate(&point);
         let mut resized_point = point.clone();
         resized_point.extend(vec![Fr::rand(&mut rng); added_nv]);
 
-        let mut prover_tracker: ProverTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
+        let mut prover_tracker: ProverTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = ProverTrackerRef::new_from_pcs_params(pcs_prover_param);
         let tracked_poly = prover_tracker.track_and_commit_poly(poly.clone())?;
         let poly2 = DenseMultilinearExtension::<Fr>::rand(NV, &mut rng);
         let _ = prover_tracker.track_and_commit_poly(poly2.clone())?; // if this isn't here Hyperplonk's PCS multi_open breaks
@@ -455,7 +450,7 @@ mod test {
         let mut proof = prover_tracker.compile_proof()?;
         proof.query_map.insert((TrackerID(1), resized_point.clone()), eval.clone());
 
-        let mut verifier_tracker: VerifierTrackerRef<Bls12_381, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
+        let mut verifier_tracker: VerifierTrackerRef<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, MultilinearKzgPCS<Bls12_381>> = VerifierTrackerRef::new_from_pcs_params(pcs_verifier_param);
         verifier_tracker.set_compiled_proof(proof);
         let og_comm = verifier_tracker.transfer_prover_comm(TrackerID(0));
         let _ = verifier_tracker.transfer_prover_comm(TrackerID(1)); // to match extra poly above
@@ -468,8 +463,7 @@ mod test {
         // check that the ProverTracker and VerifierTracker are in the same state
         let p_tracker = prover_tracker.clone_underlying_tracker();
         let v_tracker = verifier_tracker.clone_underlying_tracker();
-        assert_eq!(p_tracker.id_counter, v_tracker.id_counter);
+        assert_eq!(p_tracker.num_tracked_polys, v_tracker.num_tracked_polys);
 
         Ok(())
     }
-}
