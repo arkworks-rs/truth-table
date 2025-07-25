@@ -1,0 +1,256 @@
+//! A PIOP to check if there are duplicates in a column.
+//! # How it works
+//! 1. On input column C of size $N=2^\mu$, the prover commits to a column C'
+//!    that contains the same active elements as C but random unique elements
+//!    for the non-active elements. NoDup for C' implies PIOP for C.
+//! 3. The prover and the verifier run a zerocheck on $actv(x)(c'(x)-c(x))=0$
+//!    for all $x\in \mathcal{H}_\mu$
+//! 4. The prover computes the univariate polynomial
+//!    $z(x)=\prod_{i=0}^{N-1}(x-c'_i)$
+//! 5. The prover computes the univariate derivative polynomial
+//!    $z'(x)=\frac{d}{dx}z(x)$
+//! 6. The prover computes and commits to the Bezout univariate polynomials
+//!    $t(x)$ and $s(x)$ such that $$t(x)z(x)+s(x)z'(x)=1$$
+//! 7. The verifier samples a random challenge $r\in\mathbb{F}$ and sends it to
+//!    the prover.
+//! 8. The prover computes and commits to the $\mu$-variate polynomial $f$ such
+//!    that $$f(x_0,X)=(1-x_0)\cdot(r-\hat{c'}(X,0))(r-\hat{c'}(X,1)) + x_0\cdot
+//!    f(X,0)f(X,1)$$and runs two instances of zerocheck for the above
+//!    equations.
+//! 9. The prover computes and commits to the $\mu+1$-variate polynomial $f'$
+//!    such that $$f'(0,x)=1,\quad f(1,x)=f(x,0)f'(x,1)+f'(x,1)f(x,0)$$and runs
+//!    two instances of zerocheck for the above equations.
+//! 10. The verifier opens the polynomials $s,t$ at $r$ and $f,f'$ at
+//!     $(1,1,\dots,1,0)$ and checks that $$t(r)z(r)+s(r)z'(r)=1$$
+
+use std::marker::PhantomData;
+
+use arithmetic::col::{ArithCol, ColCom};
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::{SnarkError, SnarkResult},
+    pcs::PCS,
+    prover::{self, Prover, structs::TrackedPoly},
+    timed,
+    verifier::{Verifier, errors::VerifierError},
+};
+use ark_std::{end_timer, rand::RngCore, start_timer};
+pub use bezout::bez_polys;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use utils::{build_root_products, compute_derivative_poly, compute_product_poly, d_dx};
+
+use crate::defragger::Defragmenter;
+
+pub(crate) mod bezout;
+#[cfg(test)]
+mod test;
+pub(crate) mod utils;
+
+pub struct NoDupPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
+    PhantomData<F>,
+    PhantomData<MvPCS>,
+    PhantomData<UvPCS>,
+);
+
+impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> NoDupPIOP<F, MvPCS, UvPCS>
+where
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+    F: PrimeField,
+{
+    #[timed]
+    pub fn prove(
+        tracker: &mut Prover<F, MvPCS, UvPCS>,
+        in_col: &ArithCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        #[cfg(debug_assertions)]
+        {
+            // TODO:: Check if the input column is a valid column
+        }
+        ///////////////////// Deduplication check /////////////////////
+        let defraged_in_col = Defragmenter::defrag_col(tracker, in_col)?;
+        ///////////////////// Some useful variables /////////////////////
+        // The number of variables in all the polynomials in this protocol
+        let num_vars = defraged_in_col.get_data_poly().get_log_size();
+        // The size of all the polynomials in this protocol, i.e. 2^num_vars
+        let poly_size = 2_i32.pow(num_vars as u32) as usize;
+        // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
+        let f_query_point: Vec<F> = std::iter::once(F::zero())
+            .chain((0..num_vars - 1).map(|_| F::one()))
+            .collect();
+
+        ///////////////////// Compute the deduplicated polynomial /////////////////////
+        // TODO: Make sure the randomness is provided safely
+
+        let dedup_mle = if let Some(actvtr_poly) = defraged_in_col.get_actvtr_poly() {
+            let mut rng = ark_std::test_rng();
+            let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
+            let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                tracker.track_and_commit_mat_mv_poly(&dedup_mle)?;
+            let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                (dedup_tr_p.sub_poly(defraged_in_col.get_data_poly())).mul_poly(actvtr_poly);
+            tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.get_id())?;
+            dedup_mle
+        } else {
+            MLE::from_evaluations_vec(
+                defraged_in_col.get_num_vars(),
+                defraged_in_col.get_data_poly().evaluations(),
+            )
+        };
+
+        ///////////////////// Compute the challenge /////////////////////
+        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+
+        ///////////////////// Compute f, gives us z(r) /////////////////////
+        // TODO: Pass around iterators instead of slices
+        let chall_minus_ci_evals: Vec<F> = dedup_mle
+            .evaluations()
+            .iter()
+            .map(|ci| chall - ci)
+            .collect();
+
+        let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
+        let f_eval = f_poly.evaluations()[poly_size - 2];
+        let f_p_tr = tracker.track_and_commit_mat_mv_poly(&f_poly)?;
+        ///////////////////// Compute the derivative product polynomial z'(r)
+        ///////////////////// /////////////////////
+
+        let f_prime_poly = compute_derivative_poly(
+            &chall_minus_ci_evals,
+            &f_poly.evaluations(),
+            dedup_mle.num_vars(),
+        )?;
+        let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
+        let f_prime_p_tr = tracker.track_and_commit_mat_mv_poly(&f_prime_poly)?;
+
+        ///////////////////// Compute z(x) and z'(x) = d/dx z(x) /////////////////////
+        let z_p = build_root_products(&dedup_mle.evaluations());
+        let z_p_prime = d_dx(&z_p);
+
+        ///////////////////// Compute the Bezout polynomials /////////////////////
+
+        let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
+        ///////////////////// Commit to the Bezout polynomials /////////////////////
+        let t_p_tr = tracker.track_and_commit_mat_uv_poly(t_p)?;
+        let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
+
+        let s_p_tr = tracker.track_and_commit_mat_uv_poly(s_p)?;
+        let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
+
+        ///////////////////// Sanity check for the Bezout identity /////////////////////
+
+        #[cfg(feature = "honest-prover")]
+        {
+            if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
+                return Err(SnarkError::ProverError(
+                    prover::errors::ProverError::HonestProverError(
+                        prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
+            }
+        }
+
+        ///////////////////// Evaluation claims for the Bezout identity
+        ///////////////////// /////////////////////
+        tracker.add_mv_eval_claim(f_p_tr.get_id(), &f_query_point)?;
+        tracker.add_mv_eval_claim(f_prime_p_tr.get_id(), &f_query_point)?;
+        tracker.add_uv_eval_claim(t_p_tr.get_id(), chall)?;
+        tracker.add_uv_eval_claim(s_p_tr.get_id(), chall)?;
+
+        ///////////////////// Proving the well-formednes of f/////////////////////
+
+        Ok(())
+    }
+
+    // #[timed]
+    pub fn verify(
+        tracker: &mut Verifier<F, MvPCS, UvPCS>,
+        in_cm: &ColCom<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        ///////////////////// Deduplication check /////////////////////
+        let defraged_in_col_com = Defragmenter::defrag_col_com(tracker, in_cm)?;
+        // let defraged_in_col_com = in_cm;
+
+        ///////////////////// Some useful variables /////////////////////
+        // The number of variables in all the polynomials in this protocol
+        let num_vars = defraged_in_col_com.num_vars();
+        // The size of all the polynomials in this protocol, i.e. 2^num_vars
+        let poly_size = 2_i32.pow(num_vars as u32) as usize;
+        // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
+        let f_query_point: Vec<F> = std::iter::once(F::zero())
+            .chain((0..num_vars - 1).map(|_| F::one()))
+            .collect();
+
+        ///////////////////// Deduplication check /////////////////////
+        if let Some(defraged_actv_col_com) = defraged_in_col_com.actv {
+            let dedup_cm_id = tracker.peek_next_id();
+            let dedup_tr_cm = tracker.track_mv_com_by_id(dedup_cm_id)?;
+            let dedup_wit_tr_cm =
+                &(&dedup_tr_cm - &defraged_in_col_com.inner) * &defraged_actv_col_com;
+            tracker.add_zerocheck_claim(dedup_wit_tr_cm.id);
+        }
+
+        ///////////////////// Compute the challenge /////////////////////
+        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+
+        ///////////////////// Get the commitment to f /////////////////////
+        let f_p_id = tracker.peek_next_id();
+        let _f_p_cm = tracker.track_mv_com_by_id(f_p_id)?;
+
+        ///////////////////// Get the commitment to f' /////////////////////
+        let f_prime_p_id = tracker.peek_next_id();
+        let _f_prime_p_cm = tracker.track_mv_com_by_id(f_prime_p_id)?;
+
+        ///////////////////// Get the commitment Bezout coeffs /////////////////////
+        let t_p_id = tracker.peek_next_id();
+        let _t_p_tr = tracker.track_uv_com_by_id(t_p_id)?;
+        let s_p_id = tracker.peek_next_id();
+        let _s_p_tr = tracker.track_uv_com_by_id(s_p_id)?;
+
+        let f_eval = tracker.query_mv(f_p_id, f_query_point.clone()).unwrap();
+        let f_prime_eval = tracker.query_mv(f_prime_p_id, f_query_point).unwrap();
+        let t_eval = tracker.query_uv(t_p_id, chall).unwrap();
+        let s_eval = tracker.query_uv(s_p_id, chall).unwrap();
+
+        if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
+            return Err(SnarkError::VerifierError(
+                VerifierError::VerifierCheckFailed("Bezout identity check failed".to_string()),
+            ));
+        }
+
+        ///////////////////// Checking the well-formedness of f /////////////////////
+        Ok(())
+    }
+}
+
+fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+    rng: &mut dyn RngCore,
+    in_col: &ArithCol<F, MvPCS, UvPCS>,
+) -> SnarkResult<MLE<F>> {
+    // TODO: Fix this
+    let mut evals = in_col.get_data_poly().evaluations();
+    let random_values: Vec<F> = (0..evals.len()).map(|_| F::rand(rng)).collect();
+
+    if let Some(actvtr_poly) = in_col.get_actvtr_poly() {
+        evals = in_col
+            .get_data_poly()
+            .evaluations()
+            .par_iter()
+            .zip(actvtr_poly.evaluations().par_iter())
+            .enumerate()
+            .map(|(i, (eval, is_actv))| {
+                if is_actv.is_zero() {
+                    random_values[i]
+                } else {
+                    *eval
+                }
+            })
+            .collect();
+    }
+
+    Ok(MLE::from_evaluations_vec(
+        in_col.get_data_poly().get_log_size(),
+        evals,
+    ))
+}

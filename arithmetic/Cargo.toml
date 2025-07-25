@@ -1,0 +1,17 @@
+[package]
+name = "arithmetic"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# Arkworks dependencies
+ark-ff = { workspace = true }
+ark-std = { workspace = true }
+ark-poly = { workspace = true }
+ark-piop = { workspace = true }
+# Other dependencies
+datafusion = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+derivative = { workspace = true }

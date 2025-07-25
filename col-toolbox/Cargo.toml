@@ -1,0 +1,40 @@
+[package]
+name = "col-toolbox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# local dependencies
+arithmetic = { path = "../arithmetic" }
+
+# arkworks dependencies
+ark-piop = { workspace = true }
+ark-std = { workspace = true }
+ark-ff = { workspace = true }
+ark-poly = { workspace = true }
+num-bigint = { version = "0.4.0" }
+
+# Other dependencies
+derivative = { workspace = true }
+rayon = { workspace = true, optional = true }
+datafusion = { workspace = true }
+
+[dev-dependencies]
+ark-ec = { workspace = true }
+ark-test-curves = { workspace = true }
+
+
+[features]
+default = ["std", "parallel"]
+std = ["ark-piop/std", "ark-ff/std", "ark-poly/std", "ark-std/std"]
+print-trace = ["ark-std/print-trace"]
+parallel = [
+    "std",
+    "ark-piop/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-std/parallel",
+    "rayon",
+]
+
+honest-prover = ["ark-piop/honest-prover"]
