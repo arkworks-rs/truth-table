@@ -4,6 +4,7 @@
 
 pub mod binary_check;
 pub mod and_check;
+pub mod or_check;
 pub mod defragger;
 pub mod fold_check;
 pub mod inclusion_check;
