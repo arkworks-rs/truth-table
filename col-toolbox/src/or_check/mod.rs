@@ -134,16 +134,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             ))?;
 
 
-        let q = inverted_sum_poly.mul_poly(&sum_poly);
-        let p = q.add_scalar(-F::one()).mul_scalar(-F::one()).add_poly(&inverted_sum_poly);
+        let q = &inverted_sum_poly.mul_poly(&sum_poly);
+        let p = &inverted_sum_poly.sub_poly(&q).add_scalar(F::one());
 
 
-        // NoZerosCheck::<F, MvPCS, UvPCS>::prove(
-        //     prover,
-        //     NoZerosCheckProverInput {
-        //         col: ArithCol::new(None, p.clone(), None),
-        //     },
-        // )?;
+        NoZerosCheck::<F, MvPCS, UvPCS>::prove(
+            prover,
+            NoZerosCheckProverInput {
+                col: ArithCol::new(None, p.clone(), None),
+            },
+        )?;
 
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(
             prover,
@@ -175,12 +175,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let q_orcl = &inverted_sum_orcl * &sum_orcl;
         let p_orcl = &(&inverted_sum_orcl - &q_orcl) + F::one();
 
-        // NoZerosCheck::<F, MvPCS, UvPCS>::verify(
-        //     verifier,
-        //     NoZerosCheckVerifierInput {
-        //         col_comm: ColCom::new(None, p_orcl.clone(), None, 0),
-        //     },
-        // )?;
+        NoZerosCheck::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            NoZerosCheckVerifierInput {
+                col_comm: ColCom::new(None, p_orcl.clone(), None, 0),
+            },
+        )?;
 
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::verify(
             verifier,
