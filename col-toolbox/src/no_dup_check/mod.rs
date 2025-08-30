@@ -53,6 +53,7 @@ pub struct NoDupPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<UvPCS>,
 );
 
+//TODO: Add the NoDupPIOPProverInput and NODupPIOPVerifierInput
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> NoDupPIOP<F, MvPCS, UvPCS>
 where
     MvPCS: PCS<F, Poly = MLE<F>>,

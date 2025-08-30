@@ -14,6 +14,7 @@ pub mod no_zeros_check;
 pub mod perm_check;
 pub mod sign_check;
 pub mod supp_check;
+pub mod set_intersec;
 pub(crate) mod util;
 
 // TODO: The names here are col_sth, but in the paper they are sth_check. Make
