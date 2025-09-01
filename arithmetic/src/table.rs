@@ -109,6 +109,11 @@ where
         }
         ArithCol::new(None, folded, self.actvtr_poly.clone())
     }
+
+    pub fn fold_all(&self, challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
+        self.fold(&(0..self.num_cols()).collect::<Vec<usize>>(), challs)
+    }
+
     pub fn get_col(&self, col_ind: usize) -> ArithCol<F, MvPCS, UvPCS> {
         ArithCol::new(
             self.schema.as_ref().map(|schema| {
@@ -134,6 +139,10 @@ where
 
     pub fn get_cols(&self, indice: &[usize]) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
         indice.iter().map(|&i| self.get_col(i)).collect()
+    }
+
+    pub fn num_cols(&self) -> usize {
+        self.data_polys.len()
     }
 
     pub fn get_schema(&self) -> Option<Schema> {
@@ -194,6 +203,11 @@ where
         }
         ColCom::new(None, folded, self.actvtr.clone(), self.num_vars)
     }
+
+    pub fn fold_all(&self, challs: &[F]) -> ColCom<F, MvPCS, UvPCS> {
+        self.fold(&(0..self.num_vars()).collect::<Vec<usize>>(), challs)
+    }
+
     pub fn col(&self, col_ind: usize) -> ColCom<F, MvPCS, UvPCS> {
         ColCom::new(
             self.schema
@@ -207,6 +221,9 @@ where
 
     pub fn cols(&self, indice: &[usize]) -> Vec<ColCom<F, MvPCS, UvPCS>> {
         indice.iter().map(|&i| self.col(i)).collect()
+    }
+    pub fn num_cols(&self) -> usize {
+        self.col_vals.len()
     }
 
     // TODO: Propagate error instead of unwraps

@@ -1,3 +1,7 @@
+//! Important: There are certain structures imposed on the input, output tables
+//! and the witness Input table schema: (key, other attributes...)
+//! Output table schema: (key, Left attributes, Right attributes...)
+
 ////////////// imports //////////////
 
 use arithmetic::{
@@ -10,13 +14,16 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::{Prover, structs::TrackedPoly},
     timed,
-    verifier::Verifier,
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use ark_std::{end_timer, start_timer};
 use col_toolbox::{
     fold_check::{FoldCheckPIOP, FoldCheckProverInput, FoldCheckVerifierInput},
+    multiplicity_check::{
+        MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
+    },
     no_dup_check::NoDupPIOP,
     set_intersec::{SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput},
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
@@ -25,35 +32,29 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 
 /// InnerJoin Prover
-
 pub struct InnerJoinPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<F>,
     PhantomData<MvPCS>,
     PhantomData<UvPCS>,
 );
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct InnerJoinConfig {
-    pub left_key_idx: usize,
-    pub right_key_idx: usize,
-    pub out_key_idx: usize,
-}
-
 pub struct InnerJoinProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub left_table_comm: ArithTable<F, MvPCS, UvPCS>,
+    pub left_table: ArithTable<F, MvPCS, UvPCS>,
     pub right_table: ArithTable<F, MvPCS, UvPCS>,
     pub out_table: ArithTable<F, MvPCS, UvPCS>,
-    pub keys: InnerJoinConfig,
     pub left_key_support: ArithCol<F, MvPCS, UvPCS>,
     pub right_key_support: ArithCol<F, MvPCS, UvPCS>,
     pub out_key_support: ArithCol<F, MvPCS, UvPCS>,
     pub all_key_support: ArithCol<F, MvPCS, UvPCS>,
     pub join_left_source: ArithCol<F, MvPCS, UvPCS>,
     pub join_right_source: ArithCol<F, MvPCS, UvPCS>,
+    pub index_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
+    pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -61,16 +62,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            left_table_comm: self.left_table_comm.deep_clone(prover.clone()),
+            left_table: self.left_table.deep_clone(prover.clone()),
             right_table: self.right_table.deep_clone(prover.clone()),
             out_table: self.out_table.deep_clone(prover.clone()),
-            keys: self.keys.clone(),
             left_key_support: self.left_key_support.deep_clone(prover.clone()),
             right_key_support: self.right_key_support.deep_clone(prover.clone()),
             out_key_support: self.out_key_support.deep_clone(prover.clone()),
             all_key_support: self.all_key_support.deep_clone(prover.clone()),
             join_left_source: self.join_left_source.deep_clone(prover.clone()),
             join_right_source: self.join_right_source.deep_clone(prover.clone()),
+            index_poly: self.index_poly.deep_clone(prover.clone()),
+            left_table_multiplicity: self.left_table_multiplicity.deep_clone(prover.clone()),
+            right_table_multiplicity: self.right_table_multiplicity.deep_clone(prover),
         }
     }
 }
@@ -85,13 +88,15 @@ pub struct InnerJoinVerifierInput<
     pub left_table_comm: TableComm<F, MvPCS, UvPCS>,
     pub right_table_comm: TableComm<F, MvPCS, UvPCS>,
     pub out_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub keys: InnerJoinConfig,
     pub left_key_support_comm: ColCom<F, MvPCS, UvPCS>,
     pub right_key_support_comm: ColCom<F, MvPCS, UvPCS>,
     pub out_key_support_comm: ColCom<F, MvPCS, UvPCS>,
     pub all_key_support_comm: ColCom<F, MvPCS, UvPCS>,
     pub join_left_source_comm: ColCom<F, MvPCS, UvPCS>,
     pub join_right_source_comm: ColCom<F, MvPCS, UvPCS>,
+    pub index_poly_comm: TrackedOracle<F, MvPCS, UvPCS>,
+    pub right_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
+    pub left_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -113,25 +118,23 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // TODO: Check if the activator in the Source_l, Source_r are consistent with
         // the table out
 
-        // Parse the config
-        let conf = input.keys.clone();
         // Support Check on left_key_support, log output
         let supp_left_prover_input = SuppCheckProverInput {
-            col: input.left_table_comm.get_col(conf.left_key_idx),
+            col: input.left_table.get_col(0),
             supp: input.left_key_support.clone(),
         };
         let left_supp_check_output = SuppCheckPIOP::prove(prover, supp_left_prover_input)?;
 
         // Support Check on right_key_support, log output
         let supp_right_prover_input = SuppCheckProverInput {
-            col: input.right_table.get_col(conf.right_key_idx),
+            col: input.right_table.get_col(0),
             supp: input.right_key_support.clone(),
         };
         let right_supp_check_output = SuppCheckPIOP::prove(prover, supp_right_prover_input)?;
 
         // Support Check on the out table
         let supp_out_prover_input = SuppCheckProverInput {
-            col: input.out_table.get_col(conf.out_key_idx),
+            col: input.out_table.get_col(0),
             supp: input.out_key_support.clone(),
         };
         let out_supp_check_output = SuppCheckPIOP::prove(prover, supp_out_prover_input)?;
@@ -188,20 +191,115 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ];
         let folded = (input.join_left_source.get_data_poly().mul_scalar(r_vec[0]))
             .add_poly(&input.join_right_source.get_data_poly().mul_scalar(r_vec[1]));
-        let folded_col = ArithCol::new(
+        let folded_sources = ArithCol::new(
             None,
             folded,
             input.join_left_source.get_actvtr_poly().cloned(),
         );
         let fold_check_piop_prover_input = FoldCheckProverInput {
-            in_cols: vec![input.join_left_source, input.join_right_source],
-            folded_col: folded_col.clone(),
-            challs: r_vec,
+            in_cols: vec![
+                input.join_left_source.clone(),
+                input.join_right_source.clone(),
+            ],
+            folded_col: folded_sources.clone(),
+            challs: r_vec.clone(),
         };
         FoldCheckPIOP::prove(prover, fold_check_piop_prover_input)?;
 
         // NoDupCheck on source_L + r(source_R)
-        NoDupPIOP::prove(prover, &folded_col)?;
+        NoDupPIOP::prove(prover, &folded_sources)?;
+        // TODO: Ask pratyush if doing parallel FS is safe
+        // Folding of key_out and source_R
+        let alpha_vec = (0..(input.right_table.num_cols() + 1))
+            .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
+            .collect::<Vec<F>>();
+
+        let input_right_table_folded_col = input
+            .right_table
+            .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+        let input_right_folded_col = ArithCol::new(
+            None,
+            input_right_table_folded_col
+                .get_data_poly()
+                .clone()
+                .add_poly(&input.index_poly.mul_scalar(alpha_vec[alpha_vec.len() - 1])),
+            input_right_table_folded_col.get_actvtr_poly().cloned(),
+        );
+
+        let mut output_right_indices = vec![0];
+        output_right_indices.extend_from_slice(
+            &(1..(input.right_table.num_cols()))
+                .map(|i| i + input.left_table.num_cols())
+                .collect::<Vec<usize>>(),
+        );
+        let output_right_table_folded_col = input
+            .out_table
+            .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
+
+        let output_right_folded_col = ArithCol::new(
+            None,
+            output_right_table_folded_col
+                .get_data_poly()
+                .clone()
+                .add_poly(
+                    &input
+                        .join_right_source
+                        .get_data_poly()
+                        .mul_scalar(alpha_vec[alpha_vec.len() - 1]),
+                ),
+            output_right_table_folded_col.get_actvtr_poly().cloned(),
+        );
+        // Right multiplicity check
+        let right_multiplicity_prover_input = MultiplicityCheckProverInput {
+            fxs: vec![output_right_folded_col],
+            gxs: vec![input_right_folded_col],
+            mfxs: vec![None],
+            mgxs: vec![Some(input.right_table_multiplicity.clone())],
+        };
+        MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
+
+        // Folding of key_out and source_L
+        let beta_vec = (0..(input.left_table.num_cols() + 1))
+            .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
+            .collect::<Vec<F>>();
+
+        let input_left_table_folded_col =
+            input.left_table.fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        let input_left_folded_col = ArithCol::new(
+            None,
+            input_left_table_folded_col
+                .get_data_poly()
+                .clone()
+                .add_poly(&input.index_poly.mul_scalar(beta_vec[beta_vec.len() - 1])),
+            input_left_table_folded_col.get_actvtr_poly().cloned(),
+        );
+
+        let output_left_indices = (0..(input.left_table.num_cols())).collect::<Vec<usize>>();
+        let output_left_table_folded_col = input
+            .out_table
+            .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
+
+        let output_left_folded_col = ArithCol::new(
+            None,
+            output_left_table_folded_col
+                .get_data_poly()
+                .clone()
+                .add_poly(
+                    &input
+                        .join_left_source
+                        .get_data_poly()
+                        .mul_scalar(beta_vec[beta_vec.len() - 1]),
+                ),
+            output_left_table_folded_col.get_actvtr_poly().cloned(),
+        );
+        // Right multiplicity check
+        let left_multiplicity_prover_input = MultiplicityCheckProverInput {
+            fxs: vec![output_left_folded_col],
+            gxs: vec![input_left_folded_col],
+            mfxs: vec![None],
+            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        };
+        MultiplicityCheck::prove(prover, left_multiplicity_prover_input)?;
 
         Ok(())
     }
@@ -212,24 +310,23 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         // Parse the config
-        let conf = input.keys.clone();
         // Support Check on left_key_support, log output
         let supp_left_verifier_input = SuppCheckVerifierInput {
-            col: input.left_table_comm.col(conf.left_key_idx),
+            col: input.left_table_comm.col(0),
             supp: input.left_key_support_comm.clone(),
         };
         let left_supp_check_output = SuppCheckPIOP::verify(verifier, supp_left_verifier_input)?;
 
         // Support Check on right_key_support, log output
         let supp_right_verifier_input = SuppCheckVerifierInput {
-            col: input.right_table_comm.col(conf.right_key_idx),
+            col: input.right_table_comm.col(0),
             supp: input.right_key_support_comm.clone(),
         };
         let right_supp_check_output = SuppCheckPIOP::verify(verifier, supp_right_verifier_input)?;
 
         // Support Check on the out table
         let supp_out_verifier_input = SuppCheckVerifierInput {
-            col: input.out_table_comm.col(conf.out_key_idx),
+            col: input.out_table_comm.col(0),
             supp: input.out_key_support_comm.clone(),
         };
         let out_supp_check_output = SuppCheckPIOP::verify(verifier, supp_out_verifier_input)?;
@@ -278,21 +375,106 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             verifier.get_and_append_challenge(b"r2")?,
         ];
         let folded = &(&input.join_left_source_comm.inner * (r_vec[0]))
-            + &(&input.join_right_source_comm.inner * (r_vec[1]));
-        let folded_cm = ColCom::new(
+            + &(&input.join_right_source_comm.inner * r_vec[1]);
+        let folded_sources_cm = ColCom::new(
             None,
             folded,
             input.join_left_source_comm.actv.clone(),
             input.join_left_source_comm.num_vars,
         );
         let fold_check_piop_prover_input = FoldCheckVerifierInput {
-            in_cms: vec![input.join_left_source_comm, input.join_right_source_comm],
-            folded_cm: folded_cm.clone(),
-            challs: r_vec,
+            in_cms: vec![
+                input.join_left_source_comm.clone(),
+                input.join_right_source_comm.clone(),
+            ],
+            folded_cm: folded_sources_cm.clone(),
+            challs: r_vec.clone(),
         };
         FoldCheckPIOP::verify(verifier, fold_check_piop_prover_input)?;
-        NoDupPIOP::verify(verifier, &folded_cm)?;
-        // TODO: implement the verifier logic
+        NoDupPIOP::verify(verifier, &folded_sources_cm)?;
+        // Folding of key_out and source_R
+        let alpha_vec = (0..(input.right_table_comm.num_cols() + 1))
+            .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
+            .collect::<Vec<F>>();
+
+        let input_right_table_folded_col_com = input
+            .right_table_comm
+            .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+        let input_right_folded_col_com = ColCom::new(
+            None,
+            &input_right_table_folded_col_com.inner.clone()
+                + &(&input.index_poly_comm * (alpha_vec[alpha_vec.len() - 1])),
+            input_right_table_folded_col_com.actv,
+            input_right_table_folded_col_com.num_vars,
+        );
+
+        let mut output_right_indices = vec![0];
+        output_right_indices.extend_from_slice(
+            &(1..(input.right_table_comm.num_cols()))
+                .map(|i| i + input.left_table_comm.num_cols())
+                .collect::<Vec<usize>>(),
+        );
+        let output_right_table_folded_col_com = input
+            .out_table_comm
+            .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
+
+        let output_right_folded_col_com = ColCom::new(
+            None,
+            &output_right_table_folded_col_com.inner.clone()
+                + &(&input.join_right_source_comm.inner * (alpha_vec[alpha_vec.len() - 1])),
+            output_right_table_folded_col_com.actv,
+            output_right_table_folded_col_com.num_vars,
+        );
+        // Right multiplicity check
+        let right_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
+            fxs: vec![output_right_folded_col_com],
+            gxs: vec![input_right_folded_col_com],
+            mfxs: vec![None],
+            mgxs: vec![Some(input.right_table_multiplicity.clone())],
+        };
+        MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
+
+        // Folding of key_out and source_L
+        let beta_vec = (0..(input.left_table_comm.num_cols() + 1))
+            .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
+            .collect::<Vec<F>>();
+
+        let input_left_table_folded_col_com = input
+            .left_table_comm
+            .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        let input_left_folded_col_com = ColCom::new(
+            None,
+            &input_left_table_folded_col_com.inner.clone()
+                + &(&input.index_poly_comm * (beta_vec[beta_vec.len() - 1])),
+            input_left_table_folded_col_com.actv,
+            input_left_table_folded_col_com.num_vars,
+        );
+
+        let mut output_left_indices = vec![0];
+        output_left_indices.extend_from_slice(
+            &(1..(input.left_table_comm.num_cols()))
+                .map(|i| i + input.left_table_comm.num_cols())
+                .collect::<Vec<usize>>(),
+        );
+        let output_left_table_folded_col_com = input
+            .out_table_comm
+            .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
+
+        let output_left_folded_col_com = ColCom::new(
+            None,
+            &output_left_table_folded_col_com.inner.clone()
+                + &(&input.join_left_source_comm.inner * (beta_vec[beta_vec.len() - 1])),
+            output_left_table_folded_col_com.actv,
+            output_left_table_folded_col_com.num_vars,
+        );
+        // Right multiplicity check
+        let left_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
+            fxs: vec![output_left_folded_col_com],
+            gxs: vec![input_left_folded_col_com],
+            mfxs: vec![None],
+            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        };
+        MultiplicityCheck::verify(verifier, left_multiplicity_verifier_input)?;
         Ok(())
     }
 }
