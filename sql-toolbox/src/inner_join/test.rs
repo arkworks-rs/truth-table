@@ -18,6 +18,41 @@ use crate::inner_join::{
     verifier::{InnerJoinVerifier, InnerJoinVerifierInput},
 };
 
+fn inner_join_is_complete() -> SnarkResult<()> {
+    inner_join_test_helper::<
+        Fr,
+        KZG10<Fr, Bls12_381>,
+        PST13<Fr, Bls12_381>>(
+            2,
+            None,
+            vec![to_field_vec!([1, 1, 2, 2]), to_field_vec!([5, 6, 7, 8])],
+            2,
+            None,
+            vec![to_field_vec!([1, 1, 2, 2]), to_field_vec!([9, 10, 11, 12])],
+            3,
+            None,
+            vec![to_field_vec!([1, 1, 1, 1, 2, 2, 2, 2]), to_field_vec!([5, 5, 6, 6, 7, 7, 8, 8]), to_field_vec!([9, 10, 9, 10, 11, 12, 11, 12])],
+            1,
+            None,
+            to_field_vec!([1, 2]),
+            1,
+            None,
+            to_field_vec!([1, 2]),
+            1,
+            None,
+            to_field_vec!([1, 2]),
+            1,
+            None,
+            to_field_vec!([1, 2]),
+            to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3]),
+            to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3]),
+            to_field_vec!([0, 1, 2, 3, 4, 5, 6, 7]),
+            to_field_vec!([2, 2, 2, 2]),
+            to_field_vec!([2, 2, 2, 2])
+        )?;
+    Ok(())
+}
+
 fn inner_join_test_soundness_helper<
     Fr: PrimeField,
     MvPCS: PCS<Fr, Poly = MLE<Fr>>,
