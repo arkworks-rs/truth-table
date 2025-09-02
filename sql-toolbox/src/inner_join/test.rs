@@ -18,7 +18,65 @@ use crate::inner_join::{
     verifier::{InnerJoinVerifier, InnerJoinVerifierInput},
 };
 
-fn set_inter_union_test_helper<
+fn inner_join_test_soundness_helper<
+    Fr: PrimeField,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+>(
+    nv_left_table: usize,
+    actv_left_table: Option<Vec<Fr>>,
+    data_left_table: Vec<Vec<Fr>>,
+    nv_right_table: usize,
+    actv_right_table: Option<Vec<Fr>>,
+    data_right_table: Vec<Vec<Fr>>,
+    nv_out_table: usize,
+    actv_out_table: Option<Vec<Fr>>,
+    data_out_table: Vec<Vec<Fr>>,
+    nv_left_keysupp: usize,
+    actv_left_keysupp: Option<Vec<Fr>>,
+    data_left_keysupp: Vec<Fr>,
+    nv_right_keysupp: usize,
+    actv_right_keysupp: Option<Vec<Fr>>,
+    data_right_keysupp: Vec<Fr>,
+    nv_out_keysupp: usize,
+    actv_out_keysupp: Option<Vec<Fr>>,
+    data_out_keysupp: Vec<Fr>,
+    nv_all_keysupp: usize,
+    actv_all_keysupp: Option<Vec<Fr>>,
+    data_all_keysupp: Vec<Fr>,
+    join_left_source_data: Vec<Fr>,
+    join_right_source_data: Vec<Fr>,
+    index_poly_data: Vec<Fr>,
+    right_table_multiplicity_data: Vec<Fr>,
+    left_table_multiplicity_data: Vec<Fr>,
+) -> SnarkResult<()> {
+    let err = inner_join_test_helper(nv_left_table, actv_left_table, data_left_table, nv_right_table, actv_right_table, data_right_table, nv_out_table, actv_out_table, data_out_table, nv_left_keysupp, actv_left_keysupp, data_left_keysupp, nv_right_keysupp, actv_right_keysupp, data_right_keysupp, nv_out_keysupp, actv_out_keysupp, data_out_keysupp, nv_all_keysupp, actv_all_keysupp, data_all_keysupp, join_left_source_data, join_right_source_data, index_poly_data, right_table_multiplicity_data, left_table_multiplicity_data).unwrap_err();
+    #[cfg(feature = "honest-prover")]
+    {
+        assert!(matches!(
+            err,
+            ark_piop::errors::SnarkError::ProverError(
+                ark_piop::prover::errors::ProverError::HonestProverError(
+                    ark_piop::prover::errors::HonestProverError::FalseClaim
+                )
+            )
+        ));
+    }
+
+    #[cfg(not(feature = "honest-prover"))]
+    {
+        assert!(matches!(
+            err,
+            ark_piop::errors::SnarkError::VerifierError(
+                ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)
+            )
+        ));
+    }
+
+    Ok(())
+}
+
+fn inner_join_test_helper<
     Fr: PrimeField,
     MvPCS: PCS<Fr, Poly = MLE<Fr>>,
     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
