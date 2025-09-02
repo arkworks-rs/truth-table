@@ -14,10 +14,13 @@ use ark_piop::{
     prover::{Prover, structs::TrackedPoly},
     structs::TrackerID,
     timed,
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{
+        Verifier,
+        structs::oracle::{Oracle, TrackedOracle},
+    },
 };
 use rayon::vec;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
     multiplicity_check::{
@@ -84,9 +87,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        use crate::multiplicity_check::MultiplicityCheckProverInput;
-
-        // TODO
+        
         Ok(())
     }
     #[timed]
@@ -111,7 +112,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             (Some(mgx), Some(ugx)) => Some(mgx.add_poly(ugx)),
             (Some(mgx), None) => Some(mgx.add_scalar(F::one())),
             (None, Some(ugx)) => Some(ugx.add_scalar(F::one())),
-            (None, None) => None,
+            (None, None) => Some(prover.track_mat_mv_poly(MLE::from_evaluations_vec(
+                input.col_union.get_num_vars(),
+                vec![F::from(2); 1 << input.col_union.get_num_vars()],
+            ))),
         };
 
         let multiplicity_check_prover_input = MultiplicityCheckProverInput {
@@ -147,7 +151,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
             (Some(mgx), None) => Some(mgx + F::one()),
             (None, Some(ugx)) => Some(ugx + F::one()),
-            (None, None) => None,
+            (None, None) => {
+                Some(verifier.track_oracle(Oracle::Multivariate(Arc::new(move |_| Ok(F::from(2))))))
+            },
         };
 
         let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {

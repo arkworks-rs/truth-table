@@ -16,7 +16,10 @@ use ark_piop::{
     piop::{DeepClone, PIOP},
     prover::{Prover, structs::TrackedPoly},
     timed,
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{
+        Verifier,
+        structs::oracle::{Oracle, TrackedOracle},
+    },
 };
 use ark_std::{end_timer, start_timer};
 use col_toolbox::{
@@ -29,7 +32,8 @@ use col_toolbox::{
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
 use derivative::Derivative;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
+#[cfg(test)]
 mod test;
 
 /// InnerJoin Prover
@@ -53,7 +57,6 @@ pub struct InnerJoinProverInput<
     pub all_key_support: ArithCol<F, MvPCS, UvPCS>,
     pub join_left_source: ArithCol<F, MvPCS, UvPCS>,
     pub join_right_source: ArithCol<F, MvPCS, UvPCS>,
-    pub index_poly: TrackedPoly<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
     pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 }
@@ -72,7 +75,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             all_key_support: self.all_key_support.deep_clone(prover.clone()),
             join_left_source: self.join_left_source.deep_clone(prover.clone()),
             join_right_source: self.join_right_source.deep_clone(prover.clone()),
-            index_poly: self.index_poly.deep_clone(prover.clone()),
             left_table_multiplicity: self.left_table_multiplicity.deep_clone(prover.clone()),
             right_table_multiplicity: self.right_table_multiplicity.deep_clone(prover),
         }
@@ -95,7 +97,6 @@ pub struct InnerJoinVerifierInput<
     pub all_key_support_comm: ColCom<F, MvPCS, UvPCS>,
     pub join_left_source_comm: ColCom<F, MvPCS, UvPCS>,
     pub join_right_source_comm: ColCom<F, MvPCS, UvPCS>,
-    pub index_poly_comm: TrackedOracle<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
     pub left_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
@@ -222,19 +223,25 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let input_right_table_folded_col = input
             .right_table
             .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+        let right_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
+            input.right_table.num_vars(),
+            (0..(1 << input.right_table.num_vars()))
+                .map(|i| F::from(i as u64))
+                .collect(),
+        ));
         let input_right_folded_col = ArithCol::new(
             None,
             input_right_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(&input.index_poly.mul_scalar(alpha_vec[alpha_vec.len() - 1])),
+                .add_poly(&right_ind_poly.mul_scalar(alpha_vec[alpha_vec.len() - 1])),
             input_right_table_folded_col.get_actvtr_poly().cloned(),
         );
 
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
             &(1..(input.right_table.num_cols()))
-                .map(|i| i + input.left_table.num_cols())
+                .map(|i| i + input.left_table.num_cols()-1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col = input
@@ -270,12 +277,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_left_table_folded_col =
             input.left_table.fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        let left_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
+            input.left_table.num_vars(),
+            (0..(1 << input.left_table.num_vars()))
+                .map(|i| F::from(i as u64))
+                .collect(),
+        ));
         let input_left_folded_col = ArithCol::new(
             None,
             input_left_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(&input.index_poly.mul_scalar(beta_vec[beta_vec.len() - 1])),
+                .add_poly(&left_ind_poly.mul_scalar(beta_vec[beta_vec.len() - 1])),
             input_left_table_folded_col.get_actvtr_poly().cloned(),
         );
 
@@ -405,10 +418,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let input_right_table_folded_col_com = input
             .right_table_comm
             .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+        let right_ind_oracle =
+            verifier.track_oracle(Oracle::Multivariate(Arc::new(move |point: Vec<F>| {
+                let mut eval = F::zero();
+                for (i, coord) in point.iter().enumerate() {
+                    eval += *coord * F::from(1 << i);
+                }
+                Ok(eval)
+            })));
         let input_right_folded_col_com = ColCom::new(
             None,
             &input_right_table_folded_col_com.inner.clone()
-                + &(&input.index_poly_comm * (alpha_vec[alpha_vec.len() - 1])),
+                + &(&right_ind_oracle * (alpha_vec[alpha_vec.len() - 1])),
             input_right_table_folded_col_com.actv,
             input_right_table_folded_col_com.num_vars,
         );
@@ -416,7 +437,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
             &(1..(input.right_table_comm.num_cols()))
-                .map(|i| i + input.left_table_comm.num_cols())
+                .map(|i| i + input.left_table_comm.num_cols()-1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col_com = input
@@ -447,10 +468,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let input_left_table_folded_col_com = input
             .left_table_comm
             .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        let left_ind_oracle =
+            verifier.track_oracle(Oracle::Multivariate(Arc::new(move |point: Vec<F>| {
+                let mut eval = F::zero();
+                for (i, coord) in point.iter().enumerate() {
+                    eval += *coord * F::from(1 << i);
+                }
+                Ok(eval)
+            })));
         let input_left_folded_col_com = ColCom::new(
             None,
             &input_left_table_folded_col_com.inner.clone()
-                + &(&input.index_poly_comm * (beta_vec[beta_vec.len() - 1])),
+                + &(&left_ind_oracle * (beta_vec[beta_vec.len() - 1])),
             input_left_table_folded_col_com.actv,
             input_left_table_folded_col_com.num_vars,
         );
@@ -458,7 +487,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut output_left_indices = vec![0];
         output_left_indices.extend_from_slice(
             &(1..(input.left_table_comm.num_cols()))
-                .map(|i| i + input.left_table_comm.num_cols())
+                .map(|i| i + input.left_table_comm.num_cols()-1)
                 .collect::<Vec<usize>>(),
         );
         let output_left_table_folded_col_com = input

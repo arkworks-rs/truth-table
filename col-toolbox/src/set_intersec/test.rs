@@ -20,6 +20,19 @@ use crate::set_intersec::{
 #[test]
 fn set_inter_union_check_is_complete() -> SnarkResult<()> {
     set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        1,
+        1,
+        1,
+        to_field_vec!([1, 2], Fr),
+        None,
+        to_field_vec!([1, 2], Fr),
+        None,
+        to_field_vec!([1, 2], Fr),
+        None,
+        to_field_vec!([1, 2], Fr),
+        None,
+    )?;
+    set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         3,
         3,
         4,

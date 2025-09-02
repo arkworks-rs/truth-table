@@ -205,7 +205,7 @@ where
     }
 
     pub fn fold_all(&self, challs: &[F]) -> ColCom<F, MvPCS, UvPCS> {
-        self.fold(&(0..self.num_vars()).collect::<Vec<usize>>(), challs)
+        self.fold(&(0..self.num_cols()).collect::<Vec<usize>>(), challs)
     }
 
     pub fn col(&self, col_ind: usize) -> ColCom<F, MvPCS, UvPCS> {
