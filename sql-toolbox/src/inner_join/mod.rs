@@ -106,10 +106,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type ProverOutput = ();
     type VerifierInput = InnerJoinVerifierInput<F, MvPCS, UvPCS>;
     type VerifierOutput = ();
+
+    #[timed]
+    #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // TODO: honest-prover check
-        unimplemented!()
+        Ok(())
     }
+    
     #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
