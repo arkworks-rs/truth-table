@@ -30,6 +30,7 @@ use col_toolbox::{
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
+mod test;
 
 /// InnerJoin Prover
 pub struct InnerJoinPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -113,7 +114,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // TODO: honest-prover check
         Ok(())
     }
-    
+
     #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
