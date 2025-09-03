@@ -141,6 +141,10 @@ where
         indice.iter().map(|&i| self.get_col(i)).collect()
     }
 
+    pub fn get_all_cols(&self) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
+        self.get_cols(&(0..self.num_cols()).collect::<Vec<usize>>())
+    }
+
     pub fn num_cols(&self) -> usize {
         self.data_polys.len()
     }
@@ -221,6 +225,9 @@ where
 
     pub fn cols(&self, indice: &[usize]) -> Vec<ColCom<F, MvPCS, UvPCS>> {
         indice.iter().map(|&i| self.col(i)).collect()
+    }
+    pub fn all_cols(&self) -> Vec<ColCom<F, MvPCS, UvPCS>> {
+        self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
     }
     pub fn num_cols(&self) -> usize {
         self.col_vals.len()

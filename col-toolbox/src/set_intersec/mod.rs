@@ -87,7 +87,92 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        
+        use ark_piop::{
+            errors::SnarkError,
+            prover::errors::{HonestProverError, ProverError},
+        };
+        use std::collections::HashSet;
+
+        // Check if the left column has no duplicates
+        let mut seen = HashSet::new();
+        if !input
+            .col_left
+            .effective_iter()
+            .into_iter()
+            .all(|x| seen.insert(x))
+        {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        // Check if the right column has no duplicates
+        let mut seen = HashSet::new();
+        if !input
+            .col_right
+            .effective_iter()
+            .into_iter()
+            .all(|x| seen.insert(x))
+        {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        // Check if the intersection column has no duplicates
+        let mut seen = HashSet::new();
+        if !input
+            .col_inter
+            .effective_iter()
+            .into_iter()
+            .all(|x| seen.insert(x))
+        {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        // Check if the union column has no duplicates
+        let mut seen = HashSet::new();
+        if !input
+            .col_union
+            .effective_iter()
+            .into_iter()
+            .all(|x| seen.insert(x))
+        {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        let left_hashset = input.col_left.effective_hashset();
+        let right_hashset = input.col_right.effective_hashset();
+
+        let real_intersection: HashSet<F> =
+            left_hashset.intersection(&right_hashset).copied().collect();
+        let real_union: HashSet<F> = left_hashset.union(&right_hashset).copied().collect();
+
+        let claimed_intersection: HashSet<F> = input.col_inter.effective_hashset();
+        let claimed_union: HashSet<F> = input.col_union.effective_hashset();
+
+        if real_intersection != claimed_intersection {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        if real_union != claimed_union {
+            // panic!();
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
         Ok(())
     }
     #[timed]

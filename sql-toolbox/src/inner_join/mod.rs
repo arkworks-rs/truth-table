@@ -241,7 +241,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
             &(1..(input.right_table.num_cols()))
-                .map(|i| i + input.left_table.num_cols()-1)
+                .map(|i| i + input.left_table.num_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col = input
@@ -264,60 +264,81 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Right multiplicity check
         let right_multiplicity_prover_input = MultiplicityCheckProverInput {
             fxs: vec![output_right_folded_col],
-            gxs: vec![input_right_folded_col],
+            gxs: vec![input_right_folded_col.clone()],
             mfxs: vec![None],
             mgxs: vec![Some(input.right_table_multiplicity.clone())],
         };
         MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
 
-        // Folding of key_out and source_L
-        let beta_vec = (0..(input.left_table.num_cols() + 1))
-            .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
-            .collect::<Vec<F>>();
-
-        let input_left_table_folded_col =
-            input.left_table.fold_all(&beta_vec[0..&beta_vec.len() - 1]);
-        let left_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
-            input.left_table.num_vars(),
-            (0..(1 << input.left_table.num_vars()))
-                .map(|i| F::from(i as u64))
-                .collect(),
+        // Do the folding check piop for the right input 
+        let mut right_to_be_folded_cols = input.right_table.get_all_cols();
+        right_to_be_folded_cols.push(ArithCol::new(
+            None,
+            right_ind_poly,
+            input.right_table.get_actvtr_poly(),
         ));
-        let input_left_folded_col = ArithCol::new(
-            None,
-            input_left_table_folded_col
-                .get_data_poly()
-                .clone()
-                .add_poly(&left_ind_poly.mul_scalar(beta_vec[beta_vec.len() - 1])),
-            input_left_table_folded_col.get_actvtr_poly().cloned(),
-        );
-
-        let output_left_indices = (0..(input.left_table.num_cols())).collect::<Vec<usize>>();
-        let output_left_table_folded_col = input
-            .out_table
-            .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
-
-        let output_left_folded_col = ArithCol::new(
-            None,
-            output_left_table_folded_col
-                .get_data_poly()
-                .clone()
-                .add_poly(
-                    &input
-                        .join_left_source
-                        .get_data_poly()
-                        .mul_scalar(beta_vec[beta_vec.len() - 1]),
-                ),
-            output_left_table_folded_col.get_actvtr_poly().cloned(),
-        );
-        // Right multiplicity check
-        let left_multiplicity_prover_input = MultiplicityCheckProverInput {
-            fxs: vec![output_left_folded_col],
-            gxs: vec![input_left_folded_col],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        let right_fold_check_prover_input = FoldCheckProverInput {
+            in_cols: right_to_be_folded_cols,
+            folded_col: input_right_folded_col.clone(),
+            challs: alpha_vec.clone(),
         };
-        MultiplicityCheck::prove(prover, left_multiplicity_prover_input)?;
+
+        FoldCheckPIOP::prove(prover, right_fold_check_prover_input)?;
+
+        /////////////////////////////////////////////
+        // Do the folding check piop for the right output 
+        //TODO
+
+        /////////////////////////////////////////////
+        // // Folding of key_out and source_L
+        // let beta_vec = (0..(input.left_table.num_cols() + 1))
+        //     .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
+        //     .collect::<Vec<F>>();
+
+        // let input_left_table_folded_col =
+        //     input.left_table.fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        // let left_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
+        //     input.left_table.num_vars(),
+        //     (0..(1 << input.left_table.num_vars()))
+        //         .map(|i| F::from(i as u64))
+        //         .collect(),
+        // ));
+        // let input_left_folded_col = ArithCol::new(
+        //     None,
+        //     input_left_table_folded_col
+        //         .get_data_poly()
+        //         .clone()
+        //         .add_poly(&left_ind_poly.mul_scalar(beta_vec[beta_vec.len() - 1])),
+        //     input_left_table_folded_col.get_actvtr_poly().cloned(),
+        // );
+
+        // let output_left_indices =
+        // (0..(input.left_table.num_cols())).collect::<Vec<usize>>();
+        // let output_left_table_folded_col = input
+        //     .out_table
+        //     .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
+
+        // let output_left_folded_col = ArithCol::new(
+        //     None,
+        //     output_left_table_folded_col
+        //         .get_data_poly()
+        //         .clone()
+        //         .add_poly(
+        //             &input
+        //                 .join_left_source
+        //                 .get_data_poly()
+        //                 .mul_scalar(beta_vec[beta_vec.len() - 1]),
+        //         ),
+        //     output_left_table_folded_col.get_actvtr_poly().cloned(),
+        // );
+        // // Right multiplicity check
+        // let left_multiplicity_prover_input = MultiplicityCheckProverInput {
+        //     fxs: vec![output_left_folded_col],
+        //     gxs: vec![input_left_folded_col],
+        //     mfxs: vec![None],
+        //     mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        // };
+        // MultiplicityCheck::prove(prover, left_multiplicity_prover_input)?;
 
         Ok(())
     }
@@ -437,7 +458,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
             &(1..(input.right_table_comm.num_cols()))
-                .map(|i| i + input.left_table_comm.num_cols()-1)
+                .map(|i| i + input.left_table_comm.num_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col_com = input
@@ -454,61 +475,81 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Right multiplicity check
         let right_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
             fxs: vec![output_right_folded_col_com],
-            gxs: vec![input_right_folded_col_com],
+            gxs: vec![input_right_folded_col_com.clone()],
             mfxs: vec![None],
             mgxs: vec![Some(input.right_table_multiplicity.clone())],
         };
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
-        // Folding of key_out and source_L
-        let beta_vec = (0..(input.left_table_comm.num_cols() + 1))
-            .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
-            .collect::<Vec<F>>();
+        // Do the folding check piop
 
-        let input_left_table_folded_col_com = input
-            .left_table_comm
-            .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
-        let left_ind_oracle =
-            verifier.track_oracle(Oracle::Multivariate(Arc::new(move |point: Vec<F>| {
-                let mut eval = F::zero();
-                for (i, coord) in point.iter().enumerate() {
-                    eval += *coord * F::from(1 << i);
-                }
-                Ok(eval)
-            })));
-        let input_left_folded_col_com = ColCom::new(
+        let mut right_to_be_folded_col_coms = input.right_table_comm.all_cols();
+        right_to_be_folded_col_coms.push(ColCom::new(
             None,
-            &input_left_table_folded_col_com.inner.clone()
-                + &(&left_ind_oracle * (beta_vec[beta_vec.len() - 1])),
-            input_left_table_folded_col_com.actv,
-            input_left_table_folded_col_com.num_vars,
-        );
-
-        let mut output_left_indices = vec![0];
-        output_left_indices.extend_from_slice(
-            &(1..(input.left_table_comm.num_cols()))
-                .map(|i| i + input.left_table_comm.num_cols()-1)
-                .collect::<Vec<usize>>(),
-        );
-        let output_left_table_folded_col_com = input
-            .out_table_comm
-            .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
-
-        let output_left_folded_col_com = ColCom::new(
-            None,
-            &output_left_table_folded_col_com.inner.clone()
-                + &(&input.join_left_source_comm.inner * (beta_vec[beta_vec.len() - 1])),
-            output_left_table_folded_col_com.actv,
-            output_left_table_folded_col_com.num_vars,
-        );
-        // Right multiplicity check
-        let left_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![output_left_folded_col_com],
-            gxs: vec![input_left_folded_col_com],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+            right_ind_oracle,
+            input.right_table_comm.get_actvtr_poly(),
+            input.right_table_comm.num_vars(),
+        ));
+        let right_fold_check_verifier_input = FoldCheckVerifierInput {
+            in_cms: right_to_be_folded_col_coms,
+            folded_cm: input_right_folded_col_com.clone(),
+            challs: alpha_vec.clone(),
         };
-        MultiplicityCheck::verify(verifier, left_multiplicity_verifier_input)?;
+
+        FoldCheckPIOP::verify(verifier, right_fold_check_verifier_input)?;
+
+        /////////////////////////////////////////////
+
+        // // Folding of key_out and source_L
+        // let beta_vec = (0..(input.left_table_comm.num_cols() + 1))
+        //     .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
+        //     .collect::<Vec<F>>();
+
+        // let input_left_table_folded_col_com = input
+        //     .left_table_comm
+        //     .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+        // let left_ind_oracle =
+        //     verifier.track_oracle(Oracle::Multivariate(Arc::new(move |point: Vec<F>|
+        // {         let mut eval = F::zero();
+        //         for (i, coord) in point.iter().enumerate() {
+        //             eval += *coord * F::from(1 << i);
+        //         }
+        //         Ok(eval)
+        //     })));
+        // let input_left_folded_col_com = ColCom::new(
+        //     None,
+        //     &input_left_table_folded_col_com.inner.clone()
+        //         + &(&left_ind_oracle * (beta_vec[beta_vec.len() - 1])),
+        //     input_left_table_folded_col_com.actv,
+        //     input_left_table_folded_col_com.num_vars,
+        // );
+
+        // let mut output_left_indices = vec![0];
+        // output_left_indices.extend_from_slice(
+        //     &(1..(input.left_table_comm.num_cols()))
+        //         .map(|i| i + input.left_table_comm.num_cols()-1)
+        //         .collect::<Vec<usize>>(),
+        // );
+        // let output_left_table_folded_col_com = input
+        //     .out_table_comm
+        //     .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
+
+        // let output_left_folded_col_com = ColCom::new(
+        //     None,
+        //     &output_left_table_folded_col_com.inner.clone()
+        //         + &(&input.join_left_source_comm.inner * (beta_vec[beta_vec.len() -
+        //           1])),
+        //     output_left_table_folded_col_com.actv,
+        //     output_left_table_folded_col_com.num_vars,
+        // );
+        // // Right multiplicity check
+        // let left_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
+        //     fxs: vec![output_left_folded_col_com],
+        //     gxs: vec![input_left_folded_col_com],
+        //     mfxs: vec![None],
+        //     mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        // };
+        // MultiplicityCheck::verify(verifier, left_multiplicity_verifier_input)?;
         Ok(())
     }
 }
