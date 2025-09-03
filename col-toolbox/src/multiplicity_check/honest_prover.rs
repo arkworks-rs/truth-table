@@ -64,7 +64,6 @@ where
         // Check that we do actually have some polynomial on the left hand side
 
         if input.fxs.is_empty() {
-            panic!();
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(EmptyInput),
             )));
@@ -72,7 +71,6 @@ where
         // Check that we have as many multiplicity polynomials as we do polynomials on
         // the left side
         if input.fxs.len() != input.mfxs.len() {
-            panic!();
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(InputLengthMismatch {
                     expected: input.fxs.len(),
@@ -83,7 +81,6 @@ where
 
         // Check that we do actually have some polynomial on the right hand side
         if input.gxs.is_empty() {
-            panic!();
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(EmptyInput),
             )));
@@ -91,7 +88,6 @@ where
         // Check that we have as many multiplicity polynomials as we do polynomials on
         // the right side
         if input.gxs.len() != input.mgxs.len() {
-            panic!();
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(InputLengthMismatch {
                     expected: input.gxs.len(),
@@ -199,7 +195,6 @@ where
 
         for (_, count) in bookkeeping_map.iter() {
             if *count != F::zero() {
-                panic!();
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));

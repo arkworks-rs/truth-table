@@ -80,9 +80,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
         // the sum
         let gamma = prover.get_and_append_challenge(b"gamma")?;
-
         // iterate over vector elements and generate subclaims:
         for i in 0..input.fxs.len() {
+            println!("Proving subclaims for fxs[{}]", i);
             Self::prove_generate_subclaims(
                 prover,
                 input.fxs[i].clone(),
@@ -92,6 +92,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         for i in 0..input.gxs.len() {
+            println!("Proving subclaims for gxs[{}]", i);
             Self::prove_generate_subclaims(
                 prover,
                 input.gxs[i].clone(),
@@ -139,7 +140,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // create challenges and commitments in same fashion as prover
         // assumption is that proof inputs are already added to the tracker
         let gamma = verifier.get_and_append_challenge(b"gamma")?;
-
         // iterate over vector elements and generate subclaims:
         let max_nv_f = input.fxs.iter().map(|x| x.num_vars()).max().unwrap();
         let max_nv_g = input.gxs.iter().map(|x| x.num_vars()).max().unwrap();
@@ -147,6 +147,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut lhs_v: F = F::zero();
         let mut rhs_v: F = F::zero();
         for i in 0..input.fxs.len() {
+            println!("verifying subclaims for fxs[{}]", i);
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
                 input.fxs[i].clone(),
@@ -159,6 +160,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         for i in 0..input.gxs.len() {
+            println!("verifying subclaims for gxs[{}]", i);
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
                 input.gxs[i].clone(),
@@ -198,8 +200,6 @@ where
     ) -> SnarkResult<()> {
         let nv = col.get_num_vars();
         // construct phat = 1/(col.p(x) - gamma), i.e. the denominator of the sum
-        // TODO: Should we put the selector in the denominator (with phat) or the
-        // nominoator?
         let p = col.get_data_poly();
         let mut p_evals = p.evaluations().to_vec();
         let mut p_minus_gamma: Vec<F> = p_evals.iter_mut().map(|x| *x - gamma).collect();
@@ -264,7 +264,6 @@ where
         let phat_id: TrackerID = tracker.peek_next_id();
         let phat = tracker.track_mv_com_by_id(phat_id)?;
         // make the virtual comms as prover does
-
         let sumcheck_challenge_comm = match (col.actv.as_ref(), m) {
             (Some(actv), Some(m)) => &(&phat * &m) * actv,
             (None, Some(m)) => &phat * &m,

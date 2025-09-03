@@ -284,6 +284,7 @@ fn inner_join_test_helper<
         };
 
     InnerJoinPIOP::<E::ScalarField, MvPCS, UvPCS>::prove(&mut prover, inner_join_prover_input)?;
+    dbg!(prover.get_and_append_challenge(b"inner_join"));
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////
@@ -446,6 +447,7 @@ fn inner_join_test_helper<
         &mut verifier,
         inner_join_verifier_input,
     )?;
+    dbg!(verifier.get_and_append_challenge(b"inner_join"));
     verifier.verify()?;
     Ok(())
 }

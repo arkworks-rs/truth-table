@@ -12,6 +12,7 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use std::str::FromStr;
 
 // Test cases for multiplicity check completeness, where the active and
 // multiplicative columns are None, meaning that everything is activated and the
@@ -414,6 +415,73 @@ fn multiplicity_check_is_sound() -> SnarkResult<()> {
         vec![to_field_vec!([4, 7, 1, 20, 18, 2, 3, 3], Fr)],
         vec![Some(to_field_vec!([1, 1, 1, 1, 0, 1, 1, 1], Fr))],
         vec![Some(to_field_vec!([0, 11, 30, 0, 1, 0, 3, 28], Fr))],
+    )?;
+
+    // exit successfully
+    Ok(())
+}
+
+#[test]
+fn special_test() -> SnarkResult<()> {
+    multiplicity_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![3],
+        vec![vec![
+            Fr::from_str(
+                "45584234805114094044899314500923099258792321069689244803988588572072325616536",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "32048712687851757665117014551432256299130172996866620258981046939777681949812",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "45584234805114094044899314500923099258792321069689244803988588572072325616536",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "32048712687851757665117014551432256299130172996866620258981046939777681949812",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "17283835039591520621336439211961930603298780952470092181903976316483174253886",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "3748312922329184241554139262471087643636632879647467636896434684188530587162",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "17283835039591520621336439211961930603298780952470092181903976316483174253886",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "3748312922329184241554139262471087643636632879647467636896434684188530587162",
+            )
+            .unwrap(),
+        ]],
+        vec![None],
+        vec![None],
+        vec![2],
+        vec![vec![
+            Fr::from_str(
+                "45584234805114094044899314500923099258792321069689244803988588572072325616536",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "32048712687851757665117014551432256299130172996866620258981046939777681949812",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "17283835039591520621336439211961930603298780952470092181903976316483174253886",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "3748312922329184241554139262471087643636632879647467636896434684188530587162",
+            )
+            .unwrap(),
+        ]],
+        vec![None],
+        vec![Some(to_field_vec!([2, 2, 2, 2], Fr))],
     )?;
 
     // exit successfully
