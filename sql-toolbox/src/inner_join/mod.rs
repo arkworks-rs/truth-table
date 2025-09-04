@@ -31,7 +31,6 @@ use col_toolbox::{
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
 use derivative::Derivative;
-use rayon::vec;
 use std::{marker::PhantomData, sync::Arc};
 #[cfg(test)]
 mod test;
@@ -191,7 +190,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Random Challenge r picked from verifier
         // TODO: Go and add the functionality for adding a vector of challenges in
         // the // ark-piop crate
-        let r_vec = vec![
+        let r_vec = [
             prover.get_and_append_challenge(b"r1")?,
             prover.get_and_append_challenge(b"r2")?,
         ];
@@ -368,7 +367,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // Fold source_r and source_l
 
-        let r_vec = vec![
+        let r_vec = [
             verifier.get_and_append_challenge(b"r1")?,
             verifier.get_and_append_challenge(b"r2")?,
         ];
@@ -457,8 +456,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input_left_table_folded_col_com.actv,
             input_left_table_folded_col_com.num_vars,
         );
-        let output_left_indices =
-            (0..(input.left_table_comm.num_cols())).collect::<Vec<usize>>();
+        let output_left_indices = (0..(input.left_table_comm.num_cols())).collect::<Vec<usize>>();
         let output_left_table_folded_col_com = input
             .out_table_comm
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
