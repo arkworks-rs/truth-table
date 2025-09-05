@@ -6,7 +6,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     piop::DeepClone,
-    prover::{structs::TrackedPoly, Prover},
+    prover::{structs::polynomial::TrackedPoly, Prover},
     verifier::{structs::oracle::TrackedOracle, Verifier},
 };
 use datafusion::{arrow::datatypes::Schema, prelude::DataFrame};
@@ -103,9 +103,9 @@ where
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
         assert_eq!(col_inds.len(), challs.len());
         let mut folded: TrackedPoly<F, MvPCS, UvPCS> =
-            self.data_polys[col_inds[0]].mul_scalar(challs[0]);
+            &self.data_polys[col_inds[0]] * challs[0];
         for i in 1..col_inds.len() {
-            folded = folded.add_poly(&self.data_polys[col_inds[i]].mul_scalar(challs[i]));
+            folded += &(&self.data_polys[col_inds[i]] * challs[i]);
         }
         ArithCol::new(None, folded, self.actvtr_poly.clone())
     }

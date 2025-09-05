@@ -1,9 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-    prover::structs::TrackedPoly,
-    verifier::structs::oracle::TrackedOracle,
+    arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS, prover::structs::polynomial::TrackedPoly, verifier::structs::oracle::TrackedOracle
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

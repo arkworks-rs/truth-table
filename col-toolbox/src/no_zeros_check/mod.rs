@@ -93,11 +93,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
         let no_dups_check_poly = match col_sel {
-            Some(col_sel) => col_poly
-                .mul_poly(col_sel)
-                .mul_poly(&inverses_poly)
-                .sub_poly(col_sel),
-            None => col_poly.mul_poly(&inverses_poly).add_scalar(-F::one()),
+            Some(col_sel) => &(&(&col_poly * col_sel) * &inverses_poly) - col_sel,
+            None => &(&col_poly * &inverses_poly) - F::one(),
         };
 
         prover.add_mv_zerocheck_claim(no_dups_check_poly.get_id())?;

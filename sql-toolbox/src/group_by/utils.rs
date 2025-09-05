@@ -3,7 +3,7 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
-    prover::structs::TrackedPoly,
+    prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
 
@@ -20,9 +20,9 @@ pub fn fold_polys<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
             debug_assert_eq!(col.get_actvtr_poly(), actv);
         }
     }
-    let mut folded: TrackedPoly<F, MvPCS, UvPCS> = cols[0].get_data_poly().mul_scalar(challs[0]);
+    let mut folded: TrackedPoly<F, MvPCS, UvPCS> = cols[0].get_data_poly() * challs[0];
     for i in 1..cols.len() {
-        folded = folded.add_poly(&cols[i].get_data_poly().mul_scalar(challs[i]));
+        folded += &(cols[i].get_data_poly() * challs[i]);
     }
     ArithCol::new(None, folded, actv.cloned())
 }

@@ -12,7 +12,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
@@ -86,11 +86,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::ProverInput,
     ) -> SnarkResult<()> {
         // set up the tracker and add a zerocheck claim
-        let one_minus_sel = input
-            .activator
-            .mul_scalar(F::one().neg())
-            .add_scalar(F::one());
-        let check_poly = input.activator.mul_poly(&one_minus_sel);
+        let one_minus_sel = &(&input.activator * F::one().neg()) + F::one();
+        let check_poly = &input.activator * &one_minus_sel;
         prover.add_mv_zerocheck_claim(check_poly.get_id())?;
         Ok(())
     }

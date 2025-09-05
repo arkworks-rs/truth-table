@@ -153,19 +153,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> (ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>) {
         let selected_actv = input_col
             .get_actvtr_poly()
-            .as_ref()
             .unwrap()
-            .mul_poly(output_col.get_actvtr_poly().as_ref().unwrap());
+            * (output_col.get_actvtr_poly().unwrap());
 
-        let non_selected_actv = input_col.get_actvtr_poly().as_ref().unwrap().mul_poly(
-            &(output_col
-                .get_actvtr_poly()
-                .as_ref()
-                .unwrap()
-                .mul_scalar(-F::one()))
-            .add_scalar(F::one()),
-        );
-        let shifted_inner = input_col.get_data_poly().add_scalar(-filter);
+        let complement = output_col.get_actvtr_poly().unwrap() * (-F::one());
+        let complement = &complement + F::one();
+        let non_selected_actv =
+            input_col.get_actvtr_poly().unwrap() * &complement;
+        let shifted_inner = (input_col.get_data_poly()) - filter;
 
         (
             ArithCol::new(

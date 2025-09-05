@@ -86,17 +86,16 @@ where
             prover::errors::{HonestProverError, ProverError},
         };
 
-        for &eval in input
+        let mut acc_poly = input.folded_col.activated_data_poly().clone();
+        for (poly, chall) in input
             .in_cols
             .iter()
             .map(|col| col.activated_data_poly())
             .zip(input.challs.iter())
-            .fold(
-                input.folded_col.activated_data_poly().clone(),
-                |acc, (poly, chall)| acc.sub_poly(&poly.mul_scalar(*chall)),
-            )
-            .evaluations()
-            .iter()
+        {
+            acc_poly = &acc_poly - &(&poly * *chall);
+        }
+        for &eval in acc_poly.evaluations().iter()
         {
             if !eval.is_zero() {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -126,8 +125,7 @@ where
     ) -> SnarkResult<Self::ProverOutput> {
         let mut target_tracked_poly = input.folded_col.activated_data_poly().clone();
         for (tracked_poly, chall) in input.in_cols.iter().zip(input.challs.iter()) {
-            target_tracked_poly = target_tracked_poly
-                .sub_poly(&tracked_poly.activated_data_poly().mul_scalar(*chall));
+            target_tracked_poly -= &(&tracked_poly.activated_data_poly() * *chall);
         }
         prover.add_mv_zerocheck_claim(target_tracked_poly.get_id())?;
         Ok(())

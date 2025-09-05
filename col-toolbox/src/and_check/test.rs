@@ -2,9 +2,9 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::{kzg10::KZG10, pst13::PST13, PCS},
     piop::PIOP,
-    prover::{Prover, structs::TrackedPoly},
+    prover::{structs::polynomial::TrackedPoly, Prover},
     test_utils::test_prelude,
     to_field_vec,
 };

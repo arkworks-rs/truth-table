@@ -11,7 +11,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     timed,
     verifier::{
@@ -194,9 +194,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input.col_inter.get_actvtr_poly(),
             input.col_union.get_actvtr_poly(),
         ) {
-            (Some(mgx), Some(ugx)) => Some(mgx.add_poly(ugx)),
-            (Some(mgx), None) => Some(mgx.add_scalar(F::one())),
-            (None, Some(ugx)) => Some(ugx.add_scalar(F::one())),
+            (Some(mgx), Some(ugx)) => Some(mgx + ugx),
+            (Some(mgx), None) => Some(mgx + F::one()),
+            (None, Some(ugx)) => Some(ugx + F::one()),
             (None, None) => Some(prover.track_mat_mv_poly(MLE::from_evaluations_vec(
                 input.col_union.get_num_vars(),
                 vec![F::from(2); 1 << input.col_union.get_num_vars()],
@@ -212,12 +212,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
 
-        let diff_poly = input
-            .col_union
-            .get_data_poly()
-            .sub_poly(input.col_inter.get_data_poly());
+        let diff_poly = input.col_union.get_data_poly() - input.col_inter.get_data_poly();
         let zero_poly = match input.col_inter.get_actvtr_poly() {
-            Some(p) => p.mul_poly(&diff_poly),
+            Some(p) => p * &diff_poly,
             None => diff_poly,
         };
         prover.add_mv_zerocheck_claim(zero_poly.get_id())?;

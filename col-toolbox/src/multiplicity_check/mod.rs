@@ -16,7 +16,7 @@ use ark_piop::{
     },
     pcs::PCS,
     piop::PIOP,
-    prover::{Prover, structs::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     timed,
     verifier::{
@@ -217,21 +217,21 @@ where
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i] * m_evals[i] * selector_evals[i];
                 }
-                (phat.mul_poly(&m).mul_poly(actv), v)
+                (&(&phat * &m) * *actv, v)
             },
             (None, Some(m)) => {
                 let m_evals = m.evaluations();
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i] * m_evals[i];
                 }
-                (phat.mul_poly(&m), v)
+                (&phat * &m, v)
             },
             (Some(actv), None) => {
                 let selector_evals = &actv.evaluations();
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i] * selector_evals[i];
                 }
-                (phat.mul_poly(actv), v)
+                (&phat * *actv, v)
             },
             (None, None) => {
                 for i in 0..2_usize.pow(nv as u32) {
@@ -243,9 +243,7 @@ where
 
         // Create Zerocheck claim for proving phat(x) is created correctly,
         // i.e. ZeroCheck [(p(x)-gamma) * phat(x) - 1] = [(p * phat) - gamma * phat - 1]
-        let phat_check_poly = (p.mul_poly(&phat))
-            .sub_poly(&phat.mul_scalar(gamma))
-            .add_scalar(F::one().neg());
+        let phat_check_poly = &(&(p * &phat) - &(&phat * gamma)) + F::one().neg();
         // add the delayed prover claims to the tracker
         tracker.add_mv_sumcheck_claim(sumcheck_challenge_poly.get_id(), v)?;
         tracker.add_mv_zerocheck_claim(phat_check_poly.get_id())?;

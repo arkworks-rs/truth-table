@@ -1,12 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
-    piop::PIOP,
-    prover::{Prover, structs::TrackedPoly},
-    test_utils::test_prelude,
-    to_field_vec,
+    arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::{kzg10::KZG10, pst13::PST13, PCS}, piop::PIOP, prover::structs::polynomial::TrackedPoly, test_utils::test_prelude, to_field_vec
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 

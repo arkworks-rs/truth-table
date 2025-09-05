@@ -6,7 +6,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     piop::DeepClone,
-    prover::{structs::TrackedPoly, Prover},
+    prover::{structs::polynomial::TrackedPoly, Prover},
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::{
@@ -101,7 +101,7 @@ where
     /// indistinguishable from the actual zero elements
     pub fn activated_data_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
         match &self.actvtr_poly {
-            Some(actv) => self.data_poly.mul_poly(actv),
+            Some(actv) => &self.data_poly * actv,
             None => self.data_poly.clone(),
         }
     }

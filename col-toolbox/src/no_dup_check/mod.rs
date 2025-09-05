@@ -31,7 +31,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
-    prover::{self, Prover, structs::TrackedPoly},
+    prover::{self, Prover, structs::polynomial::TrackedPoly},
     timed,
     verifier::{Verifier, errors::VerifierError},
 };
@@ -90,7 +90,7 @@ where
             let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
                 tracker.track_and_commit_mat_mv_poly(&dedup_mle)?;
             let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                (dedup_tr_p.sub_poly(defraged_in_col.get_data_poly())).mul_poly(actvtr_poly);
+                &(&dedup_tr_p - defraged_in_col.get_data_poly()) * actvtr_poly;
             tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.get_id())?;
             dedup_mle
         } else {

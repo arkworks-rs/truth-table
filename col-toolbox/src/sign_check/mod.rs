@@ -187,7 +187,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         let negated_col = ArithCol::new(
             col.get_data_type().clone(),
-            col.get_data_poly().clone().mul_scalar(-F::one()),
+            &col.get_data_poly().clone() * (-F::one()),
             col.get_actvtr_poly().cloned(),
         );
         Self::prove_non_neg(prover, &negated_col)?;
@@ -477,18 +477,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let zero_tr_p = match &col.get_actvtr_poly() {
             Some(actv) => {
-                (col.get_data_poly().sub_poly(
-                    &high_tr_p.mul_scalar(F::from(1<<16)) // Shift high bits to left by 16
-                .add_poly(&low_tr_p),
-                ))
-                .mul_poly(actv)
+                let combined =
+                    col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                &combined * *actv
             },
-            None => {
-                col.get_data_poly().sub_poly(
-                    &high_tr_p.mul_scalar(F::from(1<<16)) // Shift high bits to left by 16
-            .add_poly(&low_tr_p),
-                )
-            },
+            None => col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
@@ -568,18 +561,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let zero_tr_p = match &col.get_actvtr_poly() {
             Some(actv) => {
-                (col.get_data_poly().sub_poly(
-                    &high_tr_p.mul_scalar(F::from(1<<16)) // Shift high bits to left by 16
-                .add_poly(&low_tr_p),
-                ))
-                .mul_poly(actv)
+                let combined =
+                    col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                &combined * *actv
             },
-            None => {
-                col.get_data_poly().sub_poly(
-                    &high_tr_p.mul_scalar(F::from(1<<16)) // Shift high bits to left by 16
-            .add_poly(&low_tr_p),
-                )
-            },
+            None => col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
@@ -612,7 +598,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let zero_tr_p = match &col_actv {
             Some(actv) => &(&col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c)) * actv,
-            None => &(&col_inner - &(&high_tr_c * (F::from(1 << 16)))) + &low_tr_c,
+            None => &col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c),
         };
 
         verifier.add_zerocheck_claim(zero_tr_p.id); // Add a zero check claim for the combined polynomial        

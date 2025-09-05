@@ -15,7 +15,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
@@ -210,7 +210,7 @@ fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, P
     super_set_multiplicity_tr_p: TrackedPoly<F, MvPCS, UvPCS>,
     stat_col: ArithCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
-    let witness_tr_poly = super_set_multiplicity_tr_p.sub_poly(&stat_col.activated_data_poly());
+    let witness_tr_poly = &super_set_multiplicity_tr_p - &stat_col.activated_data_poly();
     prover.add_mv_zerocheck_claim(witness_tr_poly.get_id())?;
     Ok(())
 }
@@ -319,10 +319,8 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
 
     // Second check that the maximum value does actually appear in the input data
     let chall = prover.get_and_append_challenge(b"max_min").unwrap();
-    let data_poly = input_table_folded_col.get_data_poly().add_poly(
-        &(broadcasted_stat_tr_poly.sub_poly(input_table_target_col.get_data_poly()))
-            .mul_scalar(chall),
-    );
+    let data_poly = input_table_folded_col.get_data_poly()
+        + &(&(&broadcasted_stat_tr_poly - input_table_target_col.get_data_poly()) * (chall));
     let super_col = ArithCol::new(
         None,
         data_poly,
@@ -340,7 +338,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // than or equal to the broadcasted stats
 
     let non_negative_tr_poly =
-        broadcasted_stat_tr_poly.sub_poly(input_table_target_col.get_data_poly());
+        &broadcasted_stat_tr_poly - input_table_target_col.get_data_poly();
     let sign_check_piop_prover_input = SignCheckProverInput {
         col: ArithCol::new(
             input_table_target_col.get_data_type().clone(),

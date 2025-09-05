@@ -14,7 +14,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     timed,
     verifier::{
         Verifier,
@@ -156,34 +156,33 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         SetInterUnionCheckPIOP::prove(prover, set_inter_union_prover_input)?;
 
         // Zero Check on act(out_keys)(left_key - out_keys)
-        let left_minus_out = &input
+        let left_minus_out = input
             .left_key_support
             .get_data_poly()
-            .sub_poly(input.out_key_support.get_data_poly());
+            - input.out_key_support.get_data_poly();
         let zero_poly = match input.out_key_support.get_actvtr_poly() {
-            Some(act) => &act.mul_poly(left_minus_out),
+            Some(act) => act * &left_minus_out,
             None => left_minus_out,
         };
         prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
 
         // Zero Check on act(out_keys)(right_key - out_keys)
-        let right_minus_out = &input
+        let right_minus_out = input
             .right_key_support
             .get_data_poly()
-            .sub_poly(input.out_key_support.get_data_poly());
+            - input.out_key_support.get_data_poly();
         let zero_poly = match input.out_key_support.get_actvtr_poly() {
-            Some(act) => &act.mul_poly(right_minus_out),
+            Some(act) => act * &right_minus_out,
             None => right_minus_out,
         };
         prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
-        let mlmlr_minus_mo = (left_supp_check_output
-            .super_set_multiplicity_tr_p
-            .mul_poly(&right_supp_check_output.super_set_multiplicity_tr_p))
-        .sub_poly(&out_supp_check_output.super_set_multiplicity_tr_p);
+        let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_p
+            * (&right_supp_check_output.super_set_multiplicity_tr_p))
+            - (&out_supp_check_output.super_set_multiplicity_tr_p);
         let zero_poly = match input.out_key_support.get_actvtr_poly() {
-            Some(act) => &act.mul_poly(&mlmlr_minus_mo),
-            None => &mlmlr_minus_mo,
+            Some(act) => act * &mlmlr_minus_mo,
+            None => mlmlr_minus_mo,
         };
         prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
 
@@ -194,8 +193,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             prover.get_and_append_challenge(b"r1")?,
             prover.get_and_append_challenge(b"r2")?,
         ];
-        let folded = (input.join_left_source.get_data_poly().mul_scalar(r_vec[0]))
-            .add_poly(&input.join_right_source.get_data_poly().mul_scalar(r_vec[1]));
+        let folded = &(input.join_left_source.get_data_poly() * r_vec[0])
+            + &(input.join_right_source.get_data_poly() * r_vec[1]);
         let folded_sources = ArithCol::new(
             None,
             folded,
@@ -219,10 +218,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_right_folded_col = ArithCol::new(
             None,
-            input_right_table_folded_col
+            &input_right_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(&right_ind_poly),
+                + &right_ind_poly,
             input_right_table_folded_col.get_actvtr_poly().cloned(),
         );
 
@@ -238,10 +237,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_right_folded_col = ArithCol::new(
             None,
-            output_right_table_folded_col
+            &output_right_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(input.join_right_source.get_data_poly()),
+                + input.join_right_source.get_data_poly(),
             output_right_table_folded_col.get_actvtr_poly().cloned(),
         );
         // Right multiplicity check
@@ -268,10 +267,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_left_folded_col = ArithCol::new(
             None,
-            input_left_table_folded_col
+            &input_left_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(&left_ind_poly),
+                + &left_ind_poly,
             input_left_table_folded_col.get_actvtr_poly().cloned(),
         );
 
@@ -282,10 +281,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_left_folded_col = ArithCol::new(
             None,
-            output_left_table_folded_col
+            &output_left_table_folded_col
                 .get_data_poly()
                 .clone()
-                .add_poly(input.join_left_source.get_data_poly()),
+                + input.join_left_source.get_data_poly(),
             output_left_table_folded_col.get_actvtr_poly().cloned(),
         );
         // Right multiplicity check

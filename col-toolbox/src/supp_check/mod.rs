@@ -25,7 +25,7 @@ use ark_piop::{
     prover::{
         Prover,
         errors::{HonestProverError, ProverError},
-        structs::TrackedPoly,
+        structs::polynomial::TrackedPoly,
     },
     timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},

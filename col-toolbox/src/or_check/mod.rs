@@ -11,7 +11,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, errors::ProverError::HonestProverError, structs::TrackedPoly},
+    prover::{Prover, errors::ProverError::HonestProverError, structs::polynomial::TrackedPoly},
     timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
@@ -76,7 +76,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         let mut sum_poly = input.in_activator_polys[0].clone();
         for in_poly in &input.in_activator_polys {
-            sum_poly = sum_poly.add_poly(&in_poly);
+            sum_poly += in_poly;
         }
 
         let sum_evals = sum_poly.evaluations();
@@ -122,7 +122,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Rust Ownership and borrow rules
         let mut sum_poly = input.in_activator_polys[0].clone();
         for in_poly in &input.in_activator_polys {
-            sum_poly = sum_poly.add_poly(in_poly);
+            sum_poly += in_poly;
         }
 
         let mut sum_evals = sum_poly.evaluations().clone();
@@ -134,8 +134,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             ))?;
 
 
-        let q = &inverted_sum_poly.mul_poly(&sum_poly);
-        let p = &inverted_sum_poly.sub_poly(&q).add_scalar(F::one());
+        let q = &inverted_sum_poly * &sum_poly;
+        let p = &(&inverted_sum_poly - &q) + F::one();
 
 
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(
@@ -152,8 +152,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
         )?;
 
-        let zero_check_poly: TrackedPoly<F, MvPCS, UvPCS> = p.mul_poly(&sum_poly).sub_poly(&q);
-        let zero_check_poly_2 = q.sub_poly(&input.res_activator_poly);
+        let zero_check_poly: TrackedPoly<F, MvPCS, UvPCS> = &(&p * &sum_poly) - &q;
+        let zero_check_poly_2 = &q - &input.res_activator_poly;
 
         prover.add_mv_zerocheck_claim(zero_check_poly.get_id())?;
         prover.add_mv_zerocheck_claim(zero_check_poly_2.get_id())?;

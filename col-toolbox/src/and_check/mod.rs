@@ -9,7 +9,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, errors::ProverError::HonestProverError, structs::TrackedPoly},
+    prover::{Prover, errors::ProverError::HonestProverError, structs::polynomial::TrackedPoly},
     timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
@@ -69,9 +69,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         let mut prod_poly = input.in_activator_polys[0].clone();
         for in_poly in &input.in_activator_polys {
-            prod_poly = prod_poly.mul_poly(&in_poly);
+            prod_poly *= in_poly;
         }
-        let check_poly = prod_poly.sub_poly(&input.res_activator_poly);
+        let check_poly = &prod_poly - &input.res_activator_poly;
         if (check_poly.evaluations().iter().all(|&elem| elem.is_zero())) {
             return Ok(());
         } else {
@@ -90,9 +90,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Rust Ownership and borrow rules
         let mut prod_poly = input.in_activator_polys[0].clone();
         for in_poly in &input.in_activator_polys {
-            prod_poly = prod_poly.mul_poly(in_poly);
+            prod_poly *= in_poly;
         }
-        let check_poly = input.res_activator_poly.sub_poly(&prod_poly);
+        let check_poly = &input.res_activator_poly - &prod_poly;
         prover.add_mv_zerocheck_claim(check_poly.get_id())?;
         Ok(())
     }
