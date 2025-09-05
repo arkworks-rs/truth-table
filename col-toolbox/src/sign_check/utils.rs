@@ -28,15 +28,15 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub(crate) fn get_range_poly(
+    pub(crate) fn range_poly(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         data_type: &DataType,
     ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
         let sparse_poly = match data_type {
-            DataType::UInt8 => Self::get_sparse_range_poly_by_nv(8)?,
-            DataType::UInt16 => Self::get_sparse_range_poly_by_nv(16)?,
-            DataType::UInt32 => Self::get_sparse_range_poly_by_nv(32)?,
-            DataType::UInt64 => Self::get_sparse_range_poly_by_nv(64)?,
+            DataType::UInt8 => Self::sparse_range_poly_by_nv(8)?,
+            DataType::UInt16 => Self::sparse_range_poly_by_nv(16)?,
+            DataType::UInt32 => Self::sparse_range_poly_by_nv(32)?,
+            DataType::UInt64 => Self::sparse_range_poly_by_nv(64)?,
             _ => return Err(SnarkError::DummyError),
         };
         let tracked_poly = verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
@@ -45,7 +45,7 @@ where
         Ok(tracked_poly)
     }
 
-    pub(crate) fn get_sparse_range_poly_by_nv(
+    pub(crate) fn sparse_range_poly_by_nv(
         nv: usize,
     ) -> SnarkResult<SparsePolynomial<F, SparseTerm>> {
         let terms = (0..nv)
@@ -59,7 +59,7 @@ where
         Ok(SparsePolynomial::from_coefficients_vec(nv, terms))
     }
 
-    pub(crate) fn get_dense_range_poly_by_nv(nv: usize) -> SnarkResult<MLE<F>> {
+    pub(crate) fn dense_range_poly_by_nv(nv: usize) -> SnarkResult<MLE<F>> {
         let evals: Vec<F> = (0..2_usize.pow(nv as u32))
             .map(|x| F::from(x as u64))
             .collect();
@@ -78,13 +78,13 @@ mod tests {
     use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
     #[test]
-    fn test_get_range_poly() {
+    fn test_range_poly() {
         let u8_sparse_poly =
-            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::get_sparse_range_poly_by_nv(8)
+            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::sparse_range_poly_by_nv(8)
                 .unwrap();
 
         let u8_dense_poly =
-            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::get_dense_range_poly_by_nv(8)
+            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::dense_range_poly_by_nv(8)
                 .unwrap();
         assert_eq!(
             u8_sparse_poly.evaluate(&to_field_vec!(vec![1, 1, 1, 0, 0, 0, 0, 0], Fr)),
@@ -96,12 +96,12 @@ mod tests {
             Fr::from(7)
         );
         let u16_sparse_poly =
-            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::get_sparse_range_poly_by_nv(
+            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::sparse_range_poly_by_nv(
                 16,
             )
             .unwrap();
         let u16_dense_poly =
-            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::get_dense_range_poly_by_nv(16)
+            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::dense_range_poly_by_nv(16)
                 .unwrap();
         assert_eq!(
             u16_sparse_poly.evaluate(&to_field_vec!(

@@ -109,8 +109,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // are created correctly
         // Prepare the input for the grouping check
         let grouping_check_input = grouping_check::GroupingCheckProverInput {
-            input_grouping_columns: input.input_table.get_cols(&input.instr.gpd_col_indices),
-            output_grouping_columns: input.output_table.get_cols(&input.instr.gpd_col_indices),
+            input_grouping_columns: input.input_table.cols(&input.instr.gpd_col_indices),
+            output_grouping_columns: input.output_table.cols(&input.instr.gpd_col_indices),
         };
         let grouping_check_output = GroupingCheckPIOP::prove(prover, grouping_check_input)?;
 

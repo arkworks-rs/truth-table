@@ -30,10 +30,10 @@ fn prepare_prover_inputs() -> (
         };
 
         let output_table = ArithTable::new(
-            table.get_schema(),
-            table.get_data_polys(),
-            Some(aux_table.get_data_polys()[0].clone()),
-            table.get_size(),
+            table.schema(),
+            table.data_polys(),
+            Some(aux_table.data_polys()[0].clone()),
+            table.size(),
         );
         let prover_input = SelectProverInput {
             input_table: table.clone(),
@@ -67,8 +67,8 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
             .map(|actv| verifier.track_mv_com_by_id(actv.get_id()).unwrap());
 
         let output_table_comm = TableComm::new(
-            input_table_comm.get_schema(),
-            input_table_comm.get_col_vals(),
+            input_table_comm.schema(),
+            input_table_comm.col_vals(),
             output_actv,
             input_table_comm.num_vars(),
         );

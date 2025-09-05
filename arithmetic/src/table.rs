@@ -96,7 +96,7 @@ where
         self.data_polys[0].get_log_size()
     }
 
-    pub fn get_prover(&self) -> Prover<F, MvPCS, UvPCS> {
+    pub fn prover(&self) -> Prover<F, MvPCS, UvPCS> {
         Prover::new_from_tracker_rc(self.data_polys[0].get_tracker())
     }
 
@@ -114,7 +114,7 @@ where
         self.fold(&(0..self.num_cols()).collect::<Vec<usize>>(), challs)
     }
 
-    pub fn get_col(&self, col_ind: usize) -> ArithCol<F, MvPCS, UvPCS> {
+    pub fn col(&self, col_ind: usize) -> ArithCol<F, MvPCS, UvPCS> {
         ArithCol::new(
             self.schema.as_ref().map(|schema| {
                 if col_ind >= schema.fields().len() {
@@ -129,27 +129,27 @@ where
             self.actvtr_poly.clone(),
         )
     }
-    pub fn get_data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
         self.data_polys.clone()
     }
 
-    pub fn get_size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.size
     }
 
-    pub fn get_cols(&self, indice: &[usize]) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
-        indice.iter().map(|&i| self.get_col(i)).collect()
+    pub fn cols(&self, indice: &[usize]) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
+        indice.iter().map(|&i| self.col(i)).collect()
     }
 
-    pub fn get_all_cols(&self) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
-        self.get_cols(&(0..self.num_cols()).collect::<Vec<usize>>())
+    pub fn all_cols(&self) -> Vec<ArithCol<F, MvPCS, UvPCS>> {
+        self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
     }
 
     pub fn num_cols(&self) -> usize {
         self.data_polys.len()
     }
 
-    pub fn get_schema(&self) -> Option<Schema> {
+    pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
 
@@ -252,11 +252,11 @@ where
             None => Self::new(schema, data_comms, None, table.num_vars()),
         }
     }
-    pub fn get_col_vals(&self) -> Vec<TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn col_vals(&self) -> Vec<TrackedOracle<F, MvPCS, UvPCS>> {
         self.col_vals.clone()
     }
 
-    pub fn get_schema(&self) -> Option<Schema> {
+    pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
     pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {

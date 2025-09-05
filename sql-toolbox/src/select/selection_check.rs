@@ -91,20 +91,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => Self::prove_eq_selection(
                 prover,
-                input.query_input_table.get_col(col_ind),
-                input.query_output_table.get_col(col_ind),
+                input.query_input_table.col(col_ind),
+                input.query_output_table.col(col_ind),
                 filter,
             )?,
             WhereClause::Geq(col_ind, filter) => Self::prove_geq_selection(
                 prover,
-                input.query_input_table.get_col(col_ind),
-                input.query_output_table.get_col(col_ind),
+                input.query_input_table.col(col_ind),
+                input.query_output_table.col(col_ind),
                 filter,
             )?,
             WhereClause::Leq(col_ind, filter) => Self::prove_leq_selection(
                 prover,
-                input.query_input_table.get_col(col_ind),
-                input.query_output_table.get_col(col_ind),
+                input.query_input_table.col(col_ind),
+                input.query_output_table.col(col_ind),
                 filter,
             )?,
             _ => unimplemented!(),

@@ -111,16 +111,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     prove_count_stat(
                         prover,
                         input.super_set_multiplicity_tr_p.clone(),
-                        input.query_output_table.get_col(*col_ind),
+                        input.query_output_table.col(*col_ind),
                     )?;
                 },
                 AggregationType::Sum => {
                     prove_sum_stat(
                         prover,
                         input.input_folded_col.clone(),
-                        input.query_input_table.get_col(*col_ind),
+                        input.query_input_table.col(*col_ind),
                         input.output_folded_col.clone(),
-                        input.query_output_table.get_col(*col_ind),
+                        input.query_output_table.col(*col_ind),
                     )?;
                 },
                 AggregationType::Max => {
@@ -129,9 +129,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         AggregationType::Max,
                         input.super_set_multiplicity_tr_p.clone(),
                         input.input_folded_col.clone(),
-                        input.query_input_table.get_col(*col_ind),
+                        input.query_input_table.col(*col_ind),
                         input.output_folded_col.clone(),
-                        input.query_output_table.get_col(*col_ind),
+                        input.query_output_table.col(*col_ind),
                     )?;
                 },
                 AggregationType::Min => {
@@ -140,9 +140,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         AggregationType::Min,
                         input.super_set_multiplicity_tr_p.clone(),
                         input.input_folded_col.clone(),
-                        input.query_input_table.get_col(*col_ind),
+                        input.query_input_table.col(*col_ind),
                         input.output_folded_col.clone(),
-                        input.query_output_table.get_col(*col_ind),
+                        input.query_output_table.col(*col_ind),
                     )?;
                 },
                 AggregationType::Avg => {
@@ -230,15 +230,15 @@ fn verify_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, 
 fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     input_table_folded_col: ArithCol<F, MvPCS, UvPCS>,
-    input_table_target_col: ArithCol<F, MvPCS, UvPCS>,
+    input_table_tarcol: ArithCol<F, MvPCS, UvPCS>,
     output_table_folded_col: ArithCol<F, MvPCS, UvPCS>,
-    output_table_target_col: ArithCol<F, MvPCS, UvPCS>,
+    output_table_tarcol: ArithCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let multiplicity_check_prover_input = MultiplicityCheckProverInput {
         fxs: vec![input_table_folded_col.clone()],
         gxs: vec![output_table_folded_col.clone()],
-        mfxs: vec![Some(input_table_target_col.data_poly().clone())],
-        mgxs: vec![Some(output_table_target_col.data_poly().clone())],
+        mfxs: vec![Some(input_table_tarcol.data_poly().clone())],
+        mgxs: vec![Some(output_table_tarcol.data_poly().clone())],
     };
 
     MultiplicityCheck::<F, MvPCS, UvPCS>::prove(prover, multiplicity_check_prover_input)
@@ -248,15 +248,15 @@ fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
 fn verify_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     input_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    input_table_target_col_comm: ColCom<F, MvPCS, UvPCS>,
+    input_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
     output_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_target_col_comm: ColCom<F, MvPCS, UvPCS>,
+    output_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
         fxs: vec![input_table_folded_col_comm.clone()],
         gxs: vec![output_table_folded_col_comm.clone()],
-        mfxs: vec![Some(input_table_target_col_comm.inner)],
-        mgxs: vec![Some(output_table_target_col_comm.inner)],
+        mfxs: vec![Some(input_table_tarcol_comm.inner)],
+        mgxs: vec![Some(output_table_tarcol_comm.inner)],
     };
 
     MultiplicityCheck::<F, MvPCS, UvPCS>::verify(verifier, multiplicity_check_verifier_input)
@@ -268,16 +268,16 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     stat_type: AggregationType,
     common_mset_supp_m: TrackedPoly<F, MvPCS, UvPCS>,
     input_table_folded_col: ArithCol<F, MvPCS, UvPCS>,
-    input_table_target_col: ArithCol<F, MvPCS, UvPCS>,
+    input_table_tarcol: ArithCol<F, MvPCS, UvPCS>,
     output_table_folded_col: ArithCol<F, MvPCS, UvPCS>,
-    output_table_target_col: ArithCol<F, MvPCS, UvPCS>,
+    output_table_tarcol: ArithCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     // Broadcast those stats back into the input elements of the category
     let broadcasted_stat_evals = broadcast_stat_evals(
         &input_table_folded_col,
-        &input_table_target_col,
+        &input_table_tarcol,
         &output_table_folded_col,
-        &output_table_target_col,
+        &output_table_tarcol,
     );
     let broadcasted_stat_poly = MLE::from_evaluations_vec(
         input_table_folded_col.num_vars(),
@@ -285,9 +285,9 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     );
     let broadcasted_stat_tr_poly = prover.track_and_commit_mat_mv_poly(&broadcasted_stat_poly)?;
     let broadcast_col = ArithCol::new(
-        input_table_target_col.data_type().clone(),
+        input_table_tarcol.data_type().clone(),
         broadcasted_stat_tr_poly.clone(),
-        input_table_target_col.actvtr_poly().cloned(),
+        input_table_tarcol.actvtr_poly().cloned(),
     );
     // Prove that the broadcasted column is computed correctly
     // First check that the output statistics foded with the output categories is
@@ -303,7 +303,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
 
     let output_target_folded_with_broadcast = fold_polys(
         &[
-            output_table_target_col.clone(),
+            output_table_tarcol.clone(),
             output_table_folded_col.clone(),
         ],
         &broadcast_folding_challs,
@@ -320,7 +320,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // Second check that the maximum value does actually appear in the input data
     let chall = prover.get_and_append_challenge(b"max_min").unwrap();
     let data_poly = input_table_folded_col.data_poly()
-        + &(&(&broadcasted_stat_tr_poly - input_table_target_col.data_poly()) * (chall));
+        + &(&(&broadcasted_stat_tr_poly - input_table_tarcol.data_poly()) * (chall));
     let super_col = ArithCol::new(
         None,
         data_poly,
@@ -338,12 +338,12 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // than or equal to the broadcasted stats
 
     let non_negative_tr_poly =
-        &broadcasted_stat_tr_poly - input_table_target_col.data_poly();
+        &broadcasted_stat_tr_poly - input_table_tarcol.data_poly();
     let sign_check_piop_prover_input = SignCheckProverInput {
         col: ArithCol::new(
-            input_table_target_col.data_type().clone(),
+            input_table_tarcol.data_type().clone(),
             non_negative_tr_poly,
-            input_table_target_col.actvtr_poly().cloned(),
+            input_table_tarcol.actvtr_poly().cloned(),
         ),
         sign: match stat_type {
             AggregationType::Max => col_toolbox::sign_check::Sign::NoneNegative,
@@ -366,17 +366,17 @@ fn verify_max_min_stat<
     stat_type: AggregationType,
     common_mset_supp_m: TrackedOracle<F, MvPCS, UvPCS>,
     input_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    input_table_target_col_comm: ColCom<F, MvPCS, UvPCS>,
+    input_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
     output_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_target_col_comm: ColCom<F, MvPCS, UvPCS>,
+    output_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let broadcasted_stat_oracle_id = verifier.peek_next_id();
     let broadcasted_stat_tr_comm = verifier.track_mv_com_by_id(broadcasted_stat_oracle_id)?;
     let broadcast_col_comm = ColCom {
-        data_type: input_table_target_col_comm.data_type.clone(),
+        data_type: input_table_tarcol_comm.data_type.clone(),
         inner: broadcasted_stat_tr_comm.clone(),
-        actv: input_table_target_col_comm.actv.clone(),
-        num_vars: input_table_target_col_comm.num_vars,
+        actv: input_table_tarcol_comm.actv.clone(),
+        num_vars: input_table_tarcol_comm.num_vars,
     };
     // Prove that the broadcasted column is computed correctly
     // First check that the output statistics foded with the output categories is
@@ -395,7 +395,7 @@ fn verify_max_min_stat<
 
     let output_target_folded_with_broadcast = fold_coms(
         &[
-            output_table_target_col_comm.clone(),
+            output_table_tarcol_comm.clone(),
             output_table_folded_col_comm.clone(),
         ],
         &broadcast_folding_challs,
@@ -412,7 +412,7 @@ fn verify_max_min_stat<
     // Second check that the maximum value does actually appear in the input data
     let chall = verifier.get_and_append_challenge(b"max_min").unwrap();
     let data_poly = &input_table_folded_col_comm.inner
-        + &(&(&broadcasted_stat_tr_comm - &input_table_target_col_comm.inner) * (chall));
+        + &(&(&broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner) * (chall));
     let super_col_comm = ColCom::new(
         None,
         data_poly,
@@ -429,13 +429,13 @@ fn verify_max_min_stat<
     // target column is non-negative; i.e. the input table target column is less
     // than or equal to the broadcasted stats
 
-    let non_negative_comm = &broadcasted_stat_tr_comm - &input_table_target_col_comm.inner;
+    let non_negative_comm = &broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner;
     let sign_check_piop_verifier_input = SignCheckVerifierInput {
         col_comm: ColCom {
-            data_type: input_table_target_col_comm.data_type.clone(),
+            data_type: input_table_tarcol_comm.data_type.clone(),
             inner: non_negative_comm,
-            actv: input_table_target_col_comm.actv.clone(),
-            num_vars: input_table_target_col_comm.num_vars,
+            actv: input_table_tarcol_comm.actv.clone(),
+            num_vars: input_table_tarcol_comm.num_vars,
         },
         sign: match stat_type {
             AggregationType::Max => col_toolbox::sign_check::Sign::NoneNegative,
@@ -453,11 +453,11 @@ fn build_output_category_stat_map<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    output_table_target_col: &ArithCol<F, MvPCS, UvPCS>,
+    output_table_tarcol: &ArithCol<F, MvPCS, UvPCS>,
     output_table_folded_col: &ArithCol<F, MvPCS, UvPCS>,
 ) -> BTreeMap<F, F> {
     let mut output_category_stat_map = BTreeMap::new();
-    let output_table_target_eval = output_table_target_col.data_poly().evaluations();
+    let output_table_target_eval = output_table_tarcol.data_poly().evaluations();
     let output_table_folded_evals = output_table_folded_col.data_poly().evaluations();
     match output_table_folded_col.actvtr_poly() {
         Some(actv) => {
@@ -489,15 +489,15 @@ fn broadcast_stat_evals<
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
     input_table_folded_col: &ArithCol<F, MvPCS, UvPCS>,
-    input_table_target_col: &ArithCol<F, MvPCS, UvPCS>,
+    input_table_tarcol: &ArithCol<F, MvPCS, UvPCS>,
     output_table_folded_col: &ArithCol<F, MvPCS, UvPCS>,
-    output_table_target_col: &ArithCol<F, MvPCS, UvPCS>,
+    output_table_tarcol: &ArithCol<F, MvPCS, UvPCS>,
 ) -> Vec<F> {
     // Create a map from the output categories to their corresponding stats
 
     let output_category_stat_map =
-        build_output_category_stat_map(output_table_target_col, output_table_folded_col);
-    let mut broadcasted_stat_evals = input_table_target_col.data_poly().evaluations().clone();
+        build_output_category_stat_map(output_table_tarcol, output_table_folded_col);
+    let mut broadcasted_stat_evals = input_table_tarcol.data_poly().evaluations().clone();
     let evals = input_table_folded_col.data_poly().evaluations();
     match input_table_folded_col.actvtr_poly() {
         Some(actv) => {

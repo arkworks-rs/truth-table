@@ -217,7 +217,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(8).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(8).unwrap()),
                         None,
                     ),
                 };
@@ -228,7 +228,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(7).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(7).unwrap()),
                         None,
                     ),
                 };
@@ -239,7 +239,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(16).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                     ),
                 };
@@ -250,7 +250,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(15).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
                     ),
                 };
@@ -262,7 +262,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: high_col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(16).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                     ),
                 };
@@ -274,7 +274,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: low_col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(16).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                     ),
                 };
@@ -289,7 +289,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: high_col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(15).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
                     ),
                 };
@@ -301,7 +301,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     included_col: low_col.clone(),
                     super_col: ArithCol::new(
                         None,
-                        prover.track_mat_mv_poly(Self::get_dense_range_poly_by_nv(16).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                     ),
                 };
@@ -329,7 +329,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(8)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(8)?.evaluate(&x))
                         }))),
                         None,
                         8,
@@ -347,7 +347,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(7)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(7)?.evaluate(&x))
                         }))),
                         None,
                         7,
@@ -365,7 +365,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         }))),
                         None,
                         16,
@@ -383,7 +383,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         }))),
                         None,
                         16,
@@ -398,7 +398,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         }))),
                         None,
                         16,
@@ -417,7 +417,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(15)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
                         }))),
                         None,
                         15,
@@ -432,7 +432,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     super_col_comm: ColCom::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
-                            Ok(Self::get_sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         }))),
                         None,
                         16,

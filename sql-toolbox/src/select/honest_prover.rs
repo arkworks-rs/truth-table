@@ -47,9 +47,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => {
-                let input_col = input.query_input_table.get_col(col_ind);
+                let input_col = input.query_input_table.col(col_ind);
                 let in_data_vec = input_col.data_poly().evaluations();
-                let output_col = input.query_output_table.get_col(col_ind);
+                let output_col = input.query_output_table.col(col_ind);
                 let out_data_vec = output_col.data_poly().evaluations();
                 let all_one_vec = vec![F::one(); in_data_vec.len()];
                 let filter_closure = |x: F| x == filter;

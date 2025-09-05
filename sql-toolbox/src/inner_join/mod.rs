@@ -125,21 +125,21 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // Support Check on left_key_support, log output
         let supp_left_prover_input = SuppCheckProverInput {
-            col: input.left_table.get_col(0),
+            col: input.left_table.col(0),
             supp: input.left_key_support.clone(),
         };
         let left_supp_check_output = SuppCheckPIOP::prove(prover, supp_left_prover_input)?;
 
         // Support Check on right_key_support, log output
         let supp_right_prover_input = SuppCheckProverInput {
-            col: input.right_table.get_col(0),
+            col: input.right_table.col(0),
             supp: input.right_key_support.clone(),
         };
         let right_supp_check_output = SuppCheckPIOP::prove(prover, supp_right_prover_input)?;
 
         // Support Check on the out table
         let supp_out_prover_input = SuppCheckProverInput {
-            col: input.out_table.get_col(0),
+            col: input.out_table.col(0),
             supp: input.out_key_support.clone(),
         };
         let out_supp_check_output = SuppCheckPIOP::prove(prover, supp_out_prover_input)?;
