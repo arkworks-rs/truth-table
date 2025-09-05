@@ -71,7 +71,7 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         let input_table_comm = TableComm::from(input_table, &mut verifier);
         let output_actv = output_table
             .actvtr_poly()
-            .map(|actv| verifier.track_mv_com_by_id(actv.get_id()).unwrap());
+            .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
 
         let output_table_comm = TableComm::new(
             input_table_comm.schema(),

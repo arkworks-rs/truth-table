@@ -117,7 +117,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
             .map(|_| {
                 prover
-                    .get_and_append_challenge(b"Grouping columns folding challeng")
+                    .and_append_challenge(b"Grouping columns folding challeng")
                     .unwrap()
             })
             .collect();
@@ -155,7 +155,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
             .map(|_| {
                 verifier
-                    .get_and_append_challenge(b"Grouping columns folding challeng")
+                    .and_append_challenge(b"Grouping columns folding challeng")
                     .unwrap()
             })
             .collect();

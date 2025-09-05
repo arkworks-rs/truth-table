@@ -123,11 +123,11 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let mut target_tracked_poly = input.folded_col.activated_data_poly().clone();
+        let mut tartracked_poly = input.folded_col.activated_data_poly().clone();
         for (tracked_poly, chall) in input.in_cols.iter().zip(input.challs.iter()) {
-            target_tracked_poly -= &(&tracked_poly.activated_data_poly() * *chall);
+            tartracked_poly -= &(&tracked_poly.activated_data_poly() * *chall);
         }
-        prover.add_mv_zerocheck_claim(target_tracked_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(tartracked_poly.id())?;
         Ok(())
     }
 }

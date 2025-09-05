@@ -110,7 +110,7 @@ where
             col_com.data_type.clone(),
             new_col_inner_tr.clone(),
             Some(new_col_actv_tr),
-            verifier.get_commitment_num_vars(new_col_inner_id)?,
+            verifier.commitment_num_vars(new_col_inner_id)?,
         );
 
         let perm_piop_verifier_input = PermPIOPVerifierInput {

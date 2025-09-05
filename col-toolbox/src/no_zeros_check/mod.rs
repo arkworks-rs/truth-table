@@ -97,7 +97,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => &(&col_poly * &inverses_poly) - F::one(),
         };
 
-        prover.add_mv_zerocheck_claim(no_dups_check_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(no_dups_check_poly.id())?;
         Ok(())
     }
     #[timed]

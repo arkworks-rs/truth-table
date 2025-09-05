@@ -398,11 +398,11 @@ fn sign_test_helper<
     SignCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, non_neg_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
-    let in_comm = verifier.track_mv_com_by_id(in_tr_poly.get_id())?;
+    let in_comm = verifier.track_mv_com_by_id(in_tr_poly.id())?;
     let actvm = in_col
         .actvtr_poly()
         .as_ref()
-        .map(|actv| verifier.track_mv_com_by_id(actv.get_id()).unwrap());
+        .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
     let in_comm = ColCom::new(data_type, in_comm, actvm, in_col.num_vars());
     let no_neg_verifier_input = SignCheckVerifierInput {
         col_comm: in_comm,

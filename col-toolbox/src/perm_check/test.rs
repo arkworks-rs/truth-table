@@ -165,12 +165,12 @@ fn perm_check_test_helper<
     PermPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, perm_piop_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
-    let left_comm = verifier.track_mv_com_by_id(left_tr_p.get_id())?;
-    let left_actvm = verifier.track_mv_com_by_id(left_actv_p.get_id())?;
+    let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
+    let left_actvm = verifier.track_mv_com_by_id(left_actv_p.id())?;
     let left_col_com = ColCom::new(None, left_comm, Some(left_actvm), left_nv);
 
-    let right_comm = verifier.track_mv_com_by_id(right_tr_p.get_id())?;
-    let right_actvm = verifier.track_mv_com_by_id(right_actv_p.get_id())?;
+    let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
+    let right_actvm = verifier.track_mv_com_by_id(right_actv_p.id())?;
     let right_col_com = ColCom::new(None, right_comm, Some(right_actvm), right_nv);
     let perm_piop_verifier_input = PermPIOPVerifierInput {
         left_col_com,

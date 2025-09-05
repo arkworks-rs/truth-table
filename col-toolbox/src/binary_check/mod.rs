@@ -88,7 +88,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // set up the tracker and add a zerocheck claim
         let one_minus_sel = &(&input.activator * F::one().neg()) + F::one();
         let check_poly = &input.activator * &one_minus_sel;
-        prover.add_mv_zerocheck_claim(check_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(check_poly.id())?;
         Ok(())
     }
 

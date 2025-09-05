@@ -203,14 +203,14 @@ fn supp_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let col_comm = verifier.track_mv_com_by_id(col_tr_p.get_id())?;
+    let col_comm = verifier.track_mv_com_by_id(col_tr_p.id())?;
     let col_actv_comm = match col_actv_tr_p {
-        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.get_id())?),
+        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
-    let supp_col_comm = verifier.track_mv_com_by_id(supp_col_tr_p.get_id())?;
+    let supp_col_comm = verifier.track_mv_com_by_id(supp_col_tr_p.id())?;
     let supp_col_actv_comm = match supp_col_actv_tr_p {
-        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.get_id())?),
+        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
 

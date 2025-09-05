@@ -3,7 +3,7 @@ use core::{num, panic};
 use ark_ff::{FftField, PrimeField};
 use ark_piop::{
     arithmetic::{
-        get_index,
+        index,
         mat_poly::{lde::LDE, mle::MLE},
     },
     errors::{SnarkError, SnarkResult},
@@ -42,7 +42,7 @@ pub(super) fn compute_product_poly<F: PrimeField>(
         // sign will decide if the evaluation should be looked up from p_x or
         // prod_x; x_zero_index is the index for the evaluation (x_2, ..., x_n,
         // 0); x_one_index is the index for the evaluation (x_2, ..., x_n, 1);
-        let (x_zero_index, x_one_index, sign) = get_index(x, num_vars);
+        let (x_zero_index, x_one_index, sign) = index(x, num_vars);
         if !sign {
             prod_x_evals.push(evals[x_zero_index] * evals[x_one_index]);
         } else {
@@ -93,7 +93,7 @@ pub(super) fn compute_derivative_poly<F: PrimeField>(
         // sign will decide if the evaluation should be looked up from p_x or
         // prod_x; x_zero_index is the index for the evaluation (x_2, ..., x_n,
         // 0); x_one_index is the index for the evaluation (x_2, ..., x_n, 1);
-        let (x_zero_index, x_one_index, sign) = get_index(x, num_vars);
+        let (x_zero_index, x_one_index, sign) = index(x, num_vars);
         if !sign {
             f_prime_evals.push(p_evals[x_zero_index] + p_evals[x_one_index]);
         } else {

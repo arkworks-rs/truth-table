@@ -114,8 +114,8 @@ fn no_dup_test_helper<
     NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, &in_col)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
-    let in_comm = verifier.track_mv_com_by_id(in_tr_p.get_id())?;
-    let actvm = verifier.track_mv_com_by_id(in_actv_p.get_id())?;
+    let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
+    let actvm = verifier.track_mv_com_by_id(in_actv_p.id())?;
     let in_comm = ColCom::new(None, in_comm, Some(actvm), nv);
     NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, &in_comm)?;
     verifier.verify()?;

@@ -248,11 +248,11 @@ fn select_check_helper<
     verifier.set_proof(proof);
 
     // Transfer commitments
-    let tr_comm_1 = verifier.track_mv_com_by_id(tr_p_1.get_id())?;
-    let tr_comm_2 = verifier.track_mv_com_by_id(tr_p_2.get_id())?;
-    let tr_comm_3 = verifier.track_mv_com_by_id(tr_p_3.get_id())?;
-    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.get_id())?;
-    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.get_id())?;
+    let tr_comm_1 = verifier.track_mv_com_by_id(tr_p_1.id())?;
+    let tr_comm_2 = verifier.track_mv_com_by_id(tr_p_2.id())?;
+    let tr_comm_3 = verifier.track_mv_com_by_id(tr_p_3.id())?;
+    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.id())?;
+    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
 
     // Input and Output table commitments
     let in_table_comm = TableComm::new(

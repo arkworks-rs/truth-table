@@ -484,7 +484,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
-        prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
+        prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             ArithCol::new(
@@ -568,7 +568,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
-        prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
+        prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             ArithCol::new(

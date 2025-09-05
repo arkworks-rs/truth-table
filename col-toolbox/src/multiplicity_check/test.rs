@@ -660,39 +660,39 @@ fn multiplicity_test_helper<
     //////////////////////////////////////////////////////////////////////
     let f_tr_comms = f_tr
         .iter()
-        .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+        .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         .collect::<Vec<_>>();
     let f_actv_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = f_actv_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
-                .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+                .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         })
         .collect::<Vec<_>>();
     let f_mul_tr_comms = f_mul_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
-                .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+                .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         })
         .collect::<Vec<_>>();
     //////////////////////////////////////////////////////////////////////
     let g_tr_comms = g_tr
         .iter()
-        .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+        .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         .collect::<Vec<_>>();
     let g_actv_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = g_actv_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
-                .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+                .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         })
         .collect::<Vec<_>>();
     let g_mul_tr_comms = g_mul_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
-                .map(|tr| verifier.track_mv_com_by_id(tr.get_id()).unwrap())
+                .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         })
         .collect::<Vec<_>>();
     //////////////////////////////////////////////////////////////////////

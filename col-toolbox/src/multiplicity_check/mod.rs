@@ -79,7 +79,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<Self::ProverOutput> {
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
         // the sum
-        let gamma = prover.get_and_append_challenge(b"gamma")?;
+        let gamma = prover.and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
         for i in 0..input.fxs.len() {
             println!("Proving subclaims for fxs[{}]", i);
@@ -139,7 +139,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // create challenges and commitments in same fashion as prover
         // assumption is that proof inputs are already added to the tracker
-        let gamma = verifier.get_and_append_challenge(b"gamma")?;
+        let gamma = verifier.and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
         let max_nv_f = input.fxs.iter().map(|x| x.num_vars()).max().unwrap();
         let max_nv_g = input.gxs.iter().map(|x| x.num_vars()).max().unwrap();
@@ -245,8 +245,8 @@ where
         // i.e. ZeroCheck [(p(x)-gamma) * phat(x) - 1] = [(p * phat) - gamma * phat - 1]
         let phat_check_poly = &(&(p * &phat) - &(&phat * gamma)) + F::one().neg();
         // add the delayed prover claims to the tracker
-        tracker.add_mv_sumcheck_claim(sumcheck_challenge_poly.get_id(), v)?;
-        tracker.add_mv_zerocheck_claim(phat_check_poly.get_id())?;
+        tracker.add_mv_sumcheck_claim(sumcheck_challenge_poly.id(), v)?;
+        tracker.add_mv_zerocheck_claim(phat_check_poly.id())?;
         Ok(())
     }
 
@@ -271,7 +271,7 @@ where
 
         let phat_check_poly = &(&(&p * &phat) - &(&phat * gamma)) + F::one().neg();
         // add the delayed prover claims to the tracker
-        let sum_claim_v = tracker.get_prover_claimed_sum(sumcheck_challenge_comm.id)?;
+        let sum_claim_v = tracker.prover_claimed_sum(sumcheck_challenge_comm.id)?;
         tracker.add_sumcheck_claim(sumcheck_challenge_comm.id, sum_claim_v);
         tracker.add_zerocheck_claim(phat_check_poly.id);
 

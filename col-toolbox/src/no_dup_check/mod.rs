@@ -73,7 +73,7 @@ where
         let defraged_in_col = Defragmenter::defrag_col(tracker, in_col)?;
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_col.data_poly().get_log_size();
+        let num_vars = defraged_in_col.data_poly().log_size();
         // The size of all the polynomials in this protocol, i.e. 2^num_vars
         let poly_size = 2_i32.pow(num_vars as u32) as usize;
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
@@ -91,7 +91,7 @@ where
                 tracker.track_and_commit_mat_mv_poly(&dedup_mle)?;
             let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
                 &(&dedup_tr_p - defraged_in_col.data_poly()) * actvtr_poly;
-            tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.get_id())?;
+            tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
             dedup_mle
         } else {
             MLE::from_evaluations_vec(
@@ -101,7 +101,7 @@ where
         };
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+        let chall: F = tracker.and_append_challenge(b"bezout")?;
 
         ///////////////////// Compute f, gives us z(r) /////////////////////
         // TODO: Pass around iterators instead of slices
@@ -154,10 +154,10 @@ where
 
         ///////////////////// Evaluation claims for the Bezout identity
         ///////////////////// /////////////////////
-        tracker.add_mv_eval_claim(f_p_tr.get_id(), &f_query_point)?;
-        tracker.add_mv_eval_claim(f_prime_p_tr.get_id(), &f_query_point)?;
-        tracker.add_uv_eval_claim(t_p_tr.get_id(), chall)?;
-        tracker.add_uv_eval_claim(s_p_tr.get_id(), chall)?;
+        tracker.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
+        tracker.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
+        tracker.add_uv_eval_claim(t_p_tr.id(), chall)?;
+        tracker.add_uv_eval_claim(s_p_tr.id(), chall)?;
 
         ///////////////////// Proving the well-formednes of f/////////////////////
 
@@ -193,7 +193,7 @@ where
         }
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+        let chall: F = tracker.and_append_challenge(b"bezout")?;
 
         ///////////////////// Get the commitment to f /////////////////////
         let f_p_id = tracker.peek_next_id();
@@ -251,7 +251,7 @@ fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<
     }
 
     Ok(MLE::from_evaluations_vec(
-        in_col.data_poly().get_log_size(),
+        in_col.data_poly().log_size(),
         evals,
     ))
 }

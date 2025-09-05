@@ -58,12 +58,12 @@ fn test_fold_check() -> SnarkResult<()> {
     let proof = prover.build_proof().unwrap();
     verifier.set_proof(proof);
 
-    let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.get_id())?;
+    let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.id())?;
     let folded_comm = ColCom::new(
         None,
-        verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().get_id())?,
+        verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().id())?,
         Some(actvm.clone()),
-        actv_tracked_mle.get_log_size(),
+        actv_tracked_mle.log_size(),
     );
     let input_comms: Vec<ColCom<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
         .iter()
@@ -71,10 +71,10 @@ fn test_fold_check() -> SnarkResult<()> {
             ColCom::new(
                 None,
                 verifier
-                    .track_mv_com_by_id(col.data_poly().get_id())
+                    .track_mv_com_by_id(col.data_poly().id())
                     .unwrap(),
                 Some(actvm.clone()),
-                actv_tracked_mle.get_log_size(),
+                actv_tracked_mle.log_size(),
             )
         })
         .collect();

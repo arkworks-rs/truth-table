@@ -110,7 +110,7 @@ where PCS: PCS<F> {
         // tranfer trackerIDs for the transformed_a_cols to the verifier tracker
         let mut transformed_a_cols = Vec::<TrackedOracle<F, PCS>>::with_capacity(table_a.col_vals.len());
         for _ in table_a.col_vals.iter() {
-            let next_id = verifier.get_next_id();
+            let next_id = verifier.next_id();
             transformed_a_cols.push(verifier.track_mv_com_by_id(next_id));
         }
 

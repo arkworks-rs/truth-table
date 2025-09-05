@@ -217,7 +217,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Self::build_selected_and_non_selected_cols(&input_col, &output_col, eq_filter);
         // check wether all of the selected rows equal to eq_filter
 
-        prover.add_mv_zerocheck_claim(selected_col.activated_data_poly().get_id())?;
+        prover.add_mv_zerocheck_claim(selected_col.activated_data_poly().id())?;
 
         // check all of the rows that were not selected are not equal eq_filter
         let no_zeros_check_prover_input = NoZerosCheckProverInput {

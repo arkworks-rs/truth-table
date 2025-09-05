@@ -220,14 +220,14 @@ fn inclusion_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let included_col_comm = verifier.track_mv_com_by_id(included_col_tr_p.get_id())?;
+    let included_col_comm = verifier.track_mv_com_by_id(included_col_tr_p.id())?;
     let included_col_actv_comm = match included_col_actv_tr_p {
-        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.get_id())?),
+        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
-    let super_col_comm = verifier.track_mv_com_by_id(super_col_tr_p.get_id())?;
+    let super_col_comm = verifier.track_mv_com_by_id(super_col_tr_p.id())?;
     let super_col_actv_comm = match super_col_actv_tr_p {
-        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.get_id())?),
+        Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
 

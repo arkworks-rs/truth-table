@@ -80,7 +80,7 @@ where
             if actvtr_poly.is_some() {
                 let unwrapped_actvtr_poly = actvtr_poly.as_ref().unwrap();
                 for poly in data_polys.iter() {
-                    assert_eq!(poly.get_log_size(), unwrapped_actvtr_poly.get_log_size());
+                    assert_eq!(poly.log_size(), unwrapped_actvtr_poly.log_size());
                     assert!(poly.same_tracker(unwrapped_actvtr_poly));
                 }
             }
@@ -93,11 +93,11 @@ where
         }
     }
     pub fn num_vars(&self) -> usize {
-        self.data_polys[0].get_log_size()
+        self.data_polys[0].log_size()
     }
 
     pub fn prover(&self) -> Prover<F, MvPCS, UvPCS> {
-        Prover::new_from_tracker_rc(self.data_polys[0].get_tracker())
+        Prover::new_from_tracker_rc(self.data_polys[0].tracker())
     }
 
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
@@ -242,11 +242,11 @@ where
         let data_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>> = table
             .data_polys
             .iter()
-            .map(|col| verifier.track_mv_com_by_id(col.get_id()).unwrap())
+            .map(|col| verifier.track_mv_com_by_id(col.id()).unwrap())
             .collect();
         match &table.actvtr_poly {
             Some(actvtr) => {
-                let actvtr_comm = verifier.track_mv_com_by_id(actvtr.get_id()).unwrap();
+                let actvtr_comm = verifier.track_mv_com_by_id(actvtr.id()).unwrap();
                 Self::new(schema, data_comms, Some(actvtr_comm), table.num_vars())
             },
             None => Self::new(schema, data_comms, None, table.num_vars()),

@@ -241,9 +241,9 @@ fn groupby_test_soundness_helper<
     nv: usize,
     in_gp_values_1: Vec<Fr>,
     in_gp_values_2: Vec<Fr>,
-    in_target_values: Vec<Fr>,
+    in_tarvalues: Vec<Fr>,
     in_actv: Vec<Fr>,
-    out_target_values: Vec<Fr>,
+    out_tarvalues: Vec<Fr>,
     out_actv: Vec<Fr>,
     aggregation_type: AggregationType,
 ) -> SnarkResult<()> {
@@ -251,9 +251,9 @@ fn groupby_test_soundness_helper<
         nv,
         in_gp_values_1,
         in_gp_values_2,
-        in_target_values,
+        in_tarvalues,
         in_actv,
-        out_target_values,
+        out_tarvalues,
         out_actv,
         aggregation_type,
     )
@@ -293,9 +293,9 @@ fn groupby_test_helper<
     nv: usize,
     in_gp_values_1: Vec<Fr>,
     in_gp_values_2: Vec<Fr>,
-    in_target_values: Vec<Fr>,
+    in_tarvalues: Vec<Fr>,
     in_actv: Vec<Fr>,
-    out_target_values: Vec<Fr>,
+    out_tarvalues: Vec<Fr>,
     out_actv: Vec<Fr>,
     aggregation_type: AggregationType,
 ) -> SnarkResult<()> {
@@ -316,15 +316,15 @@ fn groupby_test_helper<
     let out_actv_mle = MLE::from_evaluations_vec(nv, out_actv);
     let out_actv_tr_p = prover.track_and_commit_mat_mv_poly(&out_actv_mle).unwrap();
 
-    let input_target_mle = MLE::from_evaluations_vec(nv, in_target_values);
-    let input_target_tr_poly = prover
-        .track_and_commit_mat_mv_poly(&input_target_mle)
+    let input_tarmle = MLE::from_evaluations_vec(nv, in_tarvalues);
+    let input_tartr_poly = prover
+        .track_and_commit_mat_mv_poly(&input_tarmle)
         .unwrap();
 
     let in_tr_ps = vec![
         gp_tr_p_1.clone(),
         gp_tr_p_2.clone(),
-        input_target_tr_poly.clone(),
+        input_tartr_poly.clone(),
     ];
 
     // Input table to the group by query
@@ -342,11 +342,11 @@ fn groupby_test_helper<
 
     // Output table from the group by query
     let mut out_tr_ps = vec![gp_tr_p_1.clone(), gp_tr_p_2.clone()];
-    let out_target_mle = MLE::from_evaluations_vec(nv, out_target_values);
-    let out_target_tr_p = prover
-        .track_and_commit_mat_mv_poly(&out_target_mle)
+    let out_tarmle = MLE::from_evaluations_vec(nv, out_tarvalues);
+    let out_tartr_p = prover
+        .track_and_commit_mat_mv_poly(&out_tarmle)
         .unwrap();
-    out_tr_ps.push(out_target_tr_p.clone());
+    out_tr_ps.push(out_tartr_p.clone());
 
     let out_schema = Schema::new(
         (1..=out_tr_ps.len())
@@ -374,15 +374,15 @@ fn groupby_test_helper<
     GroupByPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, group_by_check_prover_input)?;
     let proof = prover.build_proof().unwrap();
     verifier.set_proof(proof);
-    let gp_tr_comm_1 = verifier.track_mv_com_by_id(gp_tr_p_1.get_id())?;
-    let gp_tr_comm_2 = verifier.track_mv_com_by_id(gp_tr_p_2.get_id())?;
-    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.get_id())?;
-    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.get_id())?;
-    let input_target_tr_comm = verifier.track_mv_com_by_id(input_target_tr_poly.get_id())?;
+    let gp_tr_comm_1 = verifier.track_mv_com_by_id(gp_tr_p_1.id())?;
+    let gp_tr_comm_2 = verifier.track_mv_com_by_id(gp_tr_p_2.id())?;
+    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.id())?;
+    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
+    let input_tartr_comm = verifier.track_mv_com_by_id(input_tartr_poly.id())?;
     let in_tr_comms = vec![
         gp_tr_comm_1.clone(),
         gp_tr_comm_2.clone(),
-        input_target_tr_comm,
+        input_tartr_comm,
     ];
     let in_table_comm = TableComm::new(
         Some(in_schema),
@@ -390,8 +390,8 @@ fn groupby_test_helper<
         Some(in_actv_tr_comm),
         nv,
     );
-    let out_target_tr_comm = verifier.track_mv_com_by_id(out_target_tr_p.get_id())?;
-    let out_tr_comms = vec![gp_tr_comm_1, gp_tr_comm_2, out_target_tr_comm];
+    let out_tartr_comm = verifier.track_mv_com_by_id(out_tartr_p.id())?;
+    let out_tr_comms = vec![gp_tr_comm_1, gp_tr_comm_2, out_tartr_comm];
     let out_table_comm = TableComm::new(Some(out_schema), out_tr_comms, Some(out_actv_tr_comm), nv);
 
     let group_by_check_verifier_input = GroupByVerifierInput {

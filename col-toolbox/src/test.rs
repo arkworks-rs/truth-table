@@ -43,7 +43,7 @@
         assert_ne!(poly1.id, poly2.id);
 
         // assert that we can get the polys back
-        let lookup_poly1 = tracker.get_mat_poly(poly1.id);
+        let lookup_poly1 = tracker.mat_poly(poly1.id);
         assert_eq!(lookup_poly1, Arc::new(rand_mle_1));
         Ok(())
     }
@@ -66,7 +66,7 @@
         let sum_poly = poly1.add_poly(&poly2);
 
         // assert addition list is constructed correctly
-        let sum_poly_id_repr = tracker.get_virt_poly(sum_poly.id);
+        let sum_poly_id_repr = tracker.virt_poly(sum_poly.id);
         assert_eq!(sum_poly_id_repr.len(), 2);
         assert_eq!(sum_poly_id_repr[0].0, Fr::one());
         assert_eq!(sum_poly_id_repr[0].1, vec![poly1.id]);
@@ -107,7 +107,7 @@
         let p3_plus_p1_plus_p2 = poly3.add_poly(&p1_plus_p2);
 
         // assert addition list is constructed correctly
-        let p1_plus_p2_plus_p3_repr = tracker.get_virt_poly(p1_plus_p2_plus_p3.id);
+        let p1_plus_p2_plus_p3_repr = tracker.virt_poly(p1_plus_p2_plus_p3.id);
         assert_eq!(p1_plus_p2_plus_p3_repr.len(), 3);
         assert_eq!(p1_plus_p2_plus_p3_repr[0].0, Fr::one());
         assert_eq!(p1_plus_p2_plus_p3_repr[0].1, vec![poly1.id]);
@@ -116,7 +116,7 @@
         assert_eq!(p1_plus_p2_plus_p3_repr[2].0, Fr::one());
         assert_eq!(p1_plus_p2_plus_p3_repr[2].1, vec![poly3.id]);
 
-        let p3_plus_p1_plus_p2_repr = tracker.get_virt_poly(p3_plus_p1_plus_p2.id);
+        let p3_plus_p1_plus_p2_repr = tracker.virt_poly(p3_plus_p1_plus_p2.id);
         assert_eq!(p3_plus_p1_plus_p2_repr.len(), 3);
         assert_eq!(p3_plus_p1_plus_p2_repr[0].0, Fr::one());
         assert_eq!(p3_plus_p1_plus_p2_repr[0].1, vec![poly3.id]);
@@ -373,7 +373,7 @@
         let mut tracker: Verifier<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, PST13<Bls12_381>, KZG10<Bls12_381>> = Verifier::new_from_pcs_params( mv_pcs_verifier_param, uv_pcs_verifier_param);
         let comm1 = tracker.track_mat_mv_com(proof.mv_comms.get(&TrackerID(0)).unwrap().clone())?;
         let comm2 = tracker.track_mat_mv_com(proof.mv_comms.get(&TrackerID(1)).unwrap().clone())?;
-        let gamma = tracker.get_and_append_challenge(b"gamma")?;
+        let gamma = tracker.and_append_challenge(b"gamma")?;
         let mut res_comm = comm1.add_scalar(gamma);
         res_comm = res_comm.mul_oracles(&comm2);
         let res_comm = res_comm.add_scalar(Fr::one().neg());

@@ -217,7 +217,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(p) => p * &diff_poly,
             None => diff_poly,
         };
-        prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         Ok(())
     }

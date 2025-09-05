@@ -128,7 +128,7 @@ fn and_check_test_helper<
         .iter()
         .map(|activator_poly| {
             verifier
-                .track_mv_com_by_id(activator_poly.get_id())
+                .track_mv_com_by_id(activator_poly.id())
                 .unwrap()
         })
         .collect();

@@ -93,7 +93,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             prod_poly *= in_poly;
         }
         let check_poly = &input.res_activator_poly - &prod_poly;
-        prover.add_mv_zerocheck_claim(check_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(check_poly.id())?;
         Ok(())
     }
 

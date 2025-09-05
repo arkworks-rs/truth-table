@@ -59,7 +59,7 @@ where
         {
             if actvtr_poly.is_some() {
                 let actvtr = actvtr_poly.as_ref().unwrap();
-                assert_eq!(data_poly.get_log_size(), actvtr.get_log_size());
+                assert_eq!(data_poly.log_size(), actvtr.log_size());
                 assert!(data_poly.same_tracker(&actvtr));
             }
         }
@@ -73,7 +73,7 @@ where
     /// Returns the number of variables of the column polynomial
     /// It is log_2 of the maximum capacity of the column
     pub fn num_vars(&self) -> usize {
-        self.data_poly.get_log_size()
+        self.data_poly.log_size()
     }
 
     /// Returns the data polynomial of the column
@@ -92,7 +92,7 @@ where
 
     /// Returns a reference to the tracker of the column
     pub fn tracker_ref(&self) -> Prover<F, MvPCS, UvPCS> {
-        Prover::new_from_tracker_rc(self.data_poly.get_tracker())
+        Prover::new_from_tracker_rc(self.data_poly.tracker())
     }
 
     /// Returns the effective polynomial of the column, which is the product of

@@ -164,7 +164,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => act * &left_minus_out,
             None => left_minus_out,
         };
-        prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Zero Check on act(out_keys)(right_key - out_keys)
         let right_minus_out = input
@@ -175,7 +175,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => act * &right_minus_out,
             None => right_minus_out,
         };
-        prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
         let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_p
             * (&right_supp_check_output.super_set_multiplicity_tr_p))
@@ -184,14 +184,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
-        prover.add_mv_zerocheck_claim(zero_poly.get_id())?;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Random Challenge r picked from verifier
         // TODO: Go and add the functionality for adding a vector of challenges in
         // the // ark-piop crate
         let r_vec = [
-            prover.get_and_append_challenge(b"r1")?,
-            prover.get_and_append_challenge(b"r2")?,
+            prover.and_append_challenge(b"r1")?,
+            prover.and_append_challenge(b"r2")?,
         ];
         let folded = &(input.join_left_source.data_poly() * r_vec[0])
             + &(input.join_right_source.data_poly() * r_vec[1]);
@@ -204,7 +204,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // NoDupCheck on source_L + r(source_R)
         NoDupPIOP::prove(prover, &folded_sources)?;
         let alpha_vec = (0..(input.right_table.num_cols() + 1))
-            .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
+            .map(|_| prover.and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
         let input_right_table_folded_col = input
@@ -254,7 +254,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
 
         let beta_vec = (0..(input.left_table.num_cols() + 1))
-            .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
+            .map(|_| prover.and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
         let input_left_table_folded_col =
@@ -367,8 +367,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Fold source_r and source_l
 
         let r_vec = [
-            verifier.get_and_append_challenge(b"r1")?,
-            verifier.get_and_append_challenge(b"r2")?,
+            verifier.and_append_challenge(b"r1")?,
+            verifier.and_append_challenge(b"r2")?,
         ];
         let folded = &(&input.join_left_source_comm.inner * (r_vec[0]))
             + &(&input.join_right_source_comm.inner * r_vec[1]);
@@ -381,7 +381,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoDupPIOP::verify(verifier, &folded_sources_cm)?;
         // Folding of key_out and source_R
         let alpha_vec = (0..(input.right_table_comm.num_cols() + 1))
-            .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
+            .map(|_| verifier.and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
         let input_right_table_folded_col_com = input
@@ -393,7 +393,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             for (i, coord) in point.iter().take(nv).enumerate() {
                 eval += *coord * F::from(1 << i);
             }
-            dbg!(eval);
             Ok(eval)
         });
         let right_ind_oracle =
@@ -432,7 +431,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
         let beta_vec = (0..(input.left_table_comm.num_cols() + 1))
-            .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
+            .map(|_| verifier.and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
         let input_left_table_folded_col_com = input

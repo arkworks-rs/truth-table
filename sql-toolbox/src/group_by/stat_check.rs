@@ -211,7 +211,7 @@ fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, P
     stat_col: ArithCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let witness_tr_poly = &super_set_multiplicity_tr_p - &stat_col.activated_data_poly();
-    prover.add_mv_zerocheck_claim(witness_tr_poly.get_id())?;
+    prover.add_mv_zerocheck_claim(witness_tr_poly.id())?;
     Ok(())
 }
 
@@ -293,15 +293,15 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // First check that the output statistics foded with the output categories is
     // the support of the broadcasted column folded with the input categories
     let broadcast_folding_challs: Vec<F> = (0..2)
-        .map(|_| prover.get_and_append_challenge(b"broadcast").unwrap())
+        .map(|_| prover.and_append_challenge(b"broadcast").unwrap())
         .collect();
 
-    let input_target_folded_with_broadcast = fold_polys(
+    let input_tarfolded_with_broadcast = fold_polys(
         &[broadcast_col.clone(), input_table_folded_col.clone()],
         &broadcast_folding_challs,
     );
 
-    let output_target_folded_with_broadcast = fold_polys(
+    let output_tarfolded_with_broadcast = fold_polys(
         &[
             output_table_tarcol.clone(),
             output_table_folded_col.clone(),
@@ -312,13 +312,13 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // Invoke the SuppCheck as a white box
     SuppCheckPIOP::<F, MvPCS, UvPCS>::prove_with_advice(
         prover,
-        &input_target_folded_with_broadcast,
-        &output_target_folded_with_broadcast,
+        &input_tarfolded_with_broadcast,
+        &output_tarfolded_with_broadcast,
         &common_mset_supp_m,
     )?;
 
     // Second check that the maximum value does actually appear in the input data
-    let chall = prover.get_and_append_challenge(b"max_min").unwrap();
+    let chall = prover.and_append_challenge(b"max_min").unwrap();
     let data_poly = input_table_folded_col.data_poly()
         + &(&(&broadcasted_stat_tr_poly - input_table_tarcol.data_poly()) * (chall));
     let super_col = ArithCol::new(
@@ -382,10 +382,10 @@ fn verify_max_min_stat<
     // First check that the output statistics foded with the output categories is
     // the support of the broadcasted column folded with the input categories
     let broadcast_folding_challs: Vec<F> = (0..2)
-        .map(|_| verifier.get_and_append_challenge(b"broadcast").unwrap())
+        .map(|_| verifier.and_append_challenge(b"broadcast").unwrap())
         .collect();
 
-    let input_target_folded_with_broadcast = fold_coms(
+    let input_tarfolded_with_broadcast = fold_coms(
         &[
             broadcast_col_comm.clone(),
             input_table_folded_col_comm.clone(),
@@ -393,7 +393,7 @@ fn verify_max_min_stat<
         &broadcast_folding_challs,
     );
 
-    let output_target_folded_with_broadcast = fold_coms(
+    let output_tarfolded_with_broadcast = fold_coms(
         &[
             output_table_tarcol_comm.clone(),
             output_table_folded_col_comm.clone(),
@@ -404,13 +404,13 @@ fn verify_max_min_stat<
     // Invoke the SuppCheck as a white box
     SuppCheckPIOP::<F, MvPCS, UvPCS>::verify_with_advice(
         verifier,
-        &input_target_folded_with_broadcast,
-        &output_target_folded_with_broadcast,
+        &input_tarfolded_with_broadcast,
+        &output_tarfolded_with_broadcast,
         &common_mset_supp_m,
     )?;
 
     // Second check that the maximum value does actually appear in the input data
-    let chall = verifier.get_and_append_challenge(b"max_min").unwrap();
+    let chall = verifier.and_append_challenge(b"max_min").unwrap();
     let data_poly = &input_table_folded_col_comm.inner
         + &(&(&broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner) * (chall));
     let super_col_comm = ColCom::new(
@@ -457,7 +457,7 @@ fn build_output_category_stat_map<
     output_table_folded_col: &ArithCol<F, MvPCS, UvPCS>,
 ) -> BTreeMap<F, F> {
     let mut output_category_stat_map = BTreeMap::new();
-    let output_table_target_eval = output_table_tarcol.data_poly().evaluations();
+    let output_table_tareval = output_table_tarcol.data_poly().evaluations();
     let output_table_folded_evals = output_table_folded_col.data_poly().evaluations();
     match output_table_folded_col.actvtr_poly() {
         Some(actv) => {
@@ -468,7 +468,7 @@ fn build_output_category_stat_map<
                 .enumerate()
                 .for_each(|(i, category)| {
                     if actv_evals[i].is_one() {
-                        output_category_stat_map.insert(*category, output_table_target_eval[i]);
+                        output_category_stat_map.insert(*category, output_table_tareval[i]);
                     }
                 });
         },
@@ -476,7 +476,7 @@ fn build_output_category_stat_map<
             .iter()
             .enumerate()
             .for_each(|(i, category)| {
-                output_category_stat_map.insert(*category, output_table_target_eval[i]);
+                output_category_stat_map.insert(*category, output_table_tareval[i]);
             }),
     };
     output_category_stat_map

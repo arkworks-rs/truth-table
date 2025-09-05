@@ -129,7 +129,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         batch_inversion(&mut sum_evals);
         let inverted_sum_poly =
             prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-                sum_poly.get_log_size(),
+                sum_poly.log_size(),
                  sum_evals,
             ))?;
 
@@ -155,8 +155,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let zero_check_poly: TrackedPoly<F, MvPCS, UvPCS> = &(&p * &sum_poly) - &q;
         let zero_check_poly_2 = &q - &input.res_activator_poly;
 
-        prover.add_mv_zerocheck_claim(zero_check_poly.get_id())?;
-        prover.add_mv_zerocheck_claim(zero_check_poly_2.get_id())?;
+        prover.add_mv_zerocheck_claim(zero_check_poly.id())?;
+        prover.add_mv_zerocheck_claim(zero_check_poly_2.id())?;
 
         Ok(())
     }
