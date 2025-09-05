@@ -81,7 +81,7 @@ where PCS: PCS<F> {
         Ok(())
     }
 
-    pub fn verify(
+    pub fn verify_inner(
         verifier: &mut Verifier<F, PCS>,
         col_a: &ColCom<F, PCS>,
         col_b: &ColCom<F, PCS>,

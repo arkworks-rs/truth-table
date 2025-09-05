@@ -129,7 +129,7 @@ where
         Ok(InclusionCheckProverOutput { super_col_m })
     }
 
-    fn verify(
+    fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {

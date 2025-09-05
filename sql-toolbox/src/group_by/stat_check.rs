@@ -155,7 +155,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     #[timed]
-    fn verify(
+    fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {

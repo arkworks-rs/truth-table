@@ -16,6 +16,7 @@ use super::{FoldCheckPIOP, FoldCheckProverInput, FoldCheckVerifierInput};
 // Sets up randomized inputs for testing EqCheck
 #[test]
 fn test_fold_check() -> SnarkResult<()> {
+    // Ensure tracing subscriber is initialized once for test output
     let mut rng = test_rng();
     let nv = 8;
     let num = 8;

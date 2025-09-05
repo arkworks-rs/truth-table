@@ -88,6 +88,7 @@ fn nozero_test_helper<
     values: Vec<Fr>,
     actv_values: Option<Vec<Fr>>,
 ) -> SnarkResult<()> {
+    // Ensure tracing subscriber is initialized once for test output
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
     let inner = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
     let actv = match actv_values {

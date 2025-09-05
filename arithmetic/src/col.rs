@@ -7,7 +7,7 @@ use ark_piop::{
     pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
-    verifier::structs::oracle::TrackedOracle,
+    verifier::{structs::oracle::TrackedOracle, Verifier},
 };
 use datafusion::arrow::{
     array::{Int32Array, Int64Array},
@@ -185,6 +185,24 @@ where
     }
     pub fn num_vars(&self) -> usize {
         self.num_vars
+    }
+
+    /// Returns the data polynomial of the column
+    pub fn data_com(&self) -> &TrackedOracle<F, MvPCS, UvPCS> {
+        &self.inner
+    }
+    /// Returns the activator polynomial of the column
+    pub fn actvtr_com(&self) -> Option<&TrackedOracle<F, MvPCS, UvPCS>> {
+        self.actv.as_ref()
+    }
+
+    pub fn data_type(&self) -> Option<DataType> {
+        self.data_type.clone()
+    }
+
+    /// Returns a reference to the tracker of the column
+    pub fn tracker_ref(&self) -> Verifier<F, MvPCS, UvPCS> {
+        Verifier::new_from_tracker_rc(self.inner.tracker.clone())
     }
     /// Returns the effective polynomial of the column, which is the product of
     /// the activator and the column polynomial

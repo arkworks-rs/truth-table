@@ -100,7 +100,7 @@ where PCS: PCS<F> {
         Ok(res_table)
     }
 
-    pub fn verify(
+    pub fn verify_inner(
         verifier: &mut Verifier<F, PCS>,
         table_a: &TableComm<F, PCS>, // primary key table, no duplicates
         table_b: &TableComm<F, PCS>, // foreign key table, has duplicates

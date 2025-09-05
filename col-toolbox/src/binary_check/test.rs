@@ -87,6 +87,7 @@ fn binary_check_test_helper<
     nv: usize,
     actv_values: Vec<Fr>,
 ) -> SnarkResult<()> {
+    // Ensure tracing subscriber is initialized once for test output
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
     let actv =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &actv_values))?;
