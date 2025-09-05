@@ -26,7 +26,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let binary_check_input = BinaryCheckProverInput {
             activator: input
                 .output_table
-                .get_actvtr_poly()
+                .actvtr_poly()
                 .as_ref()
                 .unwrap()
                 .clone(),
@@ -48,13 +48,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => {
                 let input_col = input.query_input_table.get_col(col_ind);
-                let in_data_vec = input_col.get_data_poly().evaluations();
+                let in_data_vec = input_col.data_poly().evaluations();
                 let output_col = input.query_output_table.get_col(col_ind);
-                let out_data_vec = output_col.get_data_poly().evaluations();
+                let out_data_vec = output_col.data_poly().evaluations();
                 let all_one_vec = vec![F::one(); in_data_vec.len()];
                 let filter_closure = |x: F| x == filter;
                 let (in_actv_vec, out_actv_vec) =
-                    match (input_col.get_actvtr_poly(), output_col.get_actvtr_poly()) {
+                    match (input_col.actvtr_poly(), output_col.actvtr_poly()) {
                         (None, None) => (all_one_vec.clone(), all_one_vec),
                         (Some(input_actv), None) => {
                             let input_actv_vec = input_actv.evaluations();

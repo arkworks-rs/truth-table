@@ -198,9 +198,9 @@ where
         m: Option<TrackedPoly<F, MvPCS, UvPCS>>,
         gamma: F,
     ) -> SnarkResult<()> {
-        let nv = col.get_num_vars();
+        let nv = col.num_vars();
         // construct phat = 1/(col.p(x) - gamma), i.e. the denominator of the sum
-        let p = col.get_data_poly();
+        let p = col.data_poly();
         let mut p_evals = p.evaluations().to_vec();
         let mut p_minus_gamma: Vec<F> = p_evals.iter_mut().map(|x| *x - gamma).collect();
         let phat_evals = p_minus_gamma.as_mut_slice();
@@ -210,7 +210,7 @@ where
         // calculate what the final sum should be
         let mut v = F::zero();
         let phat = tracker.track_and_commit_mat_mv_poly(&phat_mle)?;
-        let (sumcheck_challenge_poly, v) = match (col.get_actvtr_poly().as_ref(), m) {
+        let (sumcheck_challenge_poly, v) = match (col.actvtr_poly().as_ref(), m) {
             (Some(actv), Some(m)) => {
                 let selector_evals = &actv.evaluations();
                 let m_evals = m.evaluations();

@@ -73,7 +73,7 @@ where
         let defraged_in_col = Defragmenter::defrag_col(tracker, in_col)?;
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_col.get_data_poly().get_log_size();
+        let num_vars = defraged_in_col.data_poly().get_log_size();
         // The size of all the polynomials in this protocol, i.e. 2^num_vars
         let poly_size = 2_i32.pow(num_vars as u32) as usize;
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
@@ -84,19 +84,19 @@ where
         ///////////////////// Compute the deduplicated polynomial /////////////////////
         // TODO: Make sure the randomness is provided safely
 
-        let dedup_mle = if let Some(actvtr_poly) = defraged_in_col.get_actvtr_poly() {
+        let dedup_mle = if let Some(actvtr_poly) = defraged_in_col.actvtr_poly() {
             let mut rng = ark_std::test_rng();
             let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
             let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
                 tracker.track_and_commit_mat_mv_poly(&dedup_mle)?;
             let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                &(&dedup_tr_p - defraged_in_col.get_data_poly()) * actvtr_poly;
+                &(&dedup_tr_p - defraged_in_col.data_poly()) * actvtr_poly;
             tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.get_id())?;
             dedup_mle
         } else {
             MLE::from_evaluations_vec(
-                defraged_in_col.get_num_vars(),
-                defraged_in_col.get_data_poly().evaluations(),
+                defraged_in_col.num_vars(),
+                defraged_in_col.data_poly().evaluations(),
             )
         };
 
@@ -230,12 +230,12 @@ fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<
     in_col: &ArithCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<MLE<F>> {
     // TODO: Fix this
-    let mut evals = in_col.get_data_poly().evaluations();
+    let mut evals = in_col.data_poly().evaluations();
     let random_values: Vec<F> = (0..evals.len()).map(|_| F::rand(rng)).collect();
 
-    if let Some(actvtr_poly) = in_col.get_actvtr_poly() {
+    if let Some(actvtr_poly) = in_col.actvtr_poly() {
         evals = in_col
-            .get_data_poly()
+            .data_poly()
             .evaluations()
             .par_iter()
             .zip(actvtr_poly.evaluations().par_iter())
@@ -251,7 +251,7 @@ fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<
     }
 
     Ok(MLE::from_evaluations_vec(
-        in_col.get_data_poly().get_log_size(),
+        in_col.data_poly().get_log_size(),
         evals,
     ))
 }

@@ -61,7 +61,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let binary_check_input = BinaryCheckProverInput {
             activator: input
                 .output_table
-                .get_actvtr_poly()
+                .actvtr_poly()
                 .as_ref()
                 .unwrap()
                 .clone(),
@@ -89,7 +89,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let binary_check_input = BinaryCheckVerifierInput {
             activator_comm: input
                 .output_table_comm
-                .get_actvtr_poly()
+                .actvtr_poly()
                 .as_ref()
                 .unwrap()
                 .clone(),

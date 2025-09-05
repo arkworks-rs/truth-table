@@ -72,26 +72,26 @@ where
 
     /// Returns the number of variables of the column polynomial
     /// It is log_2 of the maximum capacity of the column
-    pub fn get_num_vars(&self) -> usize {
+    pub fn num_vars(&self) -> usize {
         self.data_poly.get_log_size()
     }
 
     /// Returns the data polynomial of the column
-    pub fn get_data_poly(&self) -> &TrackedPoly<F, MvPCS, UvPCS> {
+    pub fn data_poly(&self) -> &TrackedPoly<F, MvPCS, UvPCS> {
         &self.data_poly
     }
 
     /// Returns the activator polynomial of the column
-    pub fn get_actvtr_poly(&self) -> Option<&TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn actvtr_poly(&self) -> Option<&TrackedPoly<F, MvPCS, UvPCS>> {
         self.actvtr_poly.as_ref()
     }
 
-    pub fn get_data_type(&self) -> Option<DataType> {
+    pub fn data_type(&self) -> Option<DataType> {
         self.data_type.clone()
     }
 
     /// Returns a reference to the tracker of the column
-    pub fn get_tracker_ref(&self) -> Prover<F, MvPCS, UvPCS> {
+    pub fn tracker_ref(&self) -> Prover<F, MvPCS, UvPCS> {
         Prover::new_from_tracker_rc(self.data_poly.get_tracker())
     }
 

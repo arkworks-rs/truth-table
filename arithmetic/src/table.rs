@@ -153,7 +153,7 @@ where
         self.schema.clone()
     }
 
-    pub fn get_actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
         self.actvtr_poly.clone()
     }
 }
@@ -259,12 +259,10 @@ where
     pub fn get_schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
-    pub fn get_actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
         self.actvtr.clone()
     }
-    pub fn get_num_vars(&self) -> usize {
-        self.num_vars
-    }
+
 }
 
 pub async fn fieldify_df<F: PrimeField>(df: DataFrame) -> Result<Vec<Vec<F>>, EncodeError> {

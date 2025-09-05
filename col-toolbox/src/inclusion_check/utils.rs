@@ -20,18 +20,18 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let included_col_evals = included_col.get_data_poly().evaluations();
-    let super_col_evals = super_col.get_data_poly().evaluations();
+    let included_col_evals = included_col.data_poly().evaluations();
+    let super_col_evals = super_col.data_poly().evaluations();
 
-    let super_col_nv = super_col.get_num_vars();
+    let super_col_nv = super_col.num_vars();
     let super_col_len = super_col_evals.len();
 
     let super_col_actv_evals = super_col
-        .get_actvtr_poly()
+        .actvtr_poly()
         .as_ref()
         .map(|sel| sel.evaluations());
 
-    let mut included_col_mults_map = match included_col.get_actvtr_poly() {
+    let mut included_col_mults_map = match included_col.actvtr_poly() {
         Some(sel) => vec_multiplicity_count::<F>(&included_col_evals, Some(&sel.evaluations())),
         None => vec_multiplicity_count::<F>(&included_col_evals, None),
     };

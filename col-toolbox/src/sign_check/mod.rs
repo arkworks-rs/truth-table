@@ -88,7 +88,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed("sign:", prover_input.sign, "type:", prover_input.col.get_data_type())]
+    #[timed("sign:", prover_input.sign, "type:", prover_input.col.data_type())]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
@@ -186,9 +186,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         col: &ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let negated_col = ArithCol::new(
-            col.get_data_type().clone(),
-            &col.get_data_poly().clone() * (-F::one()),
-            col.get_actvtr_poly().cloned(),
+            col.data_type().clone(),
+            &col.data_poly().clone() * (-F::one()),
+            col.actvtr_poly().cloned(),
         );
         Self::prove_non_neg(prover, &negated_col)?;
         Ok(())
@@ -211,7 +211,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        match col.get_data_type().as_ref().unwrap() {
+        match col.data_type().as_ref().unwrap() {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: col.clone(),
@@ -456,7 +456,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.get_data_poly().evaluations();
+        let col_inner_evals = col.data_poly().evaluations();
         let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
             .map(|eval| {
                 let big = eval.into_bigint(); // Returns BigInteger representation
@@ -467,35 +467,35 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .unzip();
 
         let high_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.get_num_vars(),
+            col.num_vars(),
             high_vals,
         ))?;
         let low_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.get_num_vars(),
+            col.num_vars(),
             low_vals,
         ))?;
 
-        let zero_tr_p = match &col.get_actvtr_poly() {
+        let zero_tr_p = match &col.actvtr_poly() {
             Some(actv) => {
                 let combined =
-                    col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                    col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
                 &combined * *actv
             },
-            None => col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+            None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             ArithCol::new(
-                col.get_data_type().clone(),
+                col.data_type().clone(),
                 high_tr_p,
-                col.get_actvtr_poly().cloned(),
+                col.actvtr_poly().cloned(),
             ),
             ArithCol::new(
-                col.get_data_type().clone(),
+                col.data_type().clone(),
                 low_tr_p,
-                col.get_actvtr_poly().cloned(),
+                col.actvtr_poly().cloned(),
             ),
         ))
     }
@@ -540,7 +540,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.get_data_poly().evaluations();
+        let col_inner_evals = col.data_poly().evaluations();
         let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
             .map(|eval| {
                 let big = eval.into_bigint(); // Returns BigInteger representation
@@ -551,35 +551,35 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .unzip();
 
         let high_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.get_num_vars(),
+            col.num_vars(),
             high_vals,
         ))?;
         let low_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.get_num_vars(),
+            col.num_vars(),
             low_vals,
         ))?;
 
-        let zero_tr_p = match &col.get_actvtr_poly() {
+        let zero_tr_p = match &col.actvtr_poly() {
             Some(actv) => {
                 let combined =
-                    col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                    col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
                 &combined * *actv
             },
-            None => col.get_data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+            None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.get_id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             ArithCol::new(
-                col.get_data_type().clone(),
+                col.data_type().clone(),
                 high_tr_p,
-                col.get_actvtr_poly().cloned(),
+                col.actvtr_poly().cloned(),
             ),
             ArithCol::new(
-                col.get_data_type().clone(),
+                col.data_type().clone(),
                 low_tr_p,
-                col.get_actvtr_poly().cloned(),
+                col.actvtr_poly().cloned(),
             ),
         ))
     }

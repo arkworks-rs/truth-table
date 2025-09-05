@@ -61,7 +61,7 @@ fn test_fold_check() -> SnarkResult<()> {
     let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.get_id())?;
     let folded_comm = ColCom::new(
         None,
-        verifier.track_mv_com_by_id(folded_tracked_poly.get_data_poly().get_id())?,
+        verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().get_id())?,
         Some(actvm.clone()),
         actv_tracked_mle.get_log_size(),
     );
@@ -71,7 +71,7 @@ fn test_fold_check() -> SnarkResult<()> {
             ColCom::new(
                 None,
                 verifier
-                    .track_mv_com_by_id(col.get_data_poly().get_id())
+                    .track_mv_com_by_id(col.data_poly().get_id())
                     .unwrap(),
                 Some(actvm.clone()),
                 actv_tracked_mle.get_log_size(),

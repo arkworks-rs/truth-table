@@ -232,17 +232,17 @@ fn inclusion_check_test_helper<
     };
 
     let included_col_comm = ColCom::new(
-        included_col.get_data_type(),
+        included_col.data_type(),
         included_col_comm,
         included_col_actv_comm,
-        included_col.get_num_vars(),
+        included_col.num_vars(),
     );
 
     let super_col_comm = ColCom::new(
-        super_col.get_data_type(),
+        super_col.data_type(),
         super_col_comm,
         super_col_actv_comm,
-        super_col.get_num_vars(),
+        super_col.num_vars(),
     );
 
     let inclusion_check_verifier_input = InclusionCheckVerifierInput {

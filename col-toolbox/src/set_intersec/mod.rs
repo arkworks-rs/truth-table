@@ -183,23 +183,23 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The union and the intersections should be of the same size, bcause of how
         // this protocol works
         assert_eq!(
-            input.col_inter.get_num_vars(),
-            input.col_union.get_num_vars()
+            input.col_inter.num_vars(),
+            input.col_union.num_vars()
         );
         // The union should not have any duplicates
 
         NoDupPIOP::prove(prover, &input.col_union)?;
 
         let mgx = match (
-            input.col_inter.get_actvtr_poly(),
-            input.col_union.get_actvtr_poly(),
+            input.col_inter.actvtr_poly(),
+            input.col_union.actvtr_poly(),
         ) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
             (Some(mgx), None) => Some(mgx + F::one()),
             (None, Some(ugx)) => Some(ugx + F::one()),
             (None, None) => Some(prover.track_mat_mv_poly(MLE::from_evaluations_vec(
-                input.col_union.get_num_vars(),
-                vec![F::from(2); 1 << input.col_union.get_num_vars()],
+                input.col_union.num_vars(),
+                vec![F::from(2); 1 << input.col_union.num_vars()],
             ))),
         };
 
@@ -212,8 +212,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
 
-        let diff_poly = input.col_union.get_data_poly() - input.col_inter.get_data_poly();
-        let zero_poly = match input.col_inter.get_actvtr_poly() {
+        let diff_poly = input.col_union.data_poly() - input.col_inter.data_poly();
+        let zero_poly = match input.col_inter.actvtr_poly() {
             Some(p) => p * &diff_poly,
             None => diff_poly,
         };

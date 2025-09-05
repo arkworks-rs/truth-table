@@ -160,7 +160,7 @@ where
         super_col: &ArithCol<F, MvPCS, UvPCS>,
         super_col_m: &TrackedPoly<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let nv = included_col.get_num_vars();
+        let nv = included_col.num_vars();
 
         // initialize multiplicity vector
         let one_const_mle = MLE::from_evaluations_vec(nv, vec![F::one(); 2_usize.pow(nv as u32)]);

@@ -81,14 +81,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let col_poly = prover_input.col.get_data_poly().clone();
-        let col_sel = prover_input.col.get_actvtr_poly();
-        let col_poly_evals = prover_input.col.get_data_poly().evaluations();
+        let col_poly = prover_input.col.data_poly().clone();
+        let col_sel = prover_input.col.actvtr_poly();
+        let col_poly_evals = prover_input.col.data_poly().evaluations();
         let mut eval_inverses: Vec<F> = col_poly_evals.clone();
 
         batch_inversion(&mut eval_inverses);
         let inverses_mle =
-            MLE::from_evaluations_vec(prover_input.col.get_num_vars(), eval_inverses);
+            MLE::from_evaluations_vec(prover_input.col.num_vars(), eval_inverses);
 
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;

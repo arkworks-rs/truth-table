@@ -215,17 +215,17 @@ fn supp_check_test_helper<
     };
 
     let col_comm = ColCom::new(
-        col.get_data_type(),
+        col.data_type(),
         col_comm,
         col_actv_comm,
-        col.get_num_vars(),
+        col.num_vars(),
     );
 
     let supp_col_comm = ColCom::new(
-        supp_col.get_data_type(),
+        supp_col.data_type(),
         supp_col_comm,
         supp_col_actv_comm,
-        supp_col.get_num_vars(),
+        supp_col.num_vars(),
     );
 
     let supp_check_verifier_input = SuppCheckVerifierInput {

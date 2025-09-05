@@ -18,10 +18,10 @@ pub fn calc_supp_check_advice<
 where
     MvPCS:,
 {
-    let col_nv = col.get_num_vars();
+    let col_nv = col.num_vars();
     let col_len = 2_usize.pow(col_nv as u32);
-    let col_poly_evals = col.get_data_poly().evaluations();
-    let col_sel_evals = col.get_actvtr_poly().as_ref().unwrap().evaluations();
+    let col_poly_evals = col.data_poly().evaluations();
+    let col_sel_evals = col.actvtr_poly().as_ref().unwrap().evaluations();
 
     // sort ascending with col_sel = 0 at the end
     let mut indices: Vec<usize> = (0..col_len).collect();

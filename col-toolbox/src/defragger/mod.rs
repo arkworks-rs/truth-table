@@ -38,11 +38,11 @@ where
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<ArithCol<F, MvPCS, UvPCS>> {
-        if col.get_actvtr_poly().is_none() {
+        if col.actvtr_poly().is_none() {
             return Ok(col.clone());
         }
         let new_col_size_f: F = col
-            .get_actvtr_poly()
+            .actvtr_poly()
             .as_ref()
             .unwrap()
             .evaluations()
@@ -57,10 +57,10 @@ where
 
         let mut new_actv_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
         let mut new_inner_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
-        col.get_data_poly()
+        col.data_poly()
             .evaluations()
             .iter()
-            .zip(col.get_actvtr_poly().as_ref().unwrap().evaluations().iter())
+            .zip(col.actvtr_poly().as_ref().unwrap().evaluations().iter())
             .for_each(|(val, actv)| {
                 if actv.is_one() {
                     new_actv_evals.push(F::one());
@@ -70,7 +70,7 @@ where
         new_actv_evals.resize(1 << new_nv, F::zero());
         new_inner_evals.resize(1 << new_nv, F::zero());
         let new_col = ArithCol::new(
-            col.get_data_type(),
+            col.data_type(),
             tracker.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
                 new_nv,
                 new_inner_evals,

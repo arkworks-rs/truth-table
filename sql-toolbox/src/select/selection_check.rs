@@ -152,24 +152,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         filter: F,
     ) -> (ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>) {
         let selected_actv = input_col
-            .get_actvtr_poly()
+            .actvtr_poly()
             .unwrap()
-            * (output_col.get_actvtr_poly().unwrap());
+            * (output_col.actvtr_poly().unwrap());
 
-        let complement = output_col.get_actvtr_poly().unwrap() * (-F::one());
+        let complement = output_col.actvtr_poly().unwrap() * (-F::one());
         let complement = &complement + F::one();
         let non_selected_actv =
-            input_col.get_actvtr_poly().unwrap() * &complement;
-        let shifted_inner = (input_col.get_data_poly()) - filter;
+            input_col.actvtr_poly().unwrap() * &complement;
+        let shifted_inner = (input_col.data_poly()) - filter;
 
         (
             ArithCol::new(
-                input_col.get_data_type().clone(),
+                input_col.data_type().clone(),
                 shifted_inner.clone(),
                 Some(selected_actv),
             ),
             ArithCol::new(
-                input_col.get_data_type().clone(),
+                input_col.data_type().clone(),
                 shifted_inner,
                 Some(non_selected_actv),
             ),
@@ -381,8 +381,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         output_col: ArithCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<ArithCol<F, MvPCS, UvPCS>> {
         // let mut selected_hash_set: HashSet<F> = HashSet::new();
-        let output_inner_evals = output_col.get_data_poly().evaluations();
-        let selected_hash_set: HashSet<F> = match output_col.get_actvtr_poly() {
+        let output_inner_evals = output_col.data_poly().evaluations();
+        let selected_hash_set: HashSet<F> = match output_col.actvtr_poly() {
             Some(ref actv_tr_p) => {
                 let output_actv_evals = actv_tr_p.evaluations();
                 cfg_iter!(output_actv_evals)
@@ -407,8 +407,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     .collect::<HashSet<F>>()
             },
         };
-        let mut broadcasted_selector_evals = vec![F::zero(); 1 << input_col.get_num_vars()]; // Initialize with zeroes
-        let input_inner_evals = input_col.get_data_poly().evaluations(); // Get the inner evaluations of the input column
+        let mut broadcasted_selector_evals = vec![F::zero(); 1 << input_col.num_vars()]; // Initialize with zeroes
+        let input_inner_evals = input_col.data_poly().evaluations(); // Get the inner evaluations of the input column
         cfg_iter_mut!(broadcasted_selector_evals)
             .zip(cfg_iter!(input_inner_evals)) // Zip the broadcasted selector evaluations with the input inner evaluations
             .for_each(|(broadcast_eval, inner_eval)| {
@@ -418,12 +418,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 }
             });
         let broadcasted_selector_mle =
-            MLE::from_evaluations_vec(input_col.get_num_vars(), broadcasted_selector_evals.clone());
+            MLE::from_evaluations_vec(input_col.num_vars(), broadcasted_selector_evals.clone());
 
         let broadcasted_actv = prover.track_and_commit_mat_mv_poly(&broadcasted_selector_mle)?;
         Ok(ArithCol::new(
-            input_col.get_data_type(),
-            input_col.get_data_poly().clone(),
+            input_col.data_type(),
+            input_col.data_poly().clone(),
             Some(broadcasted_actv),
         ))
     }

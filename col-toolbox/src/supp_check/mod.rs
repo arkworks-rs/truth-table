@@ -198,7 +198,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let supp_no_dups_checker = ArithCol::new(
             None,
             common_mset_supp_m.clone(),
-            supp.get_actvtr_poly().cloned(),
+            supp.actvtr_poly().cloned(),
         );
         let no_zeros_check_prover_input = NoZerosCheckProverInput {
             col: supp_no_dups_checker,

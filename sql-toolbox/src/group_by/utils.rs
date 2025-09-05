@@ -12,17 +12,17 @@ pub fn fold_polys<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
     challs: &[F],
 ) -> ArithCol<F, MvPCS, UvPCS> {
     let folding_size = cols.len();
-    let actv = cols[0].get_actvtr_poly().clone();
+    let actv = cols[0].actvtr_poly().clone();
     #[cfg(debug_assertions)]
     {
         debug_assert_eq!(folding_size, challs.len());
         for col in cols.iter() {
-            debug_assert_eq!(col.get_actvtr_poly(), actv);
+            debug_assert_eq!(col.actvtr_poly(), actv);
         }
     }
-    let mut folded: TrackedPoly<F, MvPCS, UvPCS> = cols[0].get_data_poly() * challs[0];
+    let mut folded: TrackedPoly<F, MvPCS, UvPCS> = cols[0].data_poly() * challs[0];
     for i in 1..cols.len() {
-        folded += &(cols[i].get_data_poly() * challs[i]);
+        folded += &(cols[i].data_poly() * challs[i]);
     }
     ArithCol::new(None, folded, actv.cloned())
 }

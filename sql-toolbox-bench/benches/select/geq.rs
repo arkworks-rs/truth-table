@@ -70,14 +70,14 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         // Commit tables
         let input_table_comm = TableComm::from(input_table, &mut verifier);
         let output_actv = output_table
-            .get_actvtr_poly()
+            .actvtr_poly()
             .map(|actv| verifier.track_mv_com_by_id(actv.get_id()).unwrap());
 
         let output_table_comm = TableComm::new(
             input_table_comm.get_schema(),
             input_table_comm.get_col_vals(),
             output_actv,
-            input_table_comm.get_num_vars(),
+            input_table_comm.num_vars(),
         );
 
         let verifier_input = SelectVerifierInput {
