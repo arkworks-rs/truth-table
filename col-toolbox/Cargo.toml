@@ -22,6 +22,7 @@ datafusion = { workspace = true }
 [dev-dependencies]
 ark-ec = { workspace = true }
 ark-test-curves = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }
 
 
 [features]

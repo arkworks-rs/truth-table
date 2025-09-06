@@ -11,15 +11,13 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
-    structs::TrackerID,
-    timed,
+    prover::Prover,
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
-use rayon::vec;
+use derivative::Derivative;
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
@@ -39,6 +37,8 @@ pub struct SetInterUnionCheckPIOP<
     #[doc(hidden)] PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct SetInterUnionProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -84,7 +84,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     type VerifierInput = SetInterUnionVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         use ark_piop::{
@@ -175,25 +174,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         Ok(())
     }
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<()> {
         // The union and the intersections should be of the same size, bcause of how
         // this protocol works
-        assert_eq!(
-            input.col_inter.num_vars(),
-            input.col_union.num_vars()
-        );
+        assert_eq!(input.col_inter.num_vars(), input.col_union.num_vars());
         // The union should not have any duplicates
 
         NoDupPIOP::prove(prover, &input.col_union)?;
 
-        let mgx = match (
-            input.col_inter.actvtr_poly(),
-            input.col_union.actvtr_poly(),
-        ) {
+        let mgx = match (input.col_inter.actvtr_poly(), input.col_union.actvtr_poly()) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
             (Some(mgx), None) => Some(mgx + F::one()),
             (None, Some(ugx)) => Some(ugx + F::one()),
@@ -222,7 +214,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,

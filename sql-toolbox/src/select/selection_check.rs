@@ -10,7 +10,6 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
 use ark_std::{cfg_iter, cfg_iter_mut, end_timer, start_timer};
@@ -18,6 +17,7 @@ use col_toolbox::{
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
     sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
 };
+use derivative::Derivative;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
@@ -32,6 +32,8 @@ pub struct SelectionCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct SelectionCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -72,7 +74,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierOutput = ();
     type VerifierInput = SelectionCheckVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         match input.select_conf.where_clause {
@@ -83,7 +84,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -112,7 +112,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
@@ -145,21 +144,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     SelectionCheckPIOP<F, MvPCS, UvPCS>
 {
-    #[timed]
     fn build_selected_and_non_selected_cols(
         input_col: &ArithCol<F, MvPCS, UvPCS>,
         output_col: &ArithCol<F, MvPCS, UvPCS>,
         filter: F,
     ) -> (ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>) {
-        let selected_actv = input_col
-            .actvtr_poly()
-            .unwrap()
-            * (output_col.actvtr_poly().unwrap());
+        let selected_actv = input_col.actvtr_poly().unwrap() * (output_col.actvtr_poly().unwrap());
 
         let complement = output_col.actvtr_poly().unwrap() * (-F::one());
         let complement = &complement + F::one();
-        let non_selected_actv =
-            input_col.actvtr_poly().unwrap() * &complement;
+        let non_selected_actv = input_col.actvtr_poly().unwrap() * &complement;
         let shifted_inner = (input_col.data_poly()) - filter;
 
         (
@@ -176,7 +170,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         )
     }
 
-    #[timed]
     fn build_selected_and_non_selected_col_comms(
         input_col_comm: &ColCom<F, MvPCS, UvPCS>,
         output_col_comm: &ColCom<F, MvPCS, UvPCS>,
@@ -206,7 +199,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         )
     }
 
-    #[timed]
     fn prove_eq_selection(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input_col: ArithCol<F, MvPCS, UvPCS>,
@@ -227,7 +219,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_eq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input_col_comm: ColCom<F, MvPCS, UvPCS>,
@@ -374,7 +365,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn broadcast_actv_col(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input_col: ArithCol<F, MvPCS, UvPCS>,

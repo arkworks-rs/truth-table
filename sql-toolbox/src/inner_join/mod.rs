@@ -15,7 +15,6 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{Prover, structs::polynomial::TrackedPoly},
-    timed,
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -42,6 +41,8 @@ pub struct InnerJoinPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct InnerJoinProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -108,14 +109,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierInput = InnerJoinVerifierInput<F, MvPCS, UvPCS>;
     type VerifierOutput = ();
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // TODO: honest-prover check
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -300,7 +299,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
@@ -443,7 +441,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             for (i, coord) in point.iter().take(nv).enumerate() {
                 eval += *coord * F::from(1 << i);
             }
-            dbg!(eval);
             Ok(eval)
         });
         let left_ind_oracle = verifier.track_oracle(Oracle::Multivariate(left_ind_closure.clone()));

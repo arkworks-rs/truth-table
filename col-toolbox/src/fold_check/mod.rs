@@ -15,16 +15,18 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
 use std::marker::PhantomData;
+use derivative::Derivative;
 pub struct FoldCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct FoldCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -78,7 +80,6 @@ where
     type VerifierInput = FoldCheckVerifierInput<F, MvPCS, UvPCS>;
     type VerifierOutput = ();
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         use ark_piop::{
@@ -118,7 +119,6 @@ where
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,

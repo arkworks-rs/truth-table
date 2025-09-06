@@ -16,18 +16,20 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{Prover, structs::polynomial::TrackedPoly},
-    timed,
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
 use std::{marker::PhantomData, sync::Arc};
+use derivative::Derivative;
 use utils::calc_inclusion_multiplicity;
 
 use crate::multiplicity_check::{
     MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
 };
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct InclusionCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -96,7 +98,6 @@ where
 
     type VerifierInput = InclusionCheckVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         use std::collections::HashSet;
@@ -153,7 +154,6 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
     F: PrimeField,
 {
-    #[timed]
     pub fn prove_with_advice(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         included_col: &ArithCol<F, MvPCS, UvPCS>,
@@ -178,7 +178,6 @@ where
         Ok(())
     }
 
-    #[timed]
     pub fn verify_with_advice(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
         included_col: &ColCom<F, MvPCS, UvPCS>,

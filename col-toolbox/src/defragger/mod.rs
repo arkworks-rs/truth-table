@@ -9,7 +9,6 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
 use ark_std::{end_timer, log2};
@@ -33,7 +32,6 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
     F: PrimeField,
 {
-    #[timed]
     pub fn defrag_col(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
@@ -92,7 +90,6 @@ where
         Ok(new_col)
     }
 
-    #[timed]
     pub fn defrag_col_com(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         col_com: &ColCom<F, MvPCS, UvPCS>,

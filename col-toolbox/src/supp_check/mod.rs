@@ -27,10 +27,10 @@ use ark_piop::{
         errors::{HonestProverError, ProverError},
         structs::polynomial::TrackedPoly,
     },
-    timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use ark_std::{end_timer, start_timer};
+use derivative::Derivative;
 use std::marker::PhantomData;
 
 pub struct SuppCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
@@ -38,6 +38,8 @@ pub struct SuppCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
 );
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct SuppCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -101,7 +103,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type ProverOutput = SuppCheckProverOutput<F, MvPCS, UvPCS>;
     type VerifierOutput = SuppCheckVerifierOutput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
@@ -129,7 +130,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
@@ -175,7 +175,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     SuppCheckPIOP<F, MvPCS, UvPCS>
 {
-    #[timed]
     pub fn prove_with_advice(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &ArithCol<F, MvPCS, UvPCS>,
@@ -208,7 +207,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     pub fn verify_with_advice(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         col: &ColCom<F, MvPCS, UvPCS>,

@@ -16,7 +16,6 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{Prover, structs::polynomial::TrackedPoly},
-    timed,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use ark_std::{cfg_iter, cfg_iter_mut, end_timer, start_timer};
@@ -37,11 +36,14 @@ use std::{
     collections::{BTreeMap, HashMap},
     marker::PhantomData,
 };
+use derivative::Derivative;
 pub struct StatCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<F>,
     PhantomData<MvPCS>,
     PhantomData<UvPCS>,
 );
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct StatCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -91,7 +93,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierOutput = ();
     type VerifierInput = StatCheckVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         // Honest prover check is not implemented for this PIOP
@@ -100,7 +101,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -154,7 +154,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
@@ -204,7 +203,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 }
 
-#[timed]
 fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     super_set_multiplicity_tr_p: TrackedPoly<F, MvPCS, UvPCS>,
@@ -215,7 +213,6 @@ fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, P
     Ok(())
 }
 
-#[timed]
 fn verify_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     super_set_multiplicity_tr_comm: TrackedOracle<F, MvPCS, UvPCS>,
@@ -226,7 +223,6 @@ fn verify_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, 
     Ok(())
 }
 
-#[timed]
 fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     input_table_folded_col: ArithCol<F, MvPCS, UvPCS>,
@@ -244,7 +240,6 @@ fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
     MultiplicityCheck::<F, MvPCS, UvPCS>::prove(prover, multiplicity_check_prover_input)
 }
 
-#[timed]
 fn verify_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     input_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
@@ -262,7 +257,6 @@ fn verify_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Po
     MultiplicityCheck::<F, MvPCS, UvPCS>::verify(verifier, multiplicity_check_verifier_input)
 }
 
-#[timed]
 fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     stat_type: AggregationType,
@@ -356,7 +350,6 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     Ok(())
 }
 
-#[timed]
 fn verify_max_min_stat<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -447,7 +440,6 @@ fn verify_max_min_stat<
     Ok(())
 }
 
-#[timed]
 fn build_output_category_stat_map<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -482,7 +474,6 @@ fn build_output_category_stat_map<
     output_category_stat_map
 }
 
-#[timed]
 fn broadcast_stat_evals<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

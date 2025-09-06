@@ -12,10 +12,10 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
 use std::marker::PhantomData;
+use derivative::Derivative;
 
 use crate::multiplicity_check::{
     MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
@@ -29,6 +29,8 @@ pub struct PermPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct PermPIOPProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -68,7 +70,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     type VerifierInput = PermPIOPVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
@@ -91,7 +92,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -107,7 +107,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,

@@ -18,10 +18,8 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
-use ark_std::{end_timer, start_timer};
 use col_toolbox::binary_check::{
     BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput,
 };
@@ -46,13 +44,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierInput = SelectVerifierInput<F, MvPCS, UvPCS>;
     type VerifierOutput = ();
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         Self::honest_prover_check_helper(input)
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -81,7 +77,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,

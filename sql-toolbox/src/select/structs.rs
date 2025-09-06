@@ -25,7 +25,7 @@ pub enum WhereClause<F: PrimeField> {
 }
 
 #[derive(Derivative)]
-#[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
+#[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"), Debug(bound = ""))]
 pub struct SelectProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

@@ -14,17 +14,19 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    timed,
     verifier::Verifier,
 };
 use ark_std::{end_timer, start_timer};
 use std::marker::PhantomData;
+use derivative::Derivative;
 
 pub struct NoZerosCheck<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
 );
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct NoZerosCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -59,10 +61,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type ProverOutput = ();
     type VerifierOutput = ();
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        println!("honest prover check");
         for element in input.col.effective_iter() {
             if element == F::zero() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
@@ -76,7 +76,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
@@ -100,7 +99,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover.add_mv_zerocheck_claim(no_dups_check_poly.id())?;
         Ok(())
     }
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,

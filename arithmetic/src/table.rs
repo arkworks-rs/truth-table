@@ -41,6 +41,23 @@ where
     size: usize,
 }
 
+// Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.
+impl<F, MvPCS, UvPCS> core::fmt::Debug for ArithTable<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ArithTable")
+            .field("num_cols", &self.num_cols())
+            .field("num_vars", &self.num_vars())
+            .field("has_actvtr", &self.actvtr_poly.is_some())
+            .field("size", &self.size)
+            .finish()
+    }
+}
+
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for ArithTable<F, MvPCS, UvPCS>
 where

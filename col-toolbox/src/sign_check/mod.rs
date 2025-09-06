@@ -22,7 +22,6 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    timed,
     verifier::{Verifier, structs::oracle::Oracle},
 };
 use ark_poly::Polynomial;
@@ -30,6 +29,7 @@ use ark_std::{cfg_iter, end_timer, start_timer};
 use datafusion::arrow::datatypes::DataType;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{marker::PhantomData, sync::Arc};
+use derivative::Derivative;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Sign {
@@ -44,6 +44,8 @@ pub struct SignCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS
     PhantomData<MvPCS>,
     PhantomData<UvPCS>,
 );
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct SignCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -81,14 +83,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type ProverOutput = ();
     type VerifierOutput = ();
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // TODO
         Ok(())
     }
 
-    #[timed("sign:", prover_input.sign, "type:", prover_input.col.data_type())]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
@@ -110,7 +110,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,

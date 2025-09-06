@@ -18,7 +18,6 @@ use ark_piop::{
     piop::PIOP,
     prover::{Prover, structs::polynomial::TrackedPoly},
     structs::TrackerID,
-    timed,
     verifier::{
         Verifier,
         errors::VerifierError::{self, VerifierInputShapeError},
@@ -26,6 +25,7 @@ use ark_piop::{
     },
 };
 use std::marker::PhantomData;
+use derivative::Derivative;
 
 pub struct MultiplicityCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
@@ -33,6 +33,8 @@ pub struct MultiplicityCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<UvPCS>,
 );
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct MultiplicityCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -66,13 +68,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     type VerifierInput = MultiplicityCheckVerifierInput<F, MvPCS, UvPCS>;
 
-    #[timed]
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         Self::honest_prover_check_helper(&input)
     }
 
-    #[timed]
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
@@ -82,7 +82,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let gamma = prover.and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
         for i in 0..input.fxs.len() {
-            println!("Proving subclaims for fxs[{}]", i);
             Self::prove_generate_subclaims(
                 prover,
                 input.fxs[i].clone(),
@@ -92,7 +91,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         for i in 0..input.gxs.len() {
-            println!("Proving subclaims for gxs[{}]", i);
             Self::prove_generate_subclaims(
                 prover,
                 input.gxs[i].clone(),
@@ -103,7 +101,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    #[timed]
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
@@ -147,7 +144,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut lhs_v: F = F::zero();
         let mut rhs_v: F = F::zero();
         for i in 0..input.fxs.len() {
-            println!("verifying subclaims for fxs[{}]", i);
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
                 input.fxs[i].clone(),
@@ -160,7 +156,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         for i in 0..input.gxs.len() {
-            println!("verifying subclaims for gxs[{}]", i);
+            
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
                 input.gxs[i].clone(),
@@ -191,7 +187,6 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
     F: PrimeField,
 {
-    #[timed]
     fn prove_generate_subclaims(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         col: ArithCol<F, MvPCS, UvPCS>,
@@ -250,7 +245,6 @@ where
         Ok(())
     }
 
-    #[timed]
     fn verify_generate_subclaims(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
         col: ColCom<F, MvPCS, UvPCS>,

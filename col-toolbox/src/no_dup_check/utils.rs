@@ -7,7 +7,6 @@ use ark_piop::{
         mat_poly::{lde::LDE, mle::MLE},
     },
     errors::{SnarkError, SnarkResult},
-    timed,
 };
 use ark_poly::DenseUVPolynomial;
 use ark_std::{cfg_iter, end_timer, start_timer};
@@ -19,7 +18,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 ///
 /// The caller needs to check num_vars matches in f and g
 /// Cost: linear in N.
-#[timed]
 pub(super) fn compute_product_poly<F: PrimeField>(
     evals: &[F],
     num_vars: usize,
@@ -68,7 +66,6 @@ pub(super) fn compute_product_poly<F: PrimeField>(
 ///
 /// The caller needs to check num_vars matches in f and g
 /// Cost: linear in N.
-#[timed]
 pub(super) fn compute_derivative_poly<F: PrimeField>(
     p_evals: &[F],
     f_evals: &[F],

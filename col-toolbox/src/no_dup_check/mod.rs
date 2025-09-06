@@ -32,7 +32,6 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     prover::{self, Prover, structs::polynomial::TrackedPoly},
-    timed,
     verifier::{Verifier, errors::VerifierError},
 };
 use ark_std::{end_timer, rand::RngCore, start_timer};
@@ -60,7 +59,6 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
     F: PrimeField,
 {
-    #[timed]
     pub fn prove(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         in_col: &ArithCol<F, MvPCS, UvPCS>,
@@ -164,7 +162,7 @@ where
         Ok(())
     }
 
-    // #[timed]
+    // ]
     pub fn verify(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
         in_cm: &ColCom<F, MvPCS, UvPCS>,

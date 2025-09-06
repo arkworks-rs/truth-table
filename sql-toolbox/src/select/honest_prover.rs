@@ -5,7 +5,6 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::errors::{HonestProverError, ProverError},
-    timed,
 };
 use col_toolbox::binary_check::{BinaryCheckPIOP, BinaryCheckProverInput};
 
@@ -19,7 +18,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     SelectCheckPIOP<F, MvPCS, UvPCS>
 {
     #[cfg(feature = "honest-prover")]
-    #[timed]
     pub(crate) fn honest_prover_check_helper(
         input: SelectProverInput<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
@@ -41,7 +39,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     #[cfg(feature = "honest-prover")]
-    #[timed]
     pub(crate) fn selection_honest_prover_check_helper(
         input: SelectionCheckProverInput<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
@@ -85,7 +82,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     #[cfg(feature = "honest-prover")]
-    #[timed]
     fn filter_check_helper<Filter>(
         in_data_vec: impl IntoIterator<Item = F>,
         in_actv_vec: impl IntoIterator<Item = F>,
