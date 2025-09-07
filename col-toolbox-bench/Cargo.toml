@@ -47,4 +47,4 @@ parallel = [
     "rayon",
 ]
 
-honest-prover = []
+honest-prover = ["col-toolbox/honest-prover", "ark-piop/honest-prover"]
