@@ -11,6 +11,7 @@ pub(crate) mod utils;
 use super::no_dup_check::NoDupPIOP;
 use crate::{
     inclusion_check::{InclusionCheckPIOP, utils::calc_inclusion_multiplicity},
+    no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use std::collections::BTreeMap;
@@ -203,7 +204,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             col: supp_no_dups_checker,
         };
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(prover, no_zeros_check_prover_input)?;
-        NoDupPIOP::<F, MvPCS, UvPCS>::prove(prover, supp)?;
+        let no_dup_prover_input = NoDupCheckProverInput { col: supp.clone() };
+        NoDupPIOP::<F, MvPCS, UvPCS>::prove(prover, no_dup_prover_input)?;
         Ok(())
     }
 
@@ -233,8 +235,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             col_comm: supp_no_dups_checker,
         };
         NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
-
-        NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp)?;
+        let no_dup_verifier_input = NoDupCheckVerifierInput {
+            col_comm: supp.clone(),
+        };
+        NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, no_dup_verifier_input)?;
 
         Ok(())
     }

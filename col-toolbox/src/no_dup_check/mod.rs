@@ -31,11 +31,13 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
+    piop::{DeepClone, PIOP},
     prover::{self, Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, errors::VerifierError},
 };
 use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
+use derivative::Derivative;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use utils::{build_root_products, compute_derivative_poly, compute_product_poly, d_dx};
 
@@ -52,22 +54,64 @@ pub struct NoDupPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<UvPCS>,
 );
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> NoDupPIOP<F, MvPCS, UvPCS>
-where
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct NoDupCheckProverInput<
+    F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
-    F: PrimeField,
+> {
+    pub col: ArithCol<F, MvPCS, UvPCS>,
+}
+
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    DeepClone<F, MvPCS, UvPCS> for NoDupCheckProverInput<F, MvPCS, UvPCS>
 {
-    pub fn prove(
-        tracker: &mut Prover<F, MvPCS, UvPCS>,
-        in_col: &ArithCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        #[cfg(debug_assertions)]
-        {
-            // TODO:: Check if the input column is a valid column
+    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+        Self {
+            col: self.col.deep_clone(prover),
         }
+    }
+}
+
+pub struct NoDupCheckVerifierInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub col_comm: ColCom<F, MvPCS, UvPCS>,
+}
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    PIOP<F, MvPCS, UvPCS> for NoDupPIOP<F, MvPCS, UvPCS>
+{
+    type ProverInput = NoDupCheckProverInput<F, MvPCS, UvPCS>;
+    type VerifierInput = NoDupCheckVerifierInput<F, MvPCS, UvPCS>;
+    type ProverOutput = ();
+    type VerifierOutput = ();
+
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        use std::collections::HashSet;
+
+        let mut seen = HashSet::new();
+        for item in input.col.effective_iter() {
+            if !seen.insert(item) {
+                return Err(ark_piop::errors::SnarkError::ProverError(
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn prove_inner(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover_input: Self::ProverInput,
+    ) -> SnarkResult<Self::ProverOutput> {
         ///////////////////// Deduplication check /////////////////////
-        let defraged_in_col = Defragmenter::defrag_col(tracker, in_col)?;
+        let defraged_in_col = Defragmenter::defrag_col(prover, &prover_input.col)?;
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
         let num_vars = defraged_in_col.data_poly().log_size();
@@ -85,10 +129,10 @@ where
             let mut rng = ark_std::test_rng();
             let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
             let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                tracker.track_and_commit_mat_mv_poly(&dedup_mle)?;
+                prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
             let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
                 &(&dedup_tr_p - defraged_in_col.data_poly()) * actvtr_poly;
-            tracker.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
+            prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
             dedup_mle
         } else {
             MLE::from_evaluations_vec(
@@ -97,8 +141,8 @@ where
             )
         };
 
-        ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+        ///////////// Compute the challenge /////////////////////
+        let chall: F = prover.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Compute f, gives us z(r) /////////////////////
         // TODO: Pass around iterators instead of slices
@@ -110,7 +154,7 @@ where
 
         let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
         let f_eval = f_poly.evaluations()[poly_size - 2];
-        let f_p_tr = tracker.track_and_commit_mat_mv_poly(&f_poly)?;
+        let f_p_tr = prover.track_and_commit_mat_mv_poly(&f_poly)?;
         ///////////////////// Compute the derivative product polynomial z'(r)
         ///////////////////// /////////////////////
 
@@ -120,7 +164,7 @@ where
             dedup_mle.num_vars(),
         )?;
         let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
-        let f_prime_p_tr = tracker.track_and_commit_mat_mv_poly(&f_prime_poly)?;
+        let f_prime_p_tr = prover.track_and_commit_mat_mv_poly(&f_prime_poly)?;
 
         ///////////////////// Compute z(x) and z'(x) = d/dx z(x) /////////////////////
         let z_p = build_root_products(&dedup_mle.evaluations());
@@ -130,10 +174,10 @@ where
 
         let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
         ///////////////////// Commit to the Bezout polynomials /////////////////////
-        let t_p_tr = tracker.track_and_commit_mat_uv_poly(t_p)?;
+        let t_p_tr = prover.track_and_commit_mat_uv_poly(t_p)?;
         let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
 
-        let s_p_tr = tracker.track_and_commit_mat_uv_poly(s_p)?;
+        let s_p_tr = prover.track_and_commit_mat_uv_poly(s_p)?;
         let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
 
         ///////////////////// Sanity check for the Bezout identity /////////////////////
@@ -151,23 +195,21 @@ where
 
         ///////////////////// Evaluation claims for the Bezout identity
         ///////////////////// /////////////////////
-        tracker.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
-        tracker.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
-        tracker.add_uv_eval_claim(t_p_tr.id(), chall)?;
-        tracker.add_uv_eval_claim(s_p_tr.id(), chall)?;
+        prover.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
+        prover.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
+        prover.add_uv_eval_claim(t_p_tr.id(), chall)?;
+        prover.add_uv_eval_claim(s_p_tr.id(), chall)?;
 
         ///////////////////// Proving the well-formednes of f/////////////////////
 
         Ok(())
     }
-
-    // ]
-    pub fn verify(
-        tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        in_cm: &ColCom<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    fn verify_inner(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier_input: Self::VerifierInput,
+    ) -> SnarkResult<Self::VerifierOutput> {
         ///////////////////// Deduplication check /////////////////////
-        let defraged_in_col_com = Defragmenter::defrag_col_com(tracker, in_cm)?;
+        let defraged_in_col_com = Defragmenter::defrag_col_com(verifier, &verifier_input.col_comm)?;
         // let defraged_in_col_com = in_cm;
 
         ///////////////////// Some useful variables /////////////////////
@@ -180,34 +222,34 @@ where
 
         ///////////////////// Deduplication check /////////////////////
         if let Some(defraged_actv_col_com) = defraged_in_col_com.actv {
-            let dedup_cm_id = tracker.peek_next_id();
-            let dedup_tr_cm = tracker.track_mv_com_by_id(dedup_cm_id)?;
+            let dedup_cm_id = verifier.peek_next_id();
+            let dedup_tr_cm = verifier.track_mv_com_by_id(dedup_cm_id)?;
             let dedup_wit_tr_cm =
                 &(&dedup_tr_cm - &defraged_in_col_com.inner) * &defraged_actv_col_com;
-            tracker.add_zerocheck_claim(dedup_wit_tr_cm.id);
+            verifier.add_zerocheck_claim(dedup_wit_tr_cm.id);
         }
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
+        let chall: F = verifier.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Get the commitment to f /////////////////////
-        let f_p_id = tracker.peek_next_id();
-        let _f_p_cm = tracker.track_mv_com_by_id(f_p_id)?;
+        let f_p_id = verifier.peek_next_id();
+        let _f_p_cm = verifier.track_mv_com_by_id(f_p_id)?;
 
         ///////////////////// Get the commitment to f' /////////////////////
-        let f_prime_p_id = tracker.peek_next_id();
-        let _f_prime_p_cm = tracker.track_mv_com_by_id(f_prime_p_id)?;
+        let f_prime_p_id = verifier.peek_next_id();
+        let _f_prime_p_cm = verifier.track_mv_com_by_id(f_prime_p_id)?;
 
         ///////////////////// Get the commitment Bezout coeffs /////////////////////
-        let t_p_id = tracker.peek_next_id();
-        let _t_p_tr = tracker.track_uv_com_by_id(t_p_id)?;
-        let s_p_id = tracker.peek_next_id();
-        let _s_p_tr = tracker.track_uv_com_by_id(s_p_id)?;
+        let t_p_id = verifier.peek_next_id();
+        let _t_p_tr = verifier.track_uv_com_by_id(t_p_id)?;
+        let s_p_id = verifier.peek_next_id();
+        let _s_p_tr = verifier.track_uv_com_by_id(s_p_id)?;
 
-        let f_eval = tracker.query_mv(f_p_id, f_query_point.clone()).unwrap();
-        let f_prime_eval = tracker.query_mv(f_prime_p_id, f_query_point).unwrap();
-        let t_eval = tracker.query_uv(t_p_id, chall).unwrap();
-        let s_eval = tracker.query_uv(s_p_id, chall).unwrap();
+        let f_eval = verifier.query_mv(f_p_id, f_query_point.clone()).unwrap();
+        let f_prime_eval = verifier.query_mv(f_prime_p_id, f_query_point).unwrap();
+        let t_eval = verifier.query_uv(t_p_id, chall).unwrap();
+        let s_eval = verifier.query_uv(s_p_id, chall).unwrap();
 
         if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
             return Err(SnarkError::VerifierError(

@@ -25,7 +25,7 @@ use col_toolbox::{
     multiplicity_check::{
         MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
     },
-    no_dup_check::NoDupPIOP,
+    no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput, NoDupPIOP},
     set_intersec::{SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput},
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
@@ -155,10 +155,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         SetInterUnionCheckPIOP::prove(prover, set_inter_union_prover_input)?;
 
         // Zero Check on act(out_keys)(left_key - out_keys)
-        let left_minus_out = input
-            .left_key_support
-            .data_poly()
-            - input.out_key_support.data_poly();
+        let left_minus_out = input.left_key_support.data_poly() - input.out_key_support.data_poly();
         let zero_poly = match input.out_key_support.actvtr_poly() {
             Some(act) => act * &left_minus_out,
             None => left_minus_out,
@@ -166,10 +163,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Zero Check on act(out_keys)(right_key - out_keys)
-        let right_minus_out = input
-            .right_key_support
-            .data_poly()
-            - input.out_key_support.data_poly();
+        let right_minus_out =
+            input.right_key_support.data_poly() - input.out_key_support.data_poly();
         let zero_poly = match input.out_key_support.actvtr_poly() {
             Some(act) => act * &right_minus_out,
             None => right_minus_out,
@@ -194,14 +189,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ];
         let folded = &(input.join_left_source.data_poly() * r_vec[0])
             + &(input.join_right_source.data_poly() * r_vec[1]);
-        let folded_sources = ArithCol::new(
-            None,
-            folded,
-            input.join_left_source.actvtr_poly().cloned(),
-        );
+        let folded_sources =
+            ArithCol::new(None, folded, input.join_left_source.actvtr_poly().cloned());
 
         // NoDupCheck on source_L + r(source_R)
-        NoDupPIOP::prove(prover, &folded_sources)?;
+        let no_dup_prover_input = NoDupCheckProverInput {
+            col: folded_sources.clone(),
+        };
+        NoDupPIOP::prove(prover, no_dup_prover_input)?;
         let alpha_vec = (0..(input.right_table.num_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
@@ -217,10 +212,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_right_folded_col = ArithCol::new(
             None,
-            &input_right_table_folded_col
-                .data_poly()
-                .clone()
-                + &right_ind_poly,
+            &input_right_table_folded_col.data_poly().clone() + &right_ind_poly,
             input_right_table_folded_col.actvtr_poly().cloned(),
         );
 
@@ -236,9 +228,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_right_folded_col = ArithCol::new(
             None,
-            &output_right_table_folded_col
-                .data_poly()
-                .clone()
+            &output_right_table_folded_col.data_poly().clone()
                 + input.join_right_source.data_poly(),
             output_right_table_folded_col.actvtr_poly().cloned(),
         );
@@ -266,10 +256,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_left_folded_col = ArithCol::new(
             None,
-            &input_left_table_folded_col
-                .data_poly()
-                .clone()
-                + &left_ind_poly,
+            &input_left_table_folded_col.data_poly().clone() + &left_ind_poly,
             input_left_table_folded_col.actvtr_poly().cloned(),
         );
 
@@ -280,10 +267,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_left_folded_col = ArithCol::new(
             None,
-            &output_left_table_folded_col
-                .data_poly()
-                .clone()
-                + input.join_left_source.data_poly(),
+            &output_left_table_folded_col.data_poly().clone() + input.join_left_source.data_poly(),
             output_left_table_folded_col.actvtr_poly().cloned(),
         );
         // Right multiplicity check
@@ -376,7 +360,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input.join_left_source_comm.actv.clone(),
             input.join_left_source_comm.num_vars,
         );
-        NoDupPIOP::verify(verifier, &folded_sources_cm)?;
+        let no_dup_verifier_input = NoDupCheckVerifierInput {
+            col_comm: folded_sources_cm.clone(),
+        };
+        NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         // Folding of key_out and source_R
         let alpha_vec = (0..(input.right_table_comm.num_cols() + 1))
             .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())

@@ -1,3 +1,5 @@
+use crate::no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput};
+
 use super::NoDupPIOP;
 
 use arithmetic::col::{ArithCol, ColCom};
@@ -6,6 +8,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
 };
@@ -109,15 +112,16 @@ fn no_dup_test_helper<
     let in_actv_p = prover
         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, in_actv))
         .unwrap();
-    let in_col = ArithCol::new(None, in_tr_p.clone(), Some(in_actv_p.clone()));
-
-    NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, &in_col)?;
+    let col = ArithCol::new(None, in_tr_p.clone(), Some(in_actv_p.clone()));
+    let no_dup_prover_input = NoDupCheckProverInput { col };
+    NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_dup_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
     let actvm = verifier.track_mv_com_by_id(in_actv_p.id())?;
-    let in_comm = ColCom::new(None, in_comm, Some(actvm), nv);
-    NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, &in_comm)?;
+    let col_comm = ColCom::new(None, in_comm, Some(actvm), nv);
+    let no_dup_verifier_input = NoDupCheckVerifierInput { col_comm };
+    NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_dup_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

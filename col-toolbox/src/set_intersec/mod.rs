@@ -183,7 +183,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         assert_eq!(input.col_inter.num_vars(), input.col_union.num_vars());
         // The union should not have any duplicates
 
-        NoDupPIOP::prove(prover, &input.col_union)?;
+        let no_dup_prover_input = no_dup_check::NoDupCheckProverInput {
+            col: input.col_union.clone(),
+        };
+        NoDupPIOP::prove(prover, no_dup_prover_input)?;
 
         let mgx = match (input.col_inter.actvtr_poly(), input.col_union.actvtr_poly()) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
@@ -219,7 +222,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::VerifierInput,
     ) -> SnarkResult<()> {
         assert_eq!(input.col_inter.num_vars, input.col_union.num_vars);
-        NoDupPIOP::verify(verifier, &input.col_union)?;
+        let no_dup_verifier_input = no_dup_check::NoDupCheckVerifierInput {
+            col_comm: input.col_union.clone(),
+        };
+        NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         let mgx = match (&input.col_inter.actv, &input.col_union.actv) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
             (Some(mgx), None) => Some(mgx + F::one()),
