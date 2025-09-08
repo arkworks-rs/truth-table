@@ -240,11 +240,6 @@ mod test {
         c.coeffs == vec![Fr::ONE]
     }
 
-    fn helper_gcd(a_coeffs: Vec<Fr>, b_coeffs: Vec<Fr>, c_coeffs: Vec<Fr>) -> bool {
-        let c = helper(a_coeffs, b_coeffs);
-        c.coeffs == c_coeffs
-    }
-
     fn helper(a_coeffs: Vec<Fr>, b_coeffs: Vec<Fr>) -> LDE<Fr> {
         let a = LDE::from_coefficients_vec(a_coeffs);
         let b = LDE::from_coefficients_vec(b_coeffs);

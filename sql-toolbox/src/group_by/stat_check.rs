@@ -287,7 +287,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // First check that the output statistics foded with the output categories is
     // the support of the broadcasted column folded with the input categories
     let broadcast_folding_challs: Vec<F> = (0..2)
-        .map(|_| prover.and_append_challenge(b"broadcast").unwrap())
+        .map(|_| prover.get_and_append_challenge(b"broadcast").unwrap())
         .collect();
 
     let input_tarfolded_with_broadcast = fold_polys(
@@ -312,7 +312,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     )?;
 
     // Second check that the maximum value does actually appear in the input data
-    let chall = prover.and_append_challenge(b"max_min").unwrap();
+    let chall = prover.get_and_append_challenge(b"max_min").unwrap();
     let data_poly = input_table_folded_col.data_poly()
         + &(&(&broadcasted_stat_tr_poly - input_table_tarcol.data_poly()) * (chall));
     let super_col = ArithCol::new(
@@ -375,7 +375,7 @@ fn verify_max_min_stat<
     // First check that the output statistics foded with the output categories is
     // the support of the broadcasted column folded with the input categories
     let broadcast_folding_challs: Vec<F> = (0..2)
-        .map(|_| verifier.and_append_challenge(b"broadcast").unwrap())
+        .map(|_| verifier.get_and_append_challenge(b"broadcast").unwrap())
         .collect();
 
     let input_tarfolded_with_broadcast = fold_coms(
@@ -403,7 +403,7 @@ fn verify_max_min_stat<
     )?;
 
     // Second check that the maximum value does actually appear in the input data
-    let chall = verifier.and_append_challenge(b"max_min").unwrap();
+    let chall = verifier.get_and_append_challenge(b"max_min").unwrap();
     let data_poly = &input_table_folded_col_comm.inner
         + &(&(&broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner) * (chall));
     let super_col_comm = ColCom::new(

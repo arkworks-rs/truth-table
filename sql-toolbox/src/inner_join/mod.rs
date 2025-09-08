@@ -189,8 +189,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // TODO: Go and add the functionality for adding a vector of challenges in
         // the // ark-piop crate
         let r_vec = [
-            prover.and_append_challenge(b"r1")?,
-            prover.and_append_challenge(b"r2")?,
+            prover.get_and_append_challenge(b"r1")?,
+            prover.get_and_append_challenge(b"r2")?,
         ];
         let folded = &(input.join_left_source.data_poly() * r_vec[0])
             + &(input.join_right_source.data_poly() * r_vec[1]);
@@ -203,7 +203,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // NoDupCheck on source_L + r(source_R)
         NoDupPIOP::prove(prover, &folded_sources)?;
         let alpha_vec = (0..(input.right_table.num_cols() + 1))
-            .map(|_| prover.and_append_challenge(b"alpha").unwrap())
+            .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
         let input_right_table_folded_col = input
@@ -253,7 +253,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
 
         let beta_vec = (0..(input.left_table.num_cols() + 1))
-            .map(|_| prover.and_append_challenge(b"beta").unwrap())
+            .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
         let input_left_table_folded_col =
@@ -365,8 +365,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Fold source_r and source_l
 
         let r_vec = [
-            verifier.and_append_challenge(b"r1")?,
-            verifier.and_append_challenge(b"r2")?,
+            verifier.get_and_append_challenge(b"r1")?,
+            verifier.get_and_append_challenge(b"r2")?,
         ];
         let folded = &(&input.join_left_source_comm.inner * (r_vec[0]))
             + &(&input.join_right_source_comm.inner * r_vec[1]);
@@ -379,7 +379,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoDupPIOP::verify(verifier, &folded_sources_cm)?;
         // Folding of key_out and source_R
         let alpha_vec = (0..(input.right_table_comm.num_cols() + 1))
-            .map(|_| verifier.and_append_challenge(b"alpha").unwrap())
+            .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
         let input_right_table_folded_col_com = input
@@ -429,7 +429,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
         let beta_vec = (0..(input.left_table_comm.num_cols() + 1))
-            .map(|_| verifier.and_append_challenge(b"beta").unwrap())
+            .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
         let input_left_table_folded_col_com = input

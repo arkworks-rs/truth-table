@@ -79,7 +79,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<Self::ProverOutput> {
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
         // the sum
-        let gamma = prover.and_append_challenge(b"gamma")?;
+        let gamma = prover.get_and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
         for i in 0..input.fxs.len() {
             Self::prove_generate_subclaims(
@@ -136,7 +136,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // create challenges and commitments in same fashion as prover
         // assumption is that proof inputs are already added to the tracker
-        let gamma = verifier.and_append_challenge(b"gamma")?;
+        let gamma = verifier.get_and_append_challenge(b"gamma")?;
         // iterate over vector elements and generate subclaims:
         let max_nv_f = input.fxs.iter().map(|x| x.num_vars()).max().unwrap();
         let max_nv_g = input.gxs.iter().map(|x| x.num_vars()).max().unwrap();

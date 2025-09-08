@@ -12,7 +12,7 @@ pub mod table;
 #[macro_export]
 macro_rules! downcast_and_encode {
     ($ARRAY:expr, $OUTPUT_VEC:expr, $F:ty) => {
-        use crate::col::ColAdapter;
+        use $crate::col::ColAdapter;
         match $ARRAY.data_type() {
             datafusion::arrow::datatypes::DataType::Int32 => {
                 let typed_array = $ARRAY

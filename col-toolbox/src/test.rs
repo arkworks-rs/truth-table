@@ -373,7 +373,7 @@
         let mut tracker: Verifier<<ark_ec::bls12::Bls12<ark_test_curves::bls12_381::Config> as ark_ec::pairing::Pairing>::ScalarField, PST13<Bls12_381>, KZG10<Bls12_381>> = Verifier::new_from_pcs_params( mv_pcs_verifier_param, uv_pcs_verifier_param);
         let comm1 = tracker.track_mat_mv_com(proof.mv_comms.get(&TrackerID(0)).unwrap().clone())?;
         let comm2 = tracker.track_mat_mv_com(proof.mv_comms.get(&TrackerID(1)).unwrap().clone())?;
-        let gamma = tracker.and_append_challenge(b"gamma")?;
+        let gamma = tracker.get_and_append_challenge(b"gamma")?;
         let mut res_comm = comm1.add_scalar(gamma);
         res_comm = res_comm.mul_oracles(&comm2);
         let res_comm = res_comm.add_scalar(Fr::one().neg());

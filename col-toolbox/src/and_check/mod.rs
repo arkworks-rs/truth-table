@@ -9,11 +9,11 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, errors::ProverError::HonestProverError, structs::polynomial::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 pub struct AndCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -73,15 +73,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             prod_poly *= in_poly;
         }
         let check_poly = &prod_poly - &input.res_activator_poly;
-        if (check_poly.evaluations().iter().all(|&elem| elem.is_zero())) {
+        if check_poly.evaluations().iter().all(|&elem| elem.is_zero()) {
             return Ok(());
-        } else {
-            return Err(ark_piop::errors::SnarkError::ProverError(
-                ark_piop::prover::errors::ProverError::HonestProverError(
-                    ark_piop::prover::errors::HonestProverError::FalseClaim,
-                ),
-            ));
         }
+        Err(ark_piop::errors::SnarkError::ProverError(
+            ark_piop::prover::errors::ProverError::HonestProverError(
+                ark_piop::prover::errors::HonestProverError::FalseClaim,
+            ),
+        ))
     }
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,

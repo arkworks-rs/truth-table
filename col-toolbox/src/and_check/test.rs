@@ -2,9 +2,9 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{kzg10::KZG10, pst13::PST13, PCS},
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::{structs::polynomial::TrackedPoly, Prover},
+    prover::structs::polynomial::TrackedPoly,
     test_utils::test_prelude,
     to_field_vec,
 };
@@ -53,7 +53,6 @@ fn and_check_is_sound() -> SnarkResult<()> {
         ],
         to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr),
     )?;
-
 
     Ok(())
 }
@@ -110,7 +109,7 @@ fn and_check_test_helper<
         .iter()
         .map(|in_evals| {
             prover
-                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &in_evals))
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, in_evals))
                 .unwrap()
         })
         .collect();
@@ -126,11 +125,7 @@ fn and_check_test_helper<
     let res_activator_orcl = verifier.track_mv_com_by_id(actv_id)?;
     let in_activator_orcls = in_activator_polys
         .iter()
-        .map(|activator_poly| {
-            verifier
-                .track_mv_com_by_id(activator_poly.id())
-                .unwrap()
-        })
+        .map(|activator_poly| verifier.track_mv_com_by_id(activator_poly.id()).unwrap())
         .collect();
     let and_check_verifier_input = AndCheckVerifierInput {
         in_activator_orcls,

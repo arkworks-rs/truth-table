@@ -13,11 +13,10 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{Prover, structs::polynomial::TrackedPoly},
-    
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 
 pub struct BinaryCheckPIOP<
     F: PrimeField,

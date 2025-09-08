@@ -14,7 +14,7 @@ use derivative::Derivative;
 use futures::StreamExt;
 
 use crate::{
-    col::{self, ArithCol, ColCom},
+    col::{ArithCol, ColCom},
     downcast_and_encode,
     errors::EncodeError,
 };
@@ -119,8 +119,7 @@ where
 
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
         assert_eq!(col_inds.len(), challs.len());
-        let mut folded: TrackedPoly<F, MvPCS, UvPCS> =
-            &self.data_polys[col_inds[0]] * challs[0];
+        let mut folded: TrackedPoly<F, MvPCS, UvPCS> = &self.data_polys[col_inds[0]] * challs[0];
         for i in 1..col_inds.len() {
             folded += &(&self.data_polys[col_inds[i]] * challs[i]);
         }
@@ -279,7 +278,6 @@ where
     pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
         self.actvtr.clone()
     }
-
 }
 
 pub async fn fieldify_df<F: PrimeField>(df: DataFrame) -> Result<Vec<Vec<F>>, EncodeError> {

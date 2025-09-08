@@ -3,7 +3,6 @@
 /// in another column. Internally, this PIOP invokes the `MultiplicityCheck`
 /// with the multiplicity polynomial of all 1 for the 'included_col' and a
 /// computed advice multiplicity for 'super_col'#[cfg(test)]
-
 #[cfg(test)]
 mod test;
 pub(crate) mod utils;
@@ -21,8 +20,8 @@ use ark_piop::{
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
-use std::{marker::PhantomData, sync::Arc};
 use derivative::Derivative;
+use std::{marker::PhantomData, sync::Arc};
 use utils::calc_inclusion_multiplicity;
 
 use crate::multiplicity_check::{

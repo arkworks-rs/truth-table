@@ -76,7 +76,7 @@ where
             if actvtr_poly.is_some() {
                 let actvtr = actvtr_poly.as_ref().unwrap();
                 assert_eq!(data_poly.log_size(), actvtr.log_size());
-                assert!(data_poly.same_tracker(&actvtr));
+                assert!(data_poly.same_tracker(actvtr));
             }
         }
         Self {
@@ -241,7 +241,7 @@ impl<F: PrimeField> ColAdapter<F> for Int32Array {
         Ok(self.iter().filter_map(|x| x.map(|v| F::from(v))).collect())
     }
 
-    fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
         todo!()
     }
 }
@@ -251,7 +251,7 @@ impl<F: PrimeField> ColAdapter<F> for Int64Array {
         Ok(self.iter().filter_map(|x| x.map(|v| F::from(v))).collect())
     }
 
-    fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
         todo!()
     }
 }

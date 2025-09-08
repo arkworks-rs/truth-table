@@ -34,7 +34,7 @@ use ark_piop::{
     prover::{self, Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, errors::VerifierError},
 };
-use ark_std::{end_timer, rand::RngCore, start_timer};
+use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use utils::{build_root_products, compute_derivative_poly, compute_product_poly, d_dx};
@@ -52,7 +52,6 @@ pub struct NoDupPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<UvPCS>,
 );
 
-//TODO: Add the NoDupPIOPProverInput and NODupPIOPVerifierInput
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> NoDupPIOP<F, MvPCS, UvPCS>
 where
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -99,7 +98,7 @@ where
         };
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.and_append_challenge(b"bezout")?;
+        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Compute f, gives us z(r) /////////////////////
         // TODO: Pass around iterators instead of slices
@@ -174,8 +173,6 @@ where
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
         let num_vars = defraged_in_col_com.num_vars();
-        // The size of all the polynomials in this protocol, i.e. 2^num_vars
-        let poly_size = 2_i32.pow(num_vars as u32) as usize;
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
         let f_query_point: Vec<F> = std::iter::once(F::zero())
             .chain((0..num_vars - 1).map(|_| F::one()))
@@ -191,7 +188,7 @@ where
         }
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = tracker.and_append_challenge(b"bezout")?;
+        let chall: F = tracker.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Get the commitment to f /////////////////////
         let f_p_id = tracker.peek_next_id();

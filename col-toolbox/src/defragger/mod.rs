@@ -11,7 +11,7 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
-use ark_std::{end_timer, log2};
+use ark_std::log2;
 use num_bigint::BigUint;
 
 use crate::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
