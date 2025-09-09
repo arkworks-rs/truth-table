@@ -7,8 +7,8 @@ use sql_toolbox::select::{
 };
 use tokio::runtime::Runtime;
 
-const TABLE_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'imdb_parquet/title-sanitized.parquet'";
-const AUX_QUERY: &str = "SELECT CASE WHEN PRODUCTION_YEAR = 2000 THEN 1 ELSE 0 END AS SELECTED FROM 'imdb_parquet/title-sanitized.parquet';";
+const TABLE_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'parquets/title-sanitized.parquet'";
+const AUX_QUERY: &str = "SELECT CASE WHEN PRODUCTION_YEAR = 2000 THEN 1 ELSE 0 END AS SELECTED FROM 'parquets/title-sanitized.parquet';";
 
 #[allow(clippy::type_complexity)]
 fn prepare_prover_inputs() -> (

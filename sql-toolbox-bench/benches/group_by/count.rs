@@ -10,8 +10,8 @@
 // use rayon::result;
 // use tokio::runtime::Runtime;
 
-// const INPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'imdb_parquet/title-sanitized.parquet'";
-// const OUTPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, COUNT(ID) AS COUNT FROM 'imdb_parquet/title-sanitized.parquet' GROUP BY PRODUCTION_YEAR";
+// const INPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'parquets/title-sanitized.parquet'";
+// const OUTPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, COUNT(ID) AS COUNT FROM 'parquets/title-sanitized.parquet' GROUP BY PRODUCTION_YEAR";
 
 // // TODO: This function can be made generic on the PIOP type to avoid code
 // // duplication. Change this accross all benchamrks.

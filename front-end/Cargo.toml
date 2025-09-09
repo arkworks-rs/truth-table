@@ -1,0 +1,25 @@
+[package]
+name = "front-end"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+datafusion = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+env_logger.workspace = true
+
+
+[features]
+default = ["std", "parallel"]
+std = []
+parallel = ["std", "rayon"]
+honest-prover = []
+test-utils = []

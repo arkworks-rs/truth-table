@@ -9,7 +9,7 @@ async fn test_setup() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 
     // Use absolute path to ensure compatibility
-    let path: PathBuf = std::env::current_dir()?.join("imdb_parquet/title-sanitized.parquet");
+    let path: PathBuf = std::env::current_dir()?.join("parquets/title-sanitized.parquet");
 
     // Register or query using full path
     ctx.register_parquet(

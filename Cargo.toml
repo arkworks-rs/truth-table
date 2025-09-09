@@ -6,6 +6,7 @@ members = [
     "arithmetic",
     "sql-toolbox",
     "sql-toolbox-bench",
+    "front-end",
 ]
 
 # Add dependencies here

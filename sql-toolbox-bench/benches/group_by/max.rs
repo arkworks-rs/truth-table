@@ -9,8 +9,8 @@
 // #[cfg(feature = "parallel")]
 // use rayon::result;
 // use tokio::runtime::Runtime;
-// const INPUT_QUERY: &str = "SELECT KIND_ID, PRODUCTION_YEAR, ID FROM 'imdb_parquet/title-sanitized.parquet'";
-// const OUTPUT_QUERY: &str = "SELECT KIND_ID, MAX(PRODUCTION_YEAR) AS MAX FROM 'imdb_parquet/title-sanitized.parquet' GROUP BY KIND_ID";
+// const INPUT_QUERY: &str = "SELECT KIND_ID, PRODUCTION_YEAR, ID FROM 'parquets/title-sanitized.parquet'";
+// const OUTPUT_QUERY: &str = "SELECT KIND_ID, MAX(PRODUCTION_YEAR) AS MAX FROM 'parquets/title-sanitized.parquet' GROUP BY KIND_ID";
 
 // #[allow(clippy::type_complexity)]
 // fn prepare_prover_inputs() -> (

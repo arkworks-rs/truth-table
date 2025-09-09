@@ -10,8 +10,8 @@
 // use rayon::result;
 // use tokio::runtime::Runtime;
 
-// const INPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'imdb_parquet/title-sanitized.parquet' ";
-// const OUTPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, SUM(ID) AS COUNT FROM 'imdb_parquet/title-sanitized.parquet' GROUP BY PRODUCTION_YEAR";
+// const INPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'parquets/title-sanitized.parquet' ";
+// const OUTPUT_QUERY: &str = "SELECT PRODUCTION_YEAR, SUM(ID) AS COUNT FROM 'parquets/title-sanitized.parquet' GROUP BY PRODUCTION_YEAR";
 
 // #[allow(clippy::type_complexity)]
 // fn prepare_prover_inputs() -> (
