@@ -1,5 +1,6 @@
 use super::ProofPlan;
 use datafusion::logical_expr as df;
+use std::sync::Arc;
 
 // Submodules per node
 pub mod aggregate;
@@ -40,3 +41,4 @@ pub use table_scan::TableScanNode;
 pub use union::UnionNode;
 pub use values::ValuesNode;
 pub use window::WindowNode;
+

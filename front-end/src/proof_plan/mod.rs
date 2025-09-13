@@ -78,7 +78,12 @@ pub fn logical_to_proof_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Arc<dy
         df::LogicalPlan::Union(u) => todo!(),
         df::LogicalPlan::Extension(_ext) => todo!(),
         df::LogicalPlan::Join(j) => todo!(),
-        df::LogicalPlan::Limit(l) => todo!(),
+        df::LogicalPlan::Limit(l) => Arc::new(LimitNode::new(
+            ctx,
+            l.skip.clone(),
+            l.fetch.clone(),
+            logical_to_proof_plan(ctx, &l.input),
+        )),
         _ => panic!(),
     }
 }

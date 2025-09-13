@@ -17,6 +17,11 @@ pub struct FilterNode {
     pub relative_plan: LogicalPlan,
     pub absolute_plan: LogicalPlan,
 }
+
+pub struct FilterMetaData {
+    pub predicate: Expr,
+}
+
 impl FilterNode {
     pub fn make_relative_plan(predicate: Expr, input_plan: LogicalPlan) -> LogicalPlan {
         // Build relative plan by propagating input and zeroing `activator` when
