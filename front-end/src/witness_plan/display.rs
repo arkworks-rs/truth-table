@@ -1,11 +1,16 @@
-use std::collections::{HashSet, VecDeque};
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
+use std::{
+    collections::{HashSet, VecDeque},
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+};
 
-use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::{
+    array::{Array, BooleanArray},
+    record_batch::RecordBatch,
+};
 
-use crate::proof_plan::ProofPlan;
 use super::WitnessNode;
+use crate::proof_plan::ProofPlan;
 
 /// Compute a stable-ish identifier for a plan node for DOT node ids.
 fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
@@ -20,30 +25,40 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-#[derive(Clone, Debug)]
-/// Compact statistics derived from collected witness batches.
-struct ResultStats {
-    cols: usize,
-    rows: usize,
-    col_names: Vec<String>,
-}
-
-impl ResultStats {
-    /// Aggregate per-node batches into simple size/shape information.
-    fn from_batches(batches: &[RecordBatch]) -> Self {
-        if let Some(first) = batches.first() {
-            let schema = first.schema();
-            let cols = schema.fields().len();
-            let rows = batches.iter().map(|b| b.num_rows()).sum::<usize>();
-            let col_names = schema
-                .fields()
-                .iter()
-                .map(|f| f.name().to_string())
-                .collect();
-            Self { cols, rows, col_names }
+fn stats_from_batches(batches: &[RecordBatch]) -> (usize, usize, usize, Vec<String>) {
+    if let Some(first) = batches.first() {
+        let schema = first.schema();
+        let cols = schema.fields().len();
+        let rows = batches.iter().map(|b| b.num_rows()).sum::<usize>();
+        // activator=true count if present
+        let mut act_true = 0usize;
+        let activator_idx = schema.index_of("activator").ok();
+        if let Some(ai) = activator_idx {
+            for b in batches {
+                if let Ok(i) = b.schema().index_of("activator") {
+                    let mask = b
+                        .column(i)
+                        .as_any()
+                        .downcast_ref::<BooleanArray>()
+                        .expect("'activator' must be Boolean");
+                    for j in 0..mask.len() {
+                        if mask.is_valid(j) && mask.value(j) {
+                            act_true += 1;
+                        }
+                    }
+                }
+            }
         } else {
-            Self { cols: 0, rows: 0, col_names: vec![] }
+            act_true = rows;
         }
+        let col_names = schema
+            .fields()
+            .iter()
+            .map(|f| f.name().to_string())
+            .collect();
+        (cols, rows, act_true, col_names)
+    } else {
+        (0, 0, 0, vec![])
     }
 }
 
@@ -61,7 +76,9 @@ pub struct DisplayableWitnessPlan<'a> {
 
 impl<'a> DisplayableWitnessPlan<'a> {
     /// Create the display wrapper using the root proof node and its witnesses.
-    pub fn new(root: &'a WitnessNode) -> Self { Self { root } }
+    pub fn new(root: &'a WitnessNode) -> Self {
+        Self { root }
+    }
 
     /// Return Graphviz DOT string for the plan tree, with result stats.
     pub fn graphviz(&self) -> String {
@@ -85,21 +102,20 @@ impl<'a> DisplayableWitnessPlan<'a> {
             }))
             .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string());
 
-            let stats = ResultStats::from_batches(&wn.result);
-            let cols = stats.cols;
-            let rows = stats.rows;
-            let col_names = if stats.col_names.is_empty() {
+            let (cols, rows, act_true, names) = stats_from_batches(&wn.result);
+            let col_names = if names.is_empty() {
                 "<none>".to_string()
             } else {
-                stats.col_names.join(", ")
+                names.join(", ")
             };
 
             let raw_label = format!(
-                "{}\\n{}\\ncols: {}  rows: {}\\ncolumns: {}",
+                "{}\\n{}\\ncols: {}  rows: {}  act_true: {}\\ncolumns: {}",
                 wn.node.name(),
                 rel,
                 cols,
                 rows,
+                act_true,
                 col_names
             );
             let label = esc_label(&raw_label);

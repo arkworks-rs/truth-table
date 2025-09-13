@@ -5,7 +5,7 @@ pub mod tests;
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use datafusion::{
-    arrow::{array::ArrayRef, compute::concat as arrow_concat, record_batch::RecordBatch},
+    arrow::{array::{Array, ArrayRef, BooleanArray}, compute::concat as arrow_concat, record_batch::RecordBatch},
     common::tree_node::{Transformed, TreeNode},
     error::Result as DFResult,
     logical_expr::{self as df, ExprSchemable},
@@ -41,6 +41,15 @@ pub async fn proof_to_witness_tree(
     if is_parallel {
         return proof_to_witness_tree_par(ctx, root).await;
     }
+    proof_to_witness_tree_seq(ctx, root).await
+}
+
+/// Sequential execution building the witness tree by feeding materialized child
+/// outputs to their parents via temporary MemTables.
+async fn proof_to_witness_tree_seq(
+    ctx: &SessionContext,
+    root: Arc<dyn ProofPlan>,
+) -> DFResult<WitnessNode> {
     let mut temp_tables: HashMap<usize, String> = HashMap::new();
 
     fn exec_node<'a>(
@@ -214,7 +223,7 @@ async fn proof_to_witness_tree_par(
             debug!(node = node.name(), "executing absolute (parallel)");
             let df = ctx.execute_logical_plan(plan).await?;
             let batches = df.collect().await?;
-            let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+            let (rows, cols, activated) = rows_cols_activated(&batches);
             if node.name() == "TableScanNode" {
                 assert!(
                     rows != 0 && (rows & (rows - 1)) == 0,
@@ -222,6 +231,12 @@ async fn proof_to_witness_tree_par(
                     rows
                 );
             }
+            trace!(
+                node = node.name(),
+                rows, cols,
+                activated_true = activated.unwrap_or(rows),
+                "collected (parallel)"
+            );
             Ok::<(usize, Vec<RecordBatch>), datafusion::error::DataFusionError>((
                 node_ptr_id(&node),
                 batches,
@@ -317,4 +332,39 @@ fn unqualify_expr(expr: df::Expr) -> df::Expr {
     })
     .unwrap()
     .data
+}
+
+// Compute total rows, number of columns, and count of rows with activator=true
+// (if an activator column exists). Returns (rows, cols, Some(activated_true))
+// or (rows, cols, None) when no activator column is present.
+fn rows_cols_activated(batches: &[RecordBatch]) -> (usize, usize, Option<usize>) {
+    let rows = batches.iter().map(|b| b.num_rows()).sum::<usize>();
+    let cols = batches
+        .first()
+        .map(|b| b.schema().fields().len())
+        .unwrap_or(0);
+    // find activator index
+    let activator_idx = batches
+        .iter()
+        .find_map(|b| b.schema().index_of("activator").ok());
+    if let Some(idx) = activator_idx {
+        let mut count_true = 0usize;
+        for b in batches {
+            if let Ok(i) = b.schema().index_of("activator") {
+                let mask = b
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<BooleanArray>()
+                    .expect("'activator' must be Boolean");
+                for j in 0..mask.len() {
+                    if mask.is_valid(j) && mask.value(j) {
+                        count_true += 1;
+                    }
+                }
+            }
+        }
+        (rows, cols, Some(count_true))
+    } else {
+        (rows, cols, None)
+    }
 }

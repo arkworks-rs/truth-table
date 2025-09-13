@@ -22,7 +22,8 @@ impl ProjectionNode {
         let input_plan = input.relative_plan();
         let schema = input_plan.schema();
 
-        // Preserve `activator` if present, but avoid duplicates (explicit, alias, or wildcard)
+        // Preserve `activator` if present, but avoid duplicates (explicit, alias, or
+        // wildcard)
         let mut exprs = expr.clone();
         if schema.field_with_unqualified_name("activator").is_ok() {
             let projects_activator = exprs.iter().any(|e| match e {
@@ -65,7 +66,11 @@ impl ProofPlan for ProjectionNode {
         vec![&self.input]
     }
 
-    fn relative_plan(&self) -> LogicalPlan { self.relative_plan.clone() }
+    fn relative_plan(&self) -> LogicalPlan {
+        self.relative_plan.clone()
+    }
 
-    fn absolute_plan(&self) -> LogicalPlan { self.absolute_plan.clone() }
+    fn absolute_plan(&self) -> LogicalPlan {
+        self.absolute_plan.clone()
+    }
 }

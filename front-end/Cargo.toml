@@ -18,6 +18,8 @@ parquet = { version = "54", default-features = false, features = ["arrow"] }
 
 [dev-dependencies]
 env_logger.workspace = true
+divan.workspace = true
+libc = "0.2"
 
 
 [features]
@@ -26,3 +28,7 @@ std = []
 parallel = ["std", "rayon"]
 honest-prover = []
 test-utils = []
+
+[[bench]]
+name = "witness_plan"
+harness = false
