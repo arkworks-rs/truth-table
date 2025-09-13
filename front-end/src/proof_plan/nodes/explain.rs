@@ -1,20 +1,38 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use datafusion::logical_expr::LogicalPlan;
+
+use crate::proof_plan::ProofPlan;
+
 pub struct ExplainNode {
-    pub input: Box<ProofPlan>,
+    pub input: Box<dyn ProofPlan>,
+    pub absolute_plan: LogicalPlan,
 }
 
-impl ProofNode for ExplainNode {
-    type LogicalCounterpart = df::Explain;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            input: Box::new(ProofPlan::from_logical_plan(&lp.plan)),
-        }
+impl ExplainNode {
+    pub fn new(input: Box<dyn ProofPlan>, absolute_plan: LogicalPlan) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Explain(lp.clone())
+}
+
+impl ProofPlan for ExplainNode {
+    fn name(&self) -> &str {
+        "ExplainNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        Vec::new()
+    }
+
+    fn absolute_plan(&self) -> LogicalPlan {
+        todo!()
+    }
+
+    fn relative_plan(&self) -> LogicalPlan {
+        todo!()
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        todo!()
     }
 }

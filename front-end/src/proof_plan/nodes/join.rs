@@ -1,30 +1,52 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use crate::proof_plan::ProofPlan;
+use datafusion::{
+    logical_expr::{self as df, Join},
+    prelude::SessionContext,
+};
+
 pub struct JoinNode {
-    pub left: Box<ProofPlan>,
-    pub right: Box<ProofPlan>,
+    pub left: Arc<dyn ProofPlan>,
+    pub right: Arc<dyn ProofPlan>,
     pub on: Vec<(df::Expr, df::Expr)>,
     pub filter: Option<df::Expr>,
     pub join_type: df::JoinType,
     pub null_equals_null: bool,
+
 }
 
-impl ProofNode for JoinNode {
-    type LogicalCounterpart = df::Join;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            left: Box::new(ProofPlan::from_logical_plan(&lp.left)),
-            right: Box::new(ProofPlan::from_logical_plan(&lp.right)),
-            on: lp.on.clone(),
-            filter: lp.filter.clone(),
-            join_type: lp.join_type,
-            null_equals_null: lp.null_equals_null,
-        }
+impl JoinNode {
+    pub fn new(
+        ctx: &SessionContext,
+        left: Arc<dyn ProofPlan>,
+        right: Arc<dyn ProofPlan>,
+        on: Vec<(df::Expr, df::Expr)>,
+        filter: Option<df::Expr>,
+        join_type: df::JoinType,
+        null_equals_null: bool,
+    ) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Join(lp.clone())
+}
+
+impl ProofPlan for JoinNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "JoinNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        vec![&self.left, &self.right]
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+    
+    fn absolute_plan(&self) -> df::LogicalPlan {
+        todo!()
     }
 }

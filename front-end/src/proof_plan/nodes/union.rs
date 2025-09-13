@@ -1,24 +1,36 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use datafusion::prelude::SessionContext;
+
+use crate::proof_plan::ProofPlan;
+
 pub struct UnionNode {
-    pub inputs: Vec<ProofPlan>,
+    pub inputs: Vec<Arc<dyn ProofPlan>>,
 }
 
-impl ProofNode for UnionNode {
-    type LogicalCounterpart = df::Union;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            inputs: lp
-                .inputs
-                .iter()
-                .map(|i| ProofPlan::from_logical_plan(i))
-                .collect(),
-        }
+impl UnionNode {
+    pub fn new(ctx: &SessionContext, inputs: Vec<Arc<dyn ProofPlan>>) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Union(lp.clone())
+}
+
+impl ProofPlan for UnionNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "UnionNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        self.inputs.iter().collect()
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
     }
 }

@@ -1,26 +1,28 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use crate::proof_plan::ProofPlan;
+
 pub struct OtherNode {
-    pub inputs: Vec<ProofPlan>,
+    pub inputs: Vec<Arc<dyn ProofPlan>>,
     pub kind: String,
 }
-
-impl ProofNode for OtherNode {
-    type LogicalCounterpart = df::LogicalPlan;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            inputs: lp
-                .inputs()
-                .iter()
-                .map(|i| ProofPlan::from_logical_plan(i))
-                .collect(),
-            kind: format!("{}", lp.display()),
-        }
+impl ProofPlan for OtherNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        lp.clone()
+    fn name(&self) -> &str {
+        "OtherNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        self.inputs.iter().collect()
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
     }
 }

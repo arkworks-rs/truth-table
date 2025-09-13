@@ -1,15 +1,32 @@
-use super::ProofNode;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use datafusion::prelude::SessionContext;
+
+use crate::proof_plan::ProofPlan;
+
 pub struct ValuesNode;
-
-impl ProofNode for ValuesNode {
-    type LogicalCounterpart = df::Values;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
+impl ValuesNode {
+    pub fn new(ctx: &SessionContext) -> Self {
         ValuesNode
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Values(lp.clone())
+}
+impl ProofPlan for ValuesNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "ValuesNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        Vec::new()
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
     }
 }

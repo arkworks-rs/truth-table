@@ -12,6 +12,9 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 rayon = { workspace = true, optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+parquet = { version = "54", default-features = false, features = ["arrow"] }
 
 [dev-dependencies]
 env_logger.workspace = true

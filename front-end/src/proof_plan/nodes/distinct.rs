@@ -1,20 +1,34 @@
-use super::ProofNode;
+use std::sync::Arc;
+
+use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
+
 use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
 
-#[derive(Debug, Clone)]
 pub struct DistinctNode {
-    pub input: Box<ProofPlan>,
+    pub input: Arc<dyn ProofPlan>,
 }
-
-impl ProofNode for DistinctNode {
-    type LogicalCounterpart = df::Distinct;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            input: Box::new(ProofPlan::from_logical_plan(lp.input())),
-        }
+impl DistinctNode {
+    pub fn new(ctx: &mut SessionContext, input: Arc<dyn ProofPlan>) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Distinct(lp.clone())
+}
+impl ProofPlan for DistinctNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "DistinctNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        vec![&self.input]
+    }
+
+    fn relative_plan(&self) -> LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> LogicalPlan {
+        todo!()
     }
 }

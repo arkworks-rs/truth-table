@@ -1,29 +1,42 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use crate::proof_plan::ProofPlan;
+use datafusion::{logical_expr as df, prelude::SessionContext};
+
 pub struct SortNode {
     pub sort_expr: Vec<(df::Expr, bool, bool)>,
     pub fetch: Option<usize>,
-    pub input: Box<ProofPlan>,
+    pub input: Arc<dyn ProofPlan>,
 }
 
-impl ProofNode for SortNode {
-    type LogicalCounterpart = df::Sort;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        let sort_expr = lp
-            .expr
-            .iter()
-            .map(|se| (se.expr.clone(), se.asc, se.nulls_first))
-            .collect();
-        Self {
-            sort_expr,
-            fetch: lp.fetch,
-            input: Box::new(ProofPlan::from_logical_plan(&lp.input)),
-        }
+impl SortNode {
+    pub fn new(
+        ctx: SessionContext,
+        sort_expr: Vec<(df::Expr, bool, bool)>,
+        fetch: Option<usize>,
+        input: Arc<dyn ProofPlan>,
+    ) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Sort(lp.clone())
+}
+
+impl ProofPlan for SortNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "SortNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        vec![&self.input]
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> df::LogicalPlan {
+        todo!()
     }
 }

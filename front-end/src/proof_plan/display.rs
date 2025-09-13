@@ -1,146 +1,82 @@
-use super::{nodes::*, ProofPlan};
+use crate::proof_plan::ProofPlan;
+use std::sync::Arc;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
-impl ProofPlan {
-    /// Render this ProofPlan as a Graphviz DOT string, similar to
-    /// DataFusion's `LogicalPlan::display_graphviz()`.
-    pub fn display_graphviz(&self) -> String {
-        fn escape_label(s: &str) -> String {
-            s.replace('\\', "\\\\")
-                .replace('"', "\\\"")
+/// Display helper for `ProofPlan` that renders a Graphviz DOT graph.
+/// Similar in spirit to DataFusion's `DisplayableExecutionPlan`.
+pub struct DisplayableProofPlan<'a> {
+    plan: &'a Arc<dyn ProofPlan>,
+}
+
+impl<'a> DisplayableProofPlan<'a> {
+    pub fn new(plan: &'a Arc<dyn ProofPlan>) -> Self {
+        Self { plan }
+    }
+
+    /// Return Graphviz DOT string for the plan tree.
+    pub fn graphviz(&self) -> String {
+        use std::collections::{HashSet, VecDeque};
+
+        fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
+            let data_ptr = &**p as *const dyn ProofPlan as *const ();
+            data_ptr as usize
+        }
+
+        fn esc_label(s: &str) -> String {
+            s.replace('"', "\\\"")
                 .replace('\n', "\\n")
+                .replace('\r', "\\r")
         }
 
-        fn kind(node: &ProofPlan) -> &'static str {
-            match node.root {
-                ProofPlanNode::Projection(_) => "Projection",
-                ProofPlanNode::Filter(_) => "Filter",
-                ProofPlanNode::Aggregate(_) => "Aggregate",
-                ProofPlanNode::Sort(_) => "Sort",
-                ProofPlanNode::Join(_) => "Join",
-                ProofPlanNode::Repartition(_) => "Repartition",
-                ProofPlanNode::Window(_) => "Window",
-                ProofPlanNode::Limit(_) => "Limit",
-                ProofPlanNode::TableScan(_) => "TableScan",
-                ProofPlanNode::Union(_) => "Union",
-                ProofPlanNode::Subquery(_) => "Subquery",
-                ProofPlanNode::SubqueryAlias(_) => "SubqueryAlias",
-                ProofPlanNode::Distinct(_) => "Distinct",
-                ProofPlanNode::Values(_) => "Values",
-                ProofPlanNode::Explain(_) => "Explain",
-                ProofPlanNode::Analyze(_) => "Analyze",
-                ProofPlanNode::Extension(_) => "Extension",
-                ProofPlanNode::Other(_) => "Other",
+        let mut out = String::new();
+        out.push_str("digraph ProofPlan {\n");
+        out.push_str("  node [shape=box];\n");
+
+        let mut visited: HashSet<usize> = HashSet::new();
+        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        q.push_back(Arc::clone(self.plan));
+
+        while let Some(node) = q.pop_front() {
+            let id = node_id(&node);
+            if !visited.insert(id) {
+                continue;
+            }
+
+            // Try to render each node's relative and absolute plans; fall back if unimplemented
+            let rel = catch_unwind(AssertUnwindSafe(|| {
+                let plan = node.relative_plan();
+                format!("{}", plan.display_indent())
+            }))
+            .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string());
+
+            let abs = catch_unwind(AssertUnwindSafe(|| {
+                let plan = node.absolute_plan();
+                format!("{}", plan.display_indent())
+            }))
+            .unwrap_or_else(|_| "<absolute_plan: unavailable>".to_string());
+
+            let raw_label = format!(
+                "{}\\nRELATIVE:\n{}\\nABSOLUTE:\n{}",
+                node.name(), rel, abs
+            );
+            let label = esc_label(&raw_label);
+            out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
+
+            for child_ref in node.children() {
+                let child = Arc::clone(child_ref);
+                let cid = node_id(&child);
+                out.push_str(&format!("  n{} -> n{};\n", id, cid));
+                q.push_back(child);
             }
         }
 
-        fn label_for(node: &ProofPlan) -> String {
-            let meta = match &node.root {
-                ProofPlanNode::Projection(ProjectionNode { expr, .. }) => {
-                    format!(" exprs: {}", expr.len())
-                },
-                ProofPlanNode::Filter(FilterNode { predicate, .. }) => {
-                    format!(" predicate: {}", predicate)
-                },
-                ProofPlanNode::Aggregate(AggregateNode {
-                    group_expr,
-                    aggr_expr,
-                    ..
-                }) => {
-                    format!(" groups: {}, aggrs: {}", group_expr.len(), aggr_expr.len())
-                },
-                ProofPlanNode::Sort(SortNode {
-                    sort_expr, fetch, ..
-                }) => {
-                    format!(" keys: {}, fetch: {:?}", sort_expr.len(), fetch)
-                },
-                ProofPlanNode::Join(JoinNode { join_type, on, .. }) => {
-                    format!(" {:?} on {}", join_type, on.len())
-                },
-                ProofPlanNode::Window(WindowNode { window_expr, .. }) => {
-                    format!(" windows: {}", window_expr.len())
-                },
-                ProofPlanNode::Limit(LimitNode { skip, fetch, .. }) => {
-                    let s = skip
-                        .as_ref()
-                        .map(|e| e.to_string())
-                        .unwrap_or_else(|| "-".into());
-                    let f = fetch
-                        .as_ref()
-                        .map(|e| e.to_string())
-                        .unwrap_or_else(|| "-".into());
-                    format!(" skip: {}, fetch: {}", s, f)
-                },
-                ProofPlanNode::SubqueryAlias(SubqueryAliasNode { alias, .. }) => {
-                    format!(" alias: {}", alias)
-                },
-                _ => String::new(),
-            };
-            format!("ProofPlan::{}{}", kind(node), meta)
-        }
+        out.push_str("}\n");
+        out
+    }
+}
 
-        fn build_graph(
-            node: &ProofPlan,
-            next_id: &mut usize,
-            nodes: &mut Vec<(usize, String)>,
-            edges: &mut Vec<(usize, usize)>,
-        ) -> usize {
-            let my_id = *next_id;
-            *next_id += 1;
-
-            let lbl = escape_label(&label_for(node));
-            nodes.push((my_id, lbl));
-
-            match &node.root {
-                ProofPlanNode::Projection(ProjectionNode { input, .. })
-                | ProofPlanNode::Filter(FilterNode { input, .. })
-                | ProofPlanNode::Aggregate(AggregateNode { input, .. })
-                | ProofPlanNode::Sort(SortNode { input, .. })
-                | ProofPlanNode::Repartition(RepartitionNode { input, .. })
-                | ProofPlanNode::Window(WindowNode { input, .. })
-                | ProofPlanNode::Limit(LimitNode { input, .. })
-                | ProofPlanNode::Subquery(SubqueryNode { input, .. })
-                | ProofPlanNode::SubqueryAlias(SubqueryAliasNode { input, .. })
-                | ProofPlanNode::Distinct(DistinctNode { input, .. })
-                | ProofPlanNode::Explain(ExplainNode { input, .. })
-                | ProofPlanNode::Analyze(AnalyzeNode { input, .. }) => {
-                    let cid = build_graph(input, next_id, nodes, edges);
-                    edges.push((my_id, cid));
-                },
-                ProofPlanNode::Join(JoinNode { left, right, .. }) => {
-                    let l = build_graph(left, next_id, nodes, edges);
-                    edges.push((my_id, l));
-                    let r = build_graph(right, next_id, nodes, edges);
-                    edges.push((my_id, r));
-                },
-                ProofPlanNode::Union(UnionNode { inputs, .. })
-                | ProofPlanNode::Extension(ExtensionNode { inputs, .. })
-                | ProofPlanNode::Other(OtherNode { inputs, .. }) => {
-                    for ch in inputs {
-                        let cid = build_graph(ch, next_id, nodes, edges);
-                        edges.push((my_id, cid));
-                    }
-                },
-                ProofPlanNode::TableScan(_) | ProofPlanNode::Values(_) => {},
-            }
-
-            my_id
-        }
-
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let mut next_id = 0usize;
-        let _root_id = build_graph(self, &mut next_id, &mut nodes, &mut edges);
-
-        let mut dot = String::new();
-        dot.push_str("digraph LogicalPlan {\n");
-        dot.push_str("  node [shape=box];\n");
-        for (id, label) in nodes {
-            dot.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
-        }
-        for (src, dst) in edges {
-            dot.push_str(&format!("  n{} -> n{};\n", src, dst));
-        }
-        dot.push_str("}\n");
-        dot
+impl<'a> std::fmt::Display for DisplayableProofPlan<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.graphviz())
     }
 }

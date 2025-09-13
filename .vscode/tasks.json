@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test-front-end",
+			"type": "shell",
+			"command": "cargo test --package front-end --lib --all-features --quiet"
+		},
+		{
+			"label": "front-end-tests",
+			"type": "shell",
+			"command": "cargo test --package front-end --lib --all-features"
+		}
+	]
+}

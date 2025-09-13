@@ -1,24 +1,41 @@
-use super::ProofNode;
 use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use datafusion::{catalog::Session, logical_expr as df, prelude::SessionContext};
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
 pub struct LimitNode {
     pub skip: Option<df::Expr>,
     pub fetch: Option<df::Expr>,
-    pub input: Box<ProofPlan>,
+    pub input: Arc<dyn ProofPlan>,
 }
 
-impl ProofNode for LimitNode {
-    type LogicalCounterpart = df::Limit;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            skip: lp.skip.as_deref().cloned(),
-            fetch: lp.fetch.as_deref().cloned(),
-            input: Box::new(ProofPlan::from_logical_plan(&lp.input)),
-        }
+impl LimitNode {
+    pub fn new(
+        ctx: &SessionContext,
+        skip: Option<df::Expr>,
+        fetch: Option<df::Expr>,
+        input: Arc<dyn ProofPlan>,
+    ) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Limit(lp.clone())
+}
+
+impl ProofPlan for LimitNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "LimitNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        Vec::new()
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> df::LogicalPlan {
+        todo!()
     }
 }

@@ -1,20 +1,36 @@
-use super::ProofNode;
-use crate::proof_plan::ProofPlan;
-use datafusion::logical_expr as df;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+use datafusion::{logical_expr::Subquery, prelude::SessionContext};
+
+use crate::proof_plan::ProofPlan;
+
 pub struct SubqueryNode {
-    pub input: Box<ProofPlan>,
+    pub input: Arc<dyn ProofPlan>,
 }
 
-impl ProofNode for SubqueryNode {
-    type LogicalCounterpart = df::Subquery;
-    fn from_logical(lp: &Self::LogicalCounterpart) -> Self {
-        Self {
-            input: Box::new(ProofPlan::from_logical_plan(&lp.subquery)),
-        }
+impl SubqueryNode {
+    pub fn new(ctx: &SessionContext, input: Arc<dyn ProofPlan>) -> Self {
+        todo!()
     }
-    fn io_plan(lp: &Self::LogicalCounterpart) -> df::LogicalPlan {
-        df::LogicalPlan::Subquery(lp.clone())
+}
+
+impl ProofPlan for SubqueryNode {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        "SubqueryNode"
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+        vec![&self.input]
+    }
+
+    fn relative_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
+    }
+
+    fn absolute_plan(&self) -> datafusion::logical_expr::LogicalPlan {
+        todo!()
     }
 }
