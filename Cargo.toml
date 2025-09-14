@@ -6,7 +6,8 @@ members = [
     "arithmetic",
     "sql-toolbox",
     "sql-toolbox-bench",
-    "front-end", "tpch-data",
+    "planner",
+    "tpch-data",
 ]
 
 # Add dependencies here
@@ -26,7 +27,7 @@ ark-piop = { path = "../ark-piop", default-features = false }
 # Other dependencies
 itertools = "0.14"
 csv = { version = "1.3.1" }
-rayon = { version = "1.5.2", default-features = false}
+rayon = { version = "1.5.2", default-features = false }
 proc-macro-hack = "0.5"
 derivative = { version = "2", features = ["use_core"] }
 thiserror = "2.0.11"
