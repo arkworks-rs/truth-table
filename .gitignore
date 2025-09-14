@@ -304,4 +304,8 @@ TSWLatexianTemp*
 
 *.tar
 *.parquet
+
+# Allow committed test data under tpch-data/test-data (override *.parquet rule)
+!/tpch-data/test-data/
+!/tpch-data/test-data/**
 *.tbl

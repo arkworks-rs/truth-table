@@ -1,0 +1,10 @@
+[package]
+name = "tpch-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tpchgen = "2.0.1"
+tpchgen-arrow = "2.0.1"
+arrow = { version = "56", default-features = false }
+parquet = { version = "56", features = ["arrow"], default-features = false }
