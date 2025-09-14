@@ -8,3 +8,7 @@ tpchgen = "2.0.1"
 tpchgen-arrow = "2.0.1"
 arrow = { version = "56", default-features = false }
 parquet = { version = "56", features = ["arrow"], default-features = false }
+duckdb = { version = "1.3.2", default-features = false, features = ["bundled"] }
+datafusion = "46.0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap = { version = "4", features = ["derive"] }
