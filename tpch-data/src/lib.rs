@@ -1,6 +1,6 @@
 use std::{
     fs::{File, create_dir_all},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -184,4 +184,16 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         write_parquet(out.join("lineitem.parquet"), &schema, &mut it);
     }
+}
+
+/// Absolute path helper to a Parquet file under this crate's `test-data` dir.
+/// Example: `test_data_path("lineitem.parquet")`
+pub fn test_data_path(file: impl AsRef<Path>) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(file)
+}
+
+/// Absolute path helper to a Parquet file under this crate's `bench-data` dir.
+/// Example: `bench_data_path("orders.parquet")`
+pub fn bench_data_path(file: impl AsRef<Path>) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bench-data").join(file)
 }

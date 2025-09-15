@@ -7,7 +7,7 @@ members = [
     "sql-toolbox",
     "sql-toolbox-bench",
     "planner",
-    "tpch-data",
+    "tpch-data", "exec",
 ]
 
 # Add dependencies here
