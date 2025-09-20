@@ -17,8 +17,8 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 pub struct FoldCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -96,8 +96,7 @@ where
         {
             acc_poly = &acc_poly - &(&poly * *chall);
         }
-        for &eval in acc_poly.evaluations().iter()
-        {
+        for &eval in acc_poly.evaluations().iter() {
             if !eval.is_zero() {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,

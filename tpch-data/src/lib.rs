@@ -189,11 +189,15 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
 /// Absolute path helper to a Parquet file under this crate's `test-data` dir.
 /// Example: `test_data_path("lineitem.parquet")`
 pub fn test_data_path(file: impl AsRef<Path>) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(file)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("test-data")
+        .join(file)
 }
 
 /// Absolute path helper to a Parquet file under this crate's `bench-data` dir.
 /// Example: `bench_data_path("orders.parquet")`
 pub fn bench_data_path(file: impl AsRef<Path>) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bench-data").join(file)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("bench-data")
+        .join(file)
 }

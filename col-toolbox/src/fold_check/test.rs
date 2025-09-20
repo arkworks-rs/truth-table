@@ -71,9 +71,7 @@ fn test_fold_check() -> SnarkResult<()> {
         .map(|col| {
             ColCom::new(
                 None,
-                verifier
-                    .track_mv_com_by_id(col.data_poly().id())
-                    .unwrap(),
+                verifier.track_mv_com_by_id(col.data_poly().id()).unwrap(),
                 Some(actvm.clone()),
                 actv_tracked_mle.log_size(),
             )

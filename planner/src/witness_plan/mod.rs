@@ -5,37 +5,41 @@ pub mod tests;
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use datafusion::{
-    arrow::{array::{Array, ArrayRef, BooleanArray}, compute::concat as arrow_concat, record_batch::RecordBatch},
+    arrow::{
+        array::{Array, ArrayRef, BooleanArray},
+        compute::concat as arrow_concat,
+        record_batch::RecordBatch,
+    },
     common::tree_node::{Transformed, TreeNode},
     error::Result as DFResult,
     logical_expr::{self as df, ExprSchemable},
     prelude::SessionContext,
 };
 
-use crate::proof_plan::{
+use crate::ra_proof_plan::{
     nodes::{FilterNode, ProjectionNode, TableScanNode},
-    ProofPlan,
+    RAProofPlan,
 };
 
 use futures::future::try_join_all;
 use std::collections::HashMap;
 use tracing::{debug, instrument, trace};
 
-/// Tree-structured witness node mirroring the ProofPlan shape.
+/// Tree-structured witness node mirroring the RAProofPlan shape.
 /// Each node contains its own materialized result and its children’s witnesses.
 pub struct WitnessNode {
-    pub node: Arc<dyn ProofPlan>,
+    pub node: Arc<dyn RAProofPlan>,
     pub result: Vec<RecordBatch>,
     pub children: Vec<WitnessNode>,
 }
 
-/// Execute the proof tree and assemble a witness tree mirroring the ProofPlan
+/// Execute the proof tree and assemble a witness tree mirroring the RAProofPlan
 /// shape. Uses a sequential, inputs-first strategy so parents can consume
 /// materialized child outputs via temporary MemTables.
 #[tracing::instrument(name = "proof_to_witness_tree", skip(ctx, root))]
 pub async fn proof_to_witness_tree(
     ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
+    root: Arc<dyn RAProofPlan>,
     is_parallel: bool,
 ) -> DFResult<WitnessNode> {
     if is_parallel {
@@ -48,13 +52,13 @@ pub async fn proof_to_witness_tree(
 /// outputs to their parents via temporary MemTables.
 async fn proof_to_witness_tree_seq(
     ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
+    root: Arc<dyn RAProofPlan>,
 ) -> DFResult<WitnessNode> {
     let mut temp_tables: HashMap<usize, String> = HashMap::new();
 
     fn exec_node<'a>(
         ctx: &'a SessionContext,
-        node: Arc<dyn ProofPlan>,
+        node: Arc<dyn RAProofPlan>,
         temp_tables: &'a mut HashMap<usize, String>,
     ) -> Pin<Box<dyn Future<Output = DFResult<WitnessNode>> + 'a>> {
         Box::pin(async move {
@@ -202,10 +206,10 @@ async fn proof_to_witness_tree_seq(
 /// assemble a tree from the collected results.
 async fn proof_to_witness_tree_par(
     ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
+    root: Arc<dyn RAProofPlan>,
 ) -> DFResult<WitnessNode> {
     // Collect all nodes (post-order) from the proof plan
-    fn collect(node: &Arc<dyn ProofPlan>, out: &mut Vec<Arc<dyn ProofPlan>>) {
+    fn collect(node: &Arc<dyn RAProofPlan>, out: &mut Vec<Arc<dyn RAProofPlan>>) {
         for c in node.children() {
             collect(c, out);
         }
@@ -233,7 +237,8 @@ async fn proof_to_witness_tree_par(
             }
             trace!(
                 node = node.name(),
-                rows, cols,
+                rows,
+                cols,
                 activated_true = activated.unwrap_or(rows),
                 "collected (parallel)"
             );
@@ -251,7 +256,7 @@ async fn proof_to_witness_tree_par(
 
     // Assemble the witness tree using the proof tree shape and collected results
     fn build(
-        node: &Arc<dyn ProofPlan>,
+        node: &Arc<dyn RAProofPlan>,
         by_id: &mut HashMap<usize, Vec<RecordBatch>>,
     ) -> WitnessNode {
         let id = node_ptr_id(node);
@@ -315,8 +320,8 @@ fn unify_batches(batches: &[RecordBatch]) -> DFResult<RecordBatch> {
 
 /// Stable-ish identifier for a node based on its vtable pointer, used to
 /// create unique temp table names during sequential execution.
-fn node_ptr_id(p: &Arc<dyn ProofPlan>) -> usize {
-    let data_ptr = &**p as *const dyn ProofPlan as *const ();
+fn node_ptr_id(p: &Arc<dyn RAProofPlan>) -> usize {
+    let data_ptr = &**p as *const dyn RAProofPlan as *const ();
     data_ptr as usize
 }
 

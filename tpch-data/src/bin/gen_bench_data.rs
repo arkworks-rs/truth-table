@@ -8,7 +8,10 @@ use std::path::PathBuf;
 //   is a power of two; the appended rows have activator=false
 
 #[derive(Parser, Debug)]
-#[command(name = "gen_bench_data", about = "Generate TPC-H Parquet for benchmarking")] 
+#[command(
+    name = "gen_bench_data",
+    about = "Generate TPC-H Parquet for benchmarking"
+)]
 struct Cli {
     /// Scale factor (e.g., 1.0 for SF1)
     scale: f64,

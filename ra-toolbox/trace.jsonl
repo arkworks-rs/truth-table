@@ -1,0 +1,1216 @@
+  2025-09-06T20:25:13.824483Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.825758Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.827811Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.839319Z DEBUG ark_piop::piop: close, time.busy: 11.5ms, time.idle: 32.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.839425Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.844336Z DEBUG ark_piop::piop: close, time.busy: 4.90ms, time.idle: 21.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.856570Z DEBUG ark_piop::piop: close, time.busy: 30.8ms, time.idle: 19.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.856669Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.858820Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.869759Z DEBUG ark_piop::piop: close, time.busy: 10.9ms, time.idle: 15.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.869819Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.874424Z DEBUG ark_piop::piop: close, time.busy: 4.60ms, time.idle: 19.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.886301Z DEBUG ark_piop::piop: close, time.busy: 29.6ms, time.idle: 14.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.886358Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.888827Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.901851Z DEBUG ark_piop::piop: close, time.busy: 13.0ms, time.idle: 15.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.901908Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.906493Z DEBUG ark_piop::piop: close, time.busy: 4.58ms, time.idle: 16.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.917977Z DEBUG ark_piop::piop: close, time.busy: 31.6ms, time.idle: 18.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.918051Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.931205Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.946432Z DEBUG ark_piop::piop: close, time.busy: 15.2ms, time.idle: 24.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.946572Z DEBUG ark_piop::piop: close, time.busy: 28.5ms, time.idle: 14.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.980165Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.996379Z DEBUG ark_piop::piop: close, time.busy: 16.2ms, time.idle: 23.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:13.996591Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.011715Z DEBUG ark_piop::piop: close, time.busy: 15.1ms, time.idle: 14.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.011778Z DEBUG ark_piop::piop: close, time.busy: 187ms, time.idle: 33.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.075916Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076063Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076353Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076625Z DEBUG ark_piop::piop: close, time.busy: 268µs, time.idle: 15.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076724Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076774Z DEBUG ark_piop::piop: close, time.busy: 46.5µs, time.idle: 11.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076939Z DEBUG ark_piop::piop: close, time.busy: 874µs, time.idle: 10.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.076982Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077033Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077277Z DEBUG ark_piop::piop: close, time.busy: 241µs, time.idle: 11.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077326Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077404Z DEBUG ark_piop::piop: close, time.busy: 75.4µs, time.idle: 10.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077572Z DEBUG ark_piop::piop: close, time.busy: 587µs, time.idle: 10.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077613Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077700Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.077965Z DEBUG ark_piop::piop: close, time.busy: 262µs, time.idle: 10.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078005Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078049Z DEBUG ark_piop::piop: close, time.busy: 42.6µs, time.idle: 10.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078187Z DEBUG ark_piop::piop: close, time.busy: 572µs, time.idle: 9.79µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078224Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078360Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078652Z DEBUG ark_piop::piop: close, time.busy: 290µs, time.idle: 10.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.078689Z DEBUG ark_piop::piop: close, time.busy: 463µs, time.idle: 9.67µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.079039Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.079268Z DEBUG ark_piop::piop: close, time.busy: 227µs, time.idle: 9.83µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.079434Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.079658Z DEBUG ark_piop::piop: close, time.busy: 221µs, time.idle: 9.46µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.079696Z DEBUG ark_piop::piop: close, time.busy: 3.79ms, time.idle: 13.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.912013Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.913163Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.915167Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.925205Z DEBUG ark_piop::piop: close, time.busy: 10.0ms, time.idle: 20.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.925324Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.927794Z DEBUG ark_piop::piop: close, time.busy: 2.46ms, time.idle: 23.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.940092Z DEBUG ark_piop::piop: close, time.busy: 26.9ms, time.idle: 27.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.940232Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.942665Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.954088Z DEBUG ark_piop::piop: close, time.busy: 11.4ms, time.idle: 19.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.954173Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.958417Z DEBUG ark_piop::piop: close, time.busy: 4.24ms, time.idle: 19.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.970556Z DEBUG ark_piop::piop: close, time.busy: 30.3ms, time.idle: 18.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.970642Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.972972Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.983809Z DEBUG ark_piop::piop: close, time.busy: 10.8ms, time.idle: 19.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.983888Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.988020Z DEBUG ark_piop::piop: close, time.busy: 4.13ms, time.idle: 15.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.999612Z DEBUG ark_piop::piop: close, time.busy: 29.0ms, time.idle: 14.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:14.999680Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.012581Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.026932Z DEBUG ark_piop::piop: close, time.busy: 14.3ms, time.idle: 21.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.027047Z DEBUG ark_piop::piop: close, time.busy: 27.4ms, time.idle: 18.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.049275Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.062885Z DEBUG ark_piop::piop: close, time.busy: 13.6ms, time.idle: 19.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.063081Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.073730Z DEBUG ark_piop::piop: close, time.busy: 10.6ms, time.idle: 14.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.073789Z DEBUG ark_piop::piop: close, time.busy: 162ms, time.idle: 16.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114198Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114383Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114447Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114704Z DEBUG ark_piop::piop: close, time.busy: 254µs, time.idle: 14.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114750Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114808Z DEBUG ark_piop::piop: close, time.busy: 54.3µs, time.idle: 13.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.114990Z DEBUG ark_piop::piop: close, time.busy: 607µs, time.idle: 12.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115030Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115081Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115314Z DEBUG ark_piop::piop: close, time.busy: 232µs, time.idle: 11.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115354Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115425Z DEBUG ark_piop::piop: close, time.busy: 69.2µs, time.idle: 11.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115582Z DEBUG ark_piop::piop: close, time.busy: 550µs, time.idle: 9.71µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115629Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115684Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115922Z DEBUG ark_piop::piop: close, time.busy: 236µs, time.idle: 11.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.115960Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116012Z DEBUG ark_piop::piop: close, time.busy: 47.9µs, time.idle: 12.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116159Z DEBUG ark_piop::piop: close, time.busy: 528µs, time.idle: 10.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116197Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116341Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116648Z DEBUG ark_piop::piop: close, time.busy: 304µs, time.idle: 10.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.116689Z DEBUG ark_piop::piop: close, time.busy: 490µs, time.idle: 10.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.117029Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.117257Z DEBUG ark_piop::piop: close, time.busy: 226µs, time.idle: 9.67µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.117408Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.117633Z DEBUG ark_piop::piop: close, time.busy: 222µs, time.idle: 9.54µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.117673Z DEBUG ark_piop::piop: close, time.busy: 3.48ms, time.idle: 13.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.950742Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.952544Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.955302Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.968514Z DEBUG ark_piop::piop: close, time.busy: 13.2ms, time.idle: 31.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.968682Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.974023Z DEBUG ark_piop::piop: close, time.busy: 5.33ms, time.idle: 26.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.987398Z DEBUG ark_piop::piop: close, time.busy: 34.8ms, time.idle: 31.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.987629Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:15.991529Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.002771Z DEBUG ark_piop::piop: close, time.busy: 11.2ms, time.idle: 29.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.002896Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.006407Z DEBUG ark_piop::piop: close, time.busy: 3.50ms, time.idle: 26.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.019786Z DEBUG ark_piop::piop: close, time.busy: 32.1ms, time.idle: 27.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.019945Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.023991Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.037175Z DEBUG ark_piop::piop: close, time.busy: 13.2ms, time.idle: 31.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.037323Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.043192Z DEBUG ark_piop::piop: close, time.busy: 5.82ms, time.idle: 63.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.057480Z DEBUG ark_piop::piop: close, time.busy: 37.5ms, time.idle: 33.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.057637Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.074487Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.091653Z DEBUG ark_piop::piop: close, time.busy: 17.2ms, time.idle: 32.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.091810Z DEBUG ark_piop::piop: close, time.busy: 34.2ms, time.idle: 14.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.116906Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.129555Z DEBUG ark_piop::piop: close, time.busy: 12.6ms, time.idle: 33.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.129864Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.145370Z DEBUG ark_piop::piop: close, time.busy: 15.5ms, time.idle: 26.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.145470Z DEBUG ark_piop::piop: close, time.busy: 195ms, time.idle: 14.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.185728Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.185882Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.185944Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186205Z DEBUG ark_piop::piop: close, time.busy: 258µs, time.idle: 14.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186257Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186306Z DEBUG ark_piop::piop: close, time.busy: 47.6µs, time.idle: 11.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186462Z DEBUG ark_piop::piop: close, time.busy: 581µs, time.idle: 11.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186502Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186580Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186807Z DEBUG ark_piop::piop: close, time.busy: 224µs, time.idle: 10.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186847Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.186891Z DEBUG ark_piop::piop: close, time.busy: 41.1µs, time.idle: 10.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187039Z DEBUG ark_piop::piop: close, time.busy: 536µs, time.idle: 9.67µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187077Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187120Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187344Z DEBUG ark_piop::piop: close, time.busy: 222µs, time.idle: 10.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187384Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187426Z DEBUG ark_piop::piop: close, time.busy: 40.0µs, time.idle: 11.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187583Z DEBUG ark_piop::piop: close, time.busy: 503µs, time.idle: 9.88µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187627Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.187764Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.188061Z DEBUG ark_piop::piop: close, time.busy: 295µs, time.idle: 10.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.188102Z DEBUG ark_piop::piop: close, time.busy: 472µs, time.idle: 11.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.188447Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.188691Z DEBUG ark_piop::piop: close, time.busy: 241µs, time.idle: 10.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.188845Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.189075Z DEBUG ark_piop::piop: close, time.busy: 228µs, time.idle: 9.62µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:16.189114Z DEBUG ark_piop::piop: close, time.busy: 3.39ms, time.idle: 13.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.024349Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.025731Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.027792Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.052545Z DEBUG ark_piop::piop: close, time.busy: 24.7ms, time.idle: 32.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.052744Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.075004Z DEBUG ark_piop::piop: close, time.busy: 22.2ms, time.idle: 58.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.115293Z DEBUG ark_piop::piop: close, time.busy: 89.5ms, time.idle: 35.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.115486Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.120452Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.139689Z DEBUG ark_piop::piop: close, time.busy: 19.2ms, time.idle: 36.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.139869Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.145334Z DEBUG ark_piop::piop: close, time.busy: 5.45ms, time.idle: 25.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.167663Z DEBUG ark_piop::piop: close, time.busy: 52.2ms, time.idle: 27.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.167847Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.171214Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.191942Z DEBUG ark_piop::piop: close, time.busy: 20.7ms, time.idle: 32.9µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.192126Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.198418Z DEBUG ark_piop::piop: close, time.busy: 6.27ms, time.idle: 36.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.223195Z DEBUG ark_piop::piop: close, time.busy: 55.3ms, time.idle: 32.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.223394Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.249435Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.271959Z DEBUG ark_piop::piop: close, time.busy: 22.5ms, time.idle: 35.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.272194Z DEBUG ark_piop::piop: close, time.busy: 48.8ms, time.idle: 19.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.329382Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.352969Z DEBUG ark_piop::piop: close, time.busy: 23.6ms, time.idle: 31.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.353283Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.376894Z DEBUG ark_piop::piop: close, time.busy: 23.6ms, time.idle: 29.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.377038Z DEBUG ark_piop::piop: close, time.busy: 353ms, time.idle: 17.3µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:45
+    in ark_piop::piop::piop.prove with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.515483Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.515595Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.515657Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.515928Z DEBUG ark_piop::piop: close, time.busy: 267µs, time.idle: 14.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.515985Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516039Z DEBUG ark_piop::piop: close, time.busy: 51.5µs, time.idle: 12.0µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516213Z DEBUG ark_piop::piop: close, time.busy: 618µs, time.idle: 12.2µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516260Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516309Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516549Z DEBUG ark_piop::piop: close, time.busy: 237µs, time.idle: 11.7µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516595Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516643Z DEBUG ark_piop::piop: close, time.busy: 45.3µs, time.idle: 11.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516802Z DEBUG ark_piop::piop: close, time.busy: 540µs, time.idle: 10.4µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516846Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.516894Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517131Z DEBUG ark_piop::piop: close, time.busy: 237µs, time.idle: 10.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517173Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517222Z DEBUG ark_piop::piop: close, time.busy: 46.0µs, time.idle: 10.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::no_zeros_check::NoZerosCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517366Z DEBUG ark_piop::piop: close, time.busy: 517µs, time.idle: 9.92µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::supp_check::SuppCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517406Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517547Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517881Z DEBUG ark_piop::piop: close, time.busy: 326µs, time.idle: 16.6µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.517952Z DEBUG ark_piop::piop: close, time.busy: 541µs, time.idle: 12.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::set_intersec::SetInterUnionCheckPIOP"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.518332Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.518566Z DEBUG ark_piop::piop: close, time.busy: 232µs, time.idle: 11.8µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.518720Z DEBUG ark_piop::piop: enter
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.518948Z DEBUG ark_piop::piop: close, time.busy: 225µs, time.idle: 10.5µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "col_toolbox::multiplicity_check::MultiplicityCheck"
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+
+  2025-09-06T20:25:17.518996Z DEBUG ark_piop::piop: close, time.busy: 3.52ms, time.idle: 14.1µs
+    at /Users/alrshir/Documents/Upenn/Research/dbSNARK/Code/ark-piop/piop/src/piop/mod.rs:82
+    in ark_piop::piop::piop.verify with piop: "sql_toolbox::inner_join::InnerJoinPIOP"
+

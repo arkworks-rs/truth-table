@@ -24,8 +24,8 @@ use ark_piop::{
         structs::oracle::TrackedOracle,
     },
 };
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 
 pub struct MultiplicityCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
@@ -156,7 +156,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         for i in 0..input.gxs.len() {
-            
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
                 input.gxs[i].clone(),

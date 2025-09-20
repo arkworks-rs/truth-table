@@ -2,7 +2,14 @@ use super::{MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVe
 use arithmetic::col::{ArithCol, ColCom};
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::{kzg10::KZG10, pst13::PST13, PCS}, piop::PIOP, prover::structs::polynomial::TrackedPoly, test_utils::test_prelude, to_field_vec, verifier::structs::oracle::TrackedOracle
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    piop::PIOP,
+    prover::structs::polynomial::TrackedPoly,
+    test_utils::test_prelude,
+    to_field_vec,
+    verifier::structs::oracle::TrackedOracle,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use std::str::FromStr;

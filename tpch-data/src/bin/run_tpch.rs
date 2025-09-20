@@ -4,7 +4,10 @@ use duckdb::Connection;
 use std::{env, path::PathBuf, str::FromStr};
 
 #[derive(Parser, Debug)]
-#[command(name = "run_tpch", about = "Print TPC-H SQL (and optional DataFusion logical plan)")]
+#[command(
+    name = "run_tpch",
+    about = "Print TPC-H SQL (and optional DataFusion logical plan)"
+)]
 struct Cli {
     /// Query number 1..22 or the string "all"
     which: String,
@@ -17,8 +20,9 @@ struct Cli {
     #[arg(long)]
     graphviz: bool,
 
-    /// Directory containing TPC-H parquet files (nation.parquet, region.parquet, ...)
-    /// If omitted and --plan is set, tries tpch-data/test-data then tpch-data/bench-data
+    /// Directory containing TPC-H parquet files (nation.parquet,
+    /// region.parquet, ...) If omitted and --plan is set, tries
+    /// tpch-data/test-data then tpch-data/bench-data
     #[arg(long)]
     data_dir: Option<PathBuf>,
 }
@@ -40,9 +44,7 @@ fn duckdb_fetch(qnum: Option<u8>) -> Option<Vec<(i64, String)>> {
         }
         if out.is_empty() { None } else { Some(out) }
     } else {
-        let mut stmt = conn
-            .prepare("FROM tpch_queries() ORDER BY query_nr")
-            .ok()?;
+        let mut stmt = conn.prepare("FROM tpch_queries() ORDER BY query_nr").ok()?;
         let mut rows = stmt.query([]).ok()?;
         let mut out = Vec::new();
         while let Ok(Some(row)) = rows.next() {
@@ -100,7 +102,11 @@ async fn main() {
             ("lineitem", dir.join("lineitem.parquet")),
         ] {
             if !file.exists() {
-                eprintln!("Missing table {} at {} (required for --plan)", name, file.display());
+                eprintln!(
+                    "Missing table {} at {} (required for --plan)",
+                    name,
+                    file.display()
+                );
                 std::process::exit(1);
             }
             ctx.register_parquet(name, file.to_str().unwrap(), ParquetReadOptions::default())
@@ -111,10 +117,18 @@ async fn main() {
             println!("-- Q{}\n{}\n", nr, sql);
             let df = ctx.sql(&sql).await.expect("plan SQL");
             if cli.plan {
-                println!("-- Q{} Logical Plan\n{}\n", nr, df.logical_plan().display_indent());
+                println!(
+                    "-- Q{} Logical Plan\n{}\n",
+                    nr,
+                    df.logical_plan().display_indent()
+                );
             }
             if want_graphviz {
-                println!("-- Q{} Graphviz DOT\n{}\n", nr, df.logical_plan().display_graphviz());
+                println!(
+                    "-- Q{} Graphviz DOT\n{}\n",
+                    nr,
+                    df.logical_plan().display_graphviz()
+                );
             }
         }
         return;
@@ -126,7 +140,7 @@ async fn main() {
         _ => {
             eprintln!("Usage: run_tpch <1..22>|all [--plan] [--data-dir DIR]");
             std::process::exit(2)
-        }
+        },
     };
     let rows = duckdb_fetch(Some(qnum)).unwrap_or_else(|| {
         eprintln!("DuckDB TPCH extension not available.");
@@ -152,7 +166,11 @@ async fn main() {
         ("lineitem", dir.join("lineitem.parquet")),
     ] {
         if !file.exists() {
-            eprintln!("Missing table {} at {} (required for --plan)", name, file.display());
+            eprintln!(
+                "Missing table {} at {} (required for --plan)",
+                name,
+                file.display()
+            );
             std::process::exit(1);
         }
         ctx.register_parquet(name, file.to_str().unwrap(), ParquetReadOptions::default())
@@ -161,12 +179,19 @@ async fn main() {
     }
     let df = ctx.sql(&sql).await.expect("plan SQL");
     if cli.plan {
-        println!("{}\n-- Logical Plan\n{}", sql, df.logical_plan().display_indent());
+        println!(
+            "{}\n-- Logical Plan\n{}",
+            sql,
+            df.logical_plan().display_indent()
+        );
     } else {
         // Still print SQL above if only graphviz was requested
         println!("{}", sql);
     }
     if want_graphviz {
-        println!("\n-- Graphviz DOT\n{}", df.logical_plan().display_graphviz());
+        println!(
+            "\n-- Graphviz DOT\n{}",
+            df.logical_plan().display_graphviz()
+        );
     }
 }

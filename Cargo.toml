@@ -4,10 +4,10 @@ members = [
     "col-toolbox",
     "col-toolbox-bench",
     "arithmetic",
-    "sql-toolbox",
-    "sql-toolbox-bench",
+    "ra-toolbox",
+    # "ra-toolbox-bench",
     "planner",
-    "tpch-data", "exec",
+    "tpch-data", "exec", "expr-toolbox",
 ]
 
 # Add dependencies here

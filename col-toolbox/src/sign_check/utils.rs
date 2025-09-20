@@ -96,10 +96,8 @@ mod tests {
             Fr::from(7)
         );
         let u16_sparse_poly =
-            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::sparse_range_poly_by_nv(
-                16,
-            )
-            .unwrap();
+            SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::sparse_range_poly_by_nv(16)
+                .unwrap();
         let u16_dense_poly =
             SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::dense_range_poly_by_nv(16)
                 .unwrap();

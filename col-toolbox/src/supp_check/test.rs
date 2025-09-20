@@ -214,12 +214,7 @@ fn supp_check_test_helper<
         None => None,
     };
 
-    let col_comm = ColCom::new(
-        col.data_type(),
-        col_comm,
-        col_actv_comm,
-        col.num_vars(),
-    );
+    let col_comm = ColCom::new(col.data_type(), col_comm, col_actv_comm, col.num_vars());
 
     let supp_col_comm = ColCom::new(
         supp_col.data_type(),

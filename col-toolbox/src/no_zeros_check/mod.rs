@@ -17,8 +17,8 @@ use ark_piop::{
     verifier::Verifier,
 };
 use ark_std::{end_timer, start_timer};
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 
 pub struct NoZerosCheck<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     #[doc(hidden)] PhantomData<F>,
@@ -86,8 +86,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut eval_inverses: Vec<F> = col_poly_evals.clone();
 
         batch_inversion(&mut eval_inverses);
-        let inverses_mle =
-            MLE::from_evaluations_vec(prover_input.col.num_vars(), eval_inverses);
+        let inverses_mle = MLE::from_evaluations_vec(prover_input.col.num_vars(), eval_inverses);
 
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;

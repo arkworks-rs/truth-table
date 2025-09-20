@@ -15,7 +15,7 @@ This project is structured as a Cargo workspace, with each crate serving a speci
 
 - [`col-toolbox`](./col-toolbox)
 
-  - **Description:** Provides useful argument systems for single or multiple columns. These arguments are composed in [`sql-toolbox`](./sql-toolbox/).
+  - **Description:** Provides useful argument systems for single or multiple columns. These arguments are composed in [`ra-toolbox`](./ra-toolbox/).
   - **Example:** Some examples of the tools:
 
     1. Proving that a column has no duplicate: [`NoDupCheck`](./col-toolbox/src/no_dup_check/)
@@ -34,7 +34,7 @@ This project is structured as a Cargo workspace, with each crate serving a speci
 
   - **Description:** a crate for benchmarking the tools in [`col-toolbox`](./col-toolbox)
 
-- [`sql-toolbox`](./sql-toolbox)
+- [`ra-toolbox`](./ra-toolbox)
 
   - **Description:** Provides argument systems for relational algebraic operations. These arguments take in two tables, and produce arguments of the form
 
@@ -46,12 +46,12 @@ This project is structured as a Cargo workspace, with each crate serving a speci
 
 - **Example:** Some examples of the tools:
 
-  1. Proving that the selection was done correctly in [`select`](./sql-toolbox/src/select/)
-  2. Proving that the group-by was done correctly in [`group-by`](./sql-toolbox/src/group-by/)
+  1. Proving that the selection was done correctly in [`select`](./ra-toolbox/src/select/)
+  2. Proving that the group-by was done correctly in [`group-by`](./ra-toolbox/src/group-by/)
 
-- [`sql-toolbox-bench`](./sql-toolbox-bench/)
+- [`ra-toolbox-bench`](./ra-toolbox-bench/)
 
-  - **Description:** a crate for benchmarking the tools in [`sql-toolbox`](./sql-toolbox)
+  - **Description:** a crate for benchmarking the tools in [`ra-toolbox`](./ra-toolbox)
 
 - [`arithmetic`](./arithmetic/)
 
@@ -64,7 +64,7 @@ This project is structured as a Cargo workspace, with each crate serving a speci
 
 ## Getting Started
 
-First create and fill the 'imdb_paruqet' folder in sql-toolbox-bench directory, the run:
+First create and fill the 'imdb_paruqet' folder in ra-toolbox-bench directory, the run:
 
 ```bash
 

@@ -14,8 +14,8 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 
 use crate::multiplicity_check::{
     MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,

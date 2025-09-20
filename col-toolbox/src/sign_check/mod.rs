@@ -27,9 +27,9 @@ use ark_piop::{
 use ark_poly::Polynomial;
 use ark_std::{cfg_iter, end_timer, start_timer};
 use datafusion::arrow::datatypes::DataType;
+use derivative::Derivative;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{marker::PhantomData, sync::Arc};
-use derivative::Derivative;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Sign {
@@ -465,19 +465,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             })
             .unzip();
 
-        let high_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.num_vars(),
-            high_vals,
-        ))?;
-        let low_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.num_vars(),
-            low_vals,
-        ))?;
+        let high_tr_p = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), high_vals))?;
+        let low_tr_p = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), low_vals))?;
 
         let zero_tr_p = match &col.actvtr_poly() {
             Some(actv) => {
-                let combined =
-                    col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                let combined = col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
                 &combined * *actv
             },
             None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
@@ -549,19 +544,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             })
             .unzip();
 
-        let high_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.num_vars(),
-            high_vals,
-        ))?;
-        let low_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-            col.num_vars(),
-            low_vals,
-        ))?;
+        let high_tr_p = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), high_vals))?;
+        let low_tr_p = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), low_vals))?;
 
         let zero_tr_p = match &col.actvtr_poly() {
             Some(actv) => {
-                let combined =
-                    col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                let combined = col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
                 &combined * *actv
             },
             None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),

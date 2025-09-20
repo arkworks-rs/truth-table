@@ -2,7 +2,7 @@
 //! # How it works
 //! 1. On input column C of size $N=2^\mu$, the prover commits to a column C'
 //!    that contains the same active elements as C but random unique elements
-//!    for the non-active elements. NoDup for C' implies PIOP for C.
+//!    for the non-active elements. NoDup for C' implies NoDup for C.
 //! 3. The prover and the verifier run a zerocheck on $actv(x)(c'(x)-c(x))=0$
 //!    for all $x\in \mathcal{H}_\mu$
 //! 4. The prover computes the univariate polynomial

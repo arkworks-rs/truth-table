@@ -10,11 +10,11 @@ use datafusion::arrow::{
 };
 
 use super::WitnessNode;
-use crate::proof_plan::ProofPlan;
+use crate::ra_proof_plan::RAProofPlan;
 
 /// Compute a stable-ish identifier for a plan node for DOT node ids.
-fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
-    let data_ptr = &**p as *const dyn ProofPlan as *const ();
+fn node_id(p: &Arc<dyn RAProofPlan>) -> usize {
+    let data_ptr = &**p as *const dyn RAProofPlan as *const ();
     data_ptr as usize
 }
 
@@ -62,7 +62,7 @@ fn stats_from_batches(batches: &[RecordBatch]) -> (usize, usize, usize, Vec<Stri
     }
 }
 
-/// Display helper that renders a Graphviz DOT graph for a ProofPlan,
+/// Display helper that renders a Graphviz DOT graph for a RAProofPlan,
 /// annotated with witness result statistics for each node.
 ///
 /// Label includes:

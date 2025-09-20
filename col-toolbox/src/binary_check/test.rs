@@ -43,7 +43,6 @@ fn binary_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-
 fn binary_check_test_soundness_helper<
     Fr: PrimeField,
     MvPCS: PCS<Fr, Poly = MLE<Fr>>,

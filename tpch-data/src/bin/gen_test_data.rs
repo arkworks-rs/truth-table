@@ -7,7 +7,10 @@ use std::path::PathBuf;
 // - The tables are padded by duplicating the last row until the total row count
 //   is a power of two; the appended rows have activator=false
 #[derive(Parser, Debug)]
-#[command(name = "gen_test_data", about = "Generate small TPC-H Parquet for testing")] 
+#[command(
+    name = "gen_test_data",
+    about = "Generate small TPC-H Parquet for testing"
+)]
 struct Cli {
     /// Scale factor (default 0.01)
     #[arg(long, default_value_t = 0.01)]

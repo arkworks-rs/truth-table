@@ -1,6 +1,12 @@
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::{kzg10::KZG10, pst13::PST13, PCS}, piop::PIOP, prover::structs::polynomial::TrackedPoly, test_utils::test_prelude, to_field_vec
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    piop::PIOP,
+    prover::structs::polynomial::TrackedPoly,
+    test_utils::test_prelude,
+    to_field_vec,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
@@ -47,7 +53,6 @@ fn or_check_is_sound() -> SnarkResult<()> {
         ],
         to_field_vec!([0, 1, 1, 1, 1, 1, 1, 1], Fr),
     )?;
-
 
     Ok(())
 }
@@ -120,11 +125,7 @@ fn or_check_test_helper<
     let res_activator_orcl = verifier.track_mv_com_by_id(actv_id)?;
     let in_activator_orcls = in_activator_polys
         .iter()
-        .map(|activator_poly| {
-            verifier
-                .track_mv_com_by_id(activator_poly.id())
-                .unwrap()
-        })
+        .map(|activator_poly| verifier.track_mv_com_by_id(activator_poly.id()).unwrap())
         .collect();
     let or_check_verifier_input = OrCheckVerifierInput {
         in_activator_orcls,

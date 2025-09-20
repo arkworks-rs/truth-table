@@ -3,9 +3,8 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::col::ArithCol;
-use arithmetic::col::ColCom;
-use ark_ff::{batch_inversion, PrimeField};
+use arithmetic::col::{ArithCol, ColCom};
+use ark_ff::{PrimeField, batch_inversion};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -15,11 +14,13 @@ use ark_piop::{
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use datafusion::{arrow::ipc::Binary, functions_aggregate::sum};
-use std::marker::PhantomData;
 use derivative::Derivative;
+use std::marker::PhantomData;
 
-use crate::no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput};
-use crate::binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput};
+use crate::{
+    binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
+    no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
+};
 
 pub struct OrCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     #[doc(hidden)] PhantomData<F>,
@@ -86,22 +87,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         for (sum_eval, res_eval) in sum_evals.iter().zip(res_evals.iter()) {
             if *sum_eval == F::zero() && *res_eval != F::zero() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
-                ark_piop::prover::errors::ProverError::HonestProverError(
-                    ark_piop::prover::errors::HonestProverError::FalseClaim,
-                ),
-            ));
-            }
-            else if *sum_eval != F::zero() && *res_eval != F::one() {
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
+            } else if *sum_eval != F::zero() && *res_eval != F::one() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
-                ark_piop::prover::errors::ProverError::HonestProverError(
-                    ark_piop::prover::errors::HonestProverError::FalseClaim,
-                ),
-            ));
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
             }
         }
 
         return Ok(());
-
 
         // let legit_activator_poly = MLE
         // let check_poly = sum_poly.sub_poly(&input.res_activator_poly);
@@ -113,7 +112,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         //             ark_piop::prover::errors::HonestProverError::FalseClaim,
         //         ),
         //     ));
-        
     }
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
@@ -127,16 +125,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let mut sum_evals = sum_poly.evaluations().clone();
         batch_inversion(&mut sum_evals);
-        let inverted_sum_poly =
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
-                sum_poly.log_size(),
-                 sum_evals,
-            ))?;
-
+        let inverted_sum_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+            sum_poly.log_size(),
+            sum_evals,
+        ))?;
 
         let q = &inverted_sum_poly * &sum_poly;
         let p = &(&inverted_sum_poly - &q) + F::one();
-
 
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(
             prover,

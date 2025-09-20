@@ -1,0 +1,43 @@
+[package]
+name = "expr-toolbox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Local dependencies
+arithmetic = { path = "../arithmetic" }
+col-toolbox = { path = "../col-toolbox" }
+# arkworks dependencies
+ark-std = { workspace = true }
+ark-ff = { workspace = true }
+ark-poly = { workspace = true }
+ark-piop = { workspace = true }
+# Other dependencies
+derivative = { workspace = true }
+rayon = { workspace = true, optional = true }
+datafusion = { workspace = true }
+[dev-dependencies]
+ark-ec = { workspace = true }
+ark-test-curves = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }
+
+[features]
+default = ["std", "parallel"]
+std = [
+    "ark-piop/std",
+    "col-toolbox/std",
+    "ark-ff/std",
+    "ark-poly/std",
+    "ark-std/std",
+]
+print-trace = ["ark-std/print-trace"]
+parallel = [
+    "std",
+    "ark-piop/parallel",
+    "col-toolbox/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-std/parallel",
+    "rayon",
+]
+honest-prover = ["ark-piop/honest-prover", "col-toolbox/honest-prover"]

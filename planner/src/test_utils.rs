@@ -146,7 +146,7 @@ pub fn are_effective_batches_equal(left: &[RecordBatch], right: &[RecordBatch]) 
                     Err(_) => {
                         out.push(b.clone());
                         continue;
-                    }
+                    },
                 };
                 let mask = b
                     .column(idx)
@@ -158,7 +158,8 @@ pub fn are_effective_batches_equal(left: &[RecordBatch], right: &[RecordBatch]) 
                     let filtered = arrow_filter(col.as_ref(), mask).expect("filter should succeed");
                     cols.push(filtered);
                 }
-                let fb = RecordBatch::try_new(b.schema(), cols).expect("batch rebuild after filter");
+                let fb =
+                    RecordBatch::try_new(b.schema(), cols).expect("batch rebuild after filter");
                 out.push(fb);
             }
             out
@@ -171,11 +172,6 @@ pub fn are_effective_batches_equal(left: &[RecordBatch], right: &[RecordBatch]) 
         are_batches_equal(left, right)
     }
 }
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {
