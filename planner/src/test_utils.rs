@@ -3,49 +3,6 @@ use std::path::PathBuf;
 use datafusion::{arrow::array::RecordBatch, scalar::ScalarValue};
 use std::collections::HashMap;
 
-pub(crate) fn imdb_parquet_path(file_name: &str) -> PathBuf {
-    // 1) Explicit override via env var
-    if let Ok(p) = std::env::var("IMDB_PARQUET_PATH") {
-        let pb = PathBuf::from(&p);
-        let candidate = if pb.is_dir() {
-            pb.join(file_name)
-        } else {
-            pb.clone()
-        };
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
-    // 2) Try current working directory
-    if let Ok(cwd) = std::env::current_dir() {
-        let candidate = cwd.join("parquets").join(file_name);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
-    // 3) Walk up from the crate directory and try common relative paths
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut tried = Vec::new();
-    for anc in crate_dir.ancestors() {
-        let c1 = anc.join("parquets").join(file_name);
-        if c1.exists() {
-            return c1;
-        }
-        tried.push(c1);
-    }
-
-    // If nothing matched, panic with useful message listing where we looked
-    let mut msg = format!("Could not find '{}'. Tried:\n", file_name);
-    for t in tried {
-        msg.push_str("  - ");
-        msg.push_str(&t.display().to_string());
-        msg.push('\n');
-    }
-    panic!("{}", msg);
-}
-
 /// Order-insensitive equality using row hashing (multiset semantics).
 ///
 /// Builds maps of row->count for both sides and compares counts. This avoids
@@ -177,6 +134,7 @@ pub fn are_effective_batches_equal(left: &[RecordBatch], right: &[RecordBatch]) 
 mod tests {
     use super::*;
     use datafusion::prelude::{ParquetReadOptions, SessionContext};
+    use tpch_data::test_data_path;
 
     async fn query(ctx: &SessionContext, sql: &str) -> Vec<RecordBatch> {
         ctx.sql(sql).await.unwrap().collect().await.unwrap()
@@ -185,7 +143,7 @@ mod tests {
     #[tokio::test]
     async fn unordered_hash_equal_cases() {
         let ctx = SessionContext::new();
-        let parquet_path = imdb_parquet_path("title-sanitized.parquet");
+        let parquet_path = test_data_path("title-sanitized.parquet");
         assert!(
             parquet_path.exists(),
             "Missing Parquet at {:?}",
@@ -218,7 +176,7 @@ mod tests {
     #[tokio::test]
     async fn unordered_hash_not_equal_case() {
         let ctx = SessionContext::new();
-        let parquet_path = imdb_parquet_path("title-sanitized.parquet");
+        let parquet_path = test_data_path("title-sanitized.parquet");
         assert!(
             parquet_path.exists(),
             "Missing Parquet at {:?}",

@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use front_end::{
-    ra_proof_plan::{logical_to_ra_proof_plan, RAProofPlan},
+    ra_proof_plan::{logical_to_proof_plan, ProofPlan},
     witness_plan::{proof_to_witness_tree, WitnessNode},
 };
 
@@ -142,7 +142,7 @@ async fn build_tree(is_parallel: bool) -> WitnessNode {
     let sql = r#"SELECT TITLE, PRODUCTION_YEAR FROM titles WHERE PRODUCTION_YEAR = 2000"#;
     let df = ctx.sql(sql).await.unwrap();
     let logical = df.into_unoptimized_plan();
-    let proof_root = logical_to_ra_proof_plan(&ctx, &logical);
+    let proof_root = logical_to_proof_plan(&ctx, &logical);
 
     proof_to_witness_tree(&ctx, Arc::clone(&proof_root), is_parallel)
         .await

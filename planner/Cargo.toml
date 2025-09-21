@@ -20,6 +20,7 @@ parquet = { version = "54", default-features = false, features = ["arrow"] }
 env_logger.workspace = true
 divan.workspace = true
 libc = "0.2"
+tpch-data = { path = "../tpch-data" }
 
 
 [features]

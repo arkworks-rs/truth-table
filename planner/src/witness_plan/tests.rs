@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    ra_proof_plan::display::DisplayableRAProofPlan,
-    test_utils::{are_effective_batches_equal, imdb_parquet_path},
+    ra_proof_plan::display::DisplayableProofPlan,
+    test_utils::are_effective_batches_equal,
     witness_plan::{display::DisplayableWitnessPlan, sorted_descendants, WitnessNode},
 };
 use datafusion::{
@@ -11,6 +11,7 @@ use datafusion::{
     },
     prelude::{ParquetReadOptions, SessionContext},
 };
+use tpch_data::test_data_path;
 
 #[tokio::test]
 async fn logical_plan_to_witness_plan_sequential() {
@@ -24,7 +25,7 @@ async fn logical_plan_to_witness_plan_sequential() {
         .try_init();
     let ctx = SessionContext::new();
 
-    let parquet_path = imdb_parquet_path("title-sanitized.parquet");
+    let parquet_path = test_data_path("title-sanitized.parquet");
     assert!(
         parquet_path.exists(),
         "Missing Parquet at {:?}",
@@ -49,9 +50,9 @@ async fn logical_plan_to_witness_plan_sequential() {
     println!("LogicalPlan DOT:\n{}", logical_dot);
 
     // 2) Our Proof Plan DOT
-    let proof_root = crate::ra_proof_plan::logical_to_ra_proof_plan(&ctx, &logical);
-    let proof_dot = format!("{}", DisplayableRAProofPlan::new(&proof_root));
-    println!("RAProofPlan DOT:\n{}", proof_dot);
+    let proof_root = crate::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
+    let proof_dot = format!("{}", DisplayableProofPlan::new(&proof_root));
+    println!("ProofPlan DOT:\n{}", proof_dot);
 
     // 3) Witness Plan DOT (after sequential execution)
     let wtree = proof_to_witness_tree(&ctx, Arc::clone(&proof_root), false)
@@ -80,7 +81,7 @@ async fn logical_plan_to_witness_plan_parallel() {
         .try_init();
     let ctx = SessionContext::new();
 
-    let parquet_path = imdb_parquet_path("title-sanitized.parquet");
+    let parquet_path = test_data_path("title-sanitized.parquet");
     assert!(
         parquet_path.exists(),
         "Missing Parquet at {:?}",
@@ -105,9 +106,9 @@ async fn logical_plan_to_witness_plan_parallel() {
     println!("LogicalPlan DOT:\n{}", logical_dot);
 
     // 2) Our Proof Plan DOT
-    let proof_root = crate::ra_proof_plan::logical_to_ra_proof_plan(&ctx, &logical);
-    let proof_dot = format!("{}", DisplayableRAProofPlan::new(&proof_root));
-    println!("RAProofPlan DOT:\n{}", proof_dot);
+    let proof_root = crate::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
+    let proof_dot = format!("{}", DisplayableProofPlan::new(&proof_root));
+    println!("ProofPlan DOT:\n{}", proof_dot);
 
     // 3) Witness Plan DOT (after parallel execution)
     let wtree = proof_to_witness_tree(&ctx, Arc::clone(&proof_root), true)
@@ -147,7 +148,7 @@ async fn witness_seq_vs_par_all_nodes_equal() {
 
     let ctx = SessionContext::new();
 
-    let parquet_path = imdb_parquet_path("title-sanitized.parquet");
+    let parquet_path = test_data_path("title-sanitized.parquet");
     assert!(
         parquet_path.exists(),
         "Missing Parquet at {:?}",
@@ -169,7 +170,7 @@ async fn witness_seq_vs_par_all_nodes_equal() {
     let logical = df.into_unoptimized_plan();
 
     // Convert to our proof plan
-    let proof_root = crate::ra_proof_plan::logical_to_ra_proof_plan(&ctx, &logical);
+    let proof_root = crate::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
 
     // Materialize witnesses sequentially and in parallel
     let wtree_seq = proof_to_witness_tree(&ctx, Arc::clone(&proof_root), false)
@@ -202,8 +203,8 @@ async fn witness_seq_vs_par_all_nodes_equal() {
             equal,
             "Node {} mismatch: seq '{}' vs par '{}'",
             i,
-            ws.node.name(),
-            wp.node.name()
+            plan_label(&ws.node),
+            plan_label(&wp.node)
         );
 
         // Also assert that padded rows (activator=false) counts match
@@ -216,7 +217,7 @@ async fn witness_seq_vs_par_all_nodes_equal() {
             i,
             pad_seq,
             pad_par,
-            ws.node.name()
+            plan_label(&ws.node)
         );
     }
 }

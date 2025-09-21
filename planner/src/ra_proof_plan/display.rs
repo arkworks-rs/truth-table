@@ -1,26 +1,24 @@
-use crate::ra_proof_plan::RAProofPlan;
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
 use std::{
-    panic::{catch_unwind, AssertUnwindSafe},
+    collections::{HashSet, VecDeque},
     sync::Arc,
 };
 
-/// Display helper for `RAProofPlan` that renders a Graphviz DOT graph.
+/// Display helper for `ProofPlan` that renders a Graphviz DOT graph.
 /// Similar in spirit to DataFusion's `DisplayableExecutionPlan`.
-pub struct DisplayableRAProofPlan<'a> {
-    plan: &'a Arc<dyn RAProofPlan>,
+pub struct DisplayableProofPlan<'a> {
+    plan: &'a Arc<dyn ProofPlan>,
 }
 
-impl<'a> DisplayableRAProofPlan<'a> {
-    pub fn new(plan: &'a Arc<dyn RAProofPlan>) -> Self {
+impl<'a> DisplayableProofPlan<'a> {
+    pub fn new(plan: &'a Arc<dyn ProofPlan>) -> Self {
         Self { plan }
     }
 
     /// Return Graphviz DOT string for the plan tree.
     pub fn graphviz(&self) -> String {
-        use std::collections::{HashSet, VecDeque};
-
-        fn node_id(p: &Arc<dyn RAProofPlan>) -> usize {
-            let data_ptr = &**p as *const dyn RAProofPlan as *const ();
+        fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
+            let data_ptr = &**p as *const dyn ProofPlan as *const ();
             data_ptr as usize
         }
 
@@ -31,11 +29,11 @@ impl<'a> DisplayableRAProofPlan<'a> {
         }
 
         let mut out = String::new();
-        out.push_str("digraph RAProofPlan {\n");
+        out.push_str("digraph ProofPlan {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn RAProofPlan>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
         q.push_back(Arc::clone(self.plan));
 
         while let Some(node) = q.pop_front() {
@@ -44,21 +42,21 @@ impl<'a> DisplayableRAProofPlan<'a> {
                 continue;
             }
 
-            // Try to render each node's relative and absolute plans; fall back if
-            // unimplemented
-            let rel = catch_unwind(AssertUnwindSafe(|| {
-                let plan = node.relative_plan();
-                format!("{}", plan.display_indent())
-            }))
-            .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string());
-
-            let abs = catch_unwind(AssertUnwindSafe(|| {
-                let plan = node.absolute_plan();
-                format!("{}", plan.display_indent())
-            }))
-            .unwrap_or_else(|_| "<absolute_plan: unavailable>".to_string());
-
-            let raw_label = format!("{}\\nRELATIVE:\n{}\\nABSOLUTE:\n{}", node.name(), rel, abs);
+            let node_label = match node.node_type() {
+                ProofPlanNodeType::LogicalPlan(_) => "LogicalPlan",
+                ProofPlanNodeType::Expr(_) => "Expr",
+                ProofPlanNodeType::None => "Unknown",
+            };
+            let witness_keys = {
+                let mut keys: Vec<_> = node.witness_generation_plans().keys().cloned().collect();
+                if keys.is_empty() {
+                    "<none>".to_string()
+                } else {
+                    keys.sort();
+                    keys.join(", ")
+                }
+            };
+            let raw_label = format!("type: {}\\nwitness keys: {}", node_label, witness_keys);
             let label = esc_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
 
@@ -75,7 +73,7 @@ impl<'a> DisplayableRAProofPlan<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DisplayableRAProofPlan<'a> {
+impl<'a> std::fmt::Display for DisplayableProofPlan<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.graphviz())
     }

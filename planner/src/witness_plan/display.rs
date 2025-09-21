@@ -9,12 +9,12 @@ use datafusion::arrow::{
     record_batch::RecordBatch,
 };
 
-use super::WitnessNode;
-use crate::ra_proof_plan::RAProofPlan;
+use super::{plan_label, WitnessNode};
+use crate::ra_proof_plan::{relative_plan_opt, ProofPlan};
 
 /// Compute a stable-ish identifier for a plan node for DOT node ids.
-fn node_id(p: &Arc<dyn RAProofPlan>) -> usize {
-    let data_ptr = &**p as *const dyn RAProofPlan as *const ();
+fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
+    let data_ptr = &**p as *const dyn ProofPlan as *const ();
     data_ptr as usize
 }
 
@@ -62,7 +62,7 @@ fn stats_from_batches(batches: &[RecordBatch]) -> (usize, usize, usize, Vec<Stri
     }
 }
 
-/// Display helper that renders a Graphviz DOT graph for a RAProofPlan,
+/// Display helper that renders a Graphviz DOT graph for a ProofPlan,
 /// annotated with witness result statistics for each node.
 ///
 /// Label includes:
@@ -96,11 +96,14 @@ impl<'a> DisplayableWitnessPlan<'a> {
                 continue;
             }
 
-            let rel = catch_unwind(AssertUnwindSafe(|| {
-                let plan = wn.node.relative_plan();
-                format!("{}", plan.display_indent())
-            }))
-            .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string());
+            let rel_plan = relative_plan_opt(&wn.node);
+            let rel = match rel_plan {
+                Some(plan) => {
+                    catch_unwind(AssertUnwindSafe(|| format!("{}", plan.display_indent())))
+                        .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string())
+                },
+                None => "<relative_plan: unavailable>".to_string(),
+            };
 
             let (cols, rows, act_true, names) = stats_from_batches(&wn.result);
             let col_names = if names.is_empty() {
@@ -109,10 +112,24 @@ impl<'a> DisplayableWitnessPlan<'a> {
                 names.join(", ")
             };
 
+            let witness_plans = wn.node.witness_generation_plans();
+            let witnesses = if witness_plans.is_empty() {
+                "<witness_plans: unavailable>".to_string()
+            } else {
+                let mut entries: Vec<_> = witness_plans.into_iter().collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                entries
+                    .into_iter()
+                    .map(|(label, plan)| format!("{}:\n{}", label, plan.display_indent()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+
             let raw_label = format!(
-                "{}\\n{}\\ncols: {}  rows: {}  act_true: {}\\ncolumns: {}",
-                wn.node.name(),
+                "type: {}\\n{}\\n{}\\ncols: {}  rows: {}  act_true: {}\\ncolumns: {}",
+                plan_label(&wn.node),
                 rel,
+                witnesses,
                 cols,
                 rows,
                 act_true,

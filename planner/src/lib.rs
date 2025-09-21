@@ -3,7 +3,6 @@
 //! proof plans and witness plans that can be executed to generate a proof for
 //! the logical plan.
 
-pub mod expr_proof_plan;
 pub mod ra_proof_plan;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

@@ -33,10 +33,10 @@ fn plan_pipeline(sql: &str) {
         let df = ctx.sql(sql).await.expect("sql parse");
         let logical = df.into_unoptimized_plan();
 
-        // 2) Logical -> RAProofPlan
-        let proof_root = front_end::ra_proof_plan::logical_to_ra_proof_plan(&ctx, &logical);
+        // 2) Logical -> ProofPlan
+        let proof_root = front_end::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
 
-        // 3) RAProofPlan -> WitnessPlan (sequential)
+        // 3) ProofPlan -> WitnessPlan (sequential)
         let _witness = front_end::witness_plan::proof_to_witness_tree(&ctx, proof_root, false)
             .await
             .expect("witness tree");
