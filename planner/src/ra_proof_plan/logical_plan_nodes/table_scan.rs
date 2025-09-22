@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 /// Proof node representing a base table scan.
 ///
 /// - `plan`: the original DataFusion TableScan logical plan
-/// - witness plans include both the optimized ("absolute_output") plan and the
+/// - witness plans include both the relative ("absolute_output") plan and the
 ///   original ("relative_output") scan plan.
 pub struct TableScanNode {
     pub plan: LogicalPlan,
@@ -26,13 +26,11 @@ impl TableScanNode {
 
     pub fn new(ctx: &SessionContext, plan: df::LogicalPlan) -> Self {
         let relative_plan = Self::make_relative_plan(plan.clone());
-        let absolute_plan = ctx.state().optimize(&relative_plan).unwrap();
         let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("absolute_output".to_string(), absolute_plan);
-        witness_generation_plans.insert("relative_output".to_string(), relative_plan.clone());
+        witness_generation_plans.insert("absolute_output".to_string(), relative_plan.clone());
         TableScanNode {
-            plan,
-            node_type: ProofPlanNodeType::LogicalPlan(relative_plan),
+            plan: plan.clone(),
+            node_type: ProofPlanNodeType::LogicalPlan(plan),
             witness_generation_plans,
         }
     }

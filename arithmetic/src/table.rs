@@ -9,7 +9,10 @@ use ark_piop::{
     prover::{structs::polynomial::TrackedPoly, Prover},
     verifier::{structs::oracle::TrackedOracle, Verifier},
 };
-use datafusion::{arrow::datatypes::Schema, prelude::DataFrame};
+use datafusion::{
+    arrow::{array::RecordBatch, datatypes::Schema},
+    prelude::DataFrame,
+};
 use derivative::Derivative;
 use futures::StreamExt;
 
@@ -85,6 +88,64 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
+    pub fn from_record_batches(
+        record_batches: Vec<RecordBatch>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) -> Result<Self, EncodeError> {
+        if record_batches.is_empty() {
+            return Ok(Self::new(None, Vec::new(), None, 0));
+        }
+
+        let schema_ref = record_batches[0].schema();
+        let activator_idx = schema_ref.index_of("activator").ok();
+        let num_cols = schema_ref.fields().len();
+
+        let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
+        assert!(total_rows.is_power_of_two());
+
+        let max_log_vars = total_rows.trailing_zeros() as usize;
+
+        let mut columns: Vec<Vec<F>> = vec![Vec::with_capacity(total_rows); num_cols];
+
+        for batch in record_batches {
+            for (col_idx, array) in batch.columns().iter().enumerate() {
+                downcast_and_encode!(array, columns[col_idx], F);
+            }
+        }
+
+        let mut data_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>> = Vec::with_capacity(num_cols);
+        let mut activator_poly: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
+
+        for (idx, values) in columns.into_iter().enumerate() {
+            let mle = MLE::from_evaluations_slice(max_log_vars, &values);
+            let tracked = prover
+                .track_and_commit_mat_mv_poly(&mle)
+                .expect("failed to commit witness polynomial");
+            if Some(idx) == activator_idx {
+                activator_poly = Some(tracked);
+            } else {
+                data_polys.push(tracked);
+            }
+        }
+
+        let schema = Some(Schema::new(
+            schema_ref
+                .fields()
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, field)| {
+                    if Some(idx) == activator_idx {
+                        None
+                    } else {
+                        Some(field.clone())
+                    }
+                })
+                .collect::<datafusion::arrow::datatypes::Fields>(),
+        ));
+
+        Ok(Self::new(schema, data_polys, activator_poly, total_rows))
+    }
+
     pub fn new(
         schema: Option<Schema>,
         data_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,

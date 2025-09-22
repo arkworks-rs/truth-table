@@ -29,7 +29,10 @@ macro_rules! downcast_and_encode {
                 $OUTPUT_VEC.append(&mut typed_array.encode()?);
             },
             _ => {
-                panic!("Unsupported data type for conversion.");
+                panic!(
+                    "Unsupported data type for conversion: {:?}",
+                    $ARRAY.data_type()
+                );
             },
         }
     };

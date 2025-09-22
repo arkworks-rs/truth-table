@@ -1,4 +1,6 @@
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{
+    expr_to_proof_plan, primary_witness_plan, relative_plan_opt, ProofPlan, ProofPlanNodeType,
+};
 use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::SessionContext,
@@ -9,8 +11,8 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// - `predicate`: DataFusion expression applied to rows
 /// - `input`: child proof node
-/// - `absolute_plan`: unrolled plan: `input.absolute_plan` with this filter’s
-///   activator logic applied (pass-through other columns)
+/// - `absolute_plan`: unrolled plan: `input` with this filter’s activator logic
+///   applied (pass-through other columns)
 pub struct FilterNode {
     pub predicate: Arc<dyn ProofPlan>,
     pub input: Arc<dyn ProofPlan>,
@@ -20,7 +22,7 @@ pub struct FilterNode {
 
 impl FilterNode {
     pub fn make_relative_plan(
-        predicate: Arc<dyn ProofPlan>,
+        predicate: &Arc<dyn ProofPlan>,
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         // Build relative plan by propagating input and zeroing `activator` when
@@ -87,20 +89,21 @@ impl FilterNode {
 
     pub fn new(
         ctx: &SessionContext,
-        predicate: Arc<dyn ProofPlan>,
+        predicate: df::Expr,
         input_plan: LogicalPlan,
         input: Arc<dyn ProofPlan>,
     ) -> Self {
-        let relative_plan = Self::make_relative_plan(predicate.clone(), input_plan.clone());
-        let absolute_plan = ctx.state().optimize(&relative_plan).unwrap();
+        let predicate_node = expr_to_proof_plan(predicate, &input_plan);
+        let child_plan = primary_witness_plan(&input)
+            .or_else(|| relative_plan_opt(&input))
+            .expect("filter child witness plan unavailable");
+        let relative_plan = Self::make_relative_plan(&predicate_node, child_plan);
         let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("absolute_output".to_string(), absolute_plan);
-        witness_generation_plans.insert("relative_output".to_string(), relative_plan.clone());
-
+        witness_generation_plans.insert("absolute_output".to_string(), relative_plan.clone());
         Self {
-            predicate,
+            predicate: predicate_node,
             input,
-            node_type: ProofPlanNodeType::LogicalPlan(relative_plan),
+            node_type: ProofPlanNodeType::LogicalPlan(input_plan),
             witness_generation_plans,
         }
     }
@@ -112,7 +115,7 @@ impl ProofPlan for FilterNode {
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
-        vec![&self.input]
+        vec![&self.input, &self.predicate]
     }
     fn node_type(&self) -> ProofPlanNodeType {
         self.node_type.clone()

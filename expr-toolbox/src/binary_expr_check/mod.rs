@@ -58,6 +58,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Operator::StringConcat => todo!(),
             Operator::AtArrow => todo!(),
             Operator::ArrowAt => todo!(),
+            _ => todo!(),
         }
     }
 
@@ -97,6 +98,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Operator::StringConcat => todo!(),
             Operator::AtArrow => todo!(),
             Operator::ArrowAt => todo!(),
+            _ => todo!(),
         }
     }
 }

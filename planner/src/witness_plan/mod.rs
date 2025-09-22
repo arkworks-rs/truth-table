@@ -2,35 +2,47 @@ pub mod display;
 #[cfg(test)]
 pub mod tests;
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
     arrow::{
-        array::{Array, ArrayRef, BooleanArray},
-        compute::concat as arrow_concat,
+        array::{Array, BooleanArray},
         record_batch::RecordBatch,
     },
-    common::tree_node::{Transformed, TreeNode},
     error::Result as DFResult,
-    logical_expr::{self as df, ExprSchemable},
     prelude::SessionContext,
 };
 
-use crate::ra_proof_plan::{
-    logical_plan_nodes::{FilterNode, ProjectionNode, TableScanNode},
-    primary_witness_plan, relative_plan_opt, ProofPlan, ProofPlanNodeType,
-};
+use crate::ra_proof_plan::{logical_plan_nodes::TableScanNode, ProofPlan, ProofPlanNodeType};
 
-use futures::future::try_join_all;
-use std::collections::HashMap;
+use futures::{
+    future::{try_join_all, BoxFuture},
+    FutureExt,
+};
 use tracing::{debug, trace};
 
 /// Tree-structured witness node mirroring the ProofPlan shape.
 /// Each node contains its own materialized result and its children’s witnesses.
 pub struct WitnessNode {
     pub node: Arc<dyn ProofPlan>,
-    pub result: Vec<RecordBatch>,
+    pub results: HashMap<String, Vec<RecordBatch>>,
     pub children: Vec<WitnessNode>,
+}
+
+impl WitnessNode {
+    /// Return the batches collected for a specific witness label, if present.
+    pub fn batches_for(&self, label: &str) -> Option<&Vec<RecordBatch>> {
+        self.results.get(label)
+    }
+
+    /// Heuristic to pick a "primary" result set for display or summary stats.
+    /// Prefers `absolute_output`, falls back to `relative_output`, then any
+    /// entry.
+    pub fn primary_batches(&self) -> Option<&Vec<RecordBatch>> {
+        self.batches_for("absolute_output")
+            .or_else(|| self.batches_for("relative_output"))
+            .or_else(|| self.results.values().next())
+    }
 }
 
 pub(crate) fn plan_label(node: &Arc<dyn ProofPlan>) -> &'static str {
@@ -42,201 +54,14 @@ pub(crate) fn plan_label(node: &Arc<dyn ProofPlan>) -> &'static str {
 }
 
 /// Execute the proof tree and assemble a witness tree mirroring the ProofPlan
-/// shape. Uses a sequential, inputs-first strategy so parents can consume
-/// materialized child outputs via temporary MemTables.
+/// shape. All witness-generation logical plans are executed in parallel.
 #[tracing::instrument(name = "proof_to_witness_tree", skip(ctx, root))]
 pub async fn proof_to_witness_tree(
     ctx: &SessionContext,
     root: Arc<dyn ProofPlan>,
-    is_parallel: bool,
 ) -> DFResult<WitnessNode> {
-    if is_parallel {
-        return proof_to_witness_tree_par(ctx, root).await;
-    }
-    proof_to_witness_tree_seq(ctx, root).await
-}
-
-/// Sequential execution building the witness tree by feeding materialized child
-/// outputs to their parents via temporary MemTables.
-async fn proof_to_witness_tree_seq(
-    ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
-) -> DFResult<WitnessNode> {
-    let mut temp_tables: HashMap<usize, String> = HashMap::new();
-
-    fn exec_node<'a>(
-        ctx: &'a SessionContext,
-        node: Arc<dyn ProofPlan>,
-        temp_tables: &'a mut HashMap<usize, String>,
-    ) -> Pin<Box<dyn Future<Output = DFResult<WitnessNode>> + 'a>> {
-        Box::pin(async move {
-            // Execute children first
-            let mut children_nodes = Vec::new();
-            for child in node.children() {
-                let cn = exec_node(ctx, Arc::clone(child), temp_tables).await?;
-                children_nodes.push(cn);
-            }
-
-            let id = node_ptr_id(&node);
-            let mut batches: Vec<RecordBatch> = Vec::new();
-
-            if let Some(_ts) = node.as_any().downcast_ref::<TableScanNode>() {
-                let relative_plan =
-                    relative_plan_opt(&node).expect("table scan should expose relative plan");
-                let df = ctx.execute_logical_plan(relative_plan).await?;
-                batches = df.collect().await?;
-                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                assert!(
-                    rows != 0 && (rows & (rows - 1)) == 0,
-                    "TableScan rows not power-of-two: {}",
-                    rows
-                );
-                debug!(
-                    node = plan_label(&node),
-                    rows, "scan collected (sequential)"
-                );
-
-                let single = unify_batches(&batches)?;
-                let table_name = format!("wp_{}", id);
-                let _ = ctx.register_batch(&table_name, single)?;
-                temp_tables.insert(id, table_name);
-            } else if let Some(p) = node.as_any().downcast_ref::<ProjectionNode>() {
-                let child = node.children()[0];
-                let child_id = node_ptr_id(child);
-                let table = temp_tables.get(&child_id).expect("child output missing");
-                let input_df = ctx.table(table).await?;
-                let input_schema = input_df.logical_plan().schema();
-                let mut exprs: Vec<df::Expr> = p
-                    .expr
-                    .iter()
-                    .map(|expr_plan| match expr_plan.node_type() {
-                        ProofPlanNodeType::Expr(expr) => unqualify_expr(expr),
-                        _ => panic!("expression proof plan must provide rel expr"),
-                    })
-                    .collect();
-                if input_schema
-                    .field_with_unqualified_name("activator")
-                    .is_ok()
-                {
-                    let projects_activator = exprs.iter().any(|e| match e {
-                        df::Expr::Column(c) => c.name == "activator",
-                        df::Expr::Alias(a) => a.name == "activator",
-                        df::Expr::Wildcard { .. } => true,
-                        _ => false,
-                    });
-                    if !projects_activator {
-                        exprs.push(df::col("activator"));
-                    }
-                }
-                let out_df = input_df.select(exprs)?;
-                batches = out_df.collect().await?;
-                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                debug!(
-                    node = plan_label(&node),
-                    rows, "projection collected (sequential)"
-                );
-
-                let single = unify_batches(&batches)?;
-                let table_name = format!("wp_{}", id);
-                let _ = ctx.register_batch(&table_name, single)?;
-                temp_tables.insert(id, table_name);
-            } else if let Some(f) = node.as_any().downcast_ref::<FilterNode>() {
-                let child = node.children()[0];
-                let child_id = node_ptr_id(child);
-                let table = temp_tables.get(&child_id).expect("child output missing");
-                let input_df = ctx.table(table).await?;
-
-                let input_plan = input_df.logical_plan();
-                let schema = input_plan.schema().clone();
-                let activator_field = schema
-                    .field_with_unqualified_name("activator")
-                    .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
-                let activator_dtype = activator_field.data_type().clone();
-
-                let pred = match f.predicate.node_type() {
-                    ProofPlanNodeType::Expr(expr) => unqualify_expr(expr),
-                    _ => panic!("filter predicate must provide rel expr"),
-                };
-                let try_bool_and = df::and(df::col("activator"), pred.clone());
-                let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
-                    try_bool_and.alias("activator")
-                } else {
-                    let one = df::lit(1)
-                        .cast_to(&activator_dtype, schema.as_ref())
-                        .unwrap();
-                    let zero = df::lit(0)
-                        .cast_to(&activator_dtype, schema.as_ref())
-                        .unwrap();
-                    let mask = df::when(pred.clone(), one.clone())
-                        .otherwise(zero.clone())
-                        .unwrap();
-                    let try_bit_and = df::bitwise_and(df::col("activator"), mask.clone());
-                    if try_bit_and.get_type(schema.as_ref()).is_ok() {
-                        try_bit_and.alias("activator")
-                    } else {
-                        df::when(pred.clone(), df::col("activator"))
-                            .otherwise(zero)
-                            .unwrap()
-                            .alias("activator")
-                    }
-                };
-
-                let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
-                for field in schema.fields() {
-                    if field.name() == "activator" {
-                        proj_exprs.push(new_activator.clone());
-                    } else {
-                        proj_exprs.push(df::col(field.name()));
-                    }
-                }
-
-                let out_df = input_df.select(proj_exprs)?;
-                batches = out_df.collect().await?;
-                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                debug!(
-                    node = plan_label(&node),
-                    rows, "filter collected (sequential)"
-                );
-
-                let single = unify_batches(&batches)?;
-                let table_name = format!("wp_{}", id);
-                let _ = ctx.register_batch(&table_name, single)?;
-                temp_tables.insert(id, table_name);
-            } else {
-                let plan = primary_witness_plan(&node)
-                    .or_else(|| relative_plan_opt(&node))
-                    .expect("witness generation plan unavailable");
-                let df = ctx.execute_logical_plan(plan).await?;
-                batches = df.collect().await?;
-                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                debug!(
-                    node = plan_label(&node),
-                    rows, "generic node collected (sequential)"
-                );
-                let single = unify_batches(&batches)?;
-                let table_name = format!("wp_{}", id);
-                let _ = ctx.register_batch(&table_name, single)?;
-                temp_tables.insert(id, table_name);
-            }
-
-            Ok(WitnessNode {
-                node,
-                result: batches,
-                children: children_nodes,
-            })
-        })
-    }
-
-    exec_node(ctx, root, &mut temp_tables).await
-}
-
-/// Parallel execution: evaluate each node's absolute plan independently and
-/// assemble a tree from the collected results.
-async fn proof_to_witness_tree_par(
-    ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
-) -> DFResult<WitnessNode> {
-    // Collect all nodes (post-order) from the proof plan
+    // Collect all nodes (post-order) from the proof plan so we can spawn
+    // concurrent executions for each node's witness plans.
     fn collect(node: &Arc<dyn ProofPlan>, out: &mut Vec<Arc<dyn ProofPlan>>) {
         for c in node.children() {
             collect(c, out);
@@ -246,54 +71,68 @@ async fn proof_to_witness_tree_par(
     let mut nodes = Vec::new();
     collect(&root, &mut nodes);
 
-    // Execute absolute plans concurrently
-    let futures = nodes.iter().map(|n| {
-        let ctx = ctx.clone();
-        let node = Arc::clone(n);
-        async move {
-            let plan = primary_witness_plan(&node)
-                .or_else(|| relative_plan_opt(&node))
-                .expect("witness generation plan unavailable");
-            debug!(
-                node = plan_label(&node),
-                "executing witness plan (parallel)"
+    // Spawn futures for every witness-generation plan across the tree.
+    let mut futures: Vec<BoxFuture<'static, DFResult<(usize, String, Vec<RecordBatch>)>>> =
+        Vec::new();
+
+    for node in &nodes {
+        let plans = node.witness_generation_plans();
+        for (label, plan) in plans {
+            let ctx = ctx.clone();
+            let node = Arc::clone(node);
+            futures.push(
+                async move {
+                    debug!(node = plan_label(&node), plan_label = %label, "executing witness plan");
+                    let df = ctx.execute_logical_plan(plan).await?;
+                    let batches = df.collect().await?;
+
+                    if label == "absolute_output"
+                        && node.as_any().downcast_ref::<TableScanNode>().is_some()
+                    {
+                        let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+                        assert!(
+                            rows != 0 && (rows & (rows - 1)) == 0,
+                            "TableScan rows not power-of-two: {}",
+                            rows
+                        );
+                    }
+
+                    let (rows, cols, activated) = rows_cols_activated(&batches);
+                    trace!(
+                        node = plan_label(&node),
+                        plan_label = %label,
+                        rows,
+                        cols,
+                        activated_true = activated.unwrap_or(rows),
+                        "witness batches collected"
+                    );
+
+                    Ok((node_ptr_id(&node), label, batches))
+                }
+                .boxed(),
             );
-            let df = ctx.execute_logical_plan(plan).await?;
-            let batches = df.collect().await?;
-            let (rows, cols, activated) = rows_cols_activated(&batches);
-            if node.as_any().downcast_ref::<TableScanNode>().is_some() {
-                assert!(
-                    rows != 0 && (rows & (rows - 1)) == 0,
-                    "TableScan rows not power-of-two: {}",
-                    rows
-                );
-            }
-            trace!(
-                node = plan_label(&node),
-                rows,
-                cols,
-                activated_true = activated.unwrap_or(rows),
-                "collected (parallel)"
-            );
-            Ok::<(usize, Vec<RecordBatch>), datafusion::error::DataFusionError>((
-                node_ptr_id(&node),
-                batches,
-            ))
         }
-    });
-    let results: Vec<(usize, Vec<RecordBatch>)> = try_join_all(futures).await?;
-    let mut by_id: HashMap<usize, Vec<RecordBatch>> = HashMap::with_capacity(results.len());
-    for (id, batches) in results {
-        by_id.insert(id, batches);
     }
 
-    // Assemble the witness tree using the proof tree shape and collected results
+    let results = try_join_all(futures).await?;
+
+    let mut by_id: HashMap<usize, HashMap<String, Vec<RecordBatch>>> = HashMap::new();
+    for (id, label, batches) in results {
+        by_id.entry(id).or_default().insert(label, batches);
+    }
+
+    // Make sure nodes without witness plans still have an entry so the tree can
+    // be rebuilt faithfully.
+    for node in &nodes {
+        by_id.entry(node_ptr_id(node)).or_default();
+    }
+
     fn build(
         node: &Arc<dyn ProofPlan>,
-        by_id: &mut HashMap<usize, Vec<RecordBatch>>,
+        by_id: &mut HashMap<usize, HashMap<String, Vec<RecordBatch>>>,
     ) -> WitnessNode {
         let id = node_ptr_id(node);
-        let result = by_id.remove(&id).unwrap_or_else(|| Vec::new());
+        let results = by_id.remove(&id).unwrap_or_default();
         let children = node
             .children()
             .into_iter()
@@ -301,7 +140,7 @@ async fn proof_to_witness_tree_par(
             .collect();
         WitnessNode {
             node: Arc::clone(node),
-            result,
+            results,
             children,
         }
     }
@@ -323,53 +162,11 @@ pub fn sorted_descendants<'a>(root: &'a WitnessNode) -> Vec<&'a WitnessNode> {
     v
 }
 
-/// Concatenate multiple record batches into a single batch (column-wise
-/// concat).
-///
-/// This helps us register a single `MemTable` per node for simple downstream
-/// scans.
-fn unify_batches(batches: &[RecordBatch]) -> DFResult<RecordBatch> {
-    if batches.is_empty() {
-        // Create an empty batch with no columns
-        return Ok(RecordBatch::new_empty(Arc::new(
-            datafusion::arrow::datatypes::Schema::empty(),
-        )));
-    }
-    let schema = batches[0].schema();
-    let num_cols = schema.fields().len();
-    let mut cols: Vec<ArrayRef> = Vec::with_capacity(num_cols);
-    for col_idx in 0..num_cols {
-        let parts: Vec<&dyn datafusion::arrow::array::Array> =
-            batches.iter().map(|b| b.column(col_idx).as_ref()).collect();
-        let arr = if parts.len() == 1 {
-            batches[0].column(col_idx).clone()
-        } else {
-            arrow_concat(&parts)?
-        };
-        cols.push(arr);
-    }
-    Ok(RecordBatch::try_new(schema.clone(), cols)?)
-}
-
-/// Stable-ish identifier for a node based on its vtable pointer, used to
-/// create unique temp table names during sequential execution.
+/// Stable-ish identifier for a node based on its vtable pointer, used to join
+/// asynchronous witness results back to the plan shape.
 fn node_ptr_id(p: &Arc<dyn ProofPlan>) -> usize {
     let data_ptr = &**p as *const dyn ProofPlan as *const ();
     data_ptr as usize
-}
-
-// Rewrite an expression to drop any table qualifier from column references,
-// so it can resolve against temp MemTables (which expose unqualified names).
-fn unqualify_expr(expr: df::Expr) -> df::Expr {
-    expr.transform(|e| {
-        if let df::Expr::Column(c) = &e {
-            // Recreate as unqualified column
-            return Ok(Transformed::yes(df::col(&c.name)));
-        }
-        Ok(Transformed::no(e))
-    })
-    .unwrap()
-    .data
 }
 
 // Compute total rows, number of columns, and count of rows with activator=true

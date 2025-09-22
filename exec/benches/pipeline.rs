@@ -36,8 +36,8 @@ fn plan_pipeline(sql: &str) {
         // 2) Logical -> ProofPlan
         let proof_root = front_end::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
 
-        // 3) ProofPlan -> WitnessPlan (sequential)
-        let _witness = front_end::witness_plan::proof_to_witness_tree(&ctx, proof_root, false)
+        // 3) ProofPlan -> WitnessPlan (parallel execution of witness plans)
+        let _witness = front_end::witness_plan::proof_to_witness_tree(&ctx, proof_root)
             .await
             .expect("witness tree");
     });

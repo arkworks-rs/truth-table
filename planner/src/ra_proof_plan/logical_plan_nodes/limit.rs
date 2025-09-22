@@ -1,4 +1,4 @@
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{primary_witness_plan, relative_plan_opt, ProofPlan, ProofPlanNodeType};
 use datafusion::{
     logical_expr::{self as df, LogicalPlan, LogicalPlanBuilder},
     prelude::SessionContext,
@@ -32,17 +32,19 @@ impl LimitNode {
         input_plan: LogicalPlan,
         input: Arc<dyn ProofPlan>,
     ) -> Self {
+        let child_plan = primary_witness_plan(&input)
+            .or_else(|| relative_plan_opt(&input))
+            .expect("limit child witness plan unavailable");
         let relative_plan =
-            Self::make_relative_plan(input_plan.clone(), skip.clone(), fetch.clone());
-        let absolute_plan = ctx.state().optimize(&relative_plan).unwrap();
+            Self::make_relative_plan(child_plan.clone(), skip.clone(), fetch.clone());
         let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("absolute_output".to_string(), absolute_plan);
+        witness_generation_plans.insert("absolute_output".to_string(), relative_plan.clone());
         witness_generation_plans.insert("relative_output".to_string(), relative_plan.clone());
         Self {
             skip,
             fetch,
             input,
-            node_type: ProofPlanNodeType::LogicalPlan(relative_plan),
+            node_type: ProofPlanNodeType::LogicalPlan(relative_plan.clone()),
             witness_generation_plans,
         }
     }

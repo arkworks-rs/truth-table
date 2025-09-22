@@ -36,7 +36,7 @@ fn witness_sequential(bencher: divan::Bencher) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     bencher.bench_local(|| {
         rt.block_on(async {
-            let _wtree = build_tree(false).await;
+            let _wtree = build_tree().await;
             divan::black_box(())
         })
     });
@@ -47,7 +47,7 @@ fn witness_parallel(bencher: divan::Bencher) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     bencher.bench_local(|| {
         rt.block_on(async {
-            let _wtree = build_tree(true).await;
+            let _wtree = build_tree().await;
             divan::black_box(())
         })
     });
@@ -114,10 +114,10 @@ fn witness_parallel_rss(bencher: divan::Bencher) {
 
 fn main() {
     if let Ok(mode) = std::env::var("WP_RSS_BENCH") {
+        let _ = mode;
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
-            let is_parallel = mode == "par";
-            let _wtree = build_tree(is_parallel).await;
+            let _wtree = build_tree().await;
             let rss = get_max_rss_bytes();
             println!("RSS_BYTES:{}", rss);
         });
@@ -127,7 +127,7 @@ fn main() {
 }
 
 // Shared async helper to build the witness tree with fresh context and plan.
-async fn build_tree(is_parallel: bool) -> WitnessNode {
+async fn build_tree() -> WitnessNode {
     // Fresh context and plan per iteration to avoid table name clashes
     let ctx = SessionContext::new();
     let parquet_path = resolve_parquet("title-sanitized.parquet");
@@ -144,7 +144,7 @@ async fn build_tree(is_parallel: bool) -> WitnessNode {
     let logical = df.into_unoptimized_plan();
     let proof_root = logical_to_proof_plan(&ctx, &logical);
 
-    proof_to_witness_tree(&ctx, Arc::clone(&proof_root), is_parallel)
+    proof_to_witness_tree(&ctx, Arc::clone(&proof_root))
         .await
         .unwrap()
 }

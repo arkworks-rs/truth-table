@@ -69,24 +69,16 @@ pub fn logical_to_proof_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Arc<dy
     match plan {
         df::LogicalPlan::TableScan(_ts) => Arc::new(TableScanNode::new(ctx, plan.clone())),
         df::LogicalPlan::Values(_vals) => todo!(),
-        df::LogicalPlan::Projection(p) => {
-            let expr_nodes = p
-                .expr
-                .iter()
-                .cloned()
-                .map(expr_nodes::wrap_logical_expr)
-                .collect();
-            Arc::new(ProjectionNode::new(
-                ctx,
-                expr_nodes,
-                (*p.input).clone(),
-                logical_to_proof_plan(ctx, &p.input),
-            ))
-        },
+        df::LogicalPlan::Projection(p) => Arc::new(ProjectionNode::new(
+            ctx,
+            p.expr.clone(),
+            df::LogicalPlan::Projection(p.clone()),
+            logical_to_proof_plan(ctx, &p.input),
+        )),
         df::LogicalPlan::Filter(f) => Arc::new(FilterNode::new(
             ctx,
-            expr_nodes::wrap_logical_expr(f.predicate.clone()),
-            (*f.input).clone(),
+            f.predicate.clone(),
+            df::LogicalPlan::Filter(f.clone()),
             logical_to_proof_plan(ctx, &f.input),
         )),
         df::LogicalPlan::Window(_w) => todo!(),
@@ -118,6 +110,45 @@ pub fn logical_to_proof_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Arc<dy
             ))
         },
         _ => panic!(),
+    }
+}
+
+pub fn expr_to_proof_plan(expr: Expr, input_plan: &LogicalPlan) -> Arc<dyn ProofPlan> {
+    match expr {
+        Expr::Alias(_) => todo!(),
+        Expr::Column(c) => Arc::new(ColumnExprNode::new(c)),
+        Expr::ScalarVariable(..) => todo!(),
+        Expr::Literal(s) => Arc::new(LiteralExprNode::new(s)),
+        Expr::BinaryExpr(b) => Arc::new(BinaryExprNode::new(b, input_plan.clone())),
+        Expr::Like(_) => todo!(),
+        Expr::SimilarTo(_) => todo!(),
+        Expr::Not(_) => todo!(),
+        Expr::IsNotNull(_) => todo!(),
+        Expr::IsNull(_) => todo!(),
+        Expr::IsTrue(_) => todo!(),
+        Expr::IsFalse(_) => todo!(),
+        Expr::IsUnknown(_) => todo!(),
+        Expr::IsNotTrue(_) => todo!(),
+        Expr::IsNotFalse(_) => todo!(),
+        Expr::IsNotUnknown(_) => todo!(),
+        Expr::Negative(_) => todo!(),
+        Expr::Between(_) => todo!(),
+        Expr::Case(_) => todo!(),
+        Expr::Cast(_) => todo!(),
+        Expr::TryCast(_) => todo!(),
+        Expr::ScalarFunction(_) => todo!(),
+        Expr::AggregateFunction(_) => todo!(),
+        Expr::WindowFunction(_) => todo!(),
+        Expr::InList(_) => todo!(),
+        Expr::Exists(_) => todo!(),
+        Expr::InSubquery(_) => todo!(),
+        Expr::ScalarSubquery(_) => todo!(),
+        Expr::Wildcard { .. } => todo!(),
+        Expr::GroupingSet(_) => todo!(),
+        Expr::Placeholder(_) => todo!(),
+        Expr::OuterReferenceColumn(..) => todo!(),
+        Expr::Unnest(_) => todo!(),
+        _ => todo!(),
     }
 }
 
@@ -178,7 +209,7 @@ mod tests {
         .unwrap();
 
         let sql = r#"
-            SELECT * FROM lineitem WHERE l_quantity = 20
+            SELECT l_discount FROM lineitem WHERE l_quantity = 2
         "#;
         let df = ctx.sql(sql).await.unwrap();
         let plan = df.into_unoptimized_plan();

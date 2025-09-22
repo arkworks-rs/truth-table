@@ -1,4 +1,6 @@
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{
+    expr_to_proof_plan, primary_witness_plan, relative_plan_opt, ProofPlan, ProofPlanNodeType,
+};
 use datafusion::{
     logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{col, Expr, SessionContext},
@@ -9,7 +11,7 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// - `expr`: projection expressions from the original logical plan
 /// - `input`: child proof node
-/// - witness plans include the optimized projection ("absolute_output") and the
+/// - witness plans include the relative projection ("absolute_output") and the
 ///   relative projection plan ("relative_output").
 pub struct ProjectionNode {
     pub expr: Vec<Arc<dyn ProofPlan>>,
@@ -20,14 +22,14 @@ pub struct ProjectionNode {
 
 impl ProjectionNode {
     pub fn make_relative_plan(
-        expr: Vec<Arc<dyn ProofPlan>>,
+        expr_nodes: &[Arc<dyn ProofPlan>],
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         let schema = input_plan.schema();
 
         // Preserve `activator` if present, but avoid duplicates (explicit, alias, or
         // wildcard)
-        let mut exprs: Vec<Expr> = expr
+        let mut exprs: Vec<Expr> = expr_nodes
             .iter()
             .map(|e| match e.node_type() {
                 ProofPlanNodeType::Expr(expr) => expr,
@@ -55,19 +57,24 @@ impl ProjectionNode {
 
     pub fn new(
         ctx: &SessionContext,
-        expr: Vec<Arc<dyn ProofPlan>>,
+        expr: Vec<Expr>,
         input_plan: LogicalPlan,
         input: Arc<dyn ProofPlan>,
     ) -> Self {
-        let relative_plan = Self::make_relative_plan(expr.clone(), input_plan.clone());
-        let absolute_plan = ctx.state().optimize(&relative_plan).unwrap();
+        let expr_nodes: Vec<Arc<dyn ProofPlan>> = expr
+            .into_iter()
+            .map(|e| expr_to_proof_plan(e, &input_plan))
+            .collect();
+        let child_plan = primary_witness_plan(&input)
+            .or_else(|| relative_plan_opt(&input))
+            .expect("projection child witness plan unavailable");
+        let relative_plan = Self::make_relative_plan(&expr_nodes, child_plan);
         let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("absolute_output".to_string(), absolute_plan);
-        witness_generation_plans.insert("relative_output".to_string(), relative_plan.clone());
+        witness_generation_plans.insert("absolute_output".to_string(), relative_plan.clone());
         ProjectionNode {
-            expr,
+            expr: expr_nodes,
             input,
-            node_type: ProofPlanNodeType::LogicalPlan(relative_plan),
+            node_type: ProofPlanNodeType::LogicalPlan(input_plan),
             witness_generation_plans,
         }
     }
@@ -78,7 +85,10 @@ impl ProofPlan for ProjectionNode {
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
-        vec![&self.input]
+        let mut children: Vec<&Arc<dyn ProofPlan>> = Vec::with_capacity(self.expr.len() + 1);
+        children.push(&self.input);
+        children.extend(self.expr.iter());
+        children
     }
 
     fn node_type(&self) -> ProofPlanNodeType {

@@ -1,86 +1,114 @@
 use std::{
     collections::{HashSet, VecDeque},
-    panic::{catch_unwind, AssertUnwindSafe},
     sync::Arc,
 };
 
-use datafusion::arrow::{
-    array::{Array, BooleanArray},
-    record_batch::RecordBatch,
+use super::{plan_label, rows_cols_activated, WitnessNode};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use datafusion::{
+    arrow::record_batch::RecordBatch,
+    logical_expr::{self as df, LogicalPlan},
+    prelude::Expr,
 };
 
-use super::{plan_label, WitnessNode};
-use crate::ra_proof_plan::{relative_plan_opt, ProofPlan};
-
-/// Compute a stable-ish identifier for a plan node for DOT node ids.
 fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
     let data_ptr = &**p as *const dyn ProofPlan as *const ();
     data_ptr as usize
 }
 
-/// Escape quotes and newlines so they render nicely in Graphviz labels.
 fn esc_label(s: &str) -> String {
     s.replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
 }
 
-fn stats_from_batches(batches: &[RecordBatch]) -> (usize, usize, usize, Vec<String>) {
-    if let Some(first) = batches.first() {
-        let schema = first.schema();
-        let cols = schema.fields().len();
-        let rows = batches.iter().map(|b| b.num_rows()).sum::<usize>();
-        // activator=true count if present
-        let mut act_true = 0usize;
-        let activator_idx = schema.index_of("activator").ok();
-        if let Some(ai) = activator_idx {
-            for b in batches {
-                if let Ok(i) = b.schema().index_of("activator") {
-                    let mask = b
-                        .column(i)
-                        .as_any()
-                        .downcast_ref::<BooleanArray>()
-                        .expect("'activator' must be Boolean");
-                    for j in 0..mask.len() {
-                        if mask.is_valid(j) && mask.value(j) {
-                            act_true += 1;
-                        }
-                    }
-                }
-            }
-        } else {
-            act_true = rows;
-        }
-        let col_names = schema
-            .fields()
-            .iter()
-            .map(|f| f.name().to_string())
-            .collect();
-        (cols, rows, act_true, col_names)
-    } else {
-        (0, 0, 0, vec![])
+fn logical_plan_variant_name(plan: &LogicalPlan) -> &'static str {
+    match plan {
+        df::LogicalPlan::Projection(_) => "Projection",
+        df::LogicalPlan::Filter(_) => "Filter",
+        df::LogicalPlan::Window(_) => "Window",
+        df::LogicalPlan::Aggregate(_) => "Aggregate",
+        df::LogicalPlan::Sort(_) => "Sort",
+        df::LogicalPlan::Join(_) => "Join",
+        df::LogicalPlan::Repartition(_) => "Repartition",
+        df::LogicalPlan::Union(_) => "Union",
+        df::LogicalPlan::TableScan(_) => "TableScan",
+        df::LogicalPlan::EmptyRelation(_) => "EmptyRelation",
+        df::LogicalPlan::Subquery(_) => "Subquery",
+        df::LogicalPlan::SubqueryAlias(_) => "SubqueryAlias",
+        df::LogicalPlan::Limit(_) => "Limit",
+        df::LogicalPlan::Statement(_) => "Statement",
+        df::LogicalPlan::Values(_) => "Values",
+        df::LogicalPlan::Explain(_) => "Explain",
+        df::LogicalPlan::Analyze(_) => "Analyze",
+        df::LogicalPlan::Extension(_) => "Extension",
+        df::LogicalPlan::Distinct(_) => "Distinct",
+        df::LogicalPlan::Dml(_) => "Dml",
+        df::LogicalPlan::Ddl(_) => "Ddl",
+        df::LogicalPlan::Copy(_) => "Copy",
+        df::LogicalPlan::DescribeTable(_) => "DescribeTable",
+        df::LogicalPlan::Unnest(_) => "Unnest",
+        df::LogicalPlan::RecursiveQuery(_) => "RecursiveQuery",
     }
 }
 
-/// Display helper that renders a Graphviz DOT graph for a ProofPlan,
-/// annotated with witness result statistics for each node.
-///
-/// Label includes:
-/// - proof node name
-/// - node’s relative logical plan (indented)
-/// - number of columns and total rows
-/// - comma-separated list of column names
+fn expr_variant_name(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Alias(_) => "Alias",
+        Expr::Column(_) => "Column",
+        Expr::ScalarVariable(..) => "ScalarVariable",
+        Expr::Literal(_) => "Literal",
+        Expr::BinaryExpr(_) => "BinaryExpr",
+        Expr::Like(_) => "Like",
+        Expr::SimilarTo(_) => "SimilarTo",
+        Expr::Not(_) => "Not",
+        Expr::IsNotNull(_) => "IsNotNull",
+        Expr::IsNull(_) => "IsNull",
+        Expr::IsTrue(_) => "IsTrue",
+        Expr::IsFalse(_) => "IsFalse",
+        Expr::IsUnknown(_) => "IsUnknown",
+        Expr::IsNotTrue(_) => "IsNotTrue",
+        Expr::IsNotFalse(_) => "IsNotFalse",
+        Expr::IsNotUnknown(_) => "IsNotUnknown",
+        Expr::Negative(_) => "Negative",
+        Expr::Between(_) => "Between",
+        Expr::Case(_) => "Case",
+        Expr::Cast(_) => "Cast",
+        Expr::TryCast(_) => "TryCast",
+        Expr::ScalarFunction(_) => "ScalarFunction",
+        Expr::AggregateFunction(_) => "AggregateFunction",
+        Expr::WindowFunction(_) => "WindowFunction",
+        Expr::InList(_) => "InList",
+        Expr::Exists(_) => "Exists",
+        Expr::InSubquery(_) => "InSubquery",
+        Expr::ScalarSubquery(_) => "ScalarSubquery",
+        Expr::Wildcard { .. } => "Wildcard",
+        Expr::GroupingSet(_) => "GroupingSet",
+        Expr::Placeholder(_) => "Placeholder",
+        Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
+        Expr::Unnest(_) => "Unnest",
+    }
+}
+
+fn witness_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
+    if let Some(batches) = batches {
+        let (rows, cols, _) = rows_cols_activated(batches);
+        (rows, cols)
+    } else {
+        (0, 0)
+    }
+}
+
+/// Display helper that renders a Graphviz DOT graph for a WitnessPlan.
 pub struct DisplayableWitnessPlan<'a> {
     root: &'a WitnessNode,
 }
 
 impl<'a> DisplayableWitnessPlan<'a> {
-    /// Create the display wrapper using the root proof node and its witnesses.
     pub fn new(root: &'a WitnessNode) -> Self {
         Self { root }
     }
 
-    /// Return Graphviz DOT string for the plan tree, with result stats.
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
         out.push_str("digraph WitnessPlan {\n");
@@ -96,44 +124,34 @@ impl<'a> DisplayableWitnessPlan<'a> {
                 continue;
             }
 
-            let rel_plan = relative_plan_opt(&wn.node);
-            let rel = match rel_plan {
-                Some(plan) => {
-                    catch_unwind(AssertUnwindSafe(|| format!("{}", plan.display_indent())))
-                        .unwrap_or_else(|_| "<relative_plan: unavailable>".to_string())
+            let (node_label, variant_label) = match wn.node.node_type() {
+                ProofPlanNodeType::LogicalPlan(plan) => {
+                    ("LogicalPlan", logical_plan_variant_name(&plan))
                 },
-                None => "<relative_plan: unavailable>".to_string(),
+                ProofPlanNodeType::Expr(expr) => ("Expr", expr_variant_name(&expr)),
+                ProofPlanNodeType::None => ("Unknown", "Unknown"),
             };
 
-            let (cols, rows, act_true, names) = stats_from_batches(&wn.result);
-            let col_names = if names.is_empty() {
-                "<none>".to_string()
-            } else {
-                names.join(", ")
-            };
-
-            let witness_plans = wn.node.witness_generation_plans();
-            let witnesses = if witness_plans.is_empty() {
-                "<witness_plans: unavailable>".to_string()
-            } else {
-                let mut entries: Vec<_> = witness_plans.into_iter().collect();
-                entries.sort_by(|a, b| a.0.cmp(&b.0));
-                entries
-                    .into_iter()
-                    .map(|(label, plan)| format!("{}:\n{}", label, plan.display_indent()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+            let witness_keys = {
+                let mut entries: Vec<_> = wn.node.witness_generation_plans().into_iter().collect();
+                if entries.is_empty() {
+                    "<none>".to_string()
+                } else {
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    entries
+                        .into_iter()
+                        .map(|(label, _)| {
+                            let (rows, cols) = witness_rows_cols(wn.results.get(&label));
+                            format!("{} ( {} rows, {} columns)", label, rows, cols)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
             };
 
             let raw_label = format!(
-                "type: {}\\n{}\\n{}\\ncols: {}  rows: {}  act_true: {}\\ncolumns: {}",
-                plan_label(&wn.node),
-                rel,
-                witnesses,
-                cols,
-                rows,
-                act_true,
-                col_names
+                "type: {} ({})\\nwitness keys: {}",
+                node_label, variant_label, witness_keys
             );
             let label = esc_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));

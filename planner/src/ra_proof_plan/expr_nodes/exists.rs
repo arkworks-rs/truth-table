@@ -6,18 +6,13 @@ use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
 
 #[derive(Clone)]
 pub struct ExistsExprNode {
-    pub relative_expr: Expr,
-    pub absolute_expr: Expr,
     pub inputs: Vec<Arc<dyn ProofPlan>>,
+    pub node_type: ProofPlanNodeType,
 }
 
 impl ExistsExprNode {
-    pub fn new(relative_expr: Expr, absolute_expr: Expr, inputs: Vec<Arc<dyn ProofPlan>>) -> Self {
-        Self {
-            relative_expr,
-            absolute_expr,
-            inputs,
-        }
+    pub fn new(inputs: Vec<Arc<dyn ProofPlan>>, node_type: ProofPlanNodeType) -> Self {
+        Self { inputs, node_type }
     }
 }
 
@@ -27,7 +22,7 @@ impl ProofPlan for ExistsExprNode {
     }
 
     fn node_type(&self) -> ProofPlanNodeType {
-        ProofPlanNodeType::Expr(self.relative_expr.clone())
+        self.node_type.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
