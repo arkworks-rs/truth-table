@@ -10,12 +10,6 @@ pub struct ExistsExprNode {
     pub node_type: ProofPlanNodeType,
 }
 
-impl ExistsExprNode {
-    pub fn new(inputs: Vec<Arc<dyn ProofPlan>>, node_type: ProofPlanNodeType) -> Self {
-        Self { inputs, node_type }
-    }
-}
-
 impl ProofPlan for ExistsExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -27,5 +21,16 @@ impl ProofPlan for ExistsExprNode {
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         self.inputs.iter().collect()
+    }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }

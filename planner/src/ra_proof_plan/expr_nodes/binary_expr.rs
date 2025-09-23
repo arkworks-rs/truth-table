@@ -1,9 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator};
+use datafusion::{
+    logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
+    prelude::case,
+};
 
 use crate::ra_proof_plan::{expr_to_proof_plan, ProofPlan, ProofPlanNodeType};
-
 #[derive(Clone)]
 pub struct BinaryExprNode {
     pub node_type: ProofPlanNodeType,
@@ -13,20 +15,6 @@ pub struct BinaryExprNode {
 }
 
 impl BinaryExprNode {
-    pub fn new(bin_expr: BinaryExpr, input_plan: LogicalPlan) -> Self {
-        let left_expr = bin_expr.left.as_ref().clone();
-        let right_expr = bin_expr.right.as_ref().clone();
-        let witness_generation_plans =
-            Self::build_witness_plans(bin_expr.clone(), input_plan.clone());
-
-        Self {
-            node_type: ProofPlanNodeType::Expr(Expr::BinaryExpr(bin_expr)),
-            left_proof_plan: expr_to_proof_plan(left_expr, &input_plan),
-            right_proof_plan: expr_to_proof_plan(right_expr, &input_plan),
-            witness_generation_plans,
-        }
-    }
-
     fn build_witness_plans(
         bin_expr: BinaryExpr,
         input_plan: LogicalPlan,
@@ -38,13 +26,31 @@ impl BinaryExprNode {
             | Operator::GtEq
             | Operator::LtEq
             | Operator::NotEq => {
-                let eq_expr = Expr::BinaryExpr(bin_expr).alias("expr_output");
-                let plan = LogicalPlanBuilder::from(input_plan)
-                    .project(vec![eq_expr])
+                let bool_expr = Expr::BinaryExpr(bin_expr).alias("expr_output");
+                let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
+                    .project(vec![bool_expr])
                     .unwrap()
                     .build()
                     .unwrap();
-                HashMap::from([(String::from("output"), plan)])
+                let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
+                let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
+
+                let selector = case(datafusion::prelude::col("expr_output"))
+                    .when(
+                        Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
+                        one.clone(),
+                    )
+                    .otherwise(zero.clone())
+                    .unwrap()
+                    .alias("expr_output");
+
+                let plan = LogicalPlanBuilder::from(bool_plan)
+                    .project(vec![selector])
+                    .unwrap()
+                    .build()
+                    .unwrap();
+
+                HashMap::from([(String::from("expr_output"), input_plan)])
             },
             _ => HashMap::new(),
         }
@@ -65,5 +71,30 @@ impl ProofPlan for BinaryExprNode {
     }
     fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
         self.witness_generation_plans.clone()
+    }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let bin_expr = match expr.clone() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
+        let left_expr = bin_expr.left.as_ref().clone();
+        let right_expr = bin_expr.right.as_ref().clone();
+        let witness_generation_plans =
+            Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
+
+        Self {
+            node_type: ProofPlanNodeType::Expr(expr),
+            left_proof_plan: expr_to_proof_plan(ctx, left_expr, &parent_logical_plan),
+            right_proof_plan: expr_to_proof_plan(ctx, right_expr, &parent_logical_plan),
+            witness_generation_plans,
+        }
     }
 }

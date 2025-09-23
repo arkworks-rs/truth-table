@@ -1,9 +1,9 @@
 use crate::ra_proof_plan::{
-    expr_to_proof_plan, primary_witness_plan, relative_plan_opt, ProofPlan, ProofPlanNodeType,
+    expr_to_proof_plan, logical_to_proof_plan, output_logical_plan, ProofPlan, ProofPlanNodeType,
 };
 use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
-    prelude::SessionContext,
+    prelude::{Expr, SessionContext},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -11,27 +11,17 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// - `predicate`: DataFusion expression applied to rows
 /// - `input`: child proof node
-/// - `absolute_plan`: unrolled plan: `input` with this filter’s activator logic
+/// - `output_plan`: unrolled plan: `input` with this filter’s activator logic
 ///   applied (pass-through other columns)
 pub struct FilterNode {
-    pub predicate: Arc<dyn ProofPlan>,
-    pub input: Arc<dyn ProofPlan>,
+    pub predicate_proof_plan: Arc<dyn ProofPlan>,
+    pub input_proof_plan: Arc<dyn ProofPlan>,
     pub node_type: ProofPlanNodeType,
     pub witness_generation_plans: HashMap<String, LogicalPlan>,
 }
 
 impl FilterNode {
-    pub fn make_relative_plan(
-        predicate: &Arc<dyn ProofPlan>,
-        input_plan: LogicalPlan,
-    ) -> LogicalPlan {
-        // Build relative plan by propagating input and zeroing `activator` when
-        // predicate is false.
-        let predicate_expr = match predicate.node_type() {
-            ProofPlanNodeType::Expr(expr) => expr,
-            _ => panic!("expected expression proof plan"),
-        };
-
+    pub fn build_output_logical_plan(predicate_expr: Expr, input_plan: LogicalPlan) -> LogicalPlan {
         // Determine activator's datatype from input schema
         let schema = input_plan.schema().clone();
         let activator_field = schema
@@ -86,36 +76,44 @@ impl FilterNode {
             .build()
             .unwrap()
     }
-
-    pub fn new(
-        ctx: &SessionContext,
-        predicate: df::Expr,
-        input_plan: LogicalPlan,
-        input: Arc<dyn ProofPlan>,
-    ) -> Self {
-        let predicate_node = expr_to_proof_plan(predicate, &input_plan);
-        let child_plan = primary_witness_plan(&input)
-            .or_else(|| relative_plan_opt(&input))
-            .expect("filter child witness plan unavailable");
-        let relative_plan = Self::make_relative_plan(&predicate_node, child_plan);
-        let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("absolute_output".to_string(), relative_plan.clone());
-        Self {
-            predicate: predicate_node,
-            input,
-            node_type: ProofPlanNodeType::LogicalPlan(input_plan),
-            witness_generation_plans,
-        }
-    }
 }
 
 impl ProofPlan for FilterNode {
+    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        // Match only on filter logical plan
+        let filter = match &plan {
+            df::LogicalPlan::Filter(f) => f,
+            _ => panic!("expected filter logical plan"),
+        };
+
+        // The input is itself a logical plan and needs to be proved
+        let input_proof_plan = logical_to_proof_plan(ctx, &filter.input);
+        // Fetching the output logical plan of the input logical plan
+        let child_plan = output_logical_plan(&input_proof_plan).unwrap();
+        // Build the output logical plan for this filter node on top of the child output
+        // logical plan
+        let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
+        // The predicate is an expr and needs to be proved
+        let predicate_proof_plan = expr_to_proof_plan(ctx, filter.predicate.clone(), &output_plan);
+        // Building the witness generation plans map
+        let witness_generation_plans =
+            HashMap::from([("output_plan".to_string(), output_plan.clone())]);
+        Self {
+            predicate_proof_plan,
+            input_proof_plan,
+            node_type: ProofPlanNodeType::LogicalPlan(plan),
+            witness_generation_plans,
+        }
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
-        vec![&self.input, &self.predicate]
+        vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
     fn node_type(&self) -> ProofPlanNodeType {
         self.node_type.clone()

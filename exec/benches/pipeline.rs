@@ -34,10 +34,10 @@ fn plan_pipeline(sql: &str) {
         let logical = df.into_unoptimized_plan();
 
         // 2) Logical -> ProofPlan
-        let proof_root = front_end::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
+        let proof_plan = front_end::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
 
         // 3) ProofPlan -> WitnessPlan (parallel execution of witness plans)
-        let _witness = front_end::witness_plan::proof_to_witness_tree(&ctx, proof_root)
+        let _witness = front_end::witness_plan::proof_to_witness_plan(&ctx, proof_plan)
             .await
             .expect("witness tree");
     });

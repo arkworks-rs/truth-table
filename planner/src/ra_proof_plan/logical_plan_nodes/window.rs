@@ -8,16 +8,6 @@ pub struct WindowNode {
     pub input: Arc<dyn ProofPlan>,
 }
 
-impl WindowNode {
-    pub fn new(
-        ctx: &SessionContext,
-        window_expr: Vec<Arc<dyn ProofPlan>>,
-        input: Arc<dyn ProofPlan>,
-    ) -> Self {
-        todo!()
-    }
-}
-
 impl ProofPlan for WindowNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -28,6 +18,13 @@ impl ProofPlan for WindowNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: df::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

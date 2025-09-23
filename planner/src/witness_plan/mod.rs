@@ -36,10 +36,10 @@ impl WitnessNode {
     }
 
     /// Heuristic to pick a "primary" result set for display or summary stats.
-    /// Prefers `absolute_output`, falls back to `relative_output`, then any
+    /// Prefers `output_plan`, falls back to `relative_output`, then any
     /// entry.
     pub fn primary_batches(&self) -> Option<&Vec<RecordBatch>> {
-        self.batches_for("absolute_output")
+        self.batches_for("output_plan")
             .or_else(|| self.batches_for("relative_output"))
             .or_else(|| self.results.values().next())
     }
@@ -55,8 +55,8 @@ pub(crate) fn plan_label(node: &Arc<dyn ProofPlan>) -> &'static str {
 
 /// Execute the proof tree and assemble a witness tree mirroring the ProofPlan
 /// shape. All witness-generation logical plans are executed in parallel.
-#[tracing::instrument(name = "proof_to_witness_tree", skip(ctx, root))]
-pub async fn proof_to_witness_tree(
+#[tracing::instrument(name = "proof_to_witness_plan", skip(ctx, root))]
+pub async fn proof_to_witness_plan(
     ctx: &SessionContext,
     root: Arc<dyn ProofPlan>,
 ) -> DFResult<WitnessNode> {
@@ -86,7 +86,7 @@ pub async fn proof_to_witness_tree(
                     let df = ctx.execute_logical_plan(plan).await?;
                     let batches = df.collect().await?;
 
-                    if label == "absolute_output"
+                    if label == "output_plan"
                         && node.as_any().downcast_ref::<TableScanNode>().is_some()
                     {
                         let rows: usize = batches.iter().map(|b| b.num_rows()).sum();

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use datafusion::logical_expr::LogicalPlan;
+use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
 use crate::ra_proof_plan::ProofPlan;
 
@@ -8,13 +8,13 @@ pub struct ExtensionNode {
     pub inputs: Vec<Arc<dyn ProofPlan>>,
 }
 
-impl ExtensionNode {
-    pub fn new(inputs: Vec<Arc<dyn ProofPlan>>) -> Self {
+impl ProofPlan for ExtensionNode {
+    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
-}
-
-impl ProofPlan for ExtensionNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

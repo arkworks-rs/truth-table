@@ -9,14 +9,6 @@ pub struct LiteralExprNode {
     pub node_type: ProofPlanNodeType,
 }
 
-impl LiteralExprNode {
-    pub fn new(scalar_value: ScalarValue) -> Self {
-        Self {
-            node_type: ProofPlanNodeType::Expr(Expr::Literal(scalar_value)),
-        }
-    }
-}
-
 impl ProofPlan for LiteralExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -28,5 +20,18 @@ impl ProofPlan for LiteralExprNode {
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         Vec::new()
+    }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            node_type: ProofPlanNodeType::Expr(expr),
+        }
     }
 }

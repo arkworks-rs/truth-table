@@ -9,14 +9,6 @@ pub struct ColumnExprNode {
     pub node_type: ProofPlanNodeType,
 }
 
-impl ColumnExprNode {
-    pub fn new(column: Column) -> Self {
-        Self {
-            node_type: ProofPlanNodeType::Expr(Expr::Column(column)),
-        }
-    }
-}
-
 impl ProofPlan for ColumnExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -28,5 +20,18 @@ impl ProofPlan for ColumnExprNode {
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         Vec::new()
+    }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            node_type: ProofPlanNodeType::Expr(expr),
+        }
     }
 }

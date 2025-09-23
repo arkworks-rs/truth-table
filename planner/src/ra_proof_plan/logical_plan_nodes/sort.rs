@@ -9,17 +9,6 @@ pub struct SortNode {
     pub input: Arc<dyn ProofPlan>,
 }
 
-impl SortNode {
-    pub fn new(
-        ctx: SessionContext,
-        sort_expr: Vec<(Arc<dyn ProofPlan>, bool, bool)>,
-        fetch: Option<usize>,
-        input: Arc<dyn ProofPlan>,
-    ) -> Self {
-        todo!()
-    }
-}
-
 impl ProofPlan for SortNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -30,6 +19,13 @@ impl ProofPlan for SortNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: df::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

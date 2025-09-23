@@ -8,13 +8,13 @@ pub struct AnalyzeNode {
     pub input: Arc<dyn ProofPlan>,
 }
 
-impl AnalyzeNode {
-    pub fn new(ctx: &mut SessionContext, input: Arc<dyn ProofPlan>) -> Self {
+impl ProofPlan for AnalyzeNode {
+    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
-}
-
-impl ProofPlan for AnalyzeNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

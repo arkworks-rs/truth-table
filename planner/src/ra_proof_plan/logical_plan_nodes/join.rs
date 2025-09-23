@@ -15,20 +15,6 @@ pub struct JoinNode {
     pub null_equals_null: bool,
 }
 
-impl JoinNode {
-    pub fn new(
-        ctx: &SessionContext,
-        left: Arc<dyn ProofPlan>,
-        right: Arc<dyn ProofPlan>,
-        on: Vec<(Arc<dyn ProofPlan>, Arc<dyn ProofPlan>)>,
-        filter: Option<Arc<dyn ProofPlan>>,
-        join_type: df::JoinType,
-        null_equals_null: bool,
-    ) -> Self {
-        todo!()
-    }
-}
-
 impl ProofPlan for JoinNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -39,6 +25,13 @@ impl ProofPlan for JoinNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: df::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

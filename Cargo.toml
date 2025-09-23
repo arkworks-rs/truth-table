@@ -41,6 +41,7 @@ merlin = { version = "3.0.0", default-features = false }
 futures = "0.3"
 either = "1.8.0"
 divan = "0.1.17"
+log = "0.4"
 
 
 [workspace.metadata.docs.rs]

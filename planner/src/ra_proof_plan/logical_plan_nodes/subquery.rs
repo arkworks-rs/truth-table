@@ -8,12 +8,6 @@ pub struct SubqueryNode {
     pub input: Arc<dyn ProofPlan>,
 }
 
-impl SubqueryNode {
-    pub fn new(ctx: &SessionContext, input: Arc<dyn ProofPlan>) -> Self {
-        todo!()
-    }
-}
-
 impl ProofPlan for SubqueryNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -24,6 +18,13 @@ impl ProofPlan for SubqueryNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: datafusion::logical_expr::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

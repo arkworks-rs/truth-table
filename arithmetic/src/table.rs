@@ -18,7 +18,7 @@ use futures::StreamExt;
 
 use crate::{
     col::{ArithCol, ColCom},
-    downcast_and_encode,
+    encode_arrow_array_to_field,
     errors::EncodeError,
 };
 
@@ -88,6 +88,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
+    #[tracing::instrument(level = "debug", skip(record_batches, prover))]
     pub fn from_record_batches(
         record_batches: Vec<RecordBatch>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
@@ -97,6 +98,7 @@ where
         }
 
         let schema_ref = record_batches[0].schema();
+
         let activator_idx = schema_ref.index_of("activator").ok();
         let num_cols = schema_ref.fields().len();
 
@@ -109,7 +111,11 @@ where
 
         for batch in record_batches {
             for (col_idx, array) in batch.columns().iter().enumerate() {
-                downcast_and_encode!(array, columns[col_idx], F);
+                let mut encoded = encode_arrow_array_to_field::<F>(array)?;
+                // .into_iter()
+                // .flatten()
+                // .collect::<Vec<F>>();
+                columns[col_idx].append(&mut encoded[0]);
             }
         }
 
@@ -348,9 +354,11 @@ pub async fn fieldify_df<F: PrimeField>(df: DataFrame) -> Result<Vec<Vec<F>>, En
     for mut partition_stream in partitioned_streams {
         while let Some(batch) = partition_stream.next().await {
             for (i, array) in batch.unwrap().columns().iter().enumerate() {
-                // One-liner using the macro
-                // The following line will be expanded to the match block over the data types
-                downcast_and_encode!(array, field_vecs[i], F);
+                let mut encoded = encode_arrow_array_to_field::<F>(array)?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<F>>();
+                field_vecs[i].append(&mut encoded);
             }
         }
     }
@@ -370,8 +378,6 @@ pub async fn arithmatize_df<F: PrimeField>(
             .for_each(|v| assert_eq!(v.len(), col_size));
     }
 
-    // let nv: usize = log2(field_vecs.iter().map(|v| v.len()).max().unwrap()) as
-    // usize;
     field_vecs.iter_mut().for_each(|v| {
         v.extend(repeat_n(F::zero(), (1 << max_nv) - v.len()));
     });

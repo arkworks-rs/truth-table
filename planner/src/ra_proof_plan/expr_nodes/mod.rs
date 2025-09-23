@@ -95,6 +95,17 @@ impl ProofPlan for RawExprNode {
     fn node_type(&self) -> ProofPlanNodeType {
         ProofPlanNodeType::Expr(self.relative_expr.clone())
     }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }
 
 pub fn wrap_logical_expr(expr: Expr) -> Arc<dyn ProofPlan> {

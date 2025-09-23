@@ -5,11 +5,7 @@ use datafusion::prelude::SessionContext;
 use crate::ra_proof_plan::ProofPlan;
 
 pub struct ValuesNode;
-impl ValuesNode {
-    pub fn new(ctx: &SessionContext) -> Self {
-        ValuesNode
-    }
-}
+
 impl ProofPlan for ValuesNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -20,6 +16,13 @@ impl ProofPlan for ValuesNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: datafusion::logical_expr::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

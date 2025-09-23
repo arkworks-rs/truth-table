@@ -7,18 +7,8 @@ use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
 #[derive(Clone)]
 pub struct InListExprNode {
     pub relative_expr: Expr,
-    pub absolute_expr: Expr,
+    pub output_expr: Expr,
     pub inputs: Vec<Arc<dyn ProofPlan>>,
-}
-
-impl InListExprNode {
-    pub fn new(relative_expr: Expr, absolute_expr: Expr, inputs: Vec<Arc<dyn ProofPlan>>) -> Self {
-        Self {
-            relative_expr,
-            absolute_expr,
-            inputs,
-        }
-    }
 }
 
 impl ProofPlan for InListExprNode {
@@ -32,5 +22,16 @@ impl ProofPlan for InListExprNode {
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         self.inputs.iter().collect()
+    }
+
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        expr: Expr,
+        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }

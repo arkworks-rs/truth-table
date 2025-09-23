@@ -32,10 +32,9 @@ where
 
 /// Build an arithmetized tree by first materializing witnesses (record batches)
 /// and then arithmetizing each batch collection into an `ArithTable`.
-#[tracing::instrument(name = "proof_to_arithmetized_tree", skip(ctx, root, prover))]
-pub async fn proof_to_arithmetized_tree<F, MvPCS, UvPCS>(
-    ctx: &SessionContext,
-    root: Arc<dyn ProofPlan>,
+#[tracing::instrument(name = "witness_to_arithmetic_plan", skip(witness_plan, prover))]
+pub fn witness_to_arithmetic_plan<F, MvPCS, UvPCS>(
+    witness_plan: WitnessNode,
     prover: &mut Prover<F, MvPCS, UvPCS>,
 ) -> DFResult<ArithmetizedNode<F, MvPCS, UvPCS>>
 where
@@ -43,8 +42,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let witness_root = witness_plan::proof_to_witness_tree(ctx, Arc::clone(&root)).await?;
-    arithmetize_node::<F, MvPCS, UvPCS>(witness_root, prover)
+    arithmetize_node::<F, MvPCS, UvPCS>(witness_plan, prover)
         .map_err(|e| DataFusionError::Execution(e.to_string()))
 }
 
@@ -113,7 +111,7 @@ mod tests {
     use super::*;
     use crate::{
         ra_proof_plan::logical_to_proof_plan,
-        witness_plan::{self, sorted_descendants as witness_descendants},
+        witness_plan::{self},
     };
     use ark_piop::{
         pcs::{kzg10::KZG10, pst13::PST13},
@@ -131,8 +129,8 @@ mod tests {
 
     #[tokio::test]
     async fn logical_plan_to_arithmetized_plan() {
+        let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
         let ctx = SessionContext::new();
-
         let parquet_path = test_data_path("lineitem.parquet");
         assert!(
             parquet_path.exists(),
@@ -153,20 +151,14 @@ mod tests {
         let df = ctx.sql(sql).await.unwrap();
         let logical = df.into_unoptimized_plan();
 
-        let proof_root = logical_to_proof_plan(&ctx, &logical);
+        let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
-        let witness_root = witness_plan::proof_to_witness_tree(&ctx, Arc::clone(&proof_root))
+        let witness_plan = witness_plan::proof_to_witness_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
-        assert!(!witness_descendants(&witness_root).is_empty());
-
-        let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-
-        let arith_root =
-            proof_to_arithmetized_tree::<F, MvPCS, UvPCS>(&ctx, proof_root, &mut prover)
-                .await
-                .unwrap();
-        let nodes = sorted_descendants(&arith_root);
+        let arithmetic_plan =
+            witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(witness_plan, &mut prover).unwrap();
+        let nodes = sorted_descendants(&arithmetic_plan);
         assert!(!nodes.is_empty());
     }
 }

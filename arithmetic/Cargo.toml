@@ -15,6 +15,6 @@ datafusion = { workspace = true }
 thiserror = { workspace = true }
 futures = { workspace = true }
 derivative = { workspace = true }
-
-
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 

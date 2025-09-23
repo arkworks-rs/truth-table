@@ -25,6 +25,22 @@ pub enum ProofPlanNodeType {
 ///
 /// A proof plan is a tree of nodes, where each node represents a proof unit.
 pub trait ProofPlan: Any + Send + Sync {
+    /// Constructs a proof plan node from a DataFusion expression and its parent
+    /// logical plan.
+    fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+    /// Constructs a proof plan node from a DataFusion logical plan.
+    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
     /// Returns the Proof plan as `Any` so that it can be downcast to a specific
     /// implementation.
     fn as_any(&self) -> &dyn Any;
@@ -41,7 +57,7 @@ pub trait ProofPlan: Any + Send + Sync {
 
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
-    /// the key `"absolute_output"`.
+    /// the key `"output_plan"`.
     fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
         HashMap::new()
     }
@@ -65,22 +81,17 @@ pub fn sorted_descendants(root: Arc<dyn ProofPlan>) -> Vec<Arc<dyn ProofPlan>> {
 }
 
 /// Build a `ProofPlan` tree from a DataFusion `LogicalPlan`.
+#[tracing::instrument(name = "logical_to_proof_plan", skip(ctx, plan))]
 pub fn logical_to_proof_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Arc<dyn ProofPlan> {
     match plan {
-        df::LogicalPlan::TableScan(_ts) => Arc::new(TableScanNode::new(ctx, plan.clone())),
+        df::LogicalPlan::TableScan(_ts) => {
+            Arc::new(TableScanNode::from_logical_plan(ctx, plan.clone()))
+        },
         df::LogicalPlan::Values(_vals) => todo!(),
-        df::LogicalPlan::Projection(p) => Arc::new(ProjectionNode::new(
-            ctx,
-            p.expr.clone(),
-            df::LogicalPlan::Projection(p.clone()),
-            logical_to_proof_plan(ctx, &p.input),
-        )),
-        df::LogicalPlan::Filter(f) => Arc::new(FilterNode::new(
-            ctx,
-            f.predicate.clone(),
-            df::LogicalPlan::Filter(f.clone()),
-            logical_to_proof_plan(ctx, &f.input),
-        )),
+        df::LogicalPlan::Projection(_) => {
+            Arc::new(ProjectionNode::from_logical_plan(ctx, plan.clone()))
+        },
+        df::LogicalPlan::Filter(_) => Arc::new(FilterNode::from_logical_plan(ctx, plan.clone())),
         df::LogicalPlan::Window(_w) => todo!(),
         df::LogicalPlan::Aggregate(_aggr) => todo!(),
         df::LogicalPlan::Sort(_s) => todo!(),
@@ -92,34 +103,22 @@ pub fn logical_to_proof_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Arc<dy
         df::LogicalPlan::Union(_u) => todo!(),
         df::LogicalPlan::Extension(_ext) => todo!(),
         df::LogicalPlan::Join(_j) => todo!(),
-        df::LogicalPlan::Limit(l) => {
-            let skip = l
-                .skip
-                .as_ref()
-                .map(|expr| expr_nodes::wrap_logical_expr((**expr).clone()));
-            let fetch = l
-                .fetch
-                .as_ref()
-                .map(|expr| expr_nodes::wrap_logical_expr((**expr).clone()));
-            Arc::new(LimitNode::new(
-                ctx,
-                skip,
-                fetch,
-                (*l.input).clone(),
-                logical_to_proof_plan(ctx, &l.input),
-            ))
-        },
+        df::LogicalPlan::Limit(l) => todo!(),
         _ => panic!(),
     }
 }
 
-pub fn expr_to_proof_plan(expr: Expr, input_plan: &LogicalPlan) -> Arc<dyn ProofPlan> {
-    match expr {
+pub fn expr_to_proof_plan(
+    ctx: &SessionContext,
+    expr: Expr,
+    input_plan: &LogicalPlan,
+) -> Arc<dyn ProofPlan> {
+    match expr.clone() {
         Expr::Alias(_) => todo!(),
-        Expr::Column(c) => Arc::new(ColumnExprNode::new(c)),
+        Expr::Column(_) => Arc::new(ColumnExprNode::from_expr(ctx, expr, input_plan.clone())),
         Expr::ScalarVariable(..) => todo!(),
-        Expr::Literal(s) => Arc::new(LiteralExprNode::new(s)),
-        Expr::BinaryExpr(b) => Arc::new(BinaryExprNode::new(b, input_plan.clone())),
+        Expr::Literal(_) => Arc::new(LiteralExprNode::from_expr(ctx, expr, input_plan.clone())),
+        Expr::BinaryExpr(_) => Arc::new(BinaryExprNode::from_expr(ctx, expr, input_plan.clone())),
         Expr::Like(_) => todo!(),
         Expr::SimilarTo(_) => todo!(),
         Expr::Not(_) => todo!(),
@@ -152,11 +151,11 @@ pub fn expr_to_proof_plan(expr: Expr, input_plan: &LogicalPlan) -> Arc<dyn Proof
     }
 }
 
-pub fn primary_witness_plan(node: &Arc<dyn ProofPlan>) -> Option<LogicalPlan> {
+pub fn output_logical_plan(node: &Arc<dyn ProofPlan>) -> Option<LogicalPlan> {
     node.witness_generation_plans()
         .into_iter()
         .find_map(|(label, plan)| {
-            if label == "absolute_output" {
+            if label == "output_plan" {
                 Some(plan)
             } else {
                 None
@@ -218,10 +217,10 @@ mod tests {
         println!("LogicalPlan DOT:\n{}", logical_dot);
 
         // Convert to proof plan
-        let proof_root = logical_to_proof_plan(&ctx, &plan);
+        let proof_plan = logical_to_proof_plan(&ctx, &plan);
 
         // Display our proof plan as Graphviz
-        let proof_dot = format!("{}", DisplayableProofPlan::new(&proof_root));
+        let proof_dot = format!("{}", DisplayableProofPlan::new(&proof_plan));
         println!("ProofPlan DOT:\n{}", proof_dot);
     }
 }

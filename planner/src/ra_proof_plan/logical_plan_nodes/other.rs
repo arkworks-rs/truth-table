@@ -17,4 +17,14 @@ impl ProofPlan for OtherNode {
     fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
         todo!()
     }
+
+    fn from_logical_plan(
+        ctx: &datafusion::prelude::SessionContext,
+        plan: datafusion::logical_expr::LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }

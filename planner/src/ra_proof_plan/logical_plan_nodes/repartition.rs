@@ -8,12 +8,6 @@ pub struct RepartitionNode {
     pub input: Arc<dyn ProofPlan>,
 }
 
-impl RepartitionNode {
-    pub fn new(ctx: &SessionContext, input: Arc<dyn ProofPlan>) -> Self {
-        todo!()
-    }
-}
-
 impl ProofPlan for RepartitionNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -24,6 +18,13 @@ impl ProofPlan for RepartitionNode {
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+        todo!()
+    }
+
+    fn from_logical_plan(ctx: &SessionContext, plan: datafusion::logical_expr::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }
