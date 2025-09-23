@@ -83,6 +83,7 @@ pub async fn proof_to_witness_plan(
             futures.push(
                 async move {
                     debug!(node = plan_label(&node), plan_label = %label, "executing witness plan");
+                    let plan = ctx.state().optimize(&plan).unwrap();
                     let df = ctx.execute_logical_plan(plan).await?;
                     let batches = df.collect().await?;
 

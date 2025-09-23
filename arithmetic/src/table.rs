@@ -1,4 +1,4 @@
-use std::iter::repeat_n;
+use std::{iter::repeat_n, sync::Arc};
 
 use ark_ff::PrimeField;
 
@@ -9,6 +9,7 @@ use ark_piop::{
     prover::{structs::polynomial::TrackedPoly, Prover},
     verifier::{structs::oracle::TrackedOracle, Verifier},
 };
+use ark_std::cfg_iter;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::Schema},
     prelude::DataFrame,
@@ -18,9 +19,12 @@ use futures::StreamExt;
 
 use crate::{
     col::{ArithCol, ColCom},
-    encode_arrow_array_to_field,
+    encoding::encode_arrow_array_to_field,
     errors::EncodeError,
 };
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
@@ -112,20 +116,39 @@ where
         for batch in record_batches {
             for (col_idx, array) in batch.columns().iter().enumerate() {
                 let mut encoded = encode_arrow_array_to_field::<F>(array)?;
-                // .into_iter()
-                // .flatten()
-                // .collect::<Vec<F>>();
+                // TODO: The current version only supports single column encoding
                 columns[col_idx].append(&mut encoded[0]);
             }
         }
 
+        let column_polys: Vec<(usize, Arc<MLE<F>>)> = columns
+            .into_iter()
+            .enumerate()
+            .map(|(idx, values)| {
+                let mle = MLE::from_evaluations_slice(max_log_vars, &values);
+                (idx, Arc::new(mle))
+            })
+            .collect();
+
+        let prover_param = prover.mv_pcs_prover_param();
+
+        let column_commitments: Vec<MvPCS::Commitment> = {
+            cfg_iter!(column_polys)
+                .map(|(_, poly)| {
+                    MvPCS::commit(prover_param.clone(), poly)
+                        .expect("failed to commit witness polynomial")
+                })
+                .collect()
+        };
+
         let mut data_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>> = Vec::with_capacity(num_cols);
         let mut activator_poly: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
 
-        for (idx, values) in columns.into_iter().enumerate() {
-            let mle = MLE::from_evaluations_slice(max_log_vars, &values);
+        for ((idx, poly_arc), commitment) in
+            column_polys.into_iter().zip(column_commitments.into_iter())
+        {
             let tracked = prover
-                .track_and_commit_mat_mv_poly(&mle)
+                .track_mat_mv_poly_with_commitment(poly_arc.as_ref(), commitment)
                 .expect("failed to commit witness polynomial");
             if Some(idx) == activator_idx {
                 activator_poly = Some(tracked);

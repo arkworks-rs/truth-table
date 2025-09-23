@@ -11,8 +11,6 @@ pub struct NotExprNode {
     pub inputs: Vec<Arc<dyn ProofPlan>>,
 }
 
-
-
 impl ProofPlan for NotExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -25,7 +23,7 @@ impl ProofPlan for NotExprNode {
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         self.inputs.iter().collect()
     }
-    
+
     fn from_expr(
         ctx: &datafusion::prelude::SessionContext,
         expr: Expr,

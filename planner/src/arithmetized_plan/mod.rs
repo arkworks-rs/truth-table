@@ -1,3 +1,5 @@
+pub mod display;
+
 use std::{collections::HashMap, sync::Arc};
 
 use arithmetic::{errors::EncodeError, table::ArithTable};
@@ -110,6 +112,7 @@ where
 mod tests {
     use super::*;
     use crate::{
+        arithmetized_plan::display::DisplayableArithmetizedPlan,
         ra_proof_plan::logical_to_proof_plan,
         witness_plan::{self},
     };
@@ -160,5 +163,8 @@ mod tests {
             witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(witness_plan, &mut prover).unwrap();
         let nodes = sorted_descendants(&arithmetic_plan);
         assert!(!nodes.is_empty());
+
+        let graphviz = DisplayableArithmetizedPlan::new(&arithmetic_plan).graphviz();
+        println!("Arithmetized plan graphviz\n{}", graphviz);
     }
 }

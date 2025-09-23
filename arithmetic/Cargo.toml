@@ -3,6 +3,10 @@ name = "arithmetic"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+parallel = ["rayon"]
+
 [dependencies]
 
 # Arkworks dependencies
@@ -17,4 +21,4 @@ futures = { workspace = true }
 derivative = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-
+rayon = { workspace = true, optional = true }

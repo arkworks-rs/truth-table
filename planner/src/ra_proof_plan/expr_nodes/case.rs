@@ -11,8 +11,6 @@ pub struct CaseExprNode {
     pub inputs: Vec<Arc<dyn ProofPlan>>,
 }
 
-
-
 impl ProofPlan for CaseExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self

@@ -11,8 +11,6 @@ pub struct IsTrueExprNode {
     pub inputs: Vec<Arc<dyn ProofPlan>>,
 }
 
-
-
 impl ProofPlan for IsTrueExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
