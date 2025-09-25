@@ -7,4 +7,5 @@ pub mod arithmetized_plan;
 pub mod ra_proof_plan;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+pub mod virtualized_plan;
 pub mod witness_plan;

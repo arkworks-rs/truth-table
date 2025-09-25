@@ -2,21 +2,20 @@ pub mod display;
 
 use std::{collections::HashMap, fmt};
 
-use arithmetic::{errors::EncodeError, table::ArithTable};
+use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
-    prover::Prover,
 };
 
 use crate::{
+    arithmetized_plan::ArithmetizedPlan,
     ra_proof_plan::{describe_node_id, ProofPlanNodeId},
-    witness_plan::WitnessPlan,
 };
 
-/// Arithmetized witness tables indexed by proof-plan node identifier.
-pub struct ArithmetizedPlan<F, MvPCS, UvPCS>(
+/// Virtualized tables indexed by proof-plan node identifier.
+pub struct VirtualizedPlan<F, MvPCS, UvPCS>(
     HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 )
 where
@@ -24,21 +23,21 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>;
 
-impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedPlan<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for VirtualizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ArithmetizedPlan")
+        f.debug_struct("VirtualizedPlan")
             .field("num_nodes", &self.0.len())
-            .field("nodes", &ArithNodesDebug { inner: &self.0 })
+            .field("nodes", &VirtualNodesDebug { inner: &self.0 })
             .finish()
     }
 }
 
-impl<F, MvPCS, UvPCS> ArithmetizedPlan<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> VirtualizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -48,12 +47,6 @@ where
         tables: HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self(tables)
-    }
-
-    pub fn table_by_node_map(
-        self,
-    ) -> HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
-        self.0
     }
 
     pub fn len(&self) -> usize {
@@ -79,35 +72,35 @@ where
         self.0.get(node_id).and_then(|by_label| by_label.get(label))
     }
 
-    /// Build arithmetized tables for every witness node by consuming a witness
-    /// plan.
-    #[tracing::instrument(
-        name = "arithmetized_plan::from_witness_plan",
-        skip(witness_plan, prover)
-    )]
-    pub fn from_witness_plan(
-        witness_plan: WitnessPlan,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> Result<Self, EncodeError> {
-        let mut tables_by_node: HashMap<
-            ProofPlanNodeId,
-            HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
-        > = HashMap::with_capacity(witness_plan.len());
+    /// Build a virtualized plan from an arithmetized plan.
+    pub fn from_arithmetized_plan(arith_plan: ArithmetizedPlan<F, MvPCS, UvPCS>) -> Self {
+        let mut tables_by_node = arith_plan.table_by_node_map();
 
-        for (node_id, batches_by_label) in witness_plan.into_iter() {
-            let mut arith_tables = HashMap::with_capacity(batches_by_label.len());
-            for (label, batches) in batches_by_label {
-                let table = ArithTable::<F, MvPCS, UvPCS>::from_record_batches(batches, prover)?;
-                arith_tables.insert(label, table);
+        for (node_id, tables_by_label) in tables_by_node.iter_mut() {
+            match &node_id {
+                ProofPlanNodeId::LogicalPlan(_plan) => {
+                    // TODO: Virtualize tables for logical plan nodes.
+                },
+                ProofPlanNodeId::Expr(expr) => match expr {
+                    Column => {
+                        tables_by_label.insert(
+                            "output".to_owned(),
+                            ArithTable::new(None, Vec::new(), None, 0),
+                        );
+                    },
+                    _ => todo!(),
+                },
+                ProofPlanNodeId::None => {
+                    // TODO: Virtualize tables for nodes without identifiers.
+                },
             }
-            tables_by_node.insert(node_id, arith_tables);
         }
 
-        Ok(Self::new(tables_by_node))
+        Self::new(tables_by_node)
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ArithmetizedPlan<F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a VirtualizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -128,7 +121,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for ArithmetizedPlan<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for VirtualizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -148,7 +141,7 @@ where
     }
 }
 
-struct ArithNodesDebug<'a, F, MvPCS, UvPCS>
+struct VirtualNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -157,7 +150,7 @@ where
     inner: &'a HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -168,7 +161,7 @@ where
         for (node_id, tables) in self.inner.iter() {
             map.entry(
                 &NodeIdDebug { node_id },
-                &ArithTablesDebug { inner: tables },
+                &VirtualTablesDebug { inner: tables },
             );
         }
         map.finish()
@@ -184,7 +177,8 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
         f.write_str(&describe_node_id(self.node_id))
     }
 }
-struct ArithTablesDebug<'a, F, MvPCS, UvPCS>
+
+struct VirtualTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -193,7 +187,7 @@ where
     inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithTablesDebug<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -212,8 +206,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        arithmetized_plan::display::DisplayableArithmetizedPlan,
-        ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessPlan,
+        arithmetized_plan::ArithmetizedPlan, ra_proof_plan::logical_to_proof_plan,
+        virtualized_plan::display::DisplayableVirtualizedPlan, witness_plan::WitnessPlan,
     };
     use ark_piop::{
         pcs::{kzg10::KZG10, pst13::PST13},
@@ -230,7 +224,7 @@ mod tests {
     type UvPCS = KZG10<Bls12_381>;
 
     #[tokio::test]
-    async fn logical_plan_to_arithmetized_plan() {
+    async fn logical_plan_to_virtualized_plan() {
         let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
         let ctx = SessionContext::new();
         let parquet_path = test_data_path("lineitem.parquet");
@@ -261,9 +255,11 @@ mod tests {
         let arithmetic_plan =
             ArithmetizedPlan::<F, MvPCS, UvPCS>::from_witness_plan(witness_plan, &mut prover)
                 .unwrap();
-        assert!(!arithmetic_plan.is_empty());
+        let virtual_plan =
+            VirtualizedPlan::<F, MvPCS, UvPCS>::from_arithmetized_plan(arithmetic_plan);
+        assert!(!virtual_plan.is_empty());
 
-        let graphviz = DisplayableArithmetizedPlan::new(&proof_plan, &arithmetic_plan).graphviz();
-        println!("Arithmetized plan graphviz\n{}", graphviz);
+        let graphviz = DisplayableVirtualizedPlan::new(&proof_plan, &virtual_plan).graphviz();
+        println!("Virtualized plan graphviz\n{}", graphviz);
     }
 }
