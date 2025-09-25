@@ -9,19 +9,15 @@ use ark_piop::{
     pcs::PCS,
     prover::Prover,
 };
-use datafusion::{
-    error::{DataFusionError, Result as DFResult},
-    prelude::SessionContext,
-};
 
 use crate::{
-    ra_proof_plan::ProofPlan,
+    ra_proof_plan::{ProofPlan, ProofPlanNodeType},
     witness_plan::{self, WitnessNode},
 };
 
 /// Arithmetized node mirrors the proof-plan tree while storing arithmetized
 /// tables for each witness label.
-pub struct ArithmetizedNode<F, MvPCS, UvPCS>
+pub struct ArithmetizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -29,7 +25,44 @@ where
 {
     pub node: Arc<dyn ProofPlan>,
     pub tables: HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
-    pub children: Vec<ArithmetizedNode<F, MvPCS, UvPCS>>,
+    pub children: Vec<ArithmetizedPlan<F, MvPCS, UvPCS>>,
+}
+
+impl<F, MvPCS, UvPCS> ArithmetizedPlan<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    /// Locate the first node in the tree with the provided `ProofPlanNodeType`
+    /// and return a reference to its arithmetized tables, if present.
+    pub fn tables_for_node_type(
+        &self,
+        node_type: &ProofPlanNodeType,
+    ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+        let current_type = self.node.node_type();
+        if Self::node_type_matches(&current_type, node_type) {
+            return Some(&self.tables);
+        }
+
+        self.children
+            .iter()
+            .find_map(|child| child.tables_for_node_type(node_type))
+    }
+
+    fn node_type_matches(
+        current: &ProofPlanNodeType,
+        expected: &ProofPlanNodeType,
+    ) -> bool {
+        match (current, expected) {
+            (ProofPlanNodeType::LogicalPlan(lhs), ProofPlanNodeType::LogicalPlan(rhs)) => {
+                lhs == rhs
+            },
+            (ProofPlanNodeType::Expr(lhs), ProofPlanNodeType::Expr(rhs)) => lhs == rhs,
+            (ProofPlanNodeType::None, ProofPlanNodeType::None) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Build an arithmetized tree by first materializing witnesses (record batches)
@@ -38,26 +71,13 @@ where
 pub fn witness_to_arithmetic_plan<F, MvPCS, UvPCS>(
     witness_plan: WitnessNode,
     prover: &mut Prover<F, MvPCS, UvPCS>,
-) -> DFResult<ArithmetizedNode<F, MvPCS, UvPCS>>
+) -> Result<ArithmetizedPlan<F, MvPCS, UvPCS>, EncodeError>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    arithmetize_node::<F, MvPCS, UvPCS>(witness_plan, prover)
-        .map_err(|e| DataFusionError::Execution(e.to_string()))
-}
-
-fn arithmetize_node<F, MvPCS, UvPCS>(
-    witness: WitnessNode,
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-) -> Result<ArithmetizedNode<F, MvPCS, UvPCS>, EncodeError>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    let tables = witness
+    let tables = witness_plan
         .results
         .into_iter()
         .map(|(label, batches)| {
@@ -66,14 +86,14 @@ where
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
 
-    let children = witness
+    let children = witness_plan
         .children
         .into_iter()
-        .map(|child| arithmetize_node::<F, MvPCS, UvPCS>(child, prover))
+        .map(|child| witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(child, prover))
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(ArithmetizedNode {
-        node: witness.node,
+    Ok(ArithmetizedPlan {
+        node: witness_plan.node,
         tables,
         children,
     })
@@ -81,8 +101,8 @@ where
 
 /// Append descendants in post-order (children first, then parent).
 pub fn append_sorted_descendants<'a, F, MvPCS, UvPCS>(
-    node: &'a ArithmetizedNode<F, MvPCS, UvPCS>,
-    out: &mut Vec<&'a ArithmetizedNode<F, MvPCS, UvPCS>>,
+    node: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
+    out: &mut Vec<&'a ArithmetizedPlan<F, MvPCS, UvPCS>>,
 ) where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -96,8 +116,8 @@ pub fn append_sorted_descendants<'a, F, MvPCS, UvPCS>(
 
 /// Return all descendants including root in post-order traversal order.
 pub fn sorted_descendants<'a, F, MvPCS, UvPCS>(
-    root: &'a ArithmetizedNode<F, MvPCS, UvPCS>,
-) -> Vec<&'a ArithmetizedNode<F, MvPCS, UvPCS>>
+    root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
+) -> Vec<&'a ArithmetizedPlan<F, MvPCS, UvPCS>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

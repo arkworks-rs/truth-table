@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use front_end::{
+use planner::{
     ra_proof_plan::{logical_to_proof_plan, ProofPlan},
     witness_plan::{proof_to_witness_plan, WitnessNode},
 };

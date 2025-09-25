@@ -2,14 +2,14 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "test-front-end",
+			"label": "test-planner",
 			"type": "shell",
-			"command": "cargo test --package front-end --lib --all-features --quiet"
+			"command": "cargo test --package planner --lib --all-features --quiet"
 		},
 		{
-			"label": "front-end-tests",
+			"label": "planner-tests",
 			"type": "shell",
-			"command": "cargo test --package front-end --lib --all-features"
+			"command": "cargo test --package planner --lib --all-features"
 		}
 	]
 }

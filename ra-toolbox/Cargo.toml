@@ -7,6 +7,8 @@ edition = "2024"
 # Local dependencies
 arithmetic = { path = "../arithmetic" }
 col-toolbox = { path = "../col-toolbox" }
+planner = { path = "../planner" }
+tpch-data = { path = "../tpch-data" }
 # arkworks dependencies
 ark-std = { workspace = true }
 ark-ff = { workspace = true }
@@ -16,6 +18,8 @@ ark-piop = { workspace = true }
 derivative = { workspace = true }
 rayon = { workspace = true, optional = true }
 datafusion = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+
 [dev-dependencies]
 ark-ec = { workspace = true }
 ark-test-curves = { workspace = true }

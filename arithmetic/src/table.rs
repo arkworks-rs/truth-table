@@ -283,6 +283,21 @@ where
     num_vars: usize,
 }
 
+// Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.
+impl<F, MvPCS, UvPCS> core::fmt::Debug for TableComm<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ArithTable")
+            .field("num_cols", &self.num_cols())
+            .field("num_vars", &self.num_vars())
+            .finish()
+    }
+}
+
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TableComm<F, MvPCS, UvPCS>
 where
     F: PrimeField,

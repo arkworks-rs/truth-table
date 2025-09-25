@@ -9,9 +9,11 @@ edition = "2024"
 divan.workspace = true
 datafusion.workspace = true
 tokio.workspace = true
-front-end = { path = "../planner" }
+planner = { path = "../planner" }
 tpch-data = { path = "../tpch-data" }
-
+ark-piop = { workspace = true, features = ["test-utils"] }
+ark-ec ={ workspace = true }
+ark-test-curves = { workspace = true }
 [[bench]]
 name = "pipeline"
 harness = false

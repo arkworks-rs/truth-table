@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use arithmetic::table::{ArithTable, TableComm};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -8,15 +11,38 @@ use ark_piop::{
     verifier::Verifier,
 };
 use datafusion::logical_expr::Projection;
+use derivative::Derivative;
 
-#[derive(Debug, Clone)]
-pub struct ProjectionPIOPProverInput {
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "")
+)]
+pub struct ProjectionPIOPProverInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
     pub projection: Projection,
+    pub expr: Vec<ArithTable<F, MvPCS, UvPCS>>,
+    pub input: ArithTable<F, MvPCS, UvPCS>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ProjectionPIOPVerifierInput {
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "")
+)]
+pub struct ProjectionPIOPVerifierInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
     pub projection: Projection,
+    pub expr: Vec<TableComm<F, MvPCS, UvPCS>>,
+    pub input: Arc<TableComm<F, MvPCS, UvPCS>>,
 }
 
 pub struct ProjectionPIOP;
@@ -27,10 +53,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    type ProverInput = ProjectionPIOPProverInput;
+    type ProverInput = ProjectionPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();
     type VerifierOutput = ();
-    type VerifierInput = ProjectionPIOPVerifierInput;
+    type VerifierInput = ProjectionPIOPVerifierInput<F, MvPCS, UvPCS>;
 
     fn prove_inner(
         _prover: &mut Prover<F, MvPCS, UvPCS>,
@@ -47,7 +73,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ProjectionPIOPProverInput
+impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ProjectionPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -59,4 +85,4 @@ where
 }
 
 #[cfg(test)]
-mod test;
+mod e2e_test;

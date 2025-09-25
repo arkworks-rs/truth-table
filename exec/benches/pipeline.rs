@@ -1,6 +1,15 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
+use ark_piop::{
+    pcs::{kzg10::KZG10, pst13::PST13},
+    test_utils::bench_prelude,
+};
+use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use planner::{
+    arithmetized_plan::witness_to_arithmetic_plan, ra_proof_plan::logical_to_proof_plan,
+    witness_plan::proof_to_witness_plan,
+};
 
 #[divan::bench(
     args = [
@@ -14,6 +23,8 @@ fn plan_pipeline(sql: &str) {
     // Create a multi-thread runtime once per-bench
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     rt.block_on(async move {
+        let (mut prover, mut verifier) =
+            bench_prelude::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>().unwrap();
         let ctx = SessionContext::new();
         let customer_parquet = tpch_data::bench_data_path("customer.parquet");
         assert!(
@@ -34,12 +45,19 @@ fn plan_pipeline(sql: &str) {
         let logical = df.into_unoptimized_plan();
 
         // 2) Logical -> ProofPlan
-        let proof_plan = front_end::ra_proof_plan::logical_to_proof_plan(&ctx, &logical);
+        let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
         // 3) ProofPlan -> WitnessPlan (parallel execution of witness plans)
-        let _witness = front_end::witness_plan::proof_to_witness_plan(&ctx, proof_plan)
+        let witness_plan = proof_to_witness_plan(&ctx, proof_plan)
             .await
             .expect("witness tree");
+        // 4) WitnessPlan -> ArithmetizedPlan
+        let arithmetized_plan =
+            witness_to_arithmetic_plan::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+                witness_plan,
+                &mut prover,
+            )
+            .expect("arithmetize plan");
     });
 }
 

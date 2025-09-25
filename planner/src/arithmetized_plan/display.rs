@@ -3,7 +3,7 @@ use std::{
     fmt,
 };
 
-use super::ArithmetizedNode;
+use super::ArithmetizedPlan;
 use crate::ra_proof_plan::ProofPlanNodeType;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -12,7 +12,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_id<F, MvPCS, UvPCS>(node: &ArithmetizedNode<F, MvPCS, UvPCS>) -> usize
+fn node_id<F, MvPCS, UvPCS>(node: &ArithmetizedPlan<F, MvPCS, UvPCS>) -> usize
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -27,7 +27,7 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Graphviz DOT graph for an `ArithmetizedNode`
+/// Display helper that renders a Graphviz DOT graph for an `ArithmetizedPlan`
 /// tree.
 pub struct DisplayableArithmetizedPlan<'a, F, MvPCS, UvPCS>
 where
@@ -35,7 +35,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    root: &'a ArithmetizedNode<F, MvPCS, UvPCS>,
+    root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
 }
 
 impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedPlan<'a, F, MvPCS, UvPCS>
@@ -44,7 +44,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(root: &'a ArithmetizedNode<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>) -> Self {
         Self { root }
     }
 
@@ -54,7 +54,7 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<&ArithmetizedNode<F, MvPCS, UvPCS>> = VecDeque::new();
+        let mut q: VecDeque<&ArithmetizedPlan<F, MvPCS, UvPCS>> = VecDeque::new();
         q.push_back(self.root);
 
         while let Some(node) = q.pop_front() {
