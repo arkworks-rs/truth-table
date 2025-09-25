@@ -1,5 +1,5 @@
 use crate::ra_proof_plan::{
-    expr_to_proof_plan, logical_to_proof_plan, output_logical_plan, ProofPlan, ProofPlanNodeType,
+    expr_to_proof_plan, logical_to_proof_plan, output_logical_plan, ProofPlan, ProofPlanNodeId,
 };
 use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 pub struct FilterNode {
     pub predicate_proof_plan: Arc<dyn ProofPlan>,
     pub input_proof_plan: Arc<dyn ProofPlan>,
-    pub node_type: ProofPlanNodeType,
+    pub node_id: ProofPlanNodeId,
     pub witness_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -104,7 +104,7 @@ impl ProofPlan for FilterNode {
         Self {
             predicate_proof_plan,
             input_proof_plan,
-            node_type: ProofPlanNodeType::LogicalPlan(plan),
+            node_id: ProofPlanNodeId::LogicalPlan(plan),
             witness_generation_plans,
         }
     }
@@ -115,8 +115,8 @@ impl ProofPlan for FilterNode {
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
         vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
-    fn node_type(&self) -> ProofPlanNodeType {
-        self.node_type.clone()
+    fn node_id(&self) -> ProofPlanNodeId {
+        self.node_id.clone()
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {

@@ -10,9 +10,10 @@ use ark_piop::{
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use planner::{
-    arithmetized_plan::witness_to_arithmetic_plan, ra_proof_plan::logical_to_proof_plan,
-    witness_plan,
+    arithmetized_plan::ArithmetizedPlan, ra_proof_plan::logical_to_proof_plan,
+    witness_plan::WitnessPlan,
 };
+use std::sync::Arc;
 use tpch_data::test_data_path;
 
 type F = Fr;
@@ -45,11 +46,10 @@ async fn projection_plan_dispatches_piop() {
     let logical = df.into_unoptimized_plan();
 
     let proof_plan = logical_to_proof_plan(&ctx, &logical);
-    let witness_plan = witness_plan::proof_to_witness_plan(&ctx, proof_plan)
+    let witness_plan = WitnessPlan::from_proof_plan(&ctx, Arc::clone(&proof_plan))
         .await
         .unwrap();
-    let arithmetized_plan =
-        witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(witness_plan, &mut prover).unwrap();
+    let arithmetized_plan = ArithmetizedPlan::from_witness_plan(witness_plan, &mut prover).unwrap();
 
-    dispatch_piop(&mut prover, &arithmetized_plan);
+    dispatch_piop(&mut prover, &proof_plan, &arithmetized_plan);
 }

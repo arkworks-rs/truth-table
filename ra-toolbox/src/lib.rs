@@ -4,10 +4,10 @@ use ark_piop::{
     pcs::PCS,
 };
 use planner::{
-    arithmetized_plan::{self, ArithmetizedPlan},
-    ra_proof_plan::ProofPlanNodeType,
-    witness_plan,
+    arithmetized_plan::ArithmetizedPlan,
+    ra_proof_plan::{self, ProofPlan, ProofPlanNodeId},
 };
+use std::sync::Arc;
 
 use crate::{expr_piop::dispatch_expr_piop, logical_piop::dispatch_logical_piop};
 
@@ -16,18 +16,21 @@ pub mod logical_piop;
 
 pub fn dispatch_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    proof_plan: &Arc<dyn ProofPlan>,
     plan: &ArithmetizedPlan<F, MvPCS, UvPCS>,
 ) where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let ordered = arithmetized_plan::sorted_descendants(plan);
+    let ordered = ra_proof_plan::sorted_descendants(Arc::clone(proof_plan));
     for node in ordered {
-        match node.node.node_type() {
-            ProofPlanNodeType::LogicalPlan(_) => dispatch_logical_piop(prover, plan),
-            ProofPlanNodeType::Expr(_) => dispatch_expr_piop(prover, plan),
-            ProofPlanNodeType::None => todo!("unknown proof plan node"),
+        match node.node_id() {
+            ProofPlanNodeId::LogicalPlan(_) => dispatch_logical_piop(prover, &node, plan),
+            ProofPlanNodeId::Expr(_) => {
+                dispatch_expr_piop(prover, &node, plan).expect("expression PIOP dispatch failed")
+            },
+            ProofPlanNodeId::None => todo!("unknown proof plan node"),
         }
     }
 }
@@ -42,7 +45,8 @@ mod tests {
     };
     use ark_test_curves::bls12_381::{Bls12_381, Fr};
     use datafusion::prelude::{ParquetReadOptions, SessionContext};
-    use planner::ra_proof_plan::logical_to_proof_plan;
+    use planner::{ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessPlan};
+    use std::sync::Arc;
     use tpch_data::test_data_path;
 
     type F = Fr;
@@ -76,13 +80,12 @@ mod tests {
         let logical = df.into_unoptimized_plan();
 
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
-        let witness_plan = witness_plan::proof_to_witness_plan(&ctx, proof_plan)
+        let witness_plan = WitnessPlan::from_proof_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
         let arithmetic_plan =
-            planner::arithmetized_plan::witness_to_arithmetic_plan(witness_plan, &mut prover)
-                .unwrap();
+            ArithmetizedPlan::from_witness_plan(witness_plan, &mut prover).unwrap();
 
-        dispatch_piop(&mut prover, &arithmetic_plan);
+        dispatch_piop(&mut prover, &proof_plan, &arithmetic_plan);
     }
 }

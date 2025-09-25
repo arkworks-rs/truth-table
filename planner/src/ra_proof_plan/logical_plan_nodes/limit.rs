@@ -1,4 +1,4 @@
-use crate::ra_proof_plan::{output_logical_plan, ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{output_logical_plan, ProofPlan, ProofPlanNodeId};
 use datafusion::{
     logical_expr::{self as df, LogicalPlan, LogicalPlanBuilder},
     prelude::SessionContext,
@@ -9,7 +9,7 @@ pub struct LimitNode {
     pub skip: Option<Arc<dyn ProofPlan>>,
     pub fetch: Option<Arc<dyn ProofPlan>>,
     pub input: Arc<dyn ProofPlan>,
-    pub node_type: ProofPlanNodeType,
+    pub node_id: ProofPlanNodeId,
     pub witness_generation_plans: HashMap<String, df::LogicalPlan>,
 }
 
@@ -22,8 +22,8 @@ impl ProofPlan for LimitNode {
         vec![&self.input]
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        self.node_type.clone()
+    fn node_id(&self) -> ProofPlanNodeId {
+        self.node_id.clone()
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {

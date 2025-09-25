@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 
 #[derive(Clone)]
 pub struct ExistsExprNode {
     pub inputs: Vec<Arc<dyn ProofPlan>>,
-    pub node_type: ProofPlanNodeType,
+    pub node_id: ProofPlanNodeId,
 }
 
 impl ProofPlan for ExistsExprNode {
@@ -15,8 +15,8 @@ impl ProofPlan for ExistsExprNode {
         self
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        self.node_type.clone()
+    fn node_id(&self) -> ProofPlanNodeId {
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {

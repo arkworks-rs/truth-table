@@ -1,4 +1,4 @@
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 use datafusion::{
     logical_expr::{self as df, LogicalPlan},
     prelude::SessionContext,
@@ -12,7 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 ///   original ("relative_output") scan plan.
 pub struct TableScanNode {
     pub plan: LogicalPlan,
-    pub node_type: ProofPlanNodeType,
+    pub node_id: ProofPlanNodeId,
     pub witness_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -35,7 +35,7 @@ impl ProofPlan for TableScanNode {
         witness_generation_plans.insert("output_plan".to_string(), output_plan.clone());
         Self {
             plan: plan.clone(),
-            node_type: ProofPlanNodeType::LogicalPlan(plan),
+            node_id: ProofPlanNodeId::LogicalPlan(plan),
             witness_generation_plans,
         }
     }
@@ -48,8 +48,8 @@ impl ProofPlan for TableScanNode {
         Vec::new()
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        self.node_type.clone()
+    fn node_id(&self) -> ProofPlanNodeId {
+        self.node_id.clone()
     }
 
     fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {

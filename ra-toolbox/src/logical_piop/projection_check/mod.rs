@@ -58,6 +58,11 @@ where
     type VerifierOutput = ();
     type VerifierInput = ProjectionPIOPVerifierInput<F, MvPCS, UvPCS>;
 
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        Ok(())
+    }
+
     fn prove_inner(
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _input: Self::ProverInput,

@@ -3,8 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use super::{plan_label, rows_cols_activated, WitnessNode};
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use super::{plan_label, rows_cols_activated, WitnessPlan};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 use datafusion::{arrow::record_batch::RecordBatch, prelude::Expr};
 
 fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
@@ -29,12 +29,13 @@ fn witness_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
 
 /// Display helper that renders a Graphviz DOT graph for a WitnessPlan.
 pub struct DisplayableWitnessPlan<'a> {
-    root: &'a WitnessNode,
+    proof_root: &'a Arc<dyn ProofPlan>,
+    plan: &'a WitnessPlan,
 }
 
 impl<'a> DisplayableWitnessPlan<'a> {
-    pub fn new(root: &'a WitnessNode) -> Self {
-        Self { root }
+    pub fn new(proof_root: &'a Arc<dyn ProofPlan>, plan: &'a WitnessPlan) -> Self {
+        Self { proof_root, plan }
     }
 
     pub fn graphviz(&self) -> String {
@@ -43,25 +44,26 @@ impl<'a> DisplayableWitnessPlan<'a> {
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<&WitnessNode> = VecDeque::new();
-        q.push_back(self.root);
+        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        q.push_back(Arc::clone(self.proof_root));
 
-        while let Some(wn) = q.pop_front() {
-            let id = node_id(&wn.node);
+        while let Some(node) = q.pop_front() {
+            let id = node_id(&node);
             if !visited.insert(id) {
                 continue;
             }
 
-            let (node_label, variant_label) = match wn.node.node_type() {
-                ProofPlanNodeType::LogicalPlan(plan) => {
+            let node_kind = node.node_id();
+            let (node_label, variant_label) = match &node_kind {
+                ProofPlanNodeId::LogicalPlan(plan) => {
                     ("LogicalPlan", format!("{}", plan.display()))
                 },
-                ProofPlanNodeType::Expr(expr) => ("Expr", expr.to_string()),
-                ProofPlanNodeType::None => ("Unknown", "Unknown".to_string()),
+                ProofPlanNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                ProofPlanNodeId::None => ("Unknown", "Unknown".to_string()),
             };
 
             let witness_keys = {
-                let mut entries: Vec<_> = wn.node.witness_generation_plans().into_iter().collect();
+                let mut entries: Vec<_> = node.witness_generation_plans().into_iter().collect();
                 if entries.is_empty() {
                     "<none>".to_string()
                 } else {
@@ -69,7 +71,9 @@ impl<'a> DisplayableWitnessPlan<'a> {
                     entries
                         .into_iter()
                         .map(|(label, _)| {
-                            let (rows, cols) = witness_rows_cols(wn.results.get(&label));
+                            let (rows, cols) = witness_rows_cols(
+                                self.plan.batches_for(&node_kind, label.as_str()),
+                            );
                             format!("{} ( {} rows, {} columns)", label, rows, cols)
                         })
                         .collect::<Vec<_>>()
@@ -84,10 +88,10 @@ impl<'a> DisplayableWitnessPlan<'a> {
             let label = esc_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
 
-            for child in &wn.children {
-                let cid = node_id(&child.node);
+            for child in node.children() {
+                let cid = node_id(child);
                 out.push_str(&format!("  n{} -> n{};\n", id, cid));
-                q.push_back(child);
+                q.push_back(Arc::clone(child));
             }
         }
 

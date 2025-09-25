@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 
 #[derive(Clone)]
 pub struct SimilarToExprNode {
@@ -16,8 +16,8 @@ impl ProofPlan for SimilarToExprNode {
         self
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        ProofPlanNodeType::Expr(self.relative_expr.clone())
+    fn node_id(&self) -> ProofPlanNodeId {
+        ProofPlanNodeId::Expr(self.relative_expr.clone())
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {

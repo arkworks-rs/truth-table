@@ -31,6 +31,10 @@ where
     type ProverOutput = ();
     type VerifierOutput = ();
     type VerifierInput = TableScanPIOPVerifierInput;
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        Ok(())
+    }
 
     fn prove_inner(
         _prover: &mut Prover<F, MvPCS, UvPCS>,

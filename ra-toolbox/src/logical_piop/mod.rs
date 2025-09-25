@@ -22,39 +22,45 @@ use ark_piop::{
     piop::PIOP,
 };
 use datafusion::logical_expr::LogicalPlan;
-use planner::{arithmetized_plan::ArithmetizedPlan, ra_proof_plan::ProofPlanNodeType};
+use planner::{
+    arithmetized_plan::ArithmetizedPlan,
+    ra_proof_plan::{ProofPlan, ProofPlanNodeId},
+};
+use std::sync::Arc;
 
 use crate::logical_piop::projection_check::{ProjectionPIOP, ProjectionPIOPProverInput};
 
 pub fn dispatch_logical_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    arithmetized_plan_node: &ArithmetizedPlan<F, MvPCS, UvPCS>,
+    proof_node: &Arc<dyn ProofPlan>,
+    arith_plan: &ArithmetizedPlan<F, MvPCS, UvPCS>,
 ) where
     F: ark_ff::PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let inner_logical_plan = match arithmetized_plan_node.node.node_type() {
-        ProofPlanNodeType::LogicalPlan(plan) => plan,
+    let inner_logical_plan = match proof_node.node_id() {
+        ProofPlanNodeId::LogicalPlan(plan) => plan,
         _ => panic!("Expected LogicalPlan node"),
     };
     match &inner_logical_plan {
         LogicalPlan::Projection(projection) => {
+            dbg!(arith_plan);
             let expr_tables = projection
                 .expr
                 .iter()
                 .map(|e| {
-                    arithmetized_plan_node
-                        .tables_for_node_type(&ProofPlanNodeType::Expr(e.clone()))
-                        .unwrap()["output"]
-                        .clone()
+                    arith_plan
+                        .table_for(&ProofPlanNodeId::Expr(e.clone()), "output")
+                        .cloned()
+                        .expect("missing expr arithmetized table")
                 })
                 .collect::<Vec<_>>();
-            let input_tables = arithmetized_plan_node
-                .tables_for_node_type(&ProofPlanNodeType::LogicalPlan(
+            let input_tables = arith_plan
+                .tables_for(&ProofPlanNodeId::LogicalPlan(
                     projection.input.as_ref().clone(),
                 ))
-                .unwrap();
+                .expect("missing input arithmetized tables");
             let projection_piop_prover_input = ProjectionPIOPProverInput {
                 projection: projection.clone(),
                 input: input_tables["output"].clone(),
@@ -66,7 +72,12 @@ pub fn dispatch_logical_piop<F, MvPCS, UvPCS>(
         LogicalPlan::Limit(_) => todo!("dispatch limit logical plan node"),
         LogicalPlan::Aggregate(_) => todo!("dispatch aggregate logical plan node"),
         LogicalPlan::Sort(_) => todo!("dispatch sort logical plan node"),
-        LogicalPlan::TableScan(_) => todo!("dispatch table scan logical plan node"),
+        LogicalPlan::TableScan(ts) => {
+            let table_scan_piop_prover_input = table_scan_check::TableScanPIOPProverInput {
+                table_scan: ts.clone(),
+            };
+            table_scan_check::TableScanPIOP::prove(prover, table_scan_piop_prover_input).unwrap();
+        },
         LogicalPlan::Join(_) => todo!("dispatch join logical plan node"),
         LogicalPlan::Repartition(_) => todo!("dispatch repartition logical plan node"),
         LogicalPlan::Union(_) => todo!("dispatch union logical plan node"),

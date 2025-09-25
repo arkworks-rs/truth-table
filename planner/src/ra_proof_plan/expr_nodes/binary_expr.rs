@@ -5,10 +5,10 @@ use datafusion::{
     prelude::case,
 };
 
-use crate::ra_proof_plan::{expr_to_proof_plan, ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{expr_to_proof_plan, ProofPlan, ProofPlanNodeId};
 #[derive(Clone)]
 pub struct BinaryExprNode {
-    pub node_type: ProofPlanNodeType,
+    pub node_id: ProofPlanNodeId,
     pub left_proof_plan: Arc<dyn ProofPlan>,
     pub right_proof_plan: Arc<dyn ProofPlan>,
     pub witness_generation_plans: HashMap<String, LogicalPlan>,
@@ -62,8 +62,8 @@ impl ProofPlan for BinaryExprNode {
         self
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        self.node_type.clone()
+    fn node_id(&self) -> ProofPlanNodeId {
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
@@ -91,7 +91,7 @@ impl ProofPlan for BinaryExprNode {
             Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
 
         Self {
-            node_type: ProofPlanNodeType::Expr(expr),
+            node_id: ProofPlanNodeId::Expr(expr),
             left_proof_plan: expr_to_proof_plan(ctx, left_expr, &parent_logical_plan),
             right_proof_plan: expr_to_proof_plan(ctx, right_expr, &parent_logical_plan),
             witness_generation_plans,

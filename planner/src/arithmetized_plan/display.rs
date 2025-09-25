@@ -1,10 +1,12 @@
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
+    sync::Arc,
 };
 
 use super::ArithmetizedPlan;
-use crate::ra_proof_plan::ProofPlanNodeType;
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
+use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -12,13 +14,8 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_id<F, MvPCS, UvPCS>(node: &ArithmetizedPlan<F, MvPCS, UvPCS>) -> usize
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    node as *const _ as usize
+fn node_ptr_id(node: &Arc<dyn ProofPlan>) -> usize {
+    node.as_ref() as *const dyn ProofPlan as *const () as usize
 }
 
 fn esc_label(s: &str) -> String {
@@ -35,7 +32,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
+    proof_root: &'a Arc<dyn ProofPlan>,
+    plan: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
 }
 
 impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedPlan<'a, F, MvPCS, UvPCS>
@@ -44,8 +42,11 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>) -> Self {
-        Self { root }
+    pub fn new(
+        proof_root: &'a Arc<dyn ProofPlan>,
+        plan: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
+    ) -> Self {
+        Self { proof_root, plan }
     }
 
     pub fn graphviz(&self) -> String {
@@ -54,22 +55,28 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<&ArithmetizedPlan<F, MvPCS, UvPCS>> = VecDeque::new();
-        q.push_back(self.root);
+        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        q.push_back(Arc::clone(self.proof_root));
 
         while let Some(node) = q.pop_front() {
-            let id = node_id(node);
+            let id = node_ptr_id(&node);
             if !visited.insert(id) {
                 continue;
             }
 
-            let (node_label, variant_label) = match node.node.node_type() {
-                ProofPlanNodeType::LogicalPlan(plan) => ("LogicalPlan", logical_plan_label(&plan)),
-                ProofPlanNodeType::Expr(expr) => ("Expr", expr_label(&expr)),
-                ProofPlanNodeType::None => ("Unknown", "Unknown".to_string()),
+            let node_kind = node.node_id();
+
+            let (node_label, variant_label) = match &node_kind {
+                ProofPlanNodeId::LogicalPlan(plan) => ("LogicalPlan", logical_plan_label(plan)),
+                ProofPlanNodeId::Expr(expr) => ("Expr", expr_label(expr)),
+                ProofPlanNodeId::None => ("Unknown", "Unknown".to_string()),
             };
 
-            let mut table_entries: Vec<_> = node.tables.iter().collect();
+            let mut table_entries: Vec<(&String, &ArithTable<F, MvPCS, UvPCS>)> = self
+                .plan
+                .tables_for(&node_kind)
+                .map(|m| m.iter().collect())
+                .unwrap_or_default();
             table_entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
             let table_lines = if table_entries.is_empty() {
@@ -92,10 +99,10 @@ where
             let label = esc_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
 
-            for child in &node.children {
-                let cid = node_id(child);
+            for child in node.children() {
+                let cid = node_ptr_id(child);
                 out.push_str(&format!("  n{} -> n{};\n", id, cid));
-                q.push_back(child);
+                q.push_back(Arc::clone(child));
             }
         }
 

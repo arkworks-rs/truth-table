@@ -14,11 +14,52 @@ use datafusion::{
 pub use expr_nodes::*;
 pub use logical_plan_nodes::*;
 
-#[derive(Clone)]
-pub enum ProofPlanNodeType {
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ProofPlanNodeId {
     LogicalPlan(LogicalPlan),
     Expr(Expr),
     None,
+}
+
+pub(crate) fn describe_node_id(node_id: &ProofPlanNodeId) -> String {
+    match node_id {
+        ProofPlanNodeId::LogicalPlan(plan) => {
+            format!("LogicalPlan({})", logical_plan_variant(plan))
+        },
+        ProofPlanNodeId::Expr(expr) => format!("Expr({})", expr.variant_name()),
+        ProofPlanNodeId::None => "None".to_string(),
+    }
+}
+
+fn logical_plan_variant(plan: &LogicalPlan) -> &'static str {
+    use df::LogicalPlan::*;
+    match plan {
+        Projection(_) => "Projection",
+        Filter(_) => "Filter",
+        Window(_) => "Window",
+        Aggregate(_) => "Aggregate",
+        Sort(_) => "Sort",
+        Join(_) => "Join",
+        Repartition(_) => "Repartition",
+        Union(_) => "Union",
+        TableScan(_) => "TableScan",
+        EmptyRelation(_) => "EmptyRelation",
+        Subquery(_) => "Subquery",
+        SubqueryAlias(_) => "SubqueryAlias",
+        Limit(_) => "Limit",
+        Statement(_) => "Statement",
+        Values(_) => "Values",
+        Explain(_) => "Explain",
+        Analyze(_) => "Analyze",
+        Extension(_) => "Extension",
+        Distinct(_) => "Distinct",
+        Dml(_) => "Dml",
+        Ddl(_) => "Ddl",
+        Copy(_) => "Copy",
+        DescribeTable(_) => "DescribeTable",
+        Unnest(_) => "Unnest",
+        RecursiveQuery(_) => "RecursiveQuery",
+    }
 }
 
 /// Common interface for a proof plan node.
@@ -51,8 +92,8 @@ pub trait ProofPlan: Any + Send + Sync {
     fn children(&self) -> Vec<&Arc<dyn ProofPlan>>;
 
     /// Classification of this node (used for optional metadata extraction).
-    fn node_type(&self) -> ProofPlanNodeType {
-        ProofPlanNodeType::None
+    fn node_id(&self) -> ProofPlanNodeId {
+        ProofPlanNodeId::None
     }
 
     /// A map of named logical plans that can be used to materialize witnesses
@@ -166,8 +207,8 @@ pub fn output_logical_plan(node: &Arc<dyn ProofPlan>) -> Option<LogicalPlan> {
 
 /// Best-effort access to a node's relative logical plan for display/debugging.
 pub fn relative_plan_opt(node: &Arc<dyn ProofPlan>) -> Option<LogicalPlan> {
-    match node.node_type() {
-        ProofPlanNodeType::LogicalPlan(plan) => Some(plan),
+    match node.node_id() {
+        ProofPlanNodeId::LogicalPlan(plan) => Some(plan),
         _ => node
             .witness_generation_plans()
             .into_iter()

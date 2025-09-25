@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 
 pub mod aggregate_function;
 pub mod alias;
@@ -92,8 +92,8 @@ impl ProofPlan for RawExprNode {
         Vec::new()
     }
 
-    fn node_type(&self) -> ProofPlanNodeType {
-        ProofPlanNodeType::Expr(self.relative_expr.clone())
+    fn node_id(&self) -> ProofPlanNodeId {
+        ProofPlanNodeId::Expr(self.relative_expr.clone())
     }
 
     fn from_expr(

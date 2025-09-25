@@ -1,6 +1,6 @@
 pub mod display;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt};
 
 use arithmetic::{errors::EncodeError, table::ArithTable};
 use ark_ff::PrimeField;
@@ -11,21 +11,31 @@ use ark_piop::{
 };
 
 use crate::{
-    ra_proof_plan::{ProofPlan, ProofPlanNodeType},
-    witness_plan::{self, WitnessNode},
+    ra_proof_plan::{describe_node_id, ProofPlanNodeId},
+    witness_plan::WitnessPlan,
 };
 
-/// Arithmetized node mirrors the proof-plan tree while storing arithmetized
-/// tables for each witness label.
-pub struct ArithmetizedPlan<F, MvPCS, UvPCS>
+/// Arithmetized witness tables indexed by proof-plan node identifier.
+pub struct ArithmetizedPlan<F, MvPCS, UvPCS>(
+    HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+)
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>;
+
+impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub node: Arc<dyn ProofPlan>,
-    pub tables: HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
-    pub children: Vec<ArithmetizedPlan<F, MvPCS, UvPCS>>,
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ArithmetizedPlan")
+            .field("num_nodes", &self.0.len())
+            .field("nodes", &ArithNodesDebug { inner: &self.0 })
+            .finish()
+    }
 }
 
 impl<F, MvPCS, UvPCS> ArithmetizedPlan<F, MvPCS, UvPCS>
@@ -34,98 +44,158 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    /// Locate the first node in the tree with the provided `ProofPlanNodeType`
-    /// and return a reference to its arithmetized tables, if present.
-    pub fn tables_for_node_type(
+    pub fn new(
+        tables: HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    ) -> Self {
+        Self(tables)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn tables_for(
         &self,
-        node_type: &ProofPlanNodeType,
+        node_id: &ProofPlanNodeId,
     ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
-        let current_type = self.node.node_type();
-        if Self::node_type_matches(&current_type, node_type) {
-            return Some(&self.tables);
-        }
-
-        self.children
-            .iter()
-            .find_map(|child| child.tables_for_node_type(node_type))
+        self.0.get(node_id)
     }
 
-    fn node_type_matches(
-        current: &ProofPlanNodeType,
-        expected: &ProofPlanNodeType,
-    ) -> bool {
-        match (current, expected) {
-            (ProofPlanNodeType::LogicalPlan(lhs), ProofPlanNodeType::LogicalPlan(rhs)) => {
-                lhs == rhs
-            },
-            (ProofPlanNodeType::Expr(lhs), ProofPlanNodeType::Expr(rhs)) => lhs == rhs,
-            (ProofPlanNodeType::None, ProofPlanNodeType::None) => true,
-            _ => false,
+    pub fn table_for(
+        &self,
+        node_id: &ProofPlanNodeId,
+        label: &str,
+    ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
+        self.0.get(node_id).and_then(|by_label| by_label.get(label))
+    }
+
+    /// Build arithmetized tables for every witness node by consuming a witness
+    /// plan.
+    #[tracing::instrument(
+        name = "arithmetized_plan::from_witness_plan",
+        skip(witness_plan, prover)
+    )]
+    pub fn from_witness_plan(
+        witness_plan: WitnessPlan,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) -> Result<Self, EncodeError> {
+        let mut tables_by_node: HashMap<
+            ProofPlanNodeId,
+            HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        > = HashMap::with_capacity(witness_plan.len());
+
+        for (node_id, batches_by_label) in witness_plan.into_iter() {
+            let mut arith_tables = HashMap::with_capacity(batches_by_label.len());
+            for (label, batches) in batches_by_label {
+                let table = ArithTable::<F, MvPCS, UvPCS>::from_record_batches(batches, prover)?;
+                arith_tables.insert(label, table);
+            }
+            tables_by_node.insert(node_id, arith_tables);
         }
+
+        Ok(Self::new(tables_by_node))
     }
 }
 
-/// Build an arithmetized tree by first materializing witnesses (record batches)
-/// and then arithmetizing each batch collection into an `ArithTable`.
-#[tracing::instrument(name = "witness_to_arithmetic_plan", skip(witness_plan, prover))]
-pub fn witness_to_arithmetic_plan<F, MvPCS, UvPCS>(
-    witness_plan: WitnessNode,
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-) -> Result<ArithmetizedPlan<F, MvPCS, UvPCS>, EncodeError>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ArithmetizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let tables = witness_plan
-        .results
-        .into_iter()
-        .map(|(label, batches)| {
-            let table = ArithTable::<F, MvPCS, UvPCS>::from_record_batches(batches, prover)?;
-            Ok::<_, EncodeError>((label, table))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
+    type Item = (
+        &'a ProofPlanNodeId,
+        &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    );
+    type IntoIter = std::collections::hash_map::Iter<
+        'a,
+        ProofPlanNodeId,
+        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    >;
 
-    let children = witness_plan
-        .children
-        .into_iter()
-        .map(|child| witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(child, prover))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(ArithmetizedPlan {
-        node: witness_plan.node,
-        tables,
-        children,
-    })
-}
-
-/// Append descendants in post-order (children first, then parent).
-pub fn append_sorted_descendants<'a, F, MvPCS, UvPCS>(
-    node: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
-    out: &mut Vec<&'a ArithmetizedPlan<F, MvPCS, UvPCS>>,
-) where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    for child in &node.children {
-        append_sorted_descendants(child, out);
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
-    out.push(node);
 }
 
-/// Return all descendants including root in post-order traversal order.
-pub fn sorted_descendants<'a, F, MvPCS, UvPCS>(
-    root: &'a ArithmetizedPlan<F, MvPCS, UvPCS>,
-) -> Vec<&'a ArithmetizedPlan<F, MvPCS, UvPCS>>
+impl<F, MvPCS, UvPCS> IntoIterator for ArithmetizedPlan<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let mut v = Vec::new();
-    append_sorted_descendants(root, &mut v);
-    v
+    type Item = (
+        ProofPlanNodeId,
+        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    );
+    type IntoIter = std::collections::hash_map::IntoIter<
+        ProofPlanNodeId,
+        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+struct ArithNodesDebug<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    inner: &'a HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+}
+
+impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for (node_id, tables) in self.inner.iter() {
+            map.entry(
+                &NodeIdDebug { node_id },
+                &ArithTablesDebug { inner: tables },
+            );
+        }
+        map.finish()
+    }
+}
+
+struct NodeIdDebug<'a> {
+    node_id: &'a ProofPlanNodeId,
+}
+
+impl<'a> fmt::Debug for NodeIdDebug<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&describe_node_id(self.node_id))
+    }
+}
+struct ArithTablesDebug<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+}
+
+impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithTablesDebug<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for (label, table) in self.inner.iter() {
+            map.entry(label, table);
+        }
+        map.finish()
+    }
 }
 
 #[cfg(test)]
@@ -133,8 +203,7 @@ mod tests {
     use super::*;
     use crate::{
         arithmetized_plan::display::DisplayableArithmetizedPlan,
-        ra_proof_plan::logical_to_proof_plan,
-        witness_plan::{self},
+        ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessPlan,
     };
     use ark_piop::{
         pcs::{kzg10::KZG10, pst13::PST13},
@@ -176,15 +245,15 @@ mod tests {
 
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
-        let witness_plan = witness_plan::proof_to_witness_plan(&ctx, Arc::clone(&proof_plan))
+        let witness_plan = WitnessPlan::from_proof_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
         let arithmetic_plan =
-            witness_to_arithmetic_plan::<F, MvPCS, UvPCS>(witness_plan, &mut prover).unwrap();
-        let nodes = sorted_descendants(&arithmetic_plan);
-        assert!(!nodes.is_empty());
+            ArithmetizedPlan::<F, MvPCS, UvPCS>::from_witness_plan(witness_plan, &mut prover)
+                .unwrap();
+        assert!(!arithmetic_plan.is_empty());
 
-        let graphviz = DisplayableArithmetizedPlan::new(&arithmetic_plan).graphviz();
+        let graphviz = DisplayableArithmetizedPlan::new(&proof_plan, &arithmetic_plan).graphviz();
         println!("Arithmetized plan graphviz\n{}", graphviz);
     }
 }

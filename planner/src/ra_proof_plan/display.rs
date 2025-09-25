@@ -1,4 +1,4 @@
-use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeType};
+use crate::ra_proof_plan::{ProofPlan, ProofPlanNodeId};
 use datafusion::prelude::Expr;
 use std::{
     collections::{HashSet, VecDeque},
@@ -43,12 +43,12 @@ impl<'a> DisplayableProofPlan<'a> {
                 continue;
             }
 
-            let (node_label, variant_label) = match node.node_type() {
-                ProofPlanNodeType::LogicalPlan(plan) => {
+            let (node_label, variant_label) = match node.node_id() {
+                ProofPlanNodeId::LogicalPlan(plan) => {
                     ("LogicalPlan", format!("{}", plan.display()))
                 },
-                ProofPlanNodeType::Expr(expr) => ("Expr", expr.to_string()),
-                ProofPlanNodeType::None => ("Unknown", "Unknown".to_string()),
+                ProofPlanNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                ProofPlanNodeId::None => ("Unknown", "Unknown".to_string()),
             };
             let witness_keys = {
                 let mut keys: Vec<_> = node.witness_generation_plans().keys().cloned().collect();

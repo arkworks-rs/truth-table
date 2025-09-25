@@ -5,7 +5,7 @@ use std::{path::PathBuf, sync::Arc};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use planner::{
     ra_proof_plan::{logical_to_proof_plan, ProofPlan},
-    witness_plan::{proof_to_witness_plan, WitnessNode},
+    witness_plan::WitnessPlan,
 };
 
 fn resolve_parquet(file_name: &str) -> PathBuf {
@@ -127,7 +127,7 @@ fn main() {
 }
 
 // Shared async helper to build the witness tree with fresh context and plan.
-async fn build_tree() -> WitnessNode {
+async fn build_tree() -> WitnessPlan {
     // Fresh context and plan per iteration to avoid table name clashes
     let ctx = SessionContext::new();
     let parquet_path = resolve_parquet("title-sanitized.parquet");
@@ -144,7 +144,7 @@ async fn build_tree() -> WitnessNode {
     let logical = df.into_unoptimized_plan();
     let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
-    proof_to_witness_plan(&ctx, Arc::clone(&proof_plan))
+    WitnessPlan::from_proof_plan(&ctx, Arc::clone(&proof_plan))
         .await
         .unwrap()
 }
