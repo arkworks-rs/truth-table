@@ -5,12 +5,12 @@ members = [
     "col-toolbox",
     "col-toolbox-bench",
     "arithmetic",
-    "ra-toolbox",
+    # "ra-toolbox",
     # "ra-toolbox-bench",
-    "planner",
     "tpch-data",
-    "exec",
-    "expr-toolbox",
+    # "exec",
+    # "expr-toolbox",
+    "dbsnark-core",
 ]
 
 # Add dependencies here
@@ -22,20 +22,18 @@ ark-serialize = { version = "0.5.0", default-features = false, features = [
     "derive",
 ] }
 ark-std = { version = "0.5.0" }
-ark-ff = { version = "0.5.0"}
+ark-ff = { version = "0.5.0" }
 ark-ec = { version = "0.5.0" }
 ark-poly = { version = "0.5.0" }
 ark-piop = { path = "../ark-piop" }
-ark-test-curves = { version = "0.5.0", features = [
-    "bls12_381_curve",
-] }
+ark-test-curves = { version = "0.5.0", features = ["bls12_381_curve"] }
 # Other dependencies
 itertools = "0.14"
 rayon = { version = "1.5.2", default-features = false }
 derivative = { version = "2", features = ["use_core"] }
 thiserror = "2.0.11"
 rand_chacha = { version = "0.9.0", default-features = false }
-datafusion = {version = "46.0.0", default-features = false}
+datafusion = { version = "46.0.0", default-features = false }
 tokio = { version = "^1.41.0", features = ["rt", "macros", "rt-multi-thread"] }
 merlin = { version = "3.0.0", default-features = false }
 futures = "0.3"

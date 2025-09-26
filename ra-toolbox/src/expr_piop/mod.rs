@@ -42,7 +42,7 @@ use ark_piop::{
 };
 use datafusion::prelude::Expr;
 use planner::{
-    arithmetized_plan::ArithmetizedPlan,
+    arithmetized_plan::ArithmetizedGraph,
     ra_proof_plan::{ProofPlan, ProofPlanNodeId},
 };
 
@@ -70,7 +70,7 @@ use crate::expr_piop::column::{ColumnExprPIOP, ColumnPIOPProverInput};
 pub fn dispatch_expr_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     _proof_node: &Arc<dyn ProofPlan>,
-    _arith_plan: &ArithmetizedPlan<F, MvPCS, UvPCS>,
+    _arith_plan: &ArithmetizedGraph<F, MvPCS, UvPCS>,
 ) -> ExprPIOPResult
 where
     F: ark_ff::PrimeField,

@@ -23,7 +23,7 @@ use ark_piop::{
 };
 use datafusion::logical_expr::LogicalPlan;
 use planner::{
-    arithmetized_plan::ArithmetizedPlan,
+    arithmetized_plan::ArithmetizedGraph,
     ra_proof_plan::{ProofPlan, ProofPlanNodeId},
 };
 use std::sync::Arc;
@@ -33,7 +33,7 @@ use crate::logical_piop::projection_check::{ProjectionPIOP, ProjectionPIOPProver
 pub fn dispatch_logical_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     proof_node: &Arc<dyn ProofPlan>,
-    arith_plan: &ArithmetizedPlan<F, MvPCS, UvPCS>,
+    arith_plan: &ArithmetizedGraph<F, MvPCS, UvPCS>,
 ) where
     F: ark_ff::PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

@@ -7,8 +7,8 @@ use ark_piop::{
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use planner::{
-    arithmetized_plan::ArithmetizedPlan, ra_proof_plan::logical_to_proof_plan,
-    witness_plan::WitnessPlan,
+    arithmetized_plan::ArithmetizedGraph, ra_proof_plan::logical_to_proof_plan,
+    witness_plan::WitnessGraph,
 };
 
 #[divan::bench(
@@ -47,13 +47,13 @@ fn plan_pipeline(sql: &str) {
         // 2) Logical -> ProofPlan
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
-        // 3) ProofPlan -> WitnessPlan (parallel execution of witness plans)
-        let witness_plan = WitnessPlan::from_proof_plan(&ctx, proof_plan)
+        // 3) ProofPlan -> WitnessGraph (parallel execution of witness plans)
+        let witness_plan = WitnessGraph::from_proof_plan(&ctx, proof_plan)
             .await
             .expect("witness tree");
-        // 4) WitnessPlan -> ArithmetizedPlan
+        // 4) WitnessGraph -> ArithmetizedGraph
         let arithmetized_plan =
-            ArithmetizedPlan::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::from_witness_plan(
+            ArithmetizedGraph::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::from_witness_plan(
                 witness_plan,
                 &mut prover,
             )

@@ -4,7 +4,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use planner::{
-    arithmetized_plan::ArithmetizedPlan,
+    arithmetized_plan::ArithmetizedGraph,
     ra_proof_plan::{self, ProofPlan, ProofPlanNodeId},
 };
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub mod logical_piop;
 pub fn dispatch_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     proof_plan: &Arc<dyn ProofPlan>,
-    plan: &ArithmetizedPlan<F, MvPCS, UvPCS>,
+    plan: &ArithmetizedGraph<F, MvPCS, UvPCS>,
 ) where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -45,7 +45,7 @@ mod tests {
     };
     use ark_test_curves::bls12_381::{Bls12_381, Fr};
     use datafusion::prelude::{ParquetReadOptions, SessionContext};
-    use planner::{ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessPlan};
+    use planner::{ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessGraph};
     use std::sync::Arc;
     use tpch_data::test_data_path;
 
@@ -80,11 +80,11 @@ mod tests {
         let logical = df.into_unoptimized_plan();
 
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
-        let witness_plan = WitnessPlan::from_proof_plan(&ctx, Arc::clone(&proof_plan))
+        let witness_plan = WitnessGraph::from_proof_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
         let arithmetic_plan =
-            ArithmetizedPlan::from_witness_plan(witness_plan, &mut prover).unwrap();
+            ArithmetizedGraph::from_witness_plan(witness_plan, &mut prover).unwrap();
 
         dispatch_piop(&mut prover, &proof_plan, &arithmetic_plan);
     }
