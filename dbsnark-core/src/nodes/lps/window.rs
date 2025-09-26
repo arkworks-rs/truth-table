@@ -2,23 +2,23 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr as df, prelude::SessionContext};
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct WindowNode {
-    pub window_expr: Vec<Arc<dyn ProofPlan>>,
-    pub input: Arc<dyn ProofPlan>,
+    pub window_expr: Vec<Arc<dyn ProverNode>>,
+    pub input: Arc<dyn ProverNode>,
 }
 
-impl ProofPlan for WindowNode {
+impl ProverNode for WindowNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, df::LogicalPlan> {
         todo!()
     }
 
@@ -29,7 +29,7 @@ impl ProofPlan for WindowNode {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

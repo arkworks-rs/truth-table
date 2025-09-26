@@ -2,27 +2,27 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 pub struct AggregateNode {
-    pub group_expr: Vec<Arc<dyn ProofPlan>>,
-    pub aggr_expr: Vec<Arc<dyn ProofPlan>>,
-    pub input: Arc<dyn ProofPlan>,
-    pub node_id: ProofPlanNodeId,
-    pub witness_generation_plans: HashMap<String, LogicalPlan>,
+    pub group_expr: Vec<Arc<dyn ProverNode>>,
+    pub aggr_expr: Vec<Arc<dyn ProverNode>>,
+    pub input: Arc<dyn ProverNode>,
+    pub node_id: ProverNodeNodeId,
+    pub proof_trees: HashMap<String, LogicalPlan>,
 }
 
 impl AggregateNode {
     pub fn build_output_plan(
-        group_expr: Vec<Arc<dyn ProofPlan>>,
-        aggr_expr: Vec<Arc<dyn ProofPlan>>,
+        group_expr: Vec<Arc<dyn ProverNode>>,
+        aggr_expr: Vec<Arc<dyn ProverNode>>,
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         todo!()
     }
 }
 
-impl ProofPlan for AggregateNode {
+impl ProverNode for AggregateNode {
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -33,16 +33,16 @@ impl ProofPlan for AggregateNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn piop_plan(&self) {
@@ -61,7 +61,7 @@ mod tests {
     use tpch_data::test_data_path;
     #[tokio::test]
     #[ignore = "This is for visualization purposes only"]
-    async fn aggregate_unoptimized_plan_graphviz() {
+    async fn aggregate_unoptimized_plan_treeviz() {
         let ctx = SessionContext::new();
         let parquet_path = test_data_path("customer.parquet");
         assert!(

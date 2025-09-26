@@ -1,16 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId, expr_to_proof_plan};
+use crate::nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan};
 use datafusion::{
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
 #[derive(Clone)]
 pub struct BinaryExprNode {
-    pub node_id: ProofPlanNodeId,
-    pub left_proof_plan: Arc<dyn ProofPlan>,
-    pub right_proof_plan: Arc<dyn ProofPlan>,
-    pub witness_generation_plans: HashMap<String, LogicalPlan>,
+    pub node_id: ProverNodeNodeId,
+    pub left_proof_plan: Arc<dyn ProverNode>,
+    pub right_proof_plan: Arc<dyn ProverNode>,
+    pub proof_trees: HashMap<String, LogicalPlan>,
 }
 
 impl BinaryExprNode {
@@ -56,20 +56,20 @@ impl BinaryExprNode {
     }
 }
 
-impl ProofPlan for BinaryExprNode {
+impl ProverNode for BinaryExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.left_proof_plan, &self.right_proof_plan]
     }
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn from_expr(
@@ -86,14 +86,14 @@ impl ProofPlan for BinaryExprNode {
         };
         let left_expr = bin_expr.left.as_ref().clone();
         let right_expr = bin_expr.right.as_ref().clone();
-        let witness_generation_plans =
+        let proof_trees =
             Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
 
         Self {
-            node_id: ProofPlanNodeId::Expr(expr),
+            node_id: ProverNodeNodeId::Expr(expr),
             left_proof_plan: expr_to_proof_plan(ctx, left_expr, &parent_logical_plan),
             right_proof_plan: expr_to_proof_plan(ctx, right_expr, &parent_logical_plan),
-            witness_generation_plans,
+            proof_trees,
         }
     }
 

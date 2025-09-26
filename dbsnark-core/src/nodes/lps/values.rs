@@ -2,20 +2,20 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::prelude::SessionContext;
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct ValuesNode;
 
-impl ProofPlan for ValuesNode {
+impl ProverNode for ValuesNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         Vec::new()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
         todo!()
     }
 
@@ -26,7 +26,7 @@ impl ProofPlan for ValuesNode {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

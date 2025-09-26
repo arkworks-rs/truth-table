@@ -2,12 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct DistinctNode {
-    pub input: Arc<dyn ProofPlan>,
+    pub input: Arc<dyn ProverNode>,
 }
-impl ProofPlan for DistinctNode {
+impl ProverNode for DistinctNode {
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -18,15 +18,15 @@ impl ProofPlan for DistinctNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

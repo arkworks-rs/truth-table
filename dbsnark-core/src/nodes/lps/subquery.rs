@@ -2,22 +2,22 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr::Subquery, prelude::SessionContext};
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct SubqueryNode {
-    pub input: Arc<dyn ProofPlan>,
+    pub input: Arc<dyn ProverNode>,
 }
 
-impl ProofPlan for SubqueryNode {
+impl ProverNode for SubqueryNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
         todo!()
     }
 
@@ -28,7 +28,7 @@ impl ProofPlan for SubqueryNode {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

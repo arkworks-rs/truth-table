@@ -4,8 +4,8 @@ use ark_piop::{
     pcs::PCS,
 };
 use planner::{
-    arithmetized_plan::ArithmetizedGraph,
-    ra_proof_plan::{self, ProofPlan, ProofPlanNodeId},
+    arithmetized_plan::ArithmetizedTree,
+    ra_proof_plan::{self, ProverNode, ProverNodeNodeId},
 };
 use std::sync::Arc;
 
@@ -16,8 +16,8 @@ pub mod logical_piop;
 
 pub fn dispatch_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    proof_plan: &Arc<dyn ProofPlan>,
-    plan: &ArithmetizedGraph<F, MvPCS, UvPCS>,
+    proof_plan: &Arc<dyn ProverNode>,
+    plan: &ArithmetizedTree<F, MvPCS, UvPCS>,
 ) where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -26,11 +26,11 @@ pub fn dispatch_piop<F, MvPCS, UvPCS>(
     let ordered = ra_proof_plan::sorted_descendants(Arc::clone(proof_plan));
     for node in ordered {
         match node.node_id() {
-            ProofPlanNodeId::LogicalPlan(_) => dispatch_logical_piop(prover, &node, plan),
-            ProofPlanNodeId::Expr(_) => {
+            ProverNodeNodeId::LP(_) => dispatch_logical_piop(prover, &node, plan),
+            ProverNodeNodeId::Expr(_) => {
                 dispatch_expr_piop(prover, &node, plan).expect("expression PIOP dispatch failed")
             },
-            ProofPlanNodeId::None => todo!("unknown proof plan node"),
+            ProverNodeNodeId::None => todo!("unknown proof plan node"),
         }
     }
 }
@@ -45,7 +45,7 @@ mod tests {
     };
     use ark_test_curves::bls12_381::{Bls12_381, Fr};
     use datafusion::prelude::{ParquetReadOptions, SessionContext};
-    use planner::{ra_proof_plan::logical_to_proof_plan, witness_plan::WitnessGraph};
+    use planner::{ra_proof_plan::logical_to_proof_plan, witness_plan::HintTree};
     use std::sync::Arc;
     use tpch_data::test_data_path;
 
@@ -80,11 +80,11 @@ mod tests {
         let logical = df.into_unoptimized_plan();
 
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
-        let witness_plan = WitnessGraph::from_proof_plan(&ctx, Arc::clone(&proof_plan))
+        let witness_plan = HintTree::from_proof_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
         let arithmetic_plan =
-            ArithmetizedGraph::from_witness_plan(witness_plan, &mut prover).unwrap();
+            ArithmetizedTree::from_witness_plan(witness_plan, &mut prover).unwrap();
 
         dispatch_piop(&mut prover, &proof_plan, &arithmetic_plan);
     }

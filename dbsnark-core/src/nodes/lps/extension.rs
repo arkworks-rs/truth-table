@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct ExtensionNode {
-    pub inputs: Vec<Arc<dyn ProofPlan>>,
+    pub inputs: Vec<Arc<dyn ProverNode>>,
 }
 
-impl ProofPlan for ExtensionNode {
+impl ProverNode for ExtensionNode {
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -19,15 +19,15 @@ impl ProofPlan for ExtensionNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         self.inputs.iter().collect()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

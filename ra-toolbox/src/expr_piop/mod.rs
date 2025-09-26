@@ -42,8 +42,8 @@ use ark_piop::{
 };
 use datafusion::prelude::Expr;
 use planner::{
-    arithmetized_plan::ArithmetizedGraph,
-    ra_proof_plan::{ProofPlan, ProofPlanNodeId},
+    arithmetized_plan::ArithmetizedTree,
+    ra_proof_plan::{ProverNode, ProverNodeNodeId},
 };
 
 pub type ExprPIOPResult = SnarkResult<()>;
@@ -69,8 +69,8 @@ use crate::expr_piop::column::{ColumnExprPIOP, ColumnPIOPProverInput};
 
 pub fn dispatch_expr_piop<F, MvPCS, UvPCS>(
     prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    _proof_node: &Arc<dyn ProofPlan>,
-    _arith_plan: &ArithmetizedGraph<F, MvPCS, UvPCS>,
+    _proof_node: &Arc<dyn ProverNode>,
+    _arith_plan: &ArithmetizedTree<F, MvPCS, UvPCS>,
 ) -> ExprPIOPResult
 where
     F: ark_ff::PrimeField,
@@ -78,7 +78,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     let inner_expr_plan = match _proof_node.node_id() {
-        ProofPlanNodeId::Expr(plan) => plan,
+        ProverNodeNodeId::Expr(plan) => plan,
         _ => panic!("Expected Expr node"),
     };
 

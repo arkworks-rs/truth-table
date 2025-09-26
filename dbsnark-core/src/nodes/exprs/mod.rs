@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 pub mod aggregate_function;
 pub mod alias;
@@ -83,17 +83,17 @@ impl RawExprNode {
     }
 }
 
-impl ProofPlan for RawExprNode {
+impl ProverNode for RawExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         Vec::new()
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
-        ProofPlanNodeId::Expr(self.relative_expr.clone())
+    fn node_id(&self) -> ProverNodeNodeId {
+        ProverNodeNodeId::Expr(self.relative_expr.clone())
     }
 
     fn from_expr(
@@ -112,6 +112,6 @@ impl ProofPlan for RawExprNode {
     }
 }
 
-pub fn wrap_logical_expr(expr: Expr) -> Arc<dyn ProofPlan> {
+pub fn wrap_logical_expr(expr: Expr) -> Arc<dyn ProverNode> {
     Arc::new(RawExprNode::new(expr))
 }

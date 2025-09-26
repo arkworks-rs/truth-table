@@ -4,31 +4,31 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 pub struct LimitNode {
-    pub skip: Option<Arc<dyn ProofPlan>>,
-    pub fetch: Option<Arc<dyn ProofPlan>>,
-    pub input: Arc<dyn ProofPlan>,
-    pub node_id: ProofPlanNodeId,
-    pub witness_generation_plans: HashMap<String, df::LogicalPlan>,
+    pub skip: Option<Arc<dyn ProverNode>>,
+    pub fetch: Option<Arc<dyn ProverNode>>,
+    pub input: Arc<dyn ProverNode>,
+    pub node_id: ProverNodeNodeId,
+    pub proof_trees: HashMap<String, df::LogicalPlan>,
 }
 
-impl ProofPlan for LimitNode {
+impl ProverNode for LimitNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, df::LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self

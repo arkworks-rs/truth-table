@@ -2,24 +2,24 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{logical_expr as df, prelude::SessionContext};
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct SortNode {
-    pub sort_expr: Vec<(Arc<dyn ProofPlan>, bool, bool)>,
+    pub sort_expr: Vec<(Arc<dyn ProverNode>, bool, bool)>,
     pub fetch: Option<usize>,
-    pub input: Arc<dyn ProofPlan>,
+    pub input: Arc<dyn ProverNode>,
 }
 
-impl ProofPlan for SortNode {
+impl ProverNode for SortNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input]
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, df::LogicalPlan> {
         todo!()
     }
 
@@ -30,7 +30,7 @@ impl ProofPlan for SortNode {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 

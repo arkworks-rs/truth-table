@@ -10,13 +10,13 @@ use ark_piop::{
 };
 
 use crate::{
-    graphs::arithmetized_graph::ArithmetizedGraph,
-    nodes::{ProofPlanNodeId, describe_node_id},
+    trees::arithmetized_tree::ArithmetizedTree,
+    nodes::{ProverNodeNodeId, describe_node_id},
 };
 
 /// Virtualized tables indexed by proof-plan node identifier.
 pub struct PIOPPlan<F, MvPCS, UvPCS>(
-    HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 )
 where
     F: PrimeField,
@@ -44,7 +44,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub fn new(
-        tables: HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+        tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self(tables)
     }
@@ -59,38 +59,25 @@ where
 
     pub fn tables_for(
         &self,
-        node_id: &ProofPlanNodeId,
+        node_id: &ProverNodeNodeId,
     ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
         self.0.get(node_id)
     }
 
     pub fn table_for(
         &self,
-        node_id: &ProofPlanNodeId,
+        node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
         self.0.get(node_id).and_then(|by_label| by_label.get(label))
     }
 
     /// Build a virtualized plan from an arithmetized plan.
-    pub fn from_arithmetized_plan(arith_plan: ArithmetizedGraph<F, MvPCS, UvPCS>) -> Self {
+    pub fn from_arithmetized_plan(arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
         let mut tables_by_node = arith_plan.table_by_node_map();
 
         for (node_id, tables_by_label) in tables_by_node.iter_mut() {
-            match &node_id {
-                ProofPlanNodeId::LogicalPlan(_plan) => {
-                    // TODO: Virtualize tables for logical plan nodes.
-                },
-                ProofPlanNodeId::Expr(expr) => match expr {
-                    Column => {
-                        tables_by_label.insert(
-                            "output".to_owned(),
-                            ArithTable::new(None, Vec::new(), None, 0),
-                        );
-                    },
-                    _ => todo!(),
-                },
-            }
+           todo!() 
         }
 
         Self::new(tables_by_node)
@@ -104,12 +91,12 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     type Item = (
-        &'a ProofPlanNodeId,
+        &'a ProverNodeNodeId,
         &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::Iter<
         'a,
-        ProofPlanNodeId,
+        ProverNodeNodeId,
         HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
     >;
 
@@ -125,11 +112,11 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     type Item = (
-        ProofPlanNodeId,
+        ProverNodeNodeId,
         HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::IntoIter<
-        ProofPlanNodeId,
+        ProverNodeNodeId,
         HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
     >;
 
@@ -144,7 +131,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    inner: &'a HashMap<ProofPlanNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
@@ -166,7 +153,7 @@ where
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProofPlanNodeId,
+    node_id: &'a ProverNodeNodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {
@@ -202,7 +189,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        graphs::witness_graph::WitnessGraph, nodes::logical_to_proof_plan,
+        trees::hint_tree::HintTree,
         plans::piop_plan::display::DisplayablePIOPPlan,
     };
 
@@ -247,16 +234,16 @@ mod tests {
 
         let proof_plan = logical_to_proof_plan(&ctx, &logical);
 
-        let witness_plan = WitnessGraph::from_proof_plan(&ctx, Arc::clone(&proof_plan))
+        let witness_plan = HintTree::from_proof_plan(&ctx, Arc::clone(&proof_plan))
             .await
             .unwrap();
         let arithmetic_plan =
-            ArithmetizedGraph::<F, MvPCS, UvPCS>::from_witness_plan(witness_plan, &mut prover)
+            ArithmetizedTree::<F, MvPCS, UvPCS>::from_witness_plan(witness_plan, &mut prover)
                 .unwrap();
         let virtual_plan = PIOPPlan::<F, MvPCS, UvPCS>::from_arithmetized_plan(arithmetic_plan);
         assert!(!virtual_plan.is_empty());
 
-        let graphviz = DisplayablePIOPPlan::new(&proof_plan, &virtual_plan).graphviz();
-        println!("Virtualized plan graphviz\n{}", graphviz);
+        let treeviz = DisplayablePIOPPlan::new(&proof_plan, &virtual_plan).treeviz();
+        println!("Virtualized plan treeviz\n{}", treeviz);
     }
 }

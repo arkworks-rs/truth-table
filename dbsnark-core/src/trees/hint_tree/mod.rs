@@ -19,22 +19,30 @@ use futures::{
 };
 use tracing::{debug, trace};
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId, describe_node_id, lps::TableScanNode};
+use crate::{
+    nodes::{ProverNode, ProverNodeNodeId, lps::TableScanNode},
+    trees::proof_tree::ProofTree,
+};
 
-/// Witness results indexed by proof-plan node identifier.
-pub struct WitnessGraph(HashMap<ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>>);
+/// A data structure holding the hint tables needed to prove a given proof-tree.
+///
+/// Although this is called a "tree", it is actually a hash map from tree nodes
+/// to their associated hint data, since we don't need the topology of the
+/// prover nodes any more. This discrepancy is to keep a consistent naming for
+/// the IRs.
+pub struct HintTree(HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>);
 
-impl fmt::Debug for WitnessGraph {
+impl fmt::Debug for HintTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WitnessGraph")
+        f.debug_struct("HintTree")
             .field("num_nodes", &self.0.len())
-            .field("nodes", &WitnessNodesDebug { inner: &self.0 })
+            .field("nodes", &HintNodesDebug { inner: &self.0 })
             .finish()
     }
 }
 
-impl WitnessGraph {
-    pub fn new(results: HashMap<ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>>) -> Self {
+impl HintTree {
+    pub fn new(results: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>) -> Self {
         Self(results)
     }
 
@@ -46,35 +54,40 @@ impl WitnessGraph {
         self.0.is_empty()
     }
 
-    /// Return the batches collected for a specific witness label at the
-    /// requested proof-plan node, if present.
-    pub fn batches_for(&self, node_id: &ProofPlanNodeId, label: &str) -> Option<&Vec<RecordBatch>> {
+    /// Return the batches collected for a specific hint label at the
+    /// requested proof-tree node, if present.
+    pub fn batches_for(
+        &self,
+        node_id: &ProverNodeNodeId,
+        label: &str,
+    ) -> Option<&Vec<RecordBatch>> {
         self.0.get(node_id).and_then(|by_label| by_label.get(label))
     }
 
-    /// Heuristic to pick a "primary" result set for a proof-plan node. Prefers
-    /// `output_plan`, falls back to `relative_output`, then any entry.
-    pub fn primary_batches(&self, node_id: &ProofPlanNodeId) -> Option<&Vec<RecordBatch>> {
-        self.batches_for(node_id, "output_plan")
+    /// Heuristic to pick a "primary" result set for a proof-tree node. Prefers
+    /// `output_tree`, falls back to `relative_output`, then any entry.
+    pub fn primary_batches(&self, node_id: &ProverNodeNodeId) -> Option<&Vec<RecordBatch>> {
+        self.batches_for(node_id, "output_tree")
             .or_else(|| self.batches_for(node_id, "relative_output"))
             .or_else(|| self.0.get(node_id).and_then(|m| m.values().next()))
     }
 
     pub fn results_for(
         &self,
-        node_id: &ProofPlanNodeId,
+        node_id: &ProverNodeNodeId,
     ) -> Option<&HashMap<String, Vec<RecordBatch>>> {
         self.0.get(node_id)
     }
 
-    /// Execute the proof tree and assemble a witness plan mirroring the
-    /// proof-plan shape. All witness-generation logical plans are executed in
+    /// Execute the proof tree and assemble a hint tree mirroring the
+    /// proof-tree shape. All hint-generation logical plans are executed in
     /// parallel.
-    #[tracing::instrument(name = "witness_plan::from_proof_plan", skip(ctx, root))]
-    pub async fn from_proof_plan(ctx: &SessionContext, root: Arc<dyn ProofPlan>) -> DFResult<Self> {
-        // Collect all nodes (post-order) from the proof plan so we can spawn
-        // concurrent executions for each node's witness plans.
-        fn collect(node: &Arc<dyn ProofPlan>, out: &mut Vec<Arc<dyn ProofPlan>>) {
+    #[tracing::instrument(name = "hint_tree::from_proof_tree", skip_all)]
+    pub async fn from_proof_tree(ctx: &SessionContext, proof_tree: ProofTree) -> DFResult<Self> {
+        let root = proof_tree.root();
+        // Collect all nodes (post-order) from the proof tree so we can spawn
+        // concurrent executions for each node's hint trees.
+        fn collect(node: &Arc<dyn ProverNode>, out: &mut Vec<Arc<dyn ProverNode>>) {
             for c in node.children() {
                 collect(c, out);
             }
@@ -83,23 +96,23 @@ impl WitnessGraph {
         let mut nodes = Vec::new();
         collect(&root, &mut nodes);
 
-        // Spawn futures for every witness-generation plan across the tree.
+        // Spawn futures for every hint-generation tree across the tree.
         let mut futures: Vec<BoxFuture<'static, DFResult<(usize, String, Vec<RecordBatch>)>>> =
             Vec::new();
 
         for node in &nodes {
-            let plans = node.witness_generation_plans();
-            for (label, plan) in plans {
+            let trees = node.proof_trees();
+            for (label, tree) in trees {
                 let ctx = ctx.clone();
                 let node = Arc::clone(node);
                 futures.push(
                     async move {
-                        debug!(node = plan_label(&node), plan_label = %label, "executing witness plan");
-                        let plan = ctx.state().optimize(&plan).unwrap();
-                        let df = ctx.execute_logical_plan(plan).await?;
+                        debug!(node = tree_label(&node), tree_label = %label, "executing hint tree");
+                        let tree = ctx.state().optimize(&tree).unwrap();
+                        let df = ctx.execute_logical_plan(tree).await?;
                         let batches = df.collect().await?;
 
-                        if label == "output_plan"
+                        if label == "output_tree"
                             && node.as_any().downcast_ref::<TableScanNode>().is_some()
                         {
                             let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
@@ -112,12 +125,12 @@ impl WitnessGraph {
 
                         let (rows, cols, activated) = rows_cols_activated(&batches);
                         trace!(
-                            node = plan_label(&node),
-                            plan_label = %label,
+                            node = tree_label(&node),
+                            tree_label = %label,
                             rows,
                             cols,
                             activated_true = activated.unwrap_or(rows),
-                            "witness batches collected"
+                            "hint batches collected"
                         );
 
                         Ok((node_ptr_id(&node), label, batches))
@@ -134,13 +147,13 @@ impl WitnessGraph {
             by_id.entry(id).or_default().insert(label, batches);
         }
 
-        // Ensure every proof-plan node has an entry, even if no witness plans were
+        // Ensure every proof-tree node has an entry, even if no hint trees were
         // declared, so downstream consumers can rely on presence.
         for node in &nodes {
             by_id.entry(node_ptr_id(node)).or_default();
         }
 
-        let mut results_by_node_id: HashMap<ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>> =
+        let mut results_by_node_id: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>> =
             HashMap::with_capacity(nodes.len());
         for node in nodes {
             let node_id = node.node_id();
@@ -153,37 +166,37 @@ impl WitnessGraph {
     }
 }
 
-impl<'a> IntoIterator for &'a WitnessGraph {
-    type Item = (&'a ProofPlanNodeId, &'a HashMap<String, Vec<RecordBatch>>);
+impl<'a> IntoIterator for &'a HintTree {
+    type Item = (&'a ProverNodeNodeId, &'a HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
-        std::collections::hash_map::Iter<'a, ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>>;
+        std::collections::hash_map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
 }
 
-impl IntoIterator for WitnessGraph {
-    type Item = (ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>);
+impl IntoIterator for HintTree {
+    type Item = (ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
-        std::collections::hash_map::IntoIter<ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>>;
+        std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-struct WitnessNodesDebug<'a> {
-    inner: &'a HashMap<ProofPlanNodeId, HashMap<String, Vec<RecordBatch>>>,
+struct HintNodesDebug<'a> {
+    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
 }
 
-impl<'a> fmt::Debug for WitnessNodesDebug<'a> {
+impl<'a> fmt::Debug for HintNodesDebug<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
         for (node_id, batches_by_label) in self.inner.iter() {
             map.entry(
                 &NodeIdDebug { node_id },
-                &WitnessLabelsDebug {
+                &HintLabelsDebug {
                     inner: batches_by_label,
                 },
             );
@@ -192,25 +205,25 @@ impl<'a> fmt::Debug for WitnessNodesDebug<'a> {
     }
 }
 
-struct WitnessLabelsDebug<'a> {
+struct HintLabelsDebug<'a> {
     inner: &'a HashMap<String, Vec<RecordBatch>>,
 }
 
-impl<'a> fmt::Debug for WitnessLabelsDebug<'a> {
+impl<'a> fmt::Debug for HintLabelsDebug<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
         for (label, batches) in self.inner.iter() {
-            map.entry(label, &WitnessBatchSummary { batches });
+            map.entry(label, &HintBatchSummary { batches });
         }
         map.finish()
     }
 }
 
-struct WitnessBatchSummary<'a> {
+struct HintBatchSummary<'a> {
     batches: &'a [RecordBatch],
 }
 
-impl<'a> fmt::Debug for WitnessBatchSummary<'a> {
+impl<'a> fmt::Debug for HintBatchSummary<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (rows, cols, activated_true) = rows_cols_activated(self.batches);
         f.debug_struct("Batches")
@@ -223,26 +236,26 @@ impl<'a> fmt::Debug for WitnessBatchSummary<'a> {
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProofPlanNodeId,
+    node_id: &'a ProverNodeNodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&describe_node_id(self.node_id))
+        f.write_str(&self.node_id.to_string())
     }
 }
 
-pub(crate) fn plan_label(node: &Arc<dyn ProofPlan>) -> &'static str {
+pub(crate) fn tree_label(node: &Arc<dyn ProverNode>) -> &'static str {
     match node.node_id() {
-        ProofPlanNodeId::LogicalPlan(_) => "LogicalPlan",
-        ProofPlanNodeId::Expr(_) => "Expr",
+        ProverNodeNodeId::LP(_) => "LogicalPlan",
+        ProverNodeNodeId::Expr(_) => "Expr",
     }
 }
 
 /// Stable-ish identifier for a node based on its vtable pointer, used to join
-/// asynchronous witness results back to the plan shape.
-fn node_ptr_id(p: &Arc<dyn ProofPlan>) -> usize {
-    let data_ptr = &**p as *const dyn ProofPlan as *const ();
+/// asynchronous hint results back to the tree shape.
+fn node_ptr_id(p: &Arc<dyn ProverNode>) -> usize {
+    let data_ptr = &**p as *const dyn ProverNode as *const ();
     data_ptr as usize
 }
 

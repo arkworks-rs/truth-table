@@ -16,9 +16,9 @@ struct Cli {
     #[arg(long)]
     plan: bool,
 
-    /// Also print the Graphviz DOT for the logical plan
+    /// Also print the Treeviz DOT for the logical plan
     #[arg(long)]
-    graphviz: bool,
+    treeviz: bool,
 
     /// Directory containing TPC-H parquet files (nation.parquet,
     /// region.parquet, ...) If omitted and --plan is set, tries
@@ -60,8 +60,8 @@ fn duckdb_fetch(qnum: Option<u8>) -> Option<Vec<(i64, String)>> {
 async fn main() {
     let cli = Cli::parse();
     let first = cli.which.clone();
-    let want_plan = cli.plan || cli.graphviz; // graphviz implies planning
-    let want_graphviz = cli.graphviz;
+    let want_plan = cli.plan || cli.treeviz; // treeviz implies planning
+    let want_treeviz = cli.treeviz;
     let data_dir = cli.data_dir.clone();
 
     let infer_data_dir = || -> PathBuf {
@@ -123,9 +123,9 @@ async fn main() {
                     df.logical_plan().display_indent()
                 );
             }
-            if want_graphviz {
+            if want_treeviz {
                 println!(
-                    "-- Q{} Graphviz DOT\n{}\n",
+                    "-- Q{} Treeviz DOT\n{}\n",
                     nr,
                     df.logical_plan().display_graphviz()
                 );
@@ -185,12 +185,12 @@ async fn main() {
             df.logical_plan().display_indent()
         );
     } else {
-        // Still print SQL above if only graphviz was requested
+        // Still print SQL above if only treeviz was requested
         println!("{}", sql);
     }
-    if want_graphviz {
+    if want_treeviz {
         println!(
-            "\n-- Graphviz DOT\n{}",
+            "\n-- Treeviz DOT\n{}",
             df.logical_plan().display_graphviz()
         );
     }

@@ -4,9 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
-use super::PIOPPlan;
+use super::ArithmetizedTree;
 use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -15,8 +15,8 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_ptr_id(node: &Arc<dyn ProofPlan>) -> usize {
-    node.as_ref() as *const dyn ProofPlan as *const () as usize
+fn node_ptr_id(node: &Arc<dyn ProverNode>) -> usize {
+    node.as_ref() as *const dyn ProverNode as *const () as usize
 }
 
 fn esc_label(s: &str) -> String {
@@ -25,35 +25,38 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Graphviz DOT graph for a `PIOPPlan`
+/// Display helper that renders a Treeviz DOT tree for an `ArithmetizedTree`
 /// tree.
-pub struct DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+pub struct DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    proof_root: &'a Arc<dyn ProofPlan>,
-    plan: &'a PIOPPlan<F, MvPCS, UvPCS>,
+    proof_root: &'a Arc<dyn ProverNode>,
+    plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(proof_root: &'a Arc<dyn ProofPlan>, plan: &'a PIOPPlan<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(
+        proof_root: &'a Arc<dyn ProverNode>,
+        plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
+    ) -> Self {
         Self { proof_root, plan }
     }
 
-    pub fn graphviz(&self) -> String {
+    pub fn treeviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph PIOPPlan {\n");
+        out.push_str("ditree ArithmetizedTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
         q.push_back(Arc::clone(self.proof_root));
 
         while let Some(node) = q.pop_front() {
@@ -65,8 +68,8 @@ where
             let node_kind = node.node_id();
 
             let (node_label, variant_label) = match &node_kind {
-                ProofPlanNodeId::LogicalPlan(plan) => ("LogicalPlan", logical_plan_label(plan)),
-                ProofPlanNodeId::Expr(expr) => ("Expr", expr_label(expr)),
+                ProverNodeNodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
+                ProverNodeNodeId::Expr(expr) => ("Expr", expr_label(expr)),
             };
 
             let mut table_entries: Vec<(&String, &ArithTable<F, MvPCS, UvPCS>)> = self
@@ -108,14 +111,14 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.graphviz())
+        write!(f, "{}", self.treeviz())
     }
 }
 

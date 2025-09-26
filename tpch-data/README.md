@@ -9,13 +9,13 @@ Utility crate for generating TPC-H tables as Parquet files and for printing cano
   - `true` for original rows, `false` for any appended rows.
 - Pads each table to a power-of-two row count by duplicating the last row.
 - Prints TPC-H query SQL using DuckDB's TPCH extension.
-- Optionally prints DataFusion logical plans and Graphviz DOT for queries.
+- Optionally prints DataFusion logical plans and Treeviz DOT for queries.
 
 ## Binaries
 
 - `gen_test_data` — generate a small dataset (default scale 0.01).
 - `gen_bench_data` — generate a dataset for benchmarking at a given scale.
-- `run_tpch` — print TPC-H query SQL (and optionally DataFusion logical plan / Graphviz).
+- `run_tpch` — print TPC-H query SQL (and optionally DataFusion logical plan / Treeviz).
 
 ## Install & Build
 
@@ -70,19 +70,19 @@ cargo run -p tpch-data --bin run_tpch 7
 cargo run -p tpch-data --bin run_tpch all
 ```
 
-### Logical Plan and Graphviz
+### Logical Plan and Treeviz
 
-You can also print DataFusion logical plans and Graphviz DOT. These require the Parquet data on disk.
+You can also print DataFusion logical plans and Treeviz DOT. These require the Parquet data on disk.
 
 ```
 # Single query: SQL + plan
 cargo run -p tpch-data --bin run_tpch 7 --plan [--data-dir path/to/parquet]
 
-# Single query: SQL + Graphviz (DOT)
-cargo run -p tpch-data --bin run_tpch 7 --graphviz [--data-dir path/to/parquet]
+# Single query: SQL + Treeviz (DOT)
+cargo run -p tpch-data --bin run_tpch 7 --treeviz [--data-dir path/to/parquet]
 
-# All queries: SQL + plan + Graphviz
-cargo run -p tpch-data --bin run_tpch all --plan --graphviz [--data-dir path/to/parquet]
+# All queries: SQL + plan + Treeviz
+cargo run -p tpch-data --bin run_tpch all --plan --treeviz [--data-dir path/to/parquet]
 ```
 
 If `--data-dir` is omitted, the binaries look for `tpch-data/test-data`, then `tpch-data/bench-data`.
@@ -91,7 +91,7 @@ If `--data-dir` is omitted, the binaries look for `tpch-data/test-data`, then `t
 
 - Parquet writing uses Apache Arrow + Parquet crates.
 - Query SQL is sourced from DuckDB's `tpch_queries()` (installed/loaded automatically in-memory).
-- DataFusion version: 46.x (for plan/graphviz printing).
+- DataFusion version: 46.x (for plan/treeviz printing).
 
 ## License
 

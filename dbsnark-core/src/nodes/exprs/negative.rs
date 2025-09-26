@@ -2,25 +2,25 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct NegativeExprNode {
     pub relative_expr: Expr,
     pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn ProofPlan>>,
+    pub inputs: Vec<Arc<dyn ProverNode>>,
 }
 
-impl ProofPlan for NegativeExprNode {
+impl ProverNode for NegativeExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
-        ProofPlanNodeId::Expr(self.relative_expr.clone())
+    fn node_id(&self) -> ProverNodeNodeId {
+        ProverNodeNodeId::Expr(self.relative_expr.clone())
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         self.inputs.iter().collect()
     }
 

@@ -4,7 +4,7 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 /// Proof node representing a base table scan.
 ///
@@ -13,8 +13,8 @@ use crate::nodes::{ProofPlan, ProofPlanNodeId};
 ///   original ("relative_output") scan plan.
 pub struct TableScanNode {
     pub plan: LogicalPlan,
-    pub node_id: ProofPlanNodeId,
-    pub witness_generation_plans: HashMap<String, LogicalPlan>,
+    pub node_id: ProverNodeNodeId,
+    pub proof_trees: HashMap<String, LogicalPlan>,
 }
 
 impl TableScanNode {
@@ -26,18 +26,18 @@ impl TableScanNode {
     }
 }
 
-impl ProofPlan for TableScanNode {
+impl ProverNode for TableScanNode {
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
     {
         let output_plan = Self::build_output_plan(plan.clone());
-        let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("output_plan".to_string(), output_plan.clone());
+        let mut proof_trees = HashMap::new();
+        proof_trees.insert("output_plan".to_string(), output_plan.clone());
         Self {
             plan: plan.clone(),
-            node_id: ProofPlanNodeId::LogicalPlan(plan),
-            witness_generation_plans,
+            node_id: ProverNodeNodeId::LP(plan),
+            proof_trees,
         }
     }
 
@@ -45,16 +45,16 @@ impl ProofPlan for TableScanNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         Vec::new()
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, df::LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn piop_plan(&self) {

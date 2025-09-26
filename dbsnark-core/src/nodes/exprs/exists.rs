@@ -2,24 +2,24 @@ use std::sync::Arc;
 
 use datafusion::logical_expr::Expr;
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct ExistsExprNode {
-    pub inputs: Vec<Arc<dyn ProofPlan>>,
-    pub node_id: ProofPlanNodeId,
+    pub inputs: Vec<Arc<dyn ProverNode>>,
+    pub node_id: ProverNodeNodeId,
 }
 
-impl ProofPlan for ExistsExprNode {
+impl ProverNode for ExistsExprNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         self.inputs.iter().collect()
     }
 

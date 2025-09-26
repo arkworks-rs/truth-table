@@ -3,13 +3,13 @@ use std::{
     sync::Arc,
 };
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
-use super::{WitnessGraph, plan_label, rows_cols_activated};
+use super::{HintTree, tree_label, rows_cols_activated};
 use datafusion::{arrow::record_batch::RecordBatch, prelude::Expr};
 
-fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
-    let data_ptr = &**p as *const dyn ProofPlan as *const ();
+fn node_id(p: &Arc<dyn ProverNode>) -> usize {
+    let data_ptr = &**p as *const dyn ProverNode as *const ();
     data_ptr as usize
 }
 
@@ -19,7 +19,7 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-fn witness_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
+fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
     if let Some(batches) = batches {
         let (rows, cols, _) = rows_cols_activated(batches);
         (rows, cols)
@@ -28,24 +28,24 @@ fn witness_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
     }
 }
 
-/// Display helper that renders a Graphviz DOT graph for a WitnessGraph.
-pub struct DisplayableWitnessGraph<'a> {
-    proof_root: &'a Arc<dyn ProofPlan>,
-    plan: &'a WitnessGraph,
+/// Display helper that renders a Treeviz DOT tree for a HintTree.
+pub struct DisplayableHintTree<'a> {
+    proof_root: &'a Arc<dyn ProverNode>,
+    tree: &'a HintTree,
 }
 
-impl<'a> DisplayableWitnessGraph<'a> {
-    pub fn new(proof_root: &'a Arc<dyn ProofPlan>, plan: &'a WitnessGraph) -> Self {
-        Self { proof_root, plan }
+impl<'a> DisplayableHintTree<'a> {
+    pub fn new(proof_root: &'a Arc<dyn ProverNode>, tree: &'a HintTree) -> Self {
+        Self { proof_root, tree }
     }
 
-    pub fn graphviz(&self) -> String {
+    pub fn treeviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph WitnessGraph {\n");
+        out.push_str("ditree HintTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
         q.push_back(Arc::clone(self.proof_root));
 
         while let Some(node) = q.pop_front() {
@@ -56,14 +56,14 @@ impl<'a> DisplayableWitnessGraph<'a> {
 
             let node_kind = node.node_id();
             let (node_label, variant_label) = match &node_kind {
-                ProofPlanNodeId::LogicalPlan(plan) => {
-                    ("LogicalPlan", format!("{}", plan.display()))
+                ProverNodeNodeId::LP(tree) => {
+                    ("LogicalPlan", format!("{}", tree.display()))
                 },
-                ProofPlanNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                ProverNodeNodeId::Expr(expr) => ("Expr", expr.to_string()),
             };
 
-            let witness_keys = {
-                let mut entries: Vec<_> = node.witness_generation_plans().into_iter().collect();
+            let hint_keys = {
+                let mut entries: Vec<_> = node.proof_trees().into_iter().collect();
                 if entries.is_empty() {
                     "<none>".to_string()
                 } else {
@@ -71,8 +71,8 @@ impl<'a> DisplayableWitnessGraph<'a> {
                     entries
                         .into_iter()
                         .map(|(label, _)| {
-                            let (rows, cols) = witness_rows_cols(
-                                self.plan.batches_for(&node_kind, label.as_str()),
+                            let (rows, cols) = hint_rows_cols(
+                                self.tree.batches_for(&node_kind, label.as_str()),
                             );
                             format!("{} ( {} rows, {} columns)", label, rows, cols)
                         })
@@ -82,8 +82,8 @@ impl<'a> DisplayableWitnessGraph<'a> {
             };
 
             let raw_label = format!(
-                "type: {} ({})\\nwitness keys: {}",
-                node_label, variant_label, witness_keys
+                "type: {} ({})\\nhint keys: {}",
+                node_label, variant_label, hint_keys
             );
             let label = esc_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
@@ -100,8 +100,8 @@ impl<'a> DisplayableWitnessGraph<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DisplayableWitnessGraph<'a> {
+impl<'a> std::fmt::Display for DisplayableHintTree<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.graphviz())
+        write!(f, "{}", self.treeviz())
     }
 }

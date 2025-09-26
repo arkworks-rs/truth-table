@@ -57,7 +57,7 @@ This project is structured as a Cargo workspace, with each crate serving a speci
 
   - **Description:** a crate for encoding/decoding various database data-types to/from finite field elements
 
-- [`piop-graph`](./piop-graph/)
+- [`piop-tree`](./piop-tree/)
   - **Description:** contains a diagram of dependencies between different piops in the repo. It's useful for understanding the code-base and debugging.
 
 ---

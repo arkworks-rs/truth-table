@@ -4,8 +4,9 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::nodes::{
-    ProofPlan, ProofPlanNodeId, expr_to_proof_plan, logical_to_proof_plan, output_logical_plan,
+use crate::{
+    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    trees::proof_tree::ProofTree,
 };
 
 /// Filter operator that updates the `activator` column based on `predicate`.
@@ -15,10 +16,10 @@ use crate::nodes::{
 /// - `output_plan`: unrolled plan: `input` with this filter’s activator logic
 ///   applied (pass-through other columns)
 pub struct FilterNode {
-    pub predicate_proof_plan: Arc<dyn ProofPlan>,
-    pub input_proof_plan: Arc<dyn ProofPlan>,
-    pub node_id: ProofPlanNodeId,
-    pub witness_generation_plans: HashMap<String, LogicalPlan>,
+    pub predicate_proof_plan: Arc<dyn ProverNode>,
+    pub input_proof_plan: Arc<dyn ProverNode>,
+    pub node_id: ProverNodeNodeId,
+    pub proof_trees: HashMap<String, LogicalPlan>,
 }
 
 impl FilterNode {
@@ -79,7 +80,7 @@ impl FilterNode {
     }
 }
 
-impl ProofPlan for FilterNode {
+impl ProverNode for FilterNode {
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -91,37 +92,36 @@ impl ProofPlan for FilterNode {
         };
 
         // The input is itself a logical plan and needs to be proved
-        let input_proof_plan = logical_to_proof_plan(ctx, &filter.input);
+        let input_proof_plan = ProofTree::from_logical_plan(ctx, &filter.input);
         // Fetching the output logical plan of the input logical plan
-        let child_plan = output_logical_plan(&input_proof_plan).unwrap();
+        let child_plan = output_logical_plan(&input_proof_plan.root()).unwrap();
         // Build the output logical plan for this filter node on top of the child output
         // logical plan
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
         let predicate_proof_plan = expr_to_proof_plan(ctx, filter.predicate.clone(), &output_plan);
         // Building the witness generation plans map
-        let witness_generation_plans =
-            HashMap::from([("output_plan".to_string(), output_plan.clone())]);
+        let proof_trees = HashMap::from([("output_plan".to_string(), output_plan.clone())]);
         Self {
             predicate_proof_plan,
-            input_proof_plan,
-            node_id: ProofPlanNodeId::LogicalPlan(plan),
-            witness_generation_plans,
+            input_proof_plan: input_proof_plan.root(),
+            node_id: ProverNodeNodeId::LP(plan),
+            proof_trees,
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn piop_plan(&self) {

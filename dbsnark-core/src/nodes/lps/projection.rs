@@ -4,8 +4,9 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::nodes::{
-    ProofPlan, ProofPlanNodeId, expr_to_proof_plan, logical_to_proof_plan, output_logical_plan,
+use crate::{
+    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    trees::proof_tree::ProofTree,
 };
 /// Projection operator that preserves the `activator` column.
 ///
@@ -14,10 +15,10 @@ use crate::nodes::{
 /// - witness plans include the relative projection ("output_plan") and the
 ///   relative projection plan ("relative_output").
 pub struct ProjectionNode {
-    pub expr_proof_plans: Vec<Arc<dyn ProofPlan>>,
-    pub input_proof_plan: Arc<dyn ProofPlan>,
-    pub node_id: ProofPlanNodeId,
-    pub witness_generation_plans: HashMap<String, LogicalPlan>,
+    pub expr_proof_plans: Vec<Arc<dyn ProverNode>>,
+    pub input_proof_plan: Arc<dyn ProverNode>,
+    pub node_id: ProverNodeNodeId,
+    pub proof_trees: HashMap<String, LogicalPlan>,
 }
 
 impl ProjectionNode {
@@ -52,25 +53,25 @@ impl ProjectionNode {
             .unwrap()
     }
 }
-impl ProofPlan for ProjectionNode {
+impl ProverNode for ProjectionNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
-        let mut children: Vec<&Arc<dyn ProofPlan>> =
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+        let mut children: Vec<&Arc<dyn ProverNode>> =
             Vec::with_capacity(self.expr_proof_plans.len() + 1);
         children.push(&self.input_proof_plan);
         children.extend(self.expr_proof_plans.iter());
         children
     }
 
-    fn node_id(&self) -> ProofPlanNodeId {
+    fn node_id(&self) -> ProverNodeNodeId {
         self.node_id.clone()
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        self.witness_generation_plans.clone()
+    fn proof_trees(&self) -> HashMap<String, LogicalPlan> {
+        self.proof_trees.clone()
     }
 
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
@@ -83,26 +84,26 @@ impl ProofPlan for ProjectionNode {
             _ => panic!("expected projection logical plan"),
         };
         // The input is itself a logical plan and needs to be proved
-        let input_proof_plan = logical_to_proof_plan(ctx, &projection.input);
+        let input_proof_plan = ProofTree::from_logical_plan(ctx, &projection.input);
         // Fetching the output logical plan of the input logical plan
-        let child_plan = output_logical_plan(&input_proof_plan).unwrap();
+        let child_plan = output_logical_plan(&input_proof_plan.root()).unwrap();
         let normalized_exprs = Self::project_activator(projection.expr.clone(), &child_plan);
         // Build the output logical plan for this projection node on top of the child
         // output logical plan
         let output_plan =
             Self::build_output_logical_plan(normalized_exprs.clone(), child_plan.clone());
         // The exprs need to be proved
-        let expr_proof_plans: Vec<Arc<dyn ProofPlan>> = normalized_exprs
+        let expr_proof_plans: Vec<Arc<dyn ProverNode>> = normalized_exprs
             .into_iter()
             .map(|e| expr_to_proof_plan(ctx, e, &child_plan))
             .collect();
-        let mut witness_generation_plans = HashMap::new();
-        witness_generation_plans.insert("output_plan".to_string(), output_plan.clone());
+        let mut proof_trees = HashMap::new();
+        proof_trees.insert("output_plan".to_string(), output_plan.clone());
         ProjectionNode {
             expr_proof_plans,
-            input_proof_plan,
-            node_id: ProofPlanNodeId::LogicalPlan(plan),
-            witness_generation_plans,
+            input_proof_plan: input_proof_plan.root(),
+            node_id: ProverNodeNodeId::LP(plan),
+            proof_trees,
         }
     }
 

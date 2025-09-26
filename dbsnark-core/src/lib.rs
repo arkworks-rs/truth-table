@@ -5,6 +5,5 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 
-mod graphs;
+mod trees;
 mod nodes;
-mod plans;

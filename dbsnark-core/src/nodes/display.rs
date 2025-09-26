@@ -4,23 +4,23 @@ use std::{
     sync::Arc,
 };
 
-use crate::nodes::{ProofPlan, ProofPlanNodeId};
+use crate::nodes::{ProverNode, ProverNodeNodeId};
 
-/// Display helper for `ProofPlan` that renders a Graphviz DOT graph.
+/// Display helper for `ProverNode` that renders a Treeviz DOT tree.
 /// Similar in spirit to DataFusion's `DisplayableExecutionPlan`.
-pub struct DisplayableProofPlan<'a> {
-    plan: &'a Arc<dyn ProofPlan>,
+pub struct DisplayableProverNode<'a> {
+    plan: &'a Arc<dyn ProverNode>,
 }
 
-impl<'a> DisplayableProofPlan<'a> {
-    pub fn new(plan: &'a Arc<dyn ProofPlan>) -> Self {
+impl<'a> DisplayableProverNode<'a> {
+    pub fn new(plan: &'a Arc<dyn ProverNode>) -> Self {
         Self { plan }
     }
 
-    /// Return Graphviz DOT string for the plan tree.
-    pub fn graphviz(&self) -> String {
-        fn node_id(p: &Arc<dyn ProofPlan>) -> usize {
-            let data_ptr = &**p as *const dyn ProofPlan as *const ();
+    /// Return Treeviz DOT string for the plan tree.
+    pub fn treeviz(&self) -> String {
+        fn node_id(p: &Arc<dyn ProverNode>) -> usize {
+            let data_ptr = &**p as *const dyn ProverNode as *const ();
             data_ptr as usize
         }
 
@@ -31,11 +31,11 @@ impl<'a> DisplayableProofPlan<'a> {
         }
 
         let mut out = String::new();
-        out.push_str("digraph ProofPlan {\n");
+        out.push_str("ditree ProverNode {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProofPlan>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
         q.push_back(Arc::clone(self.plan));
 
         while let Some(node) = q.pop_front() {
@@ -45,13 +45,13 @@ impl<'a> DisplayableProofPlan<'a> {
             }
 
             let (node_label, variant_label) = match node.node_id() {
-                ProofPlanNodeId::LogicalPlan(plan) => {
+                ProverNodeNodeId::LP(plan) => {
                     ("LogicalPlan", format!("{}", plan.display()))
                 },
-                ProofPlanNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                ProverNodeNodeId::Expr(expr) => ("Expr", expr.to_string()),
             };
             let witness_keys = {
-                let mut keys: Vec<_> = node.witness_generation_plans().keys().cloned().collect();
+                let mut keys: Vec<_> = node.proof_trees().keys().cloned().collect();
                 if keys.is_empty() {
                     "<none>".to_string()
                 } else {
@@ -79,8 +79,8 @@ impl<'a> DisplayableProofPlan<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DisplayableProofPlan<'a> {
+impl<'a> std::fmt::Display for DisplayableProverNode<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.graphviz())
+        write!(f, "{}", self.treeviz())
     }
 }

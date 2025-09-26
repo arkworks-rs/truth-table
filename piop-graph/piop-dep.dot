@@ -1,4 +1,4 @@
-digraph DAG {
+ditree DAG {
     "Zero-Check" -> "Sum-Check";
     "Multiplicity-Check" -> "Rational-Sum-Check";
     "Rational-Sum-Check" -> "Sum-Check";

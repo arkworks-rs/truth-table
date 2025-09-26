@@ -5,27 +5,27 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-use crate::nodes::ProofPlan;
+use crate::nodes::ProverNode;
 
 pub struct JoinNode {
-    pub left: Arc<dyn ProofPlan>,
-    pub right: Arc<dyn ProofPlan>,
-    pub on: Vec<(Arc<dyn ProofPlan>, Arc<dyn ProofPlan>)>,
-    pub filter: Option<Arc<dyn ProofPlan>>,
+    pub left: Arc<dyn ProverNode>,
+    pub right: Arc<dyn ProverNode>,
+    pub on: Vec<(Arc<dyn ProverNode>, Arc<dyn ProverNode>)>,
+    pub filter: Option<Arc<dyn ProverNode>>,
     pub join_type: df::JoinType,
     pub null_equals_null: bool,
 }
 
-impl ProofPlan for JoinNode {
+impl ProverNode for JoinNode {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProofPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
         vec![&self.left, &self.right]
     }
 
-    fn witness_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn proof_trees(&self) -> HashMap<String, df::LogicalPlan> {
         todo!()
     }
 
@@ -36,7 +36,7 @@ impl ProofPlan for JoinNode {
         todo!()
     }
 
-    fn node_id(&self) -> crate::nodes::ProofPlanNodeId {
+    fn node_id(&self) -> crate::nodes::ProverNodeNodeId {
         todo!()
     }
 
