@@ -4,9 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
-use super::PIOPPlan;
+use super::PIOPTree;
 use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -25,36 +25,35 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for a `PIOPPlan`
+/// Display helper that renders a Treeviz DOT tree for a `PIOPTree`
 /// tree.
-pub struct DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+pub struct DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    proof_root: &'a Arc<dyn ProverNode>,
-    plan: &'a PIOPPlan<F, MvPCS, UvPCS>,
+    plan: &'a PIOPTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(proof_root: &'a Arc<dyn ProverNode>, plan: &'a PIOPPlan<F, MvPCS, UvPCS>) -> Self {
-        Self { proof_root, plan }
+    pub fn new(plan: &'a PIOPTree<F, MvPCS, UvPCS>) -> Self {
+        Self { plan }
     }
 
-    pub fn treeviz(&self) -> String {
+    pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("ditree PIOPPlan {\n");
+        out.push_str("digraph PIOPTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
-        q.push_back(Arc::clone(self.proof_root));
+        q.push_back(self.plan.proof_tree().root());
 
         while let Some(node) = q.pop_front() {
             let id = node_ptr_id(&node);
@@ -108,14 +107,14 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayablePIOPPlan<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.treeviz())
+        write!(f, "{}", self.graphviz())
     }
 }
 

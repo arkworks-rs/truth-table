@@ -2,14 +2,14 @@ use datafusion::{
     logical_expr::{
         LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder, expr_rewriter::normalize_cols,
     },
-    prelude::{Expr, SessionContext, col},
+    prelude::{SessionContext, col},
 };
 
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
+use crate::trees::proof_tree::{
+    ProofTree,
     nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
-    trees::proof_tree::ProofTree,
 };
 /// Projection operator that preserves the `activator` column.
 ///
@@ -50,7 +50,6 @@ impl ProverNode for ProjectionNode {
     where
         Self: Sized,
     {
-
         let projection = match &plan {
             Projection(p) => p,
             _ => panic!("expected projection logical plan"),

@@ -1,4 +1,7 @@
-use std::sync::Arc;
+pub mod display;
+pub mod nodes;
+
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
     logical_expr::{
@@ -7,13 +10,17 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 
-use crate::nodes::{
+use crate::proof_tree::nodes::ProverNodeNodeId;
+
+use self::nodes::{
     ProverNode,
     lps::{FilterNode, ProjectionNode, TableScanNode},
 };
 
 #[cfg(test)]
 pub mod tests;
+
+#[derive(Clone)]
 pub struct ProofTree {
     root: Arc<dyn ProverNode>,
 }
@@ -23,16 +30,40 @@ impl ProofTree {
         Arc::clone(&self.root)
     }
 
+    pub fn root_ref(&self) -> &Arc<dyn ProverNode> {
+        &self.root
+    }
+
     pub fn new(root: Arc<dyn ProverNode>) -> Self {
         Self { root }
     }
 
+    pub fn display_graphviz(&self) -> display::ProofTreeGraphviz<'_> {
+        display::ProofTreeGraphviz::new(&self.root)
+    }
 
     /// Returns all descendants including root in post-order.
     pub fn sorted_nodes(&self) -> Vec<Arc<dyn ProverNode>> {
         let mut v = Vec::new();
         self.root.append_sorted_descendants(&mut v);
         v
+    }
+
+    /// Returns a map from node identifier to the corresponding prover node.
+    pub fn flatten(&self) -> HashMap<ProverNodeNodeId, Arc<dyn ProverNode>> {
+        fn collect(
+            node: &Arc<dyn ProverNode>,
+            out: &mut HashMap<ProverNodeNodeId, Arc<dyn ProverNode>>,
+        ) {
+            out.insert(node.node_id(), Arc::clone(node));
+            for child in node.children() {
+                collect(child, out);
+            }
+        }
+
+        let mut map = HashMap::new();
+        collect(&self.root, &mut map);
+        map
     }
 
     /// Build a `ProverNode` tree from a DataFusion `LogicalPlan`.

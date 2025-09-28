@@ -189,9 +189,6 @@ async fn main() {
         println!("{}", sql);
     }
     if want_treeviz {
-        println!(
-            "\n-- Treeviz DOT\n{}",
-            df.logical_plan().display_graphviz()
-        );
+        println!("\n-- Treeviz DOT\n{}", df.logical_plan().display_graphviz());
     }
 }

@@ -19,9 +19,9 @@ use futures::{
 };
 use tracing::{debug, trace};
 
-use crate::{
+use crate::trees::proof_tree::{
+    ProofTree,
     nodes::{ProverNode, ProverNodeNodeId, lps::TableScanNode},
-    trees::proof_tree::ProofTree,
 };
 
 /// A data structure holding the hint tables needed to prove a given proof-tree.
@@ -30,28 +30,37 @@ use crate::{
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct HintTree(HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>);
+pub struct HintTree {
+    hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    inner_proof_tree: ProofTree,
+}
 
 impl fmt::Debug for HintTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HintTree")
-            .field("num_nodes", &self.0.len())
-            .field("nodes", &HintNodesDebug { inner: &self.0 })
+            .field("num_nodes", &self.hint_map.len())
+            .field("nodes", &HintNodesDebug { inner: &self.hint_map })
             .finish()
     }
 }
 
 impl HintTree {
-    pub fn new(results: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>) -> Self {
-        Self(results)
+    pub fn new(
+        proof_tree: ProofTree,
+        hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    ) -> Self {
+        Self {
+            hint_map,
+            inner_proof_tree: proof_tree,
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.hint_map.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.hint_map.is_empty()
     }
 
     /// Return the batches collected for a specific hint label at the
@@ -61,7 +70,7 @@ impl HintTree {
         node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&Vec<RecordBatch>> {
-        self.0.get(node_id).and_then(|by_label| by_label.get(label))
+        self.hint_map.get(node_id).and_then(|by_label| by_label.get(label))
     }
 
     /// Heuristic to pick a "primary" result set for a proof-tree node. Prefers
@@ -69,14 +78,35 @@ impl HintTree {
     pub fn primary_batches(&self, node_id: &ProverNodeNodeId) -> Option<&Vec<RecordBatch>> {
         self.batches_for(node_id, "output_tree")
             .or_else(|| self.batches_for(node_id, "relative_output"))
-            .or_else(|| self.0.get(node_id).and_then(|m| m.values().next()))
+            .or_else(|| self.hint_map.get(node_id).and_then(|m| m.values().next()))
     }
 
     pub fn results_for(
         &self,
         node_id: &ProverNodeNodeId,
     ) -> Option<&HashMap<String, Vec<RecordBatch>>> {
-        self.0.get(node_id)
+        self.hint_map.get(node_id)
+    }
+
+    pub fn proof_tree(&self) -> &ProofTree {
+        &self.inner_proof_tree
+    }
+
+    pub fn display_graphviz(&self) -> display::DisplayableHintTree<'_> {
+        display::DisplayableHintTree::new(self)
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        ProofTree,
+        HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    ) {
+        let HintTree {
+            hint_map,
+            inner_proof_tree,
+        } = self;
+        (inner_proof_tree, hint_map)
     }
 
     /// Execute the proof tree and assemble a hint tree mirroring the
@@ -101,7 +131,7 @@ impl HintTree {
             Vec::new();
 
         for node in &nodes {
-            let trees = node.proof_trees();
+            let trees = node.hint_generation_plans();
             for (label, tree) in trees {
                 let ctx = ctx.clone();
                 let node = Arc::clone(node);
@@ -162,7 +192,7 @@ impl HintTree {
             results_by_node_id.insert(node_id, entry);
         }
 
-        Ok(Self::new(results_by_node_id))
+        Ok(Self::new(proof_tree, results_by_node_id))
     }
 }
 
@@ -172,7 +202,7 @@ impl<'a> IntoIterator for &'a HintTree {
         std::collections::hash_map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.hint_map.iter()
     }
 }
 
@@ -182,7 +212,8 @@ impl IntoIterator for HintTree {
         std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        let HintTree { hint_map, .. } = self;
+        hint_map.into_iter()
     }
 }
 

@@ -10,9 +10,9 @@ use ark_piop::{
     prover::Prover,
 };
 
-use crate::{
-    nodes::{ProverNodeNodeId},
-    trees::hint_tree::HintTree,
+use crate::trees::{
+    hint_tree::HintTree,
+    proof_tree::{ProofTree, nodes::ProverNodeNodeId},
 };
 #[cfg(test)]
 pub mod tests;
@@ -23,13 +23,15 @@ pub mod tests;
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct ArithmetizedTree<F, MvPCS, UvPCS>(
-    HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
-)
+pub struct ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>;
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    inner_proof_tree: ProofTree,
+}
 
 impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedTree<F, MvPCS, UvPCS>
 where
@@ -39,8 +41,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArithmetizedTree")
-            .field("num_nodes", &self.0.len())
-            .field("nodes", &ArithNodesDebug { inner: &self.0 })
+            .field("num_nodes", &self.tables.len())
+            .field("nodes", &ArithNodesDebug { inner: &self.tables })
             .finish()
     }
 }
@@ -52,30 +54,35 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub fn new(
+        proof_tree: ProofTree,
         tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
-        Self(tables)
+        Self {
+            tables,
+            inner_proof_tree: proof_tree,
+        }
     }
 
     pub fn table_by_node_map(
         self,
     ) -> HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
-        self.0
+        let (_, tables) = self.into_parts();
+        tables
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.tables.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.tables.is_empty()
     }
 
     pub fn tables_for(
         &self,
         node_id: &ProverNodeNodeId,
     ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
-        self.0.get(node_id)
+        self.tables.get(node_id)
     }
 
     pub fn table_for(
@@ -83,7 +90,30 @@ where
         node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
-        self.0.get(node_id).and_then(|by_label| by_label.get(label))
+        self.tables.get(node_id).and_then(|by_label| by_label.get(label))
+    }
+
+    pub fn proof_tree(&self) -> &ProofTree {
+        &self.inner_proof_tree
+    }
+
+    pub fn display_graphviz(
+        &self,
+    ) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableArithmetizedTree::new(self)
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        ProofTree,
+        HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    ) {
+        let ArithmetizedTree {
+            tables,
+            inner_proof_tree,
+        } = self;
+        (inner_proof_tree, tables)
     }
 
     /// Build arithmetized tables for every hint node by consuming a hint
@@ -93,12 +123,13 @@ where
         hint_tree: HintTree,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
+        let (proof_tree, hint_map) = hint_tree.into_parts();
         let mut tables_by_node: HashMap<
             ProverNodeNodeId,
             HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
-        > = HashMap::with_capacity(hint_tree.len());
+        > = HashMap::with_capacity(hint_map.len());
 
-        for (node_id, batches_by_label) in hint_tree.into_iter() {
+        for (node_id, batches_by_label) in hint_map {
             let mut arith_tables = HashMap::with_capacity(batches_by_label.len());
             for (label, batches) in batches_by_label {
                 let table = ArithTable::<F, MvPCS, UvPCS>::from_record_batches(batches, prover)?;
@@ -107,7 +138,7 @@ where
             tables_by_node.insert(node_id, arith_tables);
         }
 
-        Ok(Self::new(tables_by_node))
+        Ok(Self::new(proof_tree, tables_by_node))
     }
 }
 
@@ -128,7 +159,7 @@ where
     >;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.tables.iter()
     }
 }
 
@@ -148,7 +179,7 @@ where
     >;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.tables.into_iter()
     }
 }
 

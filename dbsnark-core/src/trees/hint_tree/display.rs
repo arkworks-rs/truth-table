@@ -1,14 +1,15 @@
 use std::{
     collections::{HashSet, VecDeque},
+    fmt,
     sync::Arc,
 };
 
-use crate::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
-use super::{HintTree, tree_label, rows_cols_activated};
-use datafusion::{arrow::record_batch::RecordBatch, prelude::Expr};
+use super::{HintTree, rows_cols_activated};
+use datafusion::arrow::record_batch::RecordBatch;
 
-fn node_id(p: &Arc<dyn ProverNode>) -> usize {
+fn node_ptr_id(p: &Arc<dyn ProverNode>) -> usize {
     let data_ptr = &**p as *const dyn ProverNode as *const ();
     data_ptr as usize
 }
@@ -28,42 +29,39 @@ fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
     }
 }
 
-/// Display helper that renders a Treeviz DOT tree for a HintTree.
+/// Display helper that renders a Graphviz DOT tree for a HintTree.
 pub struct DisplayableHintTree<'a> {
-    proof_root: &'a Arc<dyn ProverNode>,
     tree: &'a HintTree,
 }
 
 impl<'a> DisplayableHintTree<'a> {
-    pub fn new(proof_root: &'a Arc<dyn ProverNode>, tree: &'a HintTree) -> Self {
-        Self { proof_root, tree }
+    pub fn new(tree: &'a HintTree) -> Self {
+        Self { tree }
     }
 
-    pub fn treeviz(&self) -> String {
+    pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("ditree HintTree {\n");
+        out.push_str("digraph HintTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
-        q.push_back(Arc::clone(self.proof_root));
+        q.push_back(self.tree.proof_tree().root());
 
         while let Some(node) = q.pop_front() {
-            let id = node_id(&node);
+            let id = node_ptr_id(&node);
             if !visited.insert(id) {
                 continue;
             }
 
             let node_kind = node.node_id();
             let (node_label, variant_label) = match &node_kind {
-                ProverNodeNodeId::LP(tree) => {
-                    ("LogicalPlan", format!("{}", tree.display()))
-                },
+                ProverNodeNodeId::LP(tree) => ("LogicalPlan", format!("{}", tree.display())),
                 ProverNodeNodeId::Expr(expr) => ("Expr", expr.to_string()),
             };
 
             let hint_keys = {
-                let mut entries: Vec<_> = node.proof_trees().into_iter().collect();
+                let mut entries: Vec<_> = node.hint_generation_plans().into_iter().collect();
                 if entries.is_empty() {
                     "<none>".to_string()
                 } else {
@@ -89,7 +87,7 @@ impl<'a> DisplayableHintTree<'a> {
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
 
             for child in node.children() {
-                let cid = node_id(child);
+                let cid = node_ptr_id(child);
                 out.push_str(&format!("  n{} -> n{};\n", id, cid));
                 q.push_back(Arc::clone(child));
             }
@@ -100,8 +98,8 @@ impl<'a> DisplayableHintTree<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DisplayableHintTree<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.treeviz())
+impl<'a> fmt::Display for DisplayableHintTree<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.graphviz())
     }
 }

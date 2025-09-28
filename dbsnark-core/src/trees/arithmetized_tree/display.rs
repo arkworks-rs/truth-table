@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 use super::ArithmetizedTree;
 use arithmetic::table::ArithTable;
@@ -33,7 +33,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    proof_root: &'a Arc<dyn ProverNode>,
     plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
 }
 
@@ -43,21 +42,18 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(
-        proof_root: &'a Arc<dyn ProverNode>,
-        plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
-    ) -> Self {
-        Self { proof_root, plan }
+    pub fn new(plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
+        Self { plan }
     }
 
-    pub fn treeviz(&self) -> String {
+    pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("ditree ArithmetizedTree {\n");
+        out.push_str("digraph ArithmetizedTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
-        q.push_back(Arc::clone(self.proof_root));
+        q.push_back(self.plan.proof_tree().root());
 
         while let Some(node) = q.pop_front() {
             let id = node_ptr_id(&node);
@@ -118,7 +114,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.treeviz())
+        write!(f, "{}", self.graphviz())
     }
 }
 
