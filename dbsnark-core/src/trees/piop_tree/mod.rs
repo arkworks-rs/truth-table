@@ -25,7 +25,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
-    inner_proof_tree: ProofTree,
+    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
 impl<F, MvPCS, UvPCS> fmt::Debug for PIOPTree<F, MvPCS, UvPCS>
@@ -37,7 +37,12 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PIOPTree")
             .field("num_nodes", &self.tables.len())
-            .field("nodes", &VirtualNodesDebug { inner: &self.tables })
+            .field(
+                "nodes",
+                &VirtualNodesDebug {
+                    inner: &self.tables,
+                },
+            )
             .finish()
     }
 }
@@ -45,11 +50,11 @@ where
 impl<F, MvPCS, UvPCS> PIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree,
+        proof_tree: ProofTree<F, MvPCS, UvPCS>,
         tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
@@ -73,7 +78,7 @@ where
         self.tables.get(node_id)
     }
 
-    pub fn proof_tree(&self) -> &ProofTree {
+    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
@@ -86,16 +91,21 @@ where
         node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
-        self.tables.get(node_id).and_then(|by_label| by_label.get(label))
+        self.tables
+            .get(node_id)
+            .and_then(|by_label| by_label.get(label))
     }
 
     /// Build a virtualized plan from an arithmetized plan.
     pub fn from_arithmetized_plan(arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
         let (proof_tree, mut tables_by_node) = arith_plan.into_parts();
         let flattened_proof_tree = proof_tree.flatten();
+        let mut global_tables: HashMap<String, ArithTable<F, MvPCS, UvPCS>> = HashMap::new();
         for (node_id, node_table) in tables_by_node.iter_mut() {
-            let prover_node = flattened_proof_tree.get(node_id).expect("missing node in proof tree");
-            prover_node.piop_plan();
+            let prover_node = flattened_proof_tree
+                .get(node_id)
+                .expect("missing node in proof tree");
+            todo!()
         }
 
         Self::new(proof_tree, tables_by_node)
@@ -104,7 +114,7 @@ where
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree,
+        ProofTree<F, MvPCS, UvPCS>,
         HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) {
         let PIOPTree {

@@ -4,6 +4,11 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     arrow::{
         array::{Array, BooleanArray},
@@ -30,23 +35,33 @@ use crate::trees::proof_tree::{
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct HintTree {
+pub struct HintTree<F, MvPCS, UvPCS> {
     hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
-    inner_proof_tree: ProofTree,
+    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
-impl fmt::Debug for HintTree {
+impl<F, MvPCS, UvPCS> fmt::Debug for HintTree<F, MvPCS, UvPCS> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HintTree")
             .field("num_nodes", &self.hint_map.len())
-            .field("nodes", &HintNodesDebug { inner: &self.hint_map })
+            .field(
+                "nodes",
+                &HintNodesDebug {
+                    inner: &self.hint_map,
+                },
+            )
             .finish()
     }
 }
 
-impl HintTree {
+impl<F, MvPCS, UvPCS> HintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     pub fn new(
-        proof_tree: ProofTree,
+        proof_tree: ProofTree<F, MvPCS, UvPCS>,
         hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     ) -> Self {
         Self {
@@ -70,7 +85,9 @@ impl HintTree {
         node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&Vec<RecordBatch>> {
-        self.hint_map.get(node_id).and_then(|by_label| by_label.get(label))
+        self.hint_map
+            .get(node_id)
+            .and_then(|by_label| by_label.get(label))
     }
 
     /// Heuristic to pick a "primary" result set for a proof-tree node. Prefers
@@ -88,18 +105,18 @@ impl HintTree {
         self.hint_map.get(node_id)
     }
 
-    pub fn proof_tree(&self) -> &ProofTree {
+    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableHintTree<'_> {
+    pub fn display_graphviz(&self) -> display::DisplayableHintTree<'_, F, MvPCS, UvPCS> {
         display::DisplayableHintTree::new(self)
     }
 
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree,
+        ProofTree<F, MvPCS, UvPCS>,
         HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     ) {
         let HintTree {
@@ -113,11 +130,21 @@ impl HintTree {
     /// proof-tree shape. All hint-generation logical plans are executed in
     /// parallel.
     #[tracing::instrument(name = "hint_tree::from_proof_tree", skip_all)]
-    pub async fn from_proof_tree(ctx: &SessionContext, proof_tree: ProofTree) -> DFResult<Self> {
+    pub async fn from_proof_tree(
+        ctx: &SessionContext,
+        proof_tree: ProofTree<F, MvPCS, UvPCS>,
+    ) -> DFResult<Self> {
         let root = proof_tree.root();
         // Collect all nodes (post-order) from the proof tree so we can spawn
         // concurrent executions for each node's hint trees.
-        fn collect(node: &Arc<dyn ProverNode>, out: &mut Vec<Arc<dyn ProverNode>>) {
+        fn collect<F, MvPCS, UvPCS>(
+            node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+            out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+        ) where
+            F: PrimeField,
+            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+        {
             for c in node.children() {
                 collect(c, out);
             }
@@ -196,7 +223,7 @@ impl HintTree {
     }
 }
 
-impl<'a> IntoIterator for &'a HintTree {
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a HintTree<F, MvPCS, UvPCS> {
     type Item = (&'a ProverNodeNodeId, &'a HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
         std::collections::hash_map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
@@ -206,7 +233,7 @@ impl<'a> IntoIterator for &'a HintTree {
     }
 }
 
-impl IntoIterator for HintTree {
+impl<F, MvPCS, UvPCS> IntoIterator for HintTree<F, MvPCS, UvPCS> {
     type Item = (ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
         std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
@@ -276,7 +303,14 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
     }
 }
 
-pub(crate) fn tree_label(node: &Arc<dyn ProverNode>) -> &'static str {
+pub(crate) fn tree_label<F, MvPCS, UvPCS>(
+    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+) -> &'static str
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     match node.node_id() {
         ProverNodeNodeId::LP(_) => "LogicalPlan",
         ProverNodeNodeId::Expr(_) => "Expr",
@@ -285,8 +319,8 @@ pub(crate) fn tree_label(node: &Arc<dyn ProverNode>) -> &'static str {
 
 /// Stable-ish identifier for a node based on its vtable pointer, used to join
 /// asynchronous hint results back to the tree shape.
-fn node_ptr_id(p: &Arc<dyn ProverNode>) -> usize {
-    let data_ptr = &**p as *const dyn ProverNode as *const ();
+fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
     data_ptr as usize
 }
 

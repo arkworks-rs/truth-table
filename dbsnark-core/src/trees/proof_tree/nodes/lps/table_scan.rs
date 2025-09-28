@@ -1,10 +1,18 @@
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{self as df, LogicalPlan},
     prelude::SessionContext,
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::{
+    proof_tree::nodes::ProverNodeArc,
+    trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
+};
 
 /// Proof node representing a base table scan.
 ///
@@ -26,7 +34,12 @@ impl TableScanNode {
     }
 }
 
-impl ProverNode for TableScanNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for TableScanNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -45,7 +58,7 @@ impl ProverNode for TableScanNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         Vec::new()
     }
 
@@ -57,7 +70,32 @@ impl ProverNode for TableScanNode {
         self.hint_generation_plans.clone()
     }
 
-    fn piop_plan(&self) {
-        todo!()
+    fn from_expr(
+        ctx: &SessionContext,
+        expr: datafusion::prelude::Expr,
+        parent_logical_plan: LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        std::unimplemented!()
+    }
+
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+        for child in self.children() {
+            child.append_sorted_descendants(out);
+            out.push(Arc::clone(child));
+        }
+    }
+
+    fn append_virtual_witness(
+        &self,
+        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
+        _node_arithmetized_tables: &mut HashMap<
+            ProverNodeNodeId,
+            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
+        >,
+    ) {
+        std::todo!()
     }
 }

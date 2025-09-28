@@ -1,19 +1,36 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan};
+use crate::trees::proof_tree::nodes::{
+    ProverNode, ProverNodeArc, ProverNodeNodeId, expr_to_proof_plan,
+};
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
 #[derive(Clone)]
-pub struct BinaryExprNode {
+pub struct BinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     pub node_id: ProverNodeNodeId,
-    pub left_proof_plan: Arc<dyn ProverNode>,
-    pub right_proof_plan: Arc<dyn ProverNode>,
+    pub left_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub right_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
-impl BinaryExprNode {
+impl<F, MvPCS, UvPCS> BinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn build_witness_plans(
         bin_expr: BinaryExpr,
         input_plan: LogicalPlan,
@@ -56,7 +73,12 @@ impl BinaryExprNode {
     }
 }
 
-impl ProverNode for BinaryExprNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for BinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -65,7 +87,7 @@ impl ProverNode for BinaryExprNode {
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         vec![&self.left_proof_plan, &self.right_proof_plan]
     }
     fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
@@ -91,13 +113,17 @@ impl ProverNode for BinaryExprNode {
 
         Self {
             node_id: ProverNodeNodeId::Expr(expr),
-            left_proof_plan: expr_to_proof_plan(ctx, left_expr, &parent_logical_plan),
-            right_proof_plan: expr_to_proof_plan(ctx, right_expr, &parent_logical_plan),
+            left_proof_plan: expr_to_proof_plan::<F, MvPCS, UvPCS>(
+                ctx,
+                left_expr,
+                &parent_logical_plan,
+            ),
+            right_proof_plan: expr_to_proof_plan::<F, MvPCS, UvPCS>(
+                ctx,
+                right_expr,
+                &parent_logical_plan,
+            ),
             hint_generation_plans,
         }
-    }
-
-    fn piop_plan(&self) {
-        todo!()
     }
 }

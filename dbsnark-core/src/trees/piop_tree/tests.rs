@@ -42,7 +42,7 @@ async fn build_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
 }
 
 #[tokio::test]
-async fn display_graphviz_smoke() -> DFResult<()> {
+async fn display_graphviz() -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = build_plan(&ctx).await?;
     let proof_tree = ProofTree::from_logical_plan(&ctx, &plan);

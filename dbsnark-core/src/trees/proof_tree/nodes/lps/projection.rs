@@ -1,3 +1,10 @@
+use std::{collections::HashMap, sync::Arc};
+
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{
         LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder, expr_rewriter::normalize_cols,
@@ -5,11 +12,9 @@ use datafusion::{
     prelude::{SessionContext, col},
 };
 
-use std::{collections::HashMap, sync::Arc};
-
 use crate::trees::proof_tree::{
     ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
 };
 /// Projection operator that preserves the `activator` column.
 ///
@@ -17,19 +22,29 @@ use crate::trees::proof_tree::{
 /// - `input`: child proof node
 /// - witness plans include a single logical plan entry named `"output"`
 ///   representing the projection with the `activator` column retained.
-pub struct ProjectionNode {
-    pub expr_proof_plans: Vec<Arc<dyn ProverNode>>,
-    pub input_proof_plan: Arc<dyn ProverNode>,
+pub struct ProjectionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    pub expr_proof_plans: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub input_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
-impl ProverNode for ProjectionNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProjectionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
         children.push(&self.input_proof_plan);
         for expr_plan in &self.expr_proof_plans {
@@ -57,10 +72,10 @@ impl ProverNode for ProjectionNode {
 
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
-        let input_tree = ProofTree::from_logical_plan(ctx, &projection.input);
+        let input_tree = ProofTree::<F, MvPCS, UvPCS>::from_logical_plan(ctx, &projection.input);
         let input_proof_plan = input_tree.root();
-        let child_output_plan =
-            output_logical_plan(&input_proof_plan).unwrap_or_else(|| (*projection.input).clone());
+        let child_output_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
+            .unwrap_or_else(|| (*projection.input).clone());
 
         // Normalize the projection expressions against the child plan.
         let mut normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
@@ -88,7 +103,7 @@ impl ProverNode for ProjectionNode {
         // retained activator).
         let expr_proof_plans = original_exprs
             .into_iter()
-            .map(|expr| expr_to_proof_plan(ctx, expr, &output_plan))
+            .map(|expr| expr_to_proof_plan::<F, MvPCS, UvPCS>(ctx, expr, &output_plan))
             .collect();
 
         let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
@@ -101,7 +116,36 @@ impl ProverNode for ProjectionNode {
         }
     }
 
-    fn piop_plan(&self) {
-        todo!()
+    fn from_expr(
+        ctx: &SessionContext,
+        expr: datafusion::prelude::Expr,
+        parent_logical_plan: LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        std::unimplemented!()
+    }
+
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+        for child in self.children() {
+            child.append_sorted_descendants(out);
+            out.push(Arc::clone(child));
+        }
+    }
+
+    fn name(&self) -> String {
+        self.node_id().to_string()
+    }
+
+    fn append_virtual_witness(
+        &self,
+        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
+        _node_arithmetized_tables: &mut HashMap<
+            ProverNodeNodeId,
+            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
+        >,
+    ) {
+        std::todo!()
     }
 }

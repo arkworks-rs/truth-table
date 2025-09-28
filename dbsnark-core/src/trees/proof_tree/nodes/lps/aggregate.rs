@@ -1,28 +1,48 @@
 use std::{collections::HashMap, sync::Arc};
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
 
-pub struct AggregateNode {
-    pub group_expr: Vec<Arc<dyn ProverNode>>,
-    pub aggr_expr: Vec<Arc<dyn ProverNode>>,
-    pub input: Arc<dyn ProverNode>,
+pub struct AggregateNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub group_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub aggr_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub input: ProverNodeArc<F, MvPCS, UvPCS>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
-impl AggregateNode {
+impl<F, MvPCS, UvPCS> AggregateNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     pub fn build_output_plan(
-        group_expr: Vec<Arc<dyn ProverNode>>,
-        aggr_expr: Vec<Arc<dyn ProverNode>>,
+        group_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+        aggr_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         todo!()
     }
 }
 
-impl ProverNode for AggregateNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for AggregateNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -33,7 +53,7 @@ impl ProverNode for AggregateNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         vec![&self.input]
     }
 
@@ -45,8 +65,37 @@ impl ProverNode for AggregateNode {
         self.hint_generation_plans.clone()
     }
 
-    fn piop_plan(&self) {
+    fn append_virtual_witness(
+        &self,
+        arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
+        node_arithmetized_tables: &mut HashMap<
+            ProverNodeNodeId,
+            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
+        >,
+    ) {
         todo!()
+    }
+
+    fn from_expr(
+        ctx: &SessionContext,
+        expr: datafusion::prelude::Expr,
+        parent_logical_plan: LogicalPlan,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        std::unimplemented!()
+    }
+
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+        for child in self.children() {
+            child.append_sorted_descendants(out);
+            out.push(Arc::clone(child));
+        }
+    }
+
+    fn name(&self) -> String {
+        self.node_id().to_string()
     }
 }
 

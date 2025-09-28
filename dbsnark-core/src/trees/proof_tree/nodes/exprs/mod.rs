@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::logical_expr::Expr;
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::{
+    proof_tree::nodes::ProverNodeArc,
+    trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
+};
 
 pub mod aggregate_function;
 pub mod alias;
@@ -83,12 +91,17 @@ impl RawExprNode {
     }
 }
 
-impl ProverNode for RawExprNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for RawExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         Vec::new()
     }
 
@@ -106,12 +119,13 @@ impl ProverNode for RawExprNode {
     {
         todo!()
     }
-
-    fn piop_plan(&self) {
-        todo!()
-    }
 }
 
-pub fn wrap_logical_expr(expr: Expr) -> Arc<dyn ProverNode> {
+pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> ProverNodeArc<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     Arc::new(RawExprNode::new(expr))
 }

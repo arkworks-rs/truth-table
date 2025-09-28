@@ -4,14 +4,25 @@ use std::{
     sync::Arc,
 };
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
+
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
-pub struct ProofTreeGraphviz<'a> {
-    root: &'a Arc<dyn ProverNode>,
+pub struct ProofTreeGraphviz<'a, F, MvPCS, UvPCS> {
+    root: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl<'a> ProofTreeGraphviz<'a> {
-    pub fn new(root: &'a Arc<dyn ProverNode>) -> Self {
+impl<'a, F, MvPCS, UvPCS> ProofTreeGraphviz<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub fn new(root: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> Self {
         Self { root }
     }
 
@@ -51,14 +62,19 @@ impl<'a> ProofTreeGraphviz<'a> {
     }
 }
 
-impl<'a> fmt::Display for ProofTreeGraphviz<'a> {
+impl<'a, F, MvPCS, UvPCS> fmt::Display for ProofTreeGraphviz<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.graphviz())
     }
 }
 
-fn node_ptr_id(node: &Arc<dyn ProverNode>) -> usize {
-    node.as_ref() as *const dyn ProverNode as *const () as usize
+fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    node.as_ref() as *const dyn ProverNode<F, MvPCS, UvPCS> as *const () as usize
 }
 
 fn escape_label(raw: &str) -> String {

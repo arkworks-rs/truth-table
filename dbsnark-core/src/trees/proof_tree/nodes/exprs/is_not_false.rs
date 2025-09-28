@@ -1,17 +1,30 @@
-use std::sync::Arc;
-
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::logical_expr::Expr;
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
 
 #[derive(Clone)]
-pub struct IsNotFalseExprNode {
+pub struct IsNotFalseExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     pub relative_expr: Expr,
     pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn ProverNode>>,
+    pub inputs: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
 }
 
-impl ProverNode for IsNotFalseExprNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for IsNotFalseExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -20,7 +33,7 @@ impl ProverNode for IsNotFalseExprNode {
         ProverNodeNodeId::Expr(self.relative_expr.clone())
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         self.inputs.iter().collect()
     }
 
@@ -32,10 +45,6 @@ impl ProverNode for IsNotFalseExprNode {
     where
         Self: Sized,
     {
-        todo!()
-    }
-
-    fn piop_plan(&self) {
         todo!()
     }
 }

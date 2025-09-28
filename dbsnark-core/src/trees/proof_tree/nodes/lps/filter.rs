@@ -1,12 +1,20 @@
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::{
-    ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+use crate::{
+    proof_tree::nodes::ProverNodeArc,
+    trees::proof_tree::{
+        ProofTree,
+        nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    },
 };
 
 /// Filter operator that updates the `activator` column based on `predicate`.
@@ -15,14 +23,24 @@ use crate::trees::proof_tree::{
 /// - `input`: child proof node
 /// - `output_plan`: unrolled plan: `input` with this filter’s activator logic
 ///   applied (pass-through other columns)
-pub struct FilterNode {
-    pub predicate_proof_plan: Arc<dyn ProverNode>,
-    pub input_proof_plan: Arc<dyn ProverNode>,
+pub struct FilterNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    pub predicate_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub input_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
-impl FilterNode {
+impl<F, MvPCS, UvPCS> FilterNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     pub fn build_output_logical_plan(predicate_expr: Expr, input_plan: LogicalPlan) -> LogicalPlan {
         // Determine activator's datatype from input schema
         let schema = input_plan.schema().clone();
@@ -80,7 +98,12 @@ impl FilterNode {
     }
 }
 
-impl ProverNode for FilterNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for FilterNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -92,14 +115,15 @@ impl ProverNode for FilterNode {
         };
 
         // The input is itself a logical plan and needs to be proved
-        let input_proof_plan = ProofTree::from_logical_plan(ctx, &filter.input);
+        let input_proof_plan = ProofTree::<F, MvPCS, UvPCS>::from_logical_plan(ctx, &filter.input);
         // Fetching the output logical plan of the input logical plan
-        let child_plan = output_logical_plan(&input_proof_plan.root()).unwrap();
+        let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
         // Build the output logical plan for this filter node on top of the child output
         // logical plan
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
-        let predicate_proof_plan = expr_to_proof_plan(ctx, filter.predicate.clone(), &output_plan);
+        let predicate_proof_plan =
+            expr_to_proof_plan::<F, MvPCS, UvPCS>(ctx, filter.predicate.clone(), &output_plan);
         // Building the witness generation plans map
         let hint_generation_plans =
             HashMap::from([("output_plan".to_string(), output_plan.clone())]);
@@ -114,7 +138,7 @@ impl ProverNode for FilterNode {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
     fn node_id(&self) -> ProverNodeNodeId {
@@ -125,7 +149,32 @@ impl ProverNode for FilterNode {
         self.hint_generation_plans.clone()
     }
 
-    fn piop_plan(&self) {
-        todo!()
+    fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        std::unimplemented!()
+    }
+
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+        for child in self.children() {
+            child.append_sorted_descendants(out);
+            out.push(Arc::clone(child));
+        }
+    }
+
+    fn name(&self) -> String {
+        self.node_id().to_string()
+    }
+
+    fn append_virtual_witness(
+        &self,
+        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
+        _node_arithmetized_tables: &mut HashMap<
+            ProverNodeNodeId,
+            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
+        >,
+    ) {
+        std::todo!()
     }
 }

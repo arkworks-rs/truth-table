@@ -102,7 +102,4 @@ impl ProverNode for ProjectionNode {
         }
     }
 
-    fn piop_plan(&self) {
-        todo!()
-    }
 }

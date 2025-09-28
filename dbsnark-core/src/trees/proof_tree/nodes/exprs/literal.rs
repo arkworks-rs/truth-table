@@ -1,15 +1,23 @@
-use std::sync::Arc;
-
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{logical_expr::Expr, scalar::ScalarValue};
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct LiteralExprNode {
     pub node_id: ProverNodeNodeId,
 }
 
-impl ProverNode for LiteralExprNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for LiteralExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -18,7 +26,7 @@ impl ProverNode for LiteralExprNode {
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         Vec::new()
     }
 
@@ -33,9 +41,5 @@ impl ProverNode for LiteralExprNode {
         Self {
             node_id: ProverNodeNodeId::Expr(expr),
         }
-    }
-
-    fn piop_plan(&self) {
-        todo!()
     }
 }

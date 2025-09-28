@@ -6,18 +6,29 @@ pub mod lps;
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
+use arithmetic::table::ArithTable;
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{self as df, LogicalPlan},
     prelude::{Expr, SessionContext},
 };
 
-use crate::trees::proof_tree::nodes::exprs::{BinaryExprNode, ColumnExprNode, LiteralExprNode};
+use crate::trees::{
+    arithmetized_tree::{self, ArithmetizedTree},
+    proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
+};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ProverNodeNodeId {
     LP(LogicalPlan),
     Expr(Expr),
 }
+
+pub type ProverNodeArc<F, MvPCS, UvPCS> = Arc<dyn ProverNode<F, MvPCS, UvPCS>>;
 
 impl std::fmt::Display for ProverNodeNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,7 +44,12 @@ impl std::fmt::Display for ProverNodeNodeId {
 /// A proof plan is a tree of nodes, where each node represents a proof unit.
 // TODO: also add a VerifierNode
 // TODO: hint generation, materialized witness vs virtual witness
-pub trait ProverNode: Any + Send + Sync {
+pub trait ProverNode<F, MvPCS, UvPCS>: Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
@@ -57,13 +73,13 @@ pub trait ProverNode: Any + Send + Sync {
     /// Short name for the ProverNode node, such as `FilterNode`.
     /// Children of this node expressed as proof plan trait objects. Leaf nodes
     /// return an empty list.
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>>;
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>>;
 
     /// Appends all the descendants of this node in 'post-order' to the given
     /// mutable vector.
     /// Post-order over descendants: for each child, traverse its descendants
     /// first, then push the child; the current node itself is not included.
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode>>) {
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
             out.push(Arc::clone(child));
@@ -86,53 +102,63 @@ pub trait ProverNode: Any + Send + Sync {
     }
 
     /// Complete the piop plan
-    fn piop_plan(&self);
+    fn append_virtual_witness(
+        &self,
+        _arithmetized_tree: &ArithmetizedTree<F, MvPCS, UvPCS>,
+        _node_arithmetized_tables: &mut HashMap<
+            ProverNodeNodeId,
+            HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        >,
+    ) {
+        todo!()
+    }
 }
 
-pub fn expr_to_proof_plan(
+pub fn expr_to_proof_plan<F, MvPCS, UvPCS>(
     ctx: &SessionContext,
     expr: Expr,
-    input_plan: &LogicalPlan,
-) -> Arc<dyn ProverNode> {
+    parent_logical_plan: &LogicalPlan,
+) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     match expr.clone() {
-        Expr::Alias(_) => todo!(),
-        Expr::Column(_) => Arc::new(ColumnExprNode::from_expr(ctx, expr, input_plan.clone())),
-        Expr::ScalarVariable(..) => todo!(),
-        Expr::Literal(_) => Arc::new(LiteralExprNode::from_expr(ctx, expr, input_plan.clone())),
-        Expr::BinaryExpr(_) => Arc::new(BinaryExprNode::from_expr(ctx, expr, input_plan.clone())),
-        Expr::Like(_) => todo!(),
-        Expr::SimilarTo(_) => todo!(),
-        Expr::Not(_) => todo!(),
-        Expr::IsNotNull(_) => todo!(),
-        Expr::IsNull(_) => todo!(),
-        Expr::IsTrue(_) => todo!(),
-        Expr::IsFalse(_) => todo!(),
-        Expr::IsUnknown(_) => todo!(),
-        Expr::IsNotTrue(_) => todo!(),
-        Expr::IsNotFalse(_) => todo!(),
-        Expr::IsNotUnknown(_) => todo!(),
-        Expr::Negative(_) => todo!(),
-        Expr::Between(_) => todo!(),
-        Expr::Case(_) => todo!(),
-        Expr::Cast(_) => todo!(),
-        Expr::TryCast(_) => todo!(),
-        Expr::ScalarFunction(_) => todo!(),
-        Expr::AggregateFunction(_) => todo!(),
-        Expr::WindowFunction(_) => todo!(),
-        Expr::InList(_) => todo!(),
-        Expr::Exists(_) => todo!(),
-        Expr::InSubquery(_) => todo!(),
-        Expr::ScalarSubquery(_) => todo!(),
-        Expr::Wildcard { .. } => todo!(),
-        Expr::GroupingSet(_) => todo!(),
-        Expr::Placeholder(_) => todo!(),
-        Expr::OuterReferenceColumn(..) => todo!(),
-        Expr::Unnest(_) => todo!(),
+        Expr::Alias(_) => Arc::new(<AliasExprNode<F, MvPCS, UvPCS> as ProverNode<
+            F,
+            MvPCS,
+            UvPCS,
+        >>::from_expr(ctx, expr, parent_logical_plan.clone())),
+        Expr::Column(_) => Arc::new(<ColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+            ctx,
+            expr,
+            parent_logical_plan.clone(),
+        )),
+        Expr::Literal(_) => Arc::new(<LiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+            ctx,
+            expr,
+            parent_logical_plan.clone(),
+        )),
+        Expr::BinaryExpr(_) => Arc::new(<BinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
+            F,
+            MvPCS,
+            UvPCS,
+        >>::from_expr(
+            ctx, expr, parent_logical_plan.clone()
+        )),
         _ => todo!(),
     }
 }
 
-pub fn output_logical_plan(node: &Arc<dyn ProverNode>) -> Option<LogicalPlan> {
+pub fn output_logical_plan<F, MvPCS, UvPCS>(
+    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+) -> Option<LogicalPlan>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     node.hint_generation_plans()
         .into_iter()
         .find_map(|(label, plan)| {

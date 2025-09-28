@@ -1,5 +1,7 @@
 use super::HintTree;
 use crate::trees::proof_tree::ProofTree;
+use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
+use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
     error::Result as DFResult,
     logical_expr::LogicalPlan,
@@ -30,10 +32,11 @@ async fn build_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
 }
 
 #[tokio::test]
-async fn display_graphviz_smoke() -> DFResult<()> {
+async fn display_graphviz() -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = build_plan(&ctx).await?;
-    let proof_tree = ProofTree::from_logical_plan(&ctx, &plan);
+    let proof_tree: ProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
+        ProofTree::from_logical_plan(&ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
 
     println!("{}", hint_tree.display_graphviz());

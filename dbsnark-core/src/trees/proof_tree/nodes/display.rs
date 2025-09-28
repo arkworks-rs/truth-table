@@ -1,3 +1,8 @@
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::prelude::Expr;
 use std::{
     collections::{HashSet, VecDeque},
@@ -8,19 +13,24 @@ use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 /// Display helper for `ProverNode` that renders a Treeviz DOT tree.
 /// Similar in spirit to DataFusion's `DisplayableExecutionPlan`.
-pub struct DisplayableProverNode<'a> {
-    plan: &'a Arc<dyn ProverNode>,
+pub struct DisplayableProverNode<'a, F, MvPCS, UvPCS> {
+    plan: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl<'a> DisplayableProverNode<'a> {
-    pub fn new(plan: &'a Arc<dyn ProverNode>) -> Self {
+impl<'a, F, MvPCS, UvPCS> DisplayableProverNode<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub fn new(plan: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> Self {
         Self { plan }
     }
 
     /// Return Treeviz DOT string for the plan tree.
     pub fn treeviz(&self) -> String {
-        fn node_id(p: &Arc<dyn ProverNode>) -> usize {
-            let data_ptr = &**p as *const dyn ProverNode as *const ();
+        fn node_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+            let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
             data_ptr as usize
         }
 
@@ -35,7 +45,7 @@ impl<'a> DisplayableProverNode<'a> {
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         q.push_back(Arc::clone(self.plan));
 
         while let Some(node) = q.pop_front() {
@@ -77,7 +87,12 @@ impl<'a> DisplayableProverNode<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DisplayableProverNode<'a> {
+impl<'a, F, MvPCS, UvPCS> std::fmt::Display for DisplayableProverNode<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.treeviz())
     }

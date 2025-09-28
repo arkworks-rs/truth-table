@@ -15,8 +15,8 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_ptr_id(node: &Arc<dyn ProverNode>) -> usize {
-    node.as_ref() as *const dyn ProverNode as *const () as usize
+fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    node.as_ref() as *const dyn ProverNode<F, MvPCS, UvPCS> as *const () as usize
 }
 
 fn esc_label(s: &str) -> String {
@@ -39,8 +39,8 @@ where
 impl<'a, F, MvPCS, UvPCS> DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(plan: &'a PIOPTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
@@ -52,7 +52,7 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         q.push_back(self.plan.proof_tree().root());
 
         while let Some(node) = q.pop_front() {
@@ -110,8 +110,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.graphviz())

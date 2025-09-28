@@ -3,6 +3,11 @@ pub mod nodes;
 
 use std::{collections::HashMap, sync::Arc};
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::{
     logical_expr::{
         self, LogicalPlan, {self as df},
@@ -21,40 +26,54 @@ use self::nodes::{
 pub mod tests;
 
 #[derive(Clone)]
-pub struct ProofTree {
-    root: Arc<dyn ProverNode>,
+pub struct ProofTree<F, MvPCS, UvPCS> {
+    root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl ProofTree {
-    pub fn root(&self) -> Arc<dyn ProverNode> {
+impl<F, MvPCS, UvPCS> ProofTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub fn root(&self) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         Arc::clone(&self.root)
     }
 
-    pub fn root_ref(&self) -> &Arc<dyn ProverNode> {
+    pub fn root_ref(&self) -> &Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         &self.root
     }
 
-    pub fn new(root: Arc<dyn ProverNode>) -> Self {
+    pub fn new(root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> Self {
         Self { root }
     }
 
-    pub fn display_graphviz(&self) -> display::ProofTreeGraphviz<'_> {
+    pub fn display_graphviz(&self) -> display::ProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
         display::ProofTreeGraphviz::new(&self.root)
     }
 
     /// Returns all descendants including root in post-order.
-    pub fn sorted_nodes(&self) -> Vec<Arc<dyn ProverNode>> {
+    pub fn sorted_nodes(&self) -> Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         let mut v = Vec::new();
         self.root.append_sorted_descendants(&mut v);
         v
     }
 
     /// Returns a map from node identifier to the corresponding prover node.
-    pub fn flatten(&self) -> HashMap<ProverNodeNodeId, Arc<dyn ProverNode>> {
-        fn collect(
-            node: &Arc<dyn ProverNode>,
-            out: &mut HashMap<ProverNodeNodeId, Arc<dyn ProverNode>>,
-        ) {
+    pub fn flatten(&self) -> HashMap<ProverNodeNodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        fn collect<F, MvPCS, UvPCS>(
+            node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+            out: &mut HashMap<ProverNodeNodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+        ) where
+            F: PrimeField,
+            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+        {
             out.insert(node.node_id(), Arc::clone(node));
             for child in node.children() {
                 collect(child, out);
@@ -70,15 +89,31 @@ impl ProofTree {
     #[tracing::instrument(name = "from_logical_plan", skip(ctx, plan))]
     pub fn from_logical_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Self {
         match plan {
-            df::LogicalPlan::TableScan(_ts) => Self::new(Arc::new(
-                TableScanNode::from_logical_plan(ctx, plan.clone()),
-            )),
+            df::LogicalPlan::TableScan(_ts) => Self::new(Arc::new(<TableScanNode as ProverNode<
+                F,
+                MvPCS,
+                UvPCS,
+            >>::from_logical_plan(
+                ctx, plan.clone()
+            ))),
             df::LogicalPlan::Values(_vals) => todo!(),
-            df::LogicalPlan::Projection(_) => Self::new(Arc::new(
-                ProjectionNode::from_logical_plan(ctx, plan.clone()),
-            )),
+            df::LogicalPlan::Projection(_) => {
+                Self::new(Arc::new(<ProjectionNode<F, MvPCS, UvPCS> as ProverNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_logical_plan(
+                    ctx, plan.clone()
+                )))
+            },
             df::LogicalPlan::Filter(_) => {
-                Self::new(Arc::new(FilterNode::from_logical_plan(ctx, plan.clone())))
+                Self::new(Arc::new(<FilterNode<F, MvPCS, UvPCS> as ProverNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_logical_plan(
+                    ctx, plan.clone()
+                )))
             },
             df::LogicalPlan::Window(_w) => todo!(),
             df::LogicalPlan::Aggregate(_aggr) => todo!(),

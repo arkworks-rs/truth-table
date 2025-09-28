@@ -1,19 +1,34 @@
 use std::{collections::HashMap, sync::Arc};
 
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::prelude::SessionContext;
 
-use crate::trees::proof_tree::nodes::ProverNode;
+use crate::{proof_tree::nodes::ProverNodeArc, trees::proof_tree::nodes::ProverNode};
 
-pub struct RepartitionNode {
-    pub input: Arc<dyn ProverNode>,
+pub struct RepartitionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    pub input: ProverNodeArc<F, MvPCS, UvPCS>,
 }
 
-impl ProverNode for RepartitionNode {
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for RepartitionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode>> {
+    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
         vec![&self.input]
     }
 
@@ -29,10 +44,6 @@ impl ProverNode for RepartitionNode {
     }
 
     fn node_id(&self) -> crate::trees::proof_tree::nodes::ProverNodeNodeId {
-        todo!()
-    }
-
-    fn piop_plan(&self) {
         todo!()
     }
 }

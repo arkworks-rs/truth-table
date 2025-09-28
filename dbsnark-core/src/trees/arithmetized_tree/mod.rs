@@ -30,7 +30,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
-    inner_proof_tree: ProofTree,
+    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
 impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedTree<F, MvPCS, UvPCS>
@@ -42,7 +42,12 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArithmetizedTree")
             .field("num_nodes", &self.tables.len())
-            .field("nodes", &ArithNodesDebug { inner: &self.tables })
+            .field(
+                "nodes",
+                &ArithNodesDebug {
+                    inner: &self.tables,
+                },
+            )
             .finish()
     }
 }
@@ -50,11 +55,11 @@ where
 impl<F, MvPCS, UvPCS> ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree,
+        proof_tree: ProofTree<F, MvPCS, UvPCS>,
         tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
@@ -90,23 +95,23 @@ where
         node_id: &ProverNodeNodeId,
         label: &str,
     ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
-        self.tables.get(node_id).and_then(|by_label| by_label.get(label))
+        self.tables
+            .get(node_id)
+            .and_then(|by_label| by_label.get(label))
     }
 
-    pub fn proof_tree(&self) -> &ProofTree {
+    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(
-        &self,
-    ) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
+    pub fn display_graphviz(&self) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
         display::DisplayableArithmetizedTree::new(self)
     }
 
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree,
+        ProofTree<F, MvPCS, UvPCS>,
         HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) {
         let ArithmetizedTree {
@@ -120,7 +125,7 @@ where
     /// tree.
     #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree, prover))]
     pub fn from_hint_tree(
-        hint_tree: HintTree,
+        hint_tree: HintTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();

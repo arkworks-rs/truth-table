@@ -7,10 +7,15 @@ use std::{
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 use super::{HintTree, rows_cols_activated};
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 use datafusion::arrow::record_batch::RecordBatch;
 
-fn node_ptr_id(p: &Arc<dyn ProverNode>) -> usize {
-    let data_ptr = &**p as *const dyn ProverNode as *const ();
+fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
     data_ptr as usize
 }
 
@@ -30,12 +35,17 @@ fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
 }
 
 /// Display helper that renders a Graphviz DOT tree for a HintTree.
-pub struct DisplayableHintTree<'a> {
-    tree: &'a HintTree,
+pub struct DisplayableHintTree<'a, F, MvPCS, UvPCS> {
+    tree: &'a HintTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a> DisplayableHintTree<'a> {
-    pub fn new(tree: &'a HintTree) -> Self {
+impl<'a, F, MvPCS, UvPCS> DisplayableHintTree<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub fn new(tree: &'a HintTree<F, MvPCS, UvPCS>) -> Self {
         Self { tree }
     }
 
@@ -45,7 +55,7 @@ impl<'a> DisplayableHintTree<'a> {
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProverNode>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         q.push_back(self.tree.proof_tree().root());
 
         while let Some(node) = q.pop_front() {
@@ -69,9 +79,8 @@ impl<'a> DisplayableHintTree<'a> {
                     entries
                         .into_iter()
                         .map(|(label, _)| {
-                            let (rows, cols) = hint_rows_cols(
-                                self.tree.batches_for(&node_kind, label.as_str()),
-                            );
+                            let (rows, cols) =
+                                hint_rows_cols(self.tree.batches_for(&node_kind, label.as_str()));
                             format!("{} ( {} rows, {} columns)", label, rows, cols)
                         })
                         .collect::<Vec<_>>()
@@ -98,7 +107,12 @@ impl<'a> DisplayableHintTree<'a> {
     }
 }
 
-impl<'a> fmt::Display for DisplayableHintTree<'a> {
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableHintTree<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.graphviz())
     }
