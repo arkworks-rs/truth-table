@@ -10,7 +10,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-use crate::{ trees::proof_tree::nodes::ProverNode};
+use crate::trees::proof_tree::nodes::ProverNode;
 
 pub struct JoinNode<F, MvPCS, UvPCS>
 where

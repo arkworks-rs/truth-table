@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::Subquery, prelude::SessionContext};
 
-use crate::{ trees::proof_tree::nodes::ProverNode};
+use crate::trees::proof_tree::nodes::ProverNode;
 
 pub struct SubqueryNode<F, MvPCS, UvPCS>
 where

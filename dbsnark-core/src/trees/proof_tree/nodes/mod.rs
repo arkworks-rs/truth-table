@@ -28,7 +28,6 @@ pub enum ProverNodeNodeId {
     Expr(Expr),
 }
 
-
 impl std::fmt::Display for ProverNodeNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -110,43 +109,6 @@ where
         >,
     ) {
         todo!()
-    }
-}
-
-pub fn expr_to_proof_plan<F, MvPCS, UvPCS>(
-    ctx: &SessionContext,
-    expr: Expr,
-    parent_logical_plan: &LogicalPlan,
-) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    match expr.clone() {
-        Expr::Alias(_) => Arc::new(<AliasExprNode<F, MvPCS, UvPCS> as ProverNode<
-            F,
-            MvPCS,
-            UvPCS,
-        >>::from_expr(ctx, expr, parent_logical_plan.clone())),
-        Expr::Column(_) => Arc::new(<ColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
-            ctx,
-            expr,
-            parent_logical_plan.clone(),
-        )),
-        Expr::Literal(_) => Arc::new(<LiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
-            ctx,
-            expr,
-            parent_logical_plan.clone(),
-        )),
-        Expr::BinaryExpr(_) => Arc::new(<BinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
-            F,
-            MvPCS,
-            UvPCS,
-        >>::from_expr(
-            ctx, expr, parent_logical_plan.clone()
-        )),
-        _ => todo!(),
     }
 }
 

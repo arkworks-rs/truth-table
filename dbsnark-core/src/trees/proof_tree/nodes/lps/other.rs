@@ -6,7 +6,7 @@ use ark_piop::{
     pcs::PCS,
 };
 
-use crate::{ trees::proof_tree::nodes::ProverNode};
+use crate::trees::proof_tree::nodes::ProverNode;
 
 pub struct OtherNode<F, MvPCS, UvPCS>
 where

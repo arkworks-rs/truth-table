@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::nodes::{
-    ProverNode, ProverNodeNodeId, expr_to_proof_plan,
+use crate::trees::proof_tree::{
+    ProofTree,
+    nodes::{ProverNode, ProverNodeNodeId},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -113,12 +114,12 @@ where
 
         Self {
             node_id: ProverNodeNodeId::Expr(expr),
-            left_proof_plan: expr_to_proof_plan::<F, MvPCS, UvPCS>(
+            left_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 left_expr,
                 &parent_logical_plan,
             ),
-            right_proof_plan: expr_to_proof_plan::<F, MvPCS, UvPCS>(
+            right_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 right_expr,
                 &parent_logical_plan,

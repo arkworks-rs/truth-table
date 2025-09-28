@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
 
-use crate::{ trees::proof_tree::nodes::ProverNode};
+use crate::trees::proof_tree::nodes::ProverNode;
 
 pub struct SortNode<F, MvPCS, UvPCS>
 where

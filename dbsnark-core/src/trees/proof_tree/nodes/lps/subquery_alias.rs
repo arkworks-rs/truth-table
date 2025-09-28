@@ -6,7 +6,7 @@ use ark_piop::{
 use datafusion::{logical_expr as df, prelude::SessionContext};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{ trees::proof_tree::nodes::ProverNode};
+use crate::trees::proof_tree::nodes::ProverNode;
 
 pub struct SubqueryAliasNode<F, MvPCS, UvPCS>
 where

@@ -9,10 +9,7 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    
-    trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
-};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 /// Proof node representing a base table scan.
 ///

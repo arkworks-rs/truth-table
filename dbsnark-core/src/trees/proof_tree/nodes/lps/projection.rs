@@ -14,7 +14,7 @@ use datafusion::{
 
 use crate::trees::proof_tree::{
     ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
 };
 /// Projection operator that preserves the `activator` column.
 ///
@@ -103,7 +103,7 @@ where
         // retained activator).
         let expr_proof_plans = original_exprs
             .into_iter()
-            .map(|expr| expr_to_proof_plan::<F, MvPCS, UvPCS>(ctx, expr, &output_plan))
+            .map(|expr| ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, expr, &output_plan))
             .collect();
 
         let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);

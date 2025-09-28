@@ -1,3 +1,4 @@
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -5,7 +6,6 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 use std::sync::Arc;
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct NotExprNode<F, MvPCS, UvPCS>

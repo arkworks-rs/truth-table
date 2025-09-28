@@ -9,12 +9,9 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    
-    trees::proof_tree::{
-        ProofTree,
-        nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
-    },
+use crate::trees::proof_tree::{
+    ProofTree,
+    nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
 };
 
 /// Filter operator that updates the `activator` column based on `predicate`.
@@ -123,7 +120,7 @@ where
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
         let predicate_proof_plan =
-            expr_to_proof_plan::<F, MvPCS, UvPCS>(ctx, filter.predicate.clone(), &output_plan);
+            ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, filter.predicate.clone(), &output_plan);
         // Building the witness generation plans map
         let hint_generation_plans =
             HashMap::from([("output_plan".to_string(), output_plan.clone())]);

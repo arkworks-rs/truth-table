@@ -7,10 +7,7 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 
-use crate::{
-    
-    trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
-};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 pub mod aggregate_function;
 pub mod alias;

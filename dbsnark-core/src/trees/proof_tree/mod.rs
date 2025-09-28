@@ -19,6 +19,7 @@ use crate::proof_tree::nodes::ProverNodeNodeId;
 
 use self::nodes::{
     ProverNode,
+    exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
     lps::{FilterNode, ProjectionNode, TableScanNode},
 };
 
@@ -83,6 +84,49 @@ where
         let mut map = HashMap::new();
         collect(&self.root, &mut map);
         map
+    }
+
+    pub fn from_expr(
+        ctx: &SessionContext,
+        expr: Expr,
+        parent_logical_plan: &LogicalPlan,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        match expr.clone() {
+            Expr::Alias(_) => Arc::new(<AliasExprNode<F, MvPCS, UvPCS> as ProverNode<
+                F,
+                MvPCS,
+                UvPCS,
+            >>::from_expr(
+                ctx, expr, parent_logical_plan.clone()
+            )),
+            Expr::Column(_) => {
+                Arc::new(<ColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                    ctx,
+                    expr,
+                    parent_logical_plan.clone(),
+                ))
+            },
+            Expr::Literal(_) => {
+                Arc::new(<LiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                    ctx,
+                    expr,
+                    parent_logical_plan.clone(),
+                ))
+            },
+            Expr::BinaryExpr(_) => Arc::new(<BinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
+                F,
+                MvPCS,
+                UvPCS,
+            >>::from_expr(
+                ctx, expr, parent_logical_plan.clone()
+            )),
+            _ => todo!(),
+        }
     }
 
     /// Build a `ProverNode` tree from a DataFusion `LogicalPlan`.
