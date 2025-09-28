@@ -4,8 +4,8 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::logical_expr::Expr;
-
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
+use std::sync::Arc;
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct ExistsExprNode<F, MvPCS, UvPCS>
@@ -14,7 +14,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub inputs: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub node_id: ProverNodeNodeId,
 }
 
@@ -32,7 +32,7 @@ where
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
 

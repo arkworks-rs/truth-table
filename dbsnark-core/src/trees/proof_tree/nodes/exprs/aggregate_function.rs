@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -5,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 #[derive(Clone)]
 pub struct AggregateFunctionExprNode<F, MvPCS, UvPCS>
@@ -16,7 +18,7 @@ where
 {
     pub relative_expr: Expr,
     pub output_expr: Expr,
-    pub inputs: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for AggregateFunctionExprNode<F, MvPCS, UvPCS>
@@ -33,7 +35,7 @@ where
         ProverNodeNodeId::Expr(self.relative_expr.clone())
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
 

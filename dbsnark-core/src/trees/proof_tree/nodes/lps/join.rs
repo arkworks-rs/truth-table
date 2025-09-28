@@ -10,7 +10,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-use crate::{proof_tree::nodes::ProverNodeArc, trees::proof_tree::nodes::ProverNode};
+use crate::{ trees::proof_tree::nodes::ProverNode};
 
 pub struct JoinNode<F, MvPCS, UvPCS>
 where
@@ -18,13 +18,13 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub left: ProverNodeArc<F, MvPCS, UvPCS>,
-    pub right: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub left: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub right: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub on: Vec<(
-        ProverNodeArc<F, MvPCS, UvPCS>,
-        ProverNodeArc<F, MvPCS, UvPCS>,
+        Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+        Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     )>,
-    pub filter: Option<ProverNodeArc<F, MvPCS, UvPCS>>,
+    pub filter: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub join_type: df::JoinType,
     pub null_equals_null: bool,
 }
@@ -39,7 +39,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.left, &self.right]
     }
 

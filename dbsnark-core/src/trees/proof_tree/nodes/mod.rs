@@ -28,7 +28,6 @@ pub enum ProverNodeNodeId {
     Expr(Expr),
 }
 
-pub type ProverNodeArc<F, MvPCS, UvPCS> = Arc<dyn ProverNode<F, MvPCS, UvPCS>>;
 
 impl std::fmt::Display for ProverNodeNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::proof_tree::nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId};
+use crate::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where
@@ -15,9 +15,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub group_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
-    pub aggr_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
-    pub input: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
@@ -29,8 +29,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn build_output_plan(
-        group_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
-        aggr_expr: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
+        group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+        aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         todo!()
@@ -53,7 +53,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }
 

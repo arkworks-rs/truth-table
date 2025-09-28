@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::trees::proof_tree::nodes::{
-    ProverNode, ProverNodeArc, ProverNodeNodeId, expr_to_proof_plan,
+    ProverNode, ProverNodeNodeId, expr_to_proof_plan,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -20,8 +20,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub node_id: ProverNodeNodeId,
-    pub left_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
-    pub right_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub left_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub right_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -87,7 +87,7 @@ where
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.left_proof_plan, &self.right_proof_plan]
     }
     fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {

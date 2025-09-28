@@ -10,7 +10,7 @@ use datafusion::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    proof_tree::nodes::ProverNodeArc,
+    
     trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
 };
 
@@ -58,7 +58,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         Vec::new()
     }
 

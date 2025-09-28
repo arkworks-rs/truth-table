@@ -14,7 +14,7 @@ use datafusion::{
 
 use crate::trees::proof_tree::{
     ProofTree,
-    nodes::{ProverNode, ProverNodeArc, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
+    nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
 };
 /// Projection operator that preserves the `activator` column.
 ///
@@ -28,8 +28,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub expr_proof_plans: Vec<ProverNodeArc<F, MvPCS, UvPCS>>,
-    pub input_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub expr_proof_plans: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
@@ -44,7 +44,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
         children.push(&self.input_proof_plan);
         for expr_plan in &self.expr_proof_plans {

@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
 
-use crate::{proof_tree::nodes::ProverNodeArc, trees::proof_tree::nodes::ProverNode};
+use crate::{ trees::proof_tree::nodes::ProverNode};
 
 pub struct SortNode<F, MvPCS, UvPCS>
 where
@@ -15,9 +15,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub sort_expr: Vec<(ProverNodeArc<F, MvPCS, UvPCS>, bool, bool)>,
+    pub sort_expr: Vec<(Arc<dyn ProverNode<F, MvPCS, UvPCS>>, bool, bool)>,
     pub fetch: Option<usize>,
-    pub input: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for SortNode<F, MvPCS, UvPCS>
@@ -30,7 +30,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }
 

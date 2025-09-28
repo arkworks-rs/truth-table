@@ -10,7 +10,7 @@ use datafusion::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    proof_tree::nodes::ProverNodeArc,
+    
     trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
 };
 
@@ -20,9 +20,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub skip: Option<ProverNodeArc<F, MvPCS, UvPCS>>,
-    pub fetch: Option<ProverNodeArc<F, MvPCS, UvPCS>>,
-    pub input: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub skip: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub fetch: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, df::LogicalPlan>,
 }
@@ -37,7 +37,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }
 

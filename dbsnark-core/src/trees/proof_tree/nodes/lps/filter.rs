@@ -10,7 +10,7 @@ use datafusion::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    proof_tree::nodes::ProverNodeArc,
+    
     trees::proof_tree::{
         ProofTree,
         nodes::{ProverNode, ProverNodeNodeId, expr_to_proof_plan, output_logical_plan},
@@ -29,8 +29,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub predicate_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
-    pub input_proof_plan: ProverNodeArc<F, MvPCS, UvPCS>,
+    pub predicate_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: ProverNodeNodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
@@ -138,7 +138,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
     fn node_id(&self) -> ProverNodeNodeId {

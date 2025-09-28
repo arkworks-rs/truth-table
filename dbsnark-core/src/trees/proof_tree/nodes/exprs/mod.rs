@@ -8,7 +8,7 @@ use ark_piop::{
 use datafusion::logical_expr::Expr;
 
 use crate::{
-    proof_tree::nodes::ProverNodeArc,
+    
     trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId},
 };
 
@@ -101,7 +101,7 @@ where
         self
     }
 
-    fn children(&self) -> Vec<&ProverNodeArc<F, MvPCS, UvPCS>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         Vec::new()
     }
 
@@ -121,7 +121,7 @@ where
     }
 }
 
-pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> ProverNodeArc<F, MvPCS, UvPCS>
+pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
