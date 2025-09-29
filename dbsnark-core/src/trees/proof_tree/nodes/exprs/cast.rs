@@ -49,7 +49,7 @@ where
         todo!()
     }
 
-        fn append_virtual_witness(
+        fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
     ) {

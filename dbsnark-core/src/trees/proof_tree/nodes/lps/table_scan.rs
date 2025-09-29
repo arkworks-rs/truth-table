@@ -88,7 +88,7 @@ where
         }
     }
 
-    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
         todo!()
     }
 }

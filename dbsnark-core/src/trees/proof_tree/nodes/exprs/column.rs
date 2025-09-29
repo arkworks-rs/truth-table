@@ -5,9 +5,15 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::logical_expr::{Expr, LogicalPlan};
+use datafusion::{
+    logical_expr::{Expr, LogicalPlan},
+    prelude::SessionContext,
+};
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::nodes::{ProverNode, ProverNodeNodeId},
+};
 
 #[derive(Clone)]
 pub struct ColumnExprNode {
@@ -32,11 +38,7 @@ where
         Vec::new()
     }
 
-    fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
-    ) -> Self
+    fn from_expr(_ctx: &SessionContext, expr: Expr, _parent_logical_plan: LogicalPlan) -> Self
     where
         Self: Sized,
     {
@@ -45,10 +47,7 @@ where
         }
     }
 
-    fn append_virtual_witness(
-        &self,
-        piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
-    ) {
+    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
         let column_expr = match &self.node_id {
             ProverNodeNodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
@@ -57,16 +56,13 @@ where
             Some(relation) => relation,
             None => todo!(),
         };
-        let matching_table_scan = piop_tree
-            .tables()
-            .keys()
-            .find(|node_id| match node_id {
-                ProverNodeNodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                    &scan_plan.table_name == relation
-                }
-                _ => false,
-            });
-        
+        let matching_table_scan = piop_tree.tables().keys().find(|node_id| match node_id {
+            ProverNodeNodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                &scan_plan.table_name == relation
+            },
+            _ => false,
+        });
+
         dbg!(&matching_table_scan);
 
         let _table_scan_node_id = matching_table_scan.expect("matching table scan not found");

@@ -112,7 +112,7 @@ where
             let prover_node = flattened_proof_tree
                 .get(node_id)
                 .expect("missing node in proof tree");
-            prover_node.append_virtual_witness(&mut piop_tree);
+            prover_node.add_virtual_witness(&mut piop_tree);
         }
         piop_tree
     }

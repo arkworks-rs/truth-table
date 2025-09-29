@@ -99,7 +99,7 @@ where
     }
 
     /// Complete the piop plan
-    fn append_virtual_witness(
+    fn add_virtual_witness(
         &self,
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
     );
