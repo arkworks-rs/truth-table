@@ -10,7 +10,7 @@ use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
+    pcs::PCS, piop::PIOP,
 };
 use datafusion::{
     logical_expr::{self as df, LogicalPlan},
@@ -18,8 +18,7 @@ use datafusion::{
 };
 
 use crate::trees::{
-    arithmetized_tree::{self, ArithmetizedTree},
-    proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
+    arithmetized_tree::{self, ArithmetizedTree}, piop_tree::PIOPTree, proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode}
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -102,14 +101,8 @@ where
     /// Complete the piop plan
     fn append_virtual_witness(
         &self,
-        _arithmetized_tree: &ArithmetizedTree<F, MvPCS, UvPCS>,
-        _node_arithmetized_tables: &mut HashMap<
-            ProverNodeNodeId,
-            HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
-        todo!()
-    }
+        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+    );
 }
 
 pub fn output_logical_plan<F, MvPCS, UvPCS>(

@@ -48,4 +48,11 @@ where
     fn node_id(&self) -> crate::trees::proof_tree::nodes::ProverNodeNodeId {
         todo!()
     }
+
+    fn append_virtual_witness(
+        &self,
+        piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
 }

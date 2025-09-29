@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
-use crate::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::{proof_tree::nodes::{ProverNode, ProverNodeNodeId}, trees::piop_tree::PIOPTree};
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where
@@ -65,14 +65,7 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn append_virtual_witness(
-        &self,
-        arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
-        node_arithmetized_tables: &mut HashMap<
-            ProverNodeNodeId,
-            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
+    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
         todo!()
     }
 

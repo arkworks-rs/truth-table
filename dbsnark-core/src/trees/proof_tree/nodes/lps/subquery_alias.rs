@@ -6,7 +6,7 @@ use ark_piop::{
 use datafusion::{logical_expr as df, prelude::SessionContext};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::nodes::ProverNode;
+use crate::trees::{piop_tree::PIOPTree, proof_tree::nodes::ProverNode};
 
 pub struct SubqueryAliasNode<F, MvPCS, UvPCS>
 where
@@ -68,14 +68,7 @@ where
         self.node_id().to_string()
     }
 
-    fn append_virtual_witness(
-        &self,
-        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
-        _node_arithmetized_tables: &mut HashMap<
-            crate::proof_tree::nodes::ProverNodeNodeId,
-            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
-        std::todo!()
+    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+        todo!()
     }
 }

@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::prelude::SessionContext;
 
-use crate::trees::proof_tree::nodes::ProverNode;
+use crate::trees::{piop_tree::PIOPTree, proof_tree::nodes::ProverNode};
 
 pub struct ValuesNode {}
 
@@ -50,15 +50,7 @@ where
     {
         std::unimplemented!()
     }
-
-    fn append_virtual_witness(
-        &self,
-        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
-        _node_arithmetized_tables: &mut HashMap<
-            crate::proof_tree::nodes::ProverNodeNodeId,
-            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
-        std::todo!()
+    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+        todo!()
     }
 }

@@ -116,6 +116,13 @@ where
     {
         todo!()
     }
+
+    fn append_virtual_witness(
+        &self,
+        piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
 }
 
 pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>

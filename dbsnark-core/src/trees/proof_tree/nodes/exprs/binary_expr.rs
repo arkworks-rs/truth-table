@@ -127,4 +127,11 @@ where
             hint_generation_plans,
         }
     }
+
+        fn append_virtual_witness(
+        &self,
+        piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
 }

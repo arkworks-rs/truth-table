@@ -9,7 +9,10 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::nodes::{ProverNode, ProverNodeNodeId},
+};
 
 /// Proof node representing a base table scan.
 ///
@@ -85,14 +88,7 @@ where
         }
     }
 
-    fn append_virtual_witness(
-        &self,
-        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
-        _node_arithmetized_tables: &mut HashMap<
-            ProverNodeNodeId,
-            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
-        std::todo!()
+    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+        todo!()
     }
 }

@@ -42,4 +42,11 @@ where
             node_id: ProverNodeNodeId::Expr(expr),
         }
     }
+
+    fn append_virtual_witness(
+        &self,
+        piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
 }

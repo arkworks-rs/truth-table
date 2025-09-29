@@ -10,10 +10,12 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
+    piop::PIOP,
 };
 
 use crate::trees::{
     arithmetized_tree::ArithmetizedTree,
+    piop_tree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
 };
 
@@ -97,18 +99,18 @@ where
     }
 
     /// Build a virtualized plan from an arithmetized plan.
-    pub fn from_arithmetized_plan(arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
-        let (proof_tree, mut tables_by_node) = arith_plan.into_parts();
+    pub fn from_arithmetized_plan(mut arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
+        let (proof_tree, tables_by_node) = arith_plan.into_parts();
+        //TODO: See if we can avoid these clones, specially cloning the tables_by_node
+        let mut piop_tree = PIOPTree::new(proof_tree.clone(), tables_by_node.clone());
         let flattened_proof_tree = proof_tree.flatten();
-        let mut global_tables: HashMap<String, ArithTable<F, MvPCS, UvPCS>> = HashMap::new();
-        for (node_id, node_table) in tables_by_node.iter_mut() {
+        for (node_id, _) in tables_by_node.iter() {
             let prover_node = flattened_proof_tree
                 .get(node_id)
                 .expect("missing node in proof tree");
-            todo!()
+            prover_node.append_virtual_witness(&mut piop_tree);
         }
-
-        Self::new(proof_tree, tables_by_node)
+        piop_tree
     }
 
     pub fn into_parts(

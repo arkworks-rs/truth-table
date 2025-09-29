@@ -12,10 +12,9 @@ use datafusion::{
     prelude::{SessionContext, col},
 };
 
-use crate::trees::proof_tree::{
-    ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
-};
+use crate::trees::{piop_tree::PIOPTree, proof_tree::{
+    nodes::{output_logical_plan, ProverNode, ProverNodeNodeId}, ProofTree
+}};
 /// Projection operator that preserves the `activator` column.
 ///
 /// - `expr`: projection expressions from the original logical plan
@@ -138,14 +137,7 @@ where
         self.node_id().to_string()
     }
 
-    fn append_virtual_witness(
-        &self,
-        _arithmetized_tree: &crate::trees::arithmetized_tree::ArithmetizedTree<F, MvPCS, UvPCS>,
-        _node_arithmetized_tables: &mut HashMap<
-            ProverNodeNodeId,
-            HashMap<String, arithmetic::table::ArithTable<F, MvPCS, UvPCS>>,
-        >,
-    ) {
-        std::todo!()
+    fn append_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+        todo!()
     }
 }
