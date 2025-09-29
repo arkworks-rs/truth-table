@@ -73,6 +73,10 @@ where
         self.tables.is_empty()
     }
 
+    pub fn tables(&self) -> &HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+        &self.tables
+    }
+
     pub fn tables_for(
         &self,
         node_id: &ProverNodeNodeId,
@@ -101,7 +105,7 @@ where
     /// Build a virtualized plan from an arithmetized plan.
     pub fn from_arithmetized_plan(mut arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
         let (proof_tree, tables_by_node) = arith_plan.into_parts();
-        //TODO: See if we can avoid these clones, specially cloning the tables_by_node
+        // TODO: See if we can avoid these clones, specially cloning the tables_by_node
         let mut piop_tree = PIOPTree::new(proof_tree.clone(), tables_by_node.clone());
         let flattened_proof_tree = proof_tree.flatten();
         for (node_id, _) in tables_by_node.iter() {
