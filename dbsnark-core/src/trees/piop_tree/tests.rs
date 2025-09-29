@@ -29,7 +29,7 @@ async fn display_graphviz() -> DFResult<()> {
 
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let arith_tree = ArithmetizedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
-    let piop_plan = PIOPTree::from_arithmetized_plan(arith_tree);
+    let piop_plan = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
 
     println!("{}", piop_plan.display_graphviz());
     Ok(())

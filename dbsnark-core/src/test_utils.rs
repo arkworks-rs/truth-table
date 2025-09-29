@@ -21,7 +21,7 @@ pub async fn test_df_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
     )
     .await?;
 
-    let sql = "SELECT l_orderkey FROM lineitem WHERE l_quantity >= 10";
+    let sql = "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey";
     let df = ctx.sql(sql).await?;
     Ok(df.into_unoptimized_plan())
 }

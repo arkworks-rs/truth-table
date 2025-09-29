@@ -49,10 +49,11 @@ where
     {
         todo!()
     }
-    
+
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
     }

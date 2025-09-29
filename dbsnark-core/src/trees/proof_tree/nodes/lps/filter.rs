@@ -9,9 +9,13 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::{piop_tree::PIOPTree, proof_tree::{
-    nodes::{output_logical_plan, ProverNode, ProverNodeNodeId}, ProofTree
-}};
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::{
+        ProofTree,
+        nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
+    },
+};
 
 /// Filter operator that updates the `activator` column based on `predicate`.
 ///
@@ -163,7 +167,10 @@ where
         self.node_id().to_string()
     }
 
-    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
-        todo!()
+    fn add_virtual_witness(
+        &self,
+        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
     }
 }

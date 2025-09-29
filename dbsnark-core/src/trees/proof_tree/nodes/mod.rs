@@ -10,7 +10,9 @@ use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS, piop::PIOP,
+    pcs::PCS,
+    piop::PIOP,
+    prover::Prover,
 };
 use datafusion::{
     logical_expr::{self as df, LogicalPlan},
@@ -49,6 +51,7 @@ where
 {
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
+    //TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -56,6 +59,7 @@ where
         unimplemented!()
     }
     /// Constructs a proof plan node from a DataFusion logical plan.
+    // TODO: We might not need ctx here
     fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -102,6 +106,7 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
     );
 }
 

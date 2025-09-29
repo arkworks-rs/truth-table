@@ -144,6 +144,7 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         if !Self::reauires_materialized_witness(match &self.node_id {
             ProverNodeNodeId::Expr(Expr::BinaryExpr(b)) => b.op,

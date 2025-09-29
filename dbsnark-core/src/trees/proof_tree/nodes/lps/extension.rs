@@ -68,7 +68,8 @@ where
         self.node_id().to_string()
     }
 
-    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>) {
         todo!()
     }
 }

@@ -235,6 +235,18 @@ where
             self.actvtr_poly.clone(),
         )
     }
+
+    pub fn col_by_name(
+        &self,
+        name: &str,
+    ) -> Option<ArithCol<F, MvPCS, UvPCS>> {
+        let idx = self
+            .schema
+            .as_ref()
+            .and_then(|schema| schema.index_of(name).ok())?;
+        Some(self.col(idx))
+    }
+
     pub fn data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
         self.data_polys.clone()
     }

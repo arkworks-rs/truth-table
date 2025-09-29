@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -47,7 +48,11 @@ where
         }
     }
 
-    fn add_virtual_witness(&self, piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(
+        &self,
+        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
         let column_expr = match &self.node_id {
             ProverNodeNodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
@@ -63,10 +68,20 @@ where
             _ => false,
         });
 
-        dbg!(&matching_table_scan);
+        let table_scan_node_id = matching_table_scan.expect("matching table scan not found");
+        let table = piop_tree
+            .table(table_scan_node_id, "output_plan")
+            .expect("table not found in PIOP tree");
+        let col = table
+            .col_by_name(&column_expr.name)
+            .expect("column not found in table");
+        let output_table = ArithTable::new(
+            None,
+            vec![col.data_poly().clone()],
+            col.actvtr_poly().cloned(),
+            0,
+        );
 
-        let _table_scan_node_id = matching_table_scan.expect("matching table scan not found");
-
-        todo!()
+        piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
     }
 }
