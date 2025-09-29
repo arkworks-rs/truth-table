@@ -4,10 +4,11 @@ use ark_ff::PrimeField;
 
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
-    verifier::{structs::oracle::TrackedOracle, Verifier},
+    verifier::{errors::VerifierError, structs::oracle::TrackedOracle, Verifier},
 };
 use ark_std::cfg_iter;
 use datafusion::{
@@ -236,10 +237,7 @@ where
         )
     }
 
-    pub fn col_by_name(
-        &self,
-        name: &str,
-    ) -> Option<ArithCol<F, MvPCS, UvPCS>> {
+    pub fn col_by_name(&self, name: &str) -> Option<ArithCol<F, MvPCS, UvPCS>> {
         let idx = self
             .schema
             .as_ref()
@@ -366,24 +364,39 @@ where
         self.col_vals.len()
     }
 
-    // TODO: Propagate error instead of unwraps
     pub fn from(
         table: ArithTable<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    ) -> Self {
-        let schema = table.schema.clone(); // Use the schema from the table, if available
+    ) -> SnarkResult<Self> {
+        let schema = table.schema.clone();
+        let num_vars = table.num_vars();
+
         let data_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>> = table
             .data_polys
             .iter()
-            .map(|col| verifier.track_mv_com_by_id(col.id()).unwrap())
-            .collect();
-        match &table.actvtr_poly {
+            .map(|tracked_poly| -> SnarkResult<_> {
+                let id = tracked_poly.id_or_const().left().ok_or_else(|| {
+                    VerifierError::VerifierCheckFailed(
+                        "Table column polynomial is constant; expected commitment id".into(),
+                    )
+                })?;
+                verifier.track_mv_com_by_id(id)
+            })
+            .collect::<SnarkResult<_>>()?;
+
+        let actvtr_comm = match table.actvtr_poly.as_ref() {
             Some(actvtr) => {
-                let actvtr_comm = verifier.track_mv_com_by_id(actvtr.id()).unwrap();
-                Self::new(schema, data_comms, Some(actvtr_comm), table.num_vars())
+                let id = actvtr.id_or_const().left().ok_or_else(|| {
+                    VerifierError::VerifierCheckFailed(
+                        "Activator polynomial is constant; expected commitment id".into(),
+                    )
+                })?;
+                Some(verifier.track_mv_com_by_id(id)?)
             },
-            None => Self::new(schema, data_comms, None, table.num_vars()),
-        }
+            None => None,
+        };
+
+        Ok(Self::new(schema, data_comms, actvtr_comm, num_vars))
     }
     pub fn col_vals(&self) -> Vec<TrackedOracle<F, MvPCS, UvPCS>> {
         self.col_vals.clone()

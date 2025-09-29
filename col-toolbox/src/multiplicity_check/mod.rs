@@ -264,9 +264,9 @@ where
 
         let phat_check_poly = &(&(&p * &phat) - &(&phat * gamma)) + F::one().neg();
         // add the delayed prover claims to the tracker
-        let sum_claim_v = tracker.prover_claimed_sum(sumcheck_challenge_comm.id)?;
-        tracker.add_sumcheck_claim(sumcheck_challenge_comm.id, sum_claim_v);
-        tracker.add_zerocheck_claim(phat_check_poly.id);
+        let sum_claim_v = tracker.prover_claimed_sum(sumcheck_challenge_comm.id())?;
+        tracker.add_sumcheck_claim(sumcheck_challenge_comm.id(), sum_claim_v);
+        tracker.add_zerocheck_claim(phat_check_poly.id());
 
         Ok(sum_claim_v)
     }

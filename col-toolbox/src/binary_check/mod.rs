@@ -98,7 +98,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         let one_minus_sel = &(&input.activator_comm * (F::one().neg())) + (F::one());
         let check_poly = &(input.activator_comm) * &one_minus_sel;
-        verifier.add_zerocheck_claim(check_poly.id);
+        verifier.add_zerocheck_claim(check_poly.id());
         Ok(())
     }
 }

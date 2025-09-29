@@ -114,7 +114,7 @@ where
         for (poly_comm, chall) in input.in_cms.iter().zip(input.challs.iter()) {
             zero_comm = &zero_comm - &(&poly_comm.effective_comm() * (*chall));
         }
-        verifier.add_zerocheck_claim(zero_comm.id);
+        verifier.add_zerocheck_claim(zero_comm.id());
         Ok(())
     }
 

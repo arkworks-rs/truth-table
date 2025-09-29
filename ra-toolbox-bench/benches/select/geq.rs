@@ -1,4 +1,4 @@
-use crate::{F, K, P, exec_custom_query, prepare_table};
+use crate::{exec_custom_query, prepare_table, F, K, P};
 use arithmetic::table::{ArithTable, TableComm};
 use ark_piop::{
     errors::SnarkResult, piop::PIOP, prover::Prover, test_utils::bench_prelude, verifier::Verifier,
@@ -7,8 +7,8 @@ use datafusion::sql::sqlparser::ast::Table;
 #[cfg(feature = "parallel")]
 use rayon::result;
 use sql_toolbox::select::{
-    SelectCheckPIOP,
     structs::{SelectConfig, SelectProverInput, SelectVerifierInput, WhereClause},
+    SelectCheckPIOP,
 };
 use tokio::runtime::Runtime;
 
@@ -68,7 +68,7 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         verifier.set_proof(proof);
 
         // Commit tables
-        let input_table_comm = TableComm::from(input_table, &mut verifier);
+        let input_table_comm = TableComm::from(input_table, &mut verifier)?;
         let output_actv = output_table
             .actvtr_poly()
             .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());

@@ -186,8 +186,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let zero_check_orcl = &(&p_orcl * &sum_orcl) - &q_orcl;
         let zero_check_orcl_2 = &q_orcl - &input.res_activator_orcl;
 
-        verifier.add_zerocheck_claim(zero_check_orcl.id);
-        verifier.add_zerocheck_claim(zero_check_orcl_2.id);
+        verifier.add_zerocheck_claim(zero_check_orcl.id());
+        verifier.add_zerocheck_claim(zero_check_orcl_2.id());
 
         Ok(())
     }

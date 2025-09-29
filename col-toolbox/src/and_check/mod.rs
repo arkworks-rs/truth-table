@@ -105,7 +105,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             prod_orcl = &prod_orcl * in_orcl;
         }
         let check_orcl = &input.res_activator_orcl - &prod_orcl;
-        verifier.add_zerocheck_claim(check_orcl.id);
+        verifier.add_zerocheck_claim(check_orcl.id());
         Ok(())
     }
 }

@@ -110,7 +110,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,
             None => &(&col_poly * (&inverses_poly)) - F::one(),
         };
-        verifier.add_zerocheck_claim(no_dups_check_poly.id);
+        verifier.add_zerocheck_claim(no_dups_check_poly.id());
 
         Ok(())
     }

@@ -226,7 +226,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             let dedup_tr_cm = verifier.track_mv_com_by_id(dedup_cm_id)?;
             let dedup_wit_tr_cm =
                 &(&dedup_tr_cm - &defraged_in_col_com.inner) * &defraged_actv_col_com;
-            verifier.add_zerocheck_claim(dedup_wit_tr_cm.id);
+            verifier.add_zerocheck_claim(dedup_wit_tr_cm.id());
         }
 
         ///////////////////// Compute the challenge /////////////////////

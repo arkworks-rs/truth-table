@@ -511,7 +511,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => &col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c),
         };
 
-        verifier.add_zerocheck_claim(zero_tr_p.id); // Add a zero check claim for the combined polynomial        
+        verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
             ColCom {
@@ -590,7 +590,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => &col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c),
         };
 
-        verifier.add_zerocheck_claim(zero_tr_p.id); // Add a zero check claim for the combined polynomial        
+        verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
             ColCom {
