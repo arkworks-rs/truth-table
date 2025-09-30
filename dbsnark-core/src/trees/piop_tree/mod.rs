@@ -74,7 +74,9 @@ where
         self.tables.is_empty()
     }
 
-    pub fn tables(&self) -> &HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+    pub fn tables(
+        &self,
+    ) -> &HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
         &self.tables
     }
 
@@ -99,10 +101,7 @@ where
         label: String,
         table: ArithTable<F, MvPCS, UvPCS>,
     ) {
-        self.tables
-            .entry(node_id)
-            .or_default()
-            .insert(label, table);
+        self.tables.entry(node_id).or_default().insert(label, table);
     }
 
     pub fn table(
@@ -117,7 +116,7 @@ where
 
     /// Build a virtualized plan from an arithmetized plan.
     pub fn from_arithmetized_plan(
-        mut arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>,
+        arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Self {
         let (proof_tree, tables_by_node) = arith_plan.into_parts();

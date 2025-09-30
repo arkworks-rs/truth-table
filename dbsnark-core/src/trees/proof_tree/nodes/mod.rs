@@ -10,6 +10,7 @@ use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
@@ -20,7 +21,9 @@ use datafusion::{
 };
 
 use crate::trees::{
-    arithmetized_tree::{self, ArithmetizedTree}, piop_tree::PIOPTree, proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode}
+    arithmetized_tree::{self, ArithmetizedTree},
+    piop_tree::PIOPTree,
+    proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -51,7 +54,7 @@ where
 {
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
-    //TODO: We might not need ctx and parent_logical_plan here
+    // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
     where
         Self: Sized,
@@ -108,6 +111,14 @@ where
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     );
+
+    fn prove_piop(
+        &self,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        todo!()
+    }
 }
 
 pub fn output_logical_plan<F, MvPCS, UvPCS>(

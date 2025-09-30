@@ -29,3 +29,7 @@ std = []
 parallel = ["std", "rayon", "arithmetic/parallel"]
 honest-prover = []
 test-utils = []
+
+[[bench]]
+name = "prover"
+harness = false

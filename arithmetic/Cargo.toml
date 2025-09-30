@@ -14,6 +14,7 @@ ark-ff = { workspace = true }
 ark-std = { workspace = true }
 ark-poly = { workspace = true }
 ark-piop = { workspace = true }
+ark-serialize = { workspace = true }
 # Other dependencies
 datafusion = { workspace = true }
 thiserror = { workspace = true }
@@ -22,3 +23,5 @@ derivative = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 rayon = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+either = { workspace = true }

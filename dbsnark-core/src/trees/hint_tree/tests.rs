@@ -5,10 +5,16 @@ use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
 
 #[tokio::test]
-#[ignore]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
 async fn display_graphviz() {
     let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx).await.unwrap();
+    let plan = test_df_plan(
+        &ctx,
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "lineitem",
+    )
+    .await
+    .unwrap();
     let proof_tree: ProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
         ProofTree::from_logical_plan(&ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();

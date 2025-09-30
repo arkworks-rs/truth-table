@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
 };
 use datafusion::logical_expr::Expr;
@@ -49,11 +50,18 @@ where
         todo!()
     }
 
-        fn add_virtual_witness(
+    fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
+        todo!()
+    }
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
         todo!()
     }
 }

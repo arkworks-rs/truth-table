@@ -1,6 +1,7 @@
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
 };
 use datafusion::{
@@ -33,7 +34,7 @@ impl TableScanNode {
         plan
     }
 }
-
+//TODO: Add the table scan output commitments (the root ones) in the prover initial state as a mapping from table names to commitments
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for TableScanNode
 where
     F: PrimeField,
@@ -93,5 +94,12 @@ where
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
+    }
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        Ok(())
     }
 }

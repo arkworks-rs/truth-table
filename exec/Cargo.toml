@@ -4,16 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
-[dev-dependencies]
-divan.workspace = true
+dbsnark-core = { path = "../dbsnark-core" }
+arithmetic = { path = "../arithmetic" }
+ark-piop = { workspace = true, features = ["test-utils"] }
+ark-serialize = { workspace = true }
 datafusion.workspace = true
 tokio.workspace = true
-planner = { path = "../planner" }
+ark-test-curves.workspace = true
+anyhow = "1"
+bincode = "1"
+[dev-dependencies]
+divan.workspace = true
 tpch-data = { path = "../tpch-data" }
-ark-piop = { workspace = true, features = ["test-utils"] }
-ark-ec ={ workspace = true }
-ark-test-curves = { workspace = true }
-[[bench]]
-name = "pipeline"
-harness = false

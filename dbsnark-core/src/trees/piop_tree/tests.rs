@@ -20,10 +20,9 @@ type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
-#[tokio::test]
-async fn display_graphviz() -> DFResult<()> {
+async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx).await?;
+    let plan = test_df_plan(&ctx, query, table).await?;
     let proof_tree = ProofTree::from_logical_plan(&ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
 
@@ -33,4 +32,24 @@ async fn display_graphviz() -> DFResult<()> {
 
     println!("{}", piop_plan.display_graphviz());
     Ok(())
+}
+
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn display_graphviz_1() -> DFResult<()> {
+    display_graphviz_for(
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "lineitem",
+    )
+    .await
+}
+
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn display_graphviz_2() -> DFResult<()> {
+    display_graphviz_for(
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= 20",
+        "lineitem",
+    )
+    .await
 }

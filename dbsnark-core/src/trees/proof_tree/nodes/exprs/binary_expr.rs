@@ -7,6 +7,7 @@ use crate::trees::proof_tree::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
 };
 use datafusion::{
@@ -152,5 +153,12 @@ where
         }) {
             todo!()
         }
+    }
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        todo!()
     }
 }

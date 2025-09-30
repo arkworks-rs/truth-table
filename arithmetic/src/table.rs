@@ -10,6 +10,8 @@ use ark_piop::{
     prover::{structs::polynomial::TrackedPoly, Prover},
     verifier::{errors::VerifierError, structs::oracle::TrackedOracle, Verifier},
 };
+
+use ark_serialize::CanonicalSerialize;
 use ark_std::cfg_iter;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::Schema},
@@ -17,6 +19,7 @@ use datafusion::{
 };
 use derivative::Derivative;
 use futures::StreamExt;
+use serde::{ser::SerializeStruct, Serialize, Serializer};
 
 use crate::{
     col::{ArithCol, ColCom},
@@ -291,6 +294,27 @@ where
     col_vals: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
     actvtr: Option<TrackedOracle<F, MvPCS, UvPCS>>,
     num_vars: usize,
+}
+
+impl<F, MvPCS, UvPCS> Serialize for TableComm<F, MvPCS, UvPCS>
+where
+    F: PrimeField + CanonicalSerialize,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS::Commitment: CanonicalSerialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("TableComm", 4)?;
+        let schema_repr = self.schema.as_ref().map(|schema| format!("{:?}", schema));
+        state.serialize_field("schema", &schema_repr)?;
+        state.serialize_field("columns", &self.col_vals)?;
+        state.serialize_field("activator", &self.actvtr)?;
+        state.serialize_field("num_vars", &self.num_vars)?;
+        state.end()
+    }
 }
 
 // Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.

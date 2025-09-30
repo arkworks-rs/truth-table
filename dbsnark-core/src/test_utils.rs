@@ -4,8 +4,12 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use tpch_data::test_data_path;
-pub async fn test_df_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
-    let parquet_path = test_data_path("lineitem.parquet");
+pub async fn test_df_plan(
+    ctx: &SessionContext,
+    query: &str,
+    table_name: &str,
+) -> DFResult<LogicalPlan> {
+    let parquet_path = test_data_path(&format!("{}.parquet", table_name));
     assert!(
         parquet_path.exists(),
         "Missing Parquet at {:?}",
@@ -13,7 +17,7 @@ pub async fn test_df_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
     );
 
     ctx.register_parquet(
-        "lineitem",
+        table_name,
         parquet_path
             .to_str()
             .expect("parquet path should be valid UTF-8"),
@@ -21,7 +25,6 @@ pub async fn test_df_plan(ctx: &SessionContext) -> DFResult<LogicalPlan> {
     )
     .await?;
 
-    let sql = "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey";
-    let df = ctx.sql(sql).await?;
+    let df = ctx.sql(&query).await?;
     Ok(df.into_unoptimized_plan())
 }

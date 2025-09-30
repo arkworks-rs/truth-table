@@ -1,10 +1,17 @@
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use arithmetic::{encoding::encode_arrow_array_to_field, table::ArithTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
+    prover::Prover,
 };
-use datafusion::{logical_expr::Expr, scalar::ScalarValue};
+use datafusion::{
+    arrow::datatypes::{DataType, Field, Schema},
+    logical_expr::Expr,
+    scalar::ScalarValue,
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -31,9 +38,9 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
+        _ctx: &datafusion::prelude::SessionContext,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        _parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self
     where
         Self: Sized,
@@ -46,8 +53,45 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
+        let scalar = match &self.node_id {
+            ProverNodeNodeId::Expr(Expr::Literal(value)) => value.clone(),
+            _ => panic!("literal node expected literal expression"),
+        };
+
+        let array = scalar
+            .to_array()
+            .expect("failed to convert scalar into arrow array");
+
+        let mut column_values = encode_arrow_array_to_field::<F>(&array)
+            .expect("failed to encode literal into field elements")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| vec![F::zero()]);
+
+        if column_values.len() > 1 {
+            panic!("literal encoding resulted in multiple field elements");
+        }
+
+        let constant_value = column_values.pop().unwrap_or_else(F::zero);
+
+        let polynomial = MLE::from_evaluations_slice(0, &[constant_value]);
+        let tracked_poly = prover.track_mat_mv_poly(polynomial);
+
+        let data_type = scalar.data_type();
+
+        let schema = Schema::new(vec![Field::new("literal", data_type, scalar.is_null())]);
+
+        let table = ArithTable::new(Some(schema), vec![tracked_poly], None, 1);
+
+        piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), table);
+    }
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
         todo!()
     }
 }

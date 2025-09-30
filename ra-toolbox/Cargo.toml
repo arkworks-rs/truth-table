@@ -7,7 +7,6 @@ edition = "2024"
 # Local dependencies
 arithmetic = { path = "../arithmetic" }
 col-toolbox = { path = "../col-toolbox" }
-planner = { path = "../planner" }
 tpch-data = { path = "../tpch-data" }
 # arkworks dependencies
 ark-std = { workspace = true }

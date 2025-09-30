@@ -41,10 +41,7 @@ use ark_piop::{
     piop::PIOP,
 };
 use datafusion::prelude::Expr;
-use planner::{
-    arithmetized_plan::ArithmetizedTree,
-    ra_proof_plan::{ProverNode, ProverNodeNodeId},
-};
+
 
 pub type ExprPIOPResult = SnarkResult<()>;
 
@@ -65,59 +62,3 @@ macro_rules! impl_expr_piop_deep_clone {
 
 pub(crate) use impl_expr_piop_deep_clone;
 
-use crate::expr_piop::column::{ColumnExprPIOP, ColumnPIOPProverInput};
-
-pub fn dispatch_expr_piop<F, MvPCS, UvPCS>(
-    prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    _proof_node: &Arc<dyn ProverNode>,
-    _arith_plan: &ArithmetizedTree<F, MvPCS, UvPCS>,
-) -> ExprPIOPResult
-where
-    F: ark_ff::PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    let inner_expr_plan = match _proof_node.node_id() {
-        ProverNodeNodeId::Expr(plan) => plan,
-        _ => panic!("Expected Expr node"),
-    };
-
-    match inner_expr_plan {
-        Expr::Alias(_) => todo!("Alias PIOP not implemented"),
-        Expr::Column(c) => {
-            let column_piop_prover_input = ColumnPIOPProverInput { column: c.clone() };
-            ColumnExprPIOP::prove(prover, column_piop_prover_input)
-        },
-        Expr::ScalarVariable(..) => todo!("ScalarVariable PIOP not implemented"),
-        Expr::Literal(_) => todo!("Literal PIOP not implemented"),
-        Expr::BinaryExpr(_) => todo!("BinaryExpr PIOP not implemented"),
-        Expr::Like(_) => todo!("Like PIOP not implemented"),
-        Expr::SimilarTo(_) => todo!("SimilarTo PIOP not implemented"),
-        Expr::Not(_) => todo!("Not PIOP not implemented"),
-        Expr::IsNotNull(_) => todo!("IsNotNull PIOP not implemented"),
-        Expr::IsNull(_) => todo!("IsNull PIOP not implemented"),
-        Expr::IsTrue(_) => todo!("IsTrue PIOP not implemented"),
-        Expr::IsFalse(_) => todo!("IsFalse PIOP not implemented"),
-        Expr::IsUnknown(_) => todo!("IsUnknown PIOP not implemented"),
-        Expr::IsNotTrue(_) => todo!("IsNotTrue PIOP not implemented"),
-        Expr::IsNotFalse(_) => todo!("IsNotFalse PIOP not implemented"),
-        Expr::IsNotUnknown(_) => todo!("IsNotUnknown PIOP not implemented"),
-        Expr::Negative(_) => todo!("Negative PIOP not implemented"),
-        Expr::Between(_) => todo!("Between PIOP not implemented"),
-        Expr::Case(_) => todo!("Case PIOP not implemented"),
-        Expr::Cast(_) => todo!("Cast PIOP not implemented"),
-        Expr::TryCast(_) => todo!("TryCast PIOP not implemented"),
-        Expr::ScalarFunction(_) => todo!("ScalarFunction PIOP not implemented"),
-        Expr::AggregateFunction(_) => todo!("AggregateFunction PIOP not implemented"),
-        Expr::WindowFunction(_) => todo!("WindowFunction PIOP not implemented"),
-        Expr::InList(_) => todo!("InList PIOP not implemented"),
-        Expr::Exists(_) => todo!("Exists PIOP not implemented"),
-        Expr::InSubquery(_) => todo!("InSubquery PIOP not implemented"),
-        Expr::ScalarSubquery(_) => todo!("ScalarSubquery PIOP not implemented"),
-        Expr::Wildcard { .. } => todo!("Wildcard PIOP not implemented"),
-        Expr::GroupingSet(_) => todo!("GroupingSet PIOP not implemented"),
-        Expr::Placeholder(_) => todo!("Placeholder PIOP not implemented"),
-        Expr::OuterReferenceColumn(..) => todo!("OuterReferenceColumn PIOP not implemented"),
-        Expr::Unnest(_) => todo!("Unnest PIOP not implemented"),
-    }
-}
