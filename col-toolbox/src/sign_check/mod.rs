@@ -14,7 +14,7 @@ use crate::{
     inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -71,7 +71,7 @@ pub struct SignCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col_comm: ColCom<F, MvPCS, UvPCS>,
+    pub arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
     pub sign: Sign,
 }
 
@@ -116,16 +116,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<Self::VerifierOutput> {
         match verifier_input.sign {
             Sign::Positive => {
-                Self::verify_positive(verifier, &verifier_input.col_comm)?;
+                Self::verify_positive(verifier, &verifier_input.arith_col_oracle)?;
             },
             Sign::NoneNegative => {
-                Self::verify_non_neg(verifier, &verifier_input.col_comm)?;
+                Self::verify_non_neg(verifier, &verifier_input.arith_col_oracle)?;
             },
             Sign::Negative => {
-                Self::verify_negative(verifier, &verifier_input.col_comm)?;
+                Self::verify_negative(verifier, &verifier_input.arith_col_oracle)?;
             },
             Sign::NonePositive => {
-                Self::verify_none_positive(verifier, &verifier_input.col_comm)?;
+                Self::verify_none_positive(verifier, &verifier_input.arith_col_oracle)?;
             },
         }
         Ok(())
@@ -146,13 +146,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_positive(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_comm: &ColCom<F, MvPCS, UvPCS>,
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        Self::verify_non_neg(verifier, col_comm)?;
+        Self::verify_non_neg(verifier, arith_col_oracle)?;
         NoZerosCheck::verify(
             verifier,
             NoZerosCheckVerifierInput {
-                col_comm: col_comm.clone(),
+                arith_col_oracle: arith_col_oracle.clone(),
             },
         )?;
         Ok(())
@@ -169,13 +169,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_negative(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_comm: &ColCom<F, MvPCS, UvPCS>,
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        Self::verify_none_positive(verifier, col_comm)?;
+        Self::verify_none_positive(verifier, arith_col_oracle)?;
         NoZerosCheck::verify(
             verifier,
             NoZerosCheckVerifierInput {
-                col_comm: col_comm.clone(),
+                arith_col_oracle: arith_col_oracle.clone(),
             },
         )?;
         Ok(())
@@ -195,13 +195,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_none_positive(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_comm: &ColCom<F, MvPCS, UvPCS>,
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let negated_comm = ColCom::new(
-            col_comm.data_type.clone(),
-            &col_comm.inner.clone() * (-F::one()),
-            col_comm.actv.clone(),
-            col_comm.num_vars,
+        let negated_comm = ArithColOracle::new(
+            arith_col_oracle.data_type.clone(),
+            &arith_col_oracle.inner.clone() * (-F::one()),
+            arith_col_oracle.actv.clone(),
+            arith_col_oracle.num_vars,
         );
         Self::verify_non_neg(verifier, &negated_comm)?;
         Ok(())
@@ -319,13 +319,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_non_neg(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_comm: &ColCom<F, MvPCS, UvPCS>,
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        match col_comm.data_type.as_ref().unwrap() {
+        match arith_col_oracle.data_type.as_ref().unwrap() {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_col_comm: col_comm.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(8)?.evaluate(&x))
@@ -342,8 +342,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_col_comm: col_comm.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(7)?.evaluate(&x))
@@ -360,8 +360,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_col_comm: col_comm.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -376,10 +376,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
             },
             DataType::UInt32 => {
-                let (high_col_com, low_col_com) = Self::verify_non_neg_uint32(verifier, col_comm)?;
+                let (high_arith_col_oracle, low_arith_col_oracle) =
+                    Self::verify_non_neg_uint32(verifier, arith_col_oracle)?;
                 let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_col_comm: high_col_com.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: high_arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -393,8 +394,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     high_inclusion_check_verifier_input,
                 )?;
                 let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_col_comm: low_col_com.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: low_arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -410,10 +411,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
 
             DataType::Int32 => {
-                let (high_col_com, low_col_com) = Self::verify_non_neg_uint32(verifier, col_comm)?;
+                let (high_arith_col_oracle, low_arith_col_oracle) =
+                    Self::verify_non_neg_uint32(verifier, arith_col_oracle)?;
                 let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_col_comm: high_col_com.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: high_arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
@@ -427,8 +429,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     high_inclusion_check_verifier_input,
                 )?;
                 let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_col_comm: low_col_com.clone(),
-                    super_col_comm: ColCom::new(
+                    included_arith_col_oracle: low_arith_col_oracle.clone(),
+                    super_arith_col_oracle: ArithColOracle::new(
                         None,
                         verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -497,10 +499,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint32(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_com: &ColCom<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(ColCom<F, MvPCS, UvPCS>, ColCom<F, MvPCS, UvPCS>)> {
-        let col_inner = col_com.inner.clone();
-        let col_actv = col_com.actv.clone();
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        ArithColOracle<F, MvPCS, UvPCS>,
+        ArithColOracle<F, MvPCS, UvPCS>,
+    )> {
+        let col_inner = arith_col_oracle.inner.clone();
+        let col_actv = arith_col_oracle.actv.clone();
         let high_tr_id = verifier.peek_next_id();
         let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
         let low_tr_id = verifier.peek_next_id();
@@ -514,17 +519,17 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
-            ColCom {
-                data_type: col_com.data_type.clone(),
+            ArithColOracle {
+                data_type: arith_col_oracle.data_type.clone(),
                 inner: high_tr_c,
                 actv: col_actv.clone(),
-                num_vars: col_com.num_vars,
+                num_vars: arith_col_oracle.num_vars,
             },
-            ColCom {
-                data_type: col_com.data_type.clone(),
+            ArithColOracle {
+                data_type: arith_col_oracle.data_type.clone(),
                 inner: low_tr_c,
                 actv: col_actv.clone(),
-                num_vars: col_com.num_vars,
+                num_vars: arith_col_oracle.num_vars,
             },
         ))
     }
@@ -576,10 +581,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int32(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_com: &ColCom<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(ColCom<F, MvPCS, UvPCS>, ColCom<F, MvPCS, UvPCS>)> {
-        let col_inner = col_com.inner.clone();
-        let col_actv = col_com.actv.clone();
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        ArithColOracle<F, MvPCS, UvPCS>,
+        ArithColOracle<F, MvPCS, UvPCS>,
+    )> {
+        let col_inner = arith_col_oracle.inner.clone();
+        let col_actv = arith_col_oracle.actv.clone();
         let high_tr_id = verifier.peek_next_id();
         let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
         let low_tr_id = verifier.peek_next_id();
@@ -593,17 +601,17 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
-            ColCom {
-                data_type: col_com.data_type.clone(),
+            ArithColOracle {
+                data_type: arith_col_oracle.data_type.clone(),
                 inner: high_tr_c,
                 actv: col_actv.clone(),
-                num_vars: col_com.num_vars,
+                num_vars: arith_col_oracle.num_vars,
             },
-            ColCom {
-                data_type: col_com.data_type.clone(),
+            ArithColOracle {
+                data_type: arith_col_oracle.data_type.clone(),
                 inner: low_tr_c,
                 actv: col_actv.clone(),
-                num_vars: col_com.num_vars,
+                num_vars: arith_col_oracle.num_vars,
             },
         ))
     }

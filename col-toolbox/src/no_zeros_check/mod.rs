@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::{PrimeField, batch_inversion};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -50,7 +50,7 @@ pub struct NoZerosCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col_comm: ColCom<F, MvPCS, UvPCS>,
+    pub arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -102,8 +102,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let col_poly = verifier_input.col_comm.inner.clone();
-        let col_sel = verifier_input.col_comm.actv.clone();
+        let col_poly = verifier_input.arith_col_oracle.inner.clone();
+        let col_sel = verifier_input.arith_col_oracle.actv.clone();
         let inverses_poly_id = verifier.peek_next_id();
         let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
         let no_dups_check_poly = match col_sel {

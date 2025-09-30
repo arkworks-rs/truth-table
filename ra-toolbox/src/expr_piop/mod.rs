@@ -42,7 +42,6 @@ use ark_piop::{
 };
 use datafusion::prelude::Expr;
 
-
 pub type ExprPIOPResult = SnarkResult<()>;
 
 macro_rules! impl_expr_piop_deep_clone {
@@ -61,4 +60,3 @@ macro_rules! impl_expr_piop_deep_clone {
 }
 
 pub(crate) use impl_expr_piop_deep_clone;
-

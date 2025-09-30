@@ -1,5 +1,5 @@
 use super::{MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput};
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -703,22 +703,22 @@ fn multiplicity_test_helper<
         })
         .collect::<Vec<_>>();
     //////////////////////////////////////////////////////////////////////
-    let f_col_coms = f_tr_comms
+    let f_arith_col_oracles = f_tr_comms
         .iter()
         .zip(f_actv_comms.iter())
         .zip(f_nvs.iter())
-        .map(|((tr, actv), nv)| ColCom::new(None, tr.clone(), actv.clone(), *nv))
+        .map(|((tr, actv), nv)| ArithColOracle::new(None, tr.clone(), actv.clone(), *nv))
         .collect::<Vec<_>>();
-    let g_col_coms = g_tr_comms
+    let g_arith_col_oracles = g_tr_comms
         .iter()
         .zip(g_actv_comms.iter())
         .zip(g_nvs.iter())
-        .map(|((tr, actv), nv)| ColCom::new(None, tr.clone(), actv.clone(), *nv))
+        .map(|((tr, actv), nv)| ArithColOracle::new(None, tr.clone(), actv.clone(), *nv))
         .collect::<Vec<_>>();
 
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
-        fxs: f_col_coms,
-        gxs: g_col_coms,
+        fxs: f_arith_col_oracles,
+        gxs: g_arith_col_oracles,
         mfxs: f_mul_tr_comms.clone(),
         mgxs: g_mul_tr_comms.clone(),
     };

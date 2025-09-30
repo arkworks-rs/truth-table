@@ -1,5 +1,5 @@
 use crate::{exec_custom_query, prepare_table, F, K, P};
-use arithmetic::table::{ArithTable, TableComm};
+use arithmetic::table::{ArithTable, ArithTableOracle};
 use ark_piop::{
     errors::SnarkResult, piop::PIOP, prover::Prover, test_utils::bench_prelude, verifier::Verifier,
 };
@@ -68,21 +68,21 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         verifier.set_proof(proof);
 
         // Commit tables
-        let input_table_comm = TableComm::from(input_table, &mut verifier)?;
+        let input_arith_table_oracle = ArithTableOracle::from(input_table, &mut verifier)?;
         let output_actv = output_table
             .actvtr_poly()
             .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
 
-        let output_table_comm = TableComm::new(
-            input_table_comm.schema(),
-            input_table_comm.col_vals(),
+        let output_arith_table_oracle = ArithTableOracle::new(
+            input_arith_table_oracle.schema(),
+            input_arith_table_oracle.col_vals(),
             output_actv,
-            input_table_comm.num_vars(),
+            input_arith_table_oracle.num_vars(),
         );
 
         let verifier_input = SelectVerifierInput {
-            input_table_comm,
-            output_table_comm,
+            input_arith_table_oracle,
+            output_arith_table_oracle,
             select_conf: prover_input.select_conf,
         };
 

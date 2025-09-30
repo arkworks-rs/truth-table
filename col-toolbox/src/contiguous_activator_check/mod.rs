@@ -4,7 +4,7 @@
 // #[cfg(test)]
 // mod test;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -51,7 +51,7 @@ pub struct ContiguousActivatorCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub com: ColCom<F, MvPCS, UvPCS>,
+    pub com: ArithColOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for ContiguousActivatorCheck<F, MvPCS, UvPCS>

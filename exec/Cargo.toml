@@ -7,12 +7,14 @@ edition = "2024"
 dbsnark-core = { path = "../dbsnark-core" }
 arithmetic = { path = "../arithmetic" }
 ark-piop = { workspace = true, features = ["test-utils"] }
+ark-ff.workspace = true
 ark-serialize = { workspace = true }
 datafusion.workspace = true
 tokio.workspace = true
 ark-test-curves.workspace = true
 anyhow = "1"
 bincode = "1"
+either.workspace = true
 [dev-dependencies]
 divan.workspace = true
 tpch-data = { path = "../tpch-data" }

@@ -7,7 +7,7 @@
 mod test;
 pub(crate) mod utils;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -65,8 +65,8 @@ pub struct InclusionCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub included_col_comm: ColCom<F, MvPCS, UvPCS>,
-    pub super_col_comm: ColCom<F, MvPCS, UvPCS>,
+    pub included_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub super_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct InclusionCheckVerifierOutput<
@@ -137,8 +137,8 @@ where
         let super_col_m = verifier.track_mv_com_by_id(super_col_m_id)?;
         Self::verify_with_advice(
             verifier,
-            &input.included_col_comm,
-            &input.super_col_comm,
+            &input.included_arith_col_oracle,
+            &input.super_arith_col_oracle,
             &super_col_m,
         )?;
         Ok(InclusionCheckVerifierOutput {
@@ -179,8 +179,8 @@ where
 
     pub fn verify_with_advice(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        included_col: &ColCom<F, MvPCS, UvPCS>,
-        super_col: &ColCom<F, MvPCS, UvPCS>,
+        included_col: &ArithColOracle<F, MvPCS, UvPCS>,
+        super_col: &ArithColOracle<F, MvPCS, UvPCS>,
         super_col_m: &TrackedOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };

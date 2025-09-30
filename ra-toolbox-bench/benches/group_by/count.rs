@@ -1,4 +1,4 @@
-// use arithmetic::table::{ArithTable, TableComm};
+// use arithmetic::table::{ArithTable, ArithTableOracle};
 // use ark_piop::{errors::SnarkResult, piop::PIOP, prover::Prover,
 // verifier::Verifier}; use sql_toolbox::group_by::{
 //     GroupByPIOP, GroupByProverInput, GroupByVerifierInput,
@@ -60,12 +60,12 @@
 //         verifier.set_proof(proof);
 
 //         // Commit tables
-//         let input_comm = TableComm::from(input_table, &mut verifier);
-//         let output_comm = TableComm::from(output_table, &mut verifier);
+//         let input_comm = ArithTableOracle::from(input_table, &mut verifier);
+//         let output_comm = ArithTableOracle::from(output_table, &mut verifier);
 
 //         let verifier_input = GroupByVerifierInput {
-//             input_table_comm: input_comm,
-//             output_table_comm: output_comm,
+//             input_arith_table_oracle: input_comm,
+//             output_arith_table_oracle: output_comm,
 //             instr: prover_input.instr,
 //         };
 

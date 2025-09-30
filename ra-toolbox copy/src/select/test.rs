@@ -1,5 +1,5 @@
 use crate::select::SelectCheckPIOP;
-use arithmetic::table::{ArithTable, TableComm};
+use arithmetic::table::{ArithTable, ArithTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -255,13 +255,13 @@ fn select_check_helper<
     let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
 
     // Input and Output table commitments
-    let in_table_comm = TableComm::new(
+    let in_arith_table_oracle = ArithTableOracle::new(
         Some(schema.clone()),
         vec![tr_comm_1.clone(), tr_comm_2.clone(), tr_comm_3.clone()],
         Some(in_actv_tr_comm),
         nv,
     );
-    let out_table_comm = TableComm::new(
+    let out_arith_table_oracle = ArithTableOracle::new(
         Some(schema),
         vec![tr_comm_1, tr_comm_2, tr_comm_3],
         Some(out_actv_tr_comm),
@@ -269,8 +269,8 @@ fn select_check_helper<
     );
 
     let select_check_verifier_input = SelectVerifierInput {
-        input_table_comm: in_table_comm,
-        output_table_comm: out_table_comm,
+        input_arith_table_oracle: in_arith_table_oracle,
+        output_arith_table_oracle: out_arith_table_oracle,
         select_conf: select_instr.clone(),
     };
 

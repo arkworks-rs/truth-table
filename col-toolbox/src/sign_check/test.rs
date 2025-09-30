@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -403,9 +403,9 @@ fn sign_test_helper<
         .actvtr_poly()
         .as_ref()
         .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
-    let in_comm = ColCom::new(data_type, in_comm, actvm, in_col.num_vars());
+    let in_comm = ArithColOracle::new(data_type, in_comm, actvm, in_col.num_vars());
     let no_neg_verifier_input = SignCheckVerifierInput {
-        col_comm: in_comm,
+        arith_col_oracle: in_comm,
         sign,
     };
     SignCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_neg_verifier_input)?;

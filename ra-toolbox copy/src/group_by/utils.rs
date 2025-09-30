@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::col::{ArithCol, ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -28,23 +28,23 @@ pub fn fold_polys<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
 }
 
 pub fn fold_coms<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    col_comms: &[ColCom<F, MvPCS, UvPCS>],
+    arith_col_oracles: &[ArithColOracle<F, MvPCS, UvPCS>],
     challs: &[F],
-) -> ColCom<F, MvPCS, UvPCS> {
-    let num_vars = col_comms[0].num_vars();
-    let folding_size = col_comms.len();
-    let actv = col_comms[0].actv.clone();
+) -> ArithColOracle<F, MvPCS, UvPCS> {
+    let num_vars = arith_col_oracles[0].num_vars();
+    let folding_size = arith_col_oracles.len();
+    let actv = arith_col_oracles[0].actv.clone();
     #[cfg(debug_assertions)]
     {
         debug_assert_eq!(folding_size, challs.len());
-        for col in col_comms.iter() {
+        for col in arith_col_oracles.iter() {
             debug_assert_eq!(col.actv, actv);
             debug_assert_eq!(col.num_vars(), num_vars);
         }
     }
-    let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &col_comms[0].inner * (challs[0]);
-    for i in 1..col_comms.len() {
-        folded = &folded + &(&col_comms[i].inner * (challs[i]));
+    let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &arith_col_oracles[0].inner * (challs[0]);
+    for i in 1..arith_col_oracles.len() {
+        folded = &folded + &(&arith_col_oracles[i].inner * (challs[i]));
     }
-    ColCom::new(None, folded, actv, num_vars)
+    ArithColOracle::new(None, folded, actv, num_vars)
 }

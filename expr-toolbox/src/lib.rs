@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt, ops::Deref};
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::col::{ArithCol, ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -146,7 +146,7 @@ where
     T: Clone + std::fmt::Debug,
 {
     pub expr: T,
-    pub expr_cols: HashMap<Expr, ColCom<F, MvPCS, UvPCS>>,
+    pub expr_cols: HashMap<Expr, ArithColOracle<F, MvPCS, UvPCS>>,
 }
 
 impl<F, MvPCS, UvPCS, T> fmt::Debug for ExprPIOPVerifierInput<F, MvPCS, UvPCS, T>
@@ -171,7 +171,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
     T: Clone + std::fmt::Debug,
 {
-    pub fn new(expr: T, expr_cols: HashMap<Expr, ColCom<F, MvPCS, UvPCS>>) -> Self {
+    pub fn new(expr: T, expr_cols: HashMap<Expr, ArithColOracle<F, MvPCS, UvPCS>>) -> Self {
         Self { expr, expr_cols }
     }
 
@@ -179,7 +179,7 @@ where
         self.expr
     }
 
-    pub fn into_parts(self) -> (T, HashMap<Expr, ColCom<F, MvPCS, UvPCS>>) {
+    pub fn into_parts(self) -> (T, HashMap<Expr, ArithColOracle<F, MvPCS, UvPCS>>) {
         (self.expr, self.expr_cols)
     }
 

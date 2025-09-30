@@ -1,7 +1,7 @@
 //! A tool to defragment a column by removing the non-activated elements
 use std::marker::PhantomData;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -90,12 +90,12 @@ where
         Ok(new_col)
     }
 
-    pub fn defrag_col_com(
+    pub fn defrag_arith_col_oracle(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col_com: &ColCom<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ColCom<F, MvPCS, UvPCS>> {
-        if col_com.actv.is_none() {
-            return Ok(col_com.clone());
+        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<ArithColOracle<F, MvPCS, UvPCS>> {
+        if arith_col_oracle.actv.is_none() {
+            return Ok(arith_col_oracle.clone());
         }
 
         let new_col_inner_id = verifier.peek_next_id();
@@ -103,19 +103,19 @@ where
         let new_col_actv_id = verifier.peek_next_id();
         let new_col_actv_tr = verifier.track_mv_com_by_id(new_col_actv_id)?;
 
-        let new_col_com = ColCom::new(
-            col_com.data_type.clone(),
+        let new_arith_col_oracle = ArithColOracle::new(
+            arith_col_oracle.data_type.clone(),
             new_col_inner_tr.clone(),
             Some(new_col_actv_tr),
             verifier.commitment_num_vars(new_col_inner_id)?,
         );
 
         let perm_piop_verifier_input = PermPIOPVerifierInput {
-            left_col_com: col_com.clone(),
-            right_col_com: new_col_com.clone(),
+            left_arith_col_oracle: arith_col_oracle.clone(),
+            right_arith_col_oracle: new_arith_col_oracle.clone(),
         };
 
         PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
-        Ok(new_col_com)
+        Ok(new_arith_col_oracle)
     }
 }

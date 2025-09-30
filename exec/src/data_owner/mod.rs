@@ -1,11 +1,16 @@
-use std::{fs, path::Path};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
-use arithmetic::table::TableComm;
+use arithmetic::table_oracle::{ArithTableOracle, SerializableArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     test_utils::test_prelude,
 };
+use ark_serialize::CanonicalSerialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::trees::{
@@ -21,9 +26,11 @@ type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
 /// Commit the contents of a parquet file by materializing the table-scanned
-/// witness and storing it next to the parquet file. The output is a debug
-/// representation of the `ArithTable` associated with the table scan node.
-pub fn commit_parquet(parquet_path: &Path) -> Result<()> {
+/// witness, producing the verifier-side oracle table, serializing it, and
+/// returning its serializable form together with the path where it was stored.
+pub fn commit_parquet(
+    parquet_path: &Path,
+) -> Result<(SerializableArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
     let parquet_path = parquet_path.to_path_buf();
     let parquet_path_for_async = parquet_path.clone();
     let table_name = parquet_path
@@ -33,7 +40,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<()> {
         .to_string();
 
     let rt = Runtime::new().context("failed to create tokio runtime")?;
-    let serialized: Vec<u8> = rt.block_on(async move {
+    rt.block_on(async move {
         let parquet_path = parquet_path_for_async;
         let ctx = SessionContext::new();
         ctx.register_parquet(
@@ -74,44 +81,80 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<()> {
 
         let (_, tables_by_node) = piop_tree.into_parts();
 
-        let mut table_comm: Option<TableComm<F, MvPCS, UvPCS>> = None;
+        let mut arith_table_oracle: Option<ArithTableOracle<F, MvPCS, UvPCS>> = None;
         for (node_id, tables) in &tables_by_node {
             if let ProverNodeNodeId::LP(plan) = node_id {
                 if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
                     if let Some(table) = tables.get("output_plan") {
-                        table_comm = Some(TableComm::from(table.clone(), &mut verifier)?);
+                        arith_table_oracle =
+                            Some(ArithTableOracle::from(table.clone(), &mut verifier)?);
                         break;
                     }
                 }
             }
         }
 
-        let table_comm = table_comm.context("table scan result not found")?;
-        let bytes = bincode::serialize(&table_comm).context("serialize table commitment")?;
-        Ok::<Vec<u8>, anyhow::Error>(bytes)
-    })?;
+        let arith_table_oracle = arith_table_oracle.context("table scan result not found")?;
 
-    let mut output_path = parquet_path;
-    output_path.set_extension("table.bin");
-    fs::write(&output_path, serialized).context("failed to write committed table")?;
+        let serializable =
+            SerializableArithTableOracle::from_arith_table_oracle(&arith_table_oracle);
 
-    Ok(())
+        let output_path = parquet_path.with_extension("oracle");
+        let file = File::create(&output_path).with_context(|| {
+            format!(
+                "failed to create serialized oracle file at {}",
+                output_path.display()
+            )
+        })?;
+        let mut writer = BufWriter::new(file);
+        serializable
+            .serialize_uncompressed(&mut writer)
+            .context("failed to serialize oracle")?;
+        writer
+            .flush()
+            .context("failed to flush serialized oracle to disk")?;
+
+        Ok((serializable, output_path))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arithmetic::table_oracle::SerializableArithTableOracle;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use std::{fs, io::Cursor};
     use tpch_data::test_data_path;
 
     #[test]
-    fn commit_parquet_smoke() {
+    fn commit_parquet_serializes_oracle() {
         let parquet_path = test_data_path("nation.parquet");
         assert!(parquet_path.exists());
 
-        commit_parquet(&parquet_path).expect("commit nation parquet");
+        let (serializable, serialized_path) =
+            commit_parquet(&parquet_path).expect("commit nation parquet");
 
-        let output_path = parquet_path.with_extension("table.bin");
-        assert!(output_path.exists());
-        // let _ = fs::remove_file(output_path);
+        assert!(serialized_path.exists());
+
+        let mut expected_bytes = Vec::new();
+        serializable
+            .serialize_uncompressed(&mut expected_bytes)
+            .expect("serialize oracle to bytes");
+
+        let file_bytes = fs::read(&serialized_path).expect("read serialized oracle file");
+        assert_eq!(expected_bytes, file_bytes);
+
+        let mut reader = Cursor::new(file_bytes.as_slice());
+        let deserialized =
+            SerializableArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+                .expect("deserialize oracle from file");
+
+        assert_eq!(serializable.schema(), deserialized.schema());
+
+        let mut round_trip_bytes = Vec::new();
+        deserialized
+            .serialize_uncompressed(&mut round_trip_bytes)
+            .expect("serialize deserialized oracle");
+        assert_eq!(expected_bytes, round_trip_bytes);
     }
 }

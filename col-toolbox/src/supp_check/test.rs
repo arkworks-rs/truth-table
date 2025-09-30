@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -203,29 +203,34 @@ fn supp_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let col_comm = verifier.track_mv_com_by_id(col_tr_p.id())?;
+    let arith_col_oracle = verifier.track_mv_com_by_id(col_tr_p.id())?;
     let col_actv_comm = match col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
-    let supp_col_comm = verifier.track_mv_com_by_id(supp_col_tr_p.id())?;
+    let supp_arith_col_oracle = verifier.track_mv_com_by_id(supp_col_tr_p.id())?;
     let supp_col_actv_comm = match supp_col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
 
-    let col_comm = ColCom::new(col.data_type(), col_comm, col_actv_comm, col.num_vars());
+    let arith_col_oracle = ArithColOracle::new(
+        col.data_type(),
+        arith_col_oracle,
+        col_actv_comm,
+        col.num_vars(),
+    );
 
-    let supp_col_comm = ColCom::new(
+    let supp_arith_col_oracle = ArithColOracle::new(
         supp_col.data_type(),
-        supp_col_comm,
+        supp_arith_col_oracle,
         supp_col_actv_comm,
         supp_col.num_vars(),
     );
 
     let supp_check_verifier_input = SuppCheckVerifierInput {
-        col: col_comm,
-        supp: supp_col_comm,
+        col: arith_col_oracle,
+        supp: supp_arith_col_oracle,
     };
 
     SuppCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, supp_check_verifier_input)?;

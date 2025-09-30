@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -346,25 +346,25 @@ fn set_inter_union_test_helper<
     //////////////////////////////////////////////////////////////////////
 
     let set_inter_union_check_verifier_input = SetInterUnionVerifierInput {
-        col_left: ColCom {
+        col_left: ArithColOracle {
             inner: left_com,
             actv: left_actv_com,
             data_type: None,
             num_vars: nv_left,
         },
-        col_right: ColCom {
+        col_right: ArithColOracle {
             inner: right_com,
             actv: right_actv_com,
             data_type: None,
             num_vars: nv_right,
         },
-        col_inter: ColCom {
+        col_inter: ArithColOracle {
             inner: inter_com,
             actv: inter_actv_com,
             data_type: None,
             num_vars: nv_union_inter,
         },
-        col_union: ColCom {
+        col_union: ArithColOracle {
             inner: union_com,
             actv: union_actv_com,
             data_type: None,

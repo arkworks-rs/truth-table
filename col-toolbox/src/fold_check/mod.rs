@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -62,9 +62,9 @@ pub struct FoldCheckVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     // The input column commitments to be folded
-    pub in_cms: Vec<ColCom<F, MvPCS, UvPCS>>,
+    pub in_cms: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
     // The commitment of the column that is the result of folding the input columns
-    pub folded_cm: ColCom<F, MvPCS, UvPCS>,
+    pub folded_cm: ArithColOracle<F, MvPCS, UvPCS>,
     // The challenges used for folding
     pub challs: Vec<F>,
 }

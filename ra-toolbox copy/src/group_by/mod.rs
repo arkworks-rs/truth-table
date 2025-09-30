@@ -14,7 +14,7 @@ mod test;
 mod utils;
 ////////////// imports //////////////
 
-use arithmetic::table::{ArithTable, TableComm};
+use arithmetic::table::{ArithTable, ArithTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -80,8 +80,8 @@ pub struct GroupByVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub output_table_comm: TableComm<F, MvPCS, UvPCS>,
+    pub input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
     pub instr: GroupByConfig,
 }
 
@@ -136,9 +136,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The first phase of GroupByPIOP is a PIOP to check if the output categories
         // are created correctly Prepare the input for the grouping check
         let grouping_check_input = grouping_check::GroupingCheckVerifierInput {
-            input_grouping_column_comms: input.input_table_comm.cols(&input.instr.gpd_col_indices),
+            input_grouping_column_comms: input.input_arith_table_oracle.cols(&input.instr.gpd_col_indices),
             output_grouping_column_comms: input
-                .output_table_comm
+                .output_arith_table_oracle
                 .cols(&input.instr.gpd_col_indices),
         };
 
@@ -148,10 +148,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // each category is correct
         let stat_check_input = stat_check::StatCheckVerifierInput {
             super_set_multiplicity_tr_com: grouping_check_output.super_set_multiplicity_tr_com,
-            input_folded_col_comm: grouping_check_output.input_folded_col_com,
-            output_folded_col_comm: grouping_check_output.output_folded_col_com,
-            query_output_table_comm: input.output_table_comm,
-            query_input_table_comm: input.input_table_comm,
+            input_folded_arith_col_oracle: grouping_check_output.input_folded_arith_col_oracle,
+            output_folded_arith_col_oracle: grouping_check_output.output_folded_arith_col_oracle,
+            query_output_arith_table_oracle: input.output_arith_table_oracle,
+            query_input_arith_table_oracle: input.input_arith_table_oracle,
             instr: input.instr,
         };
         StatCheckPIOP::verify(verifier, stat_check_input)?;

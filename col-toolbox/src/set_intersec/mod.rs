@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -67,10 +67,10 @@ pub struct SetInterUnionVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col_left: ColCom<F, MvPCS, UvPCS>,
-    pub col_right: ColCom<F, MvPCS, UvPCS>,
-    pub col_inter: ColCom<F, MvPCS, UvPCS>,
-    pub col_union: ColCom<F, MvPCS, UvPCS>,
+    pub col_left: ArithColOracle<F, MvPCS, UvPCS>,
+    pub col_right: ArithColOracle<F, MvPCS, UvPCS>,
+    pub col_inter: ArithColOracle<F, MvPCS, UvPCS>,
+    pub col_union: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -223,7 +223,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         assert_eq!(input.col_inter.num_vars, input.col_union.num_vars);
         let no_dup_verifier_input = no_dup_check::NoDupCheckVerifierInput {
-            col_comm: input.col_union.clone(),
+            arith_col_oracle: input.col_union.clone(),
         };
         NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         let mgx = match (&input.col_inter.actv, &input.col_union.actv) {

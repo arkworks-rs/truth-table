@@ -1,8 +1,8 @@
 ////////////// Imports //////////////
 
 use arithmetic::{
-    col::{ArithCol, ColCom},
-    table::{ArithTable, TableComm},
+    col::{ArithCol, ArithColOracle},
+    table::{ArithTable, ArithTableOracle},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -61,8 +61,8 @@ pub struct SelectionCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub query_output_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub query_input_table_comm: TableComm<F, MvPCS, UvPCS>,
+    pub query_output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub query_input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }
 
@@ -119,20 +119,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => Self::verify_eq_selection(
                 verifier,
-                input.query_input_table_comm.col(col_ind),
-                input.query_output_table_comm.col(col_ind),
+                input.query_input_arith_table_oracle.col(col_ind),
+                input.query_output_arith_table_oracle.col(col_ind),
                 filter,
             )?,
             WhereClause::Geq(col_ind, filter) => Self::verify_geq_selection(
                 verifier,
-                input.query_input_table_comm.col(col_ind),
-                input.query_output_table_comm.col(col_ind).clone(),
+                input.query_input_arith_table_oracle.col(col_ind),
+                input.query_output_arith_table_oracle.col(col_ind).clone(),
                 filter,
             )?,
             WhereClause::Leq(col_ind, filter) => Self::verify_leq_selection(
                 verifier,
-                input.query_input_table_comm.col(col_ind),
-                input.query_output_table_comm.col(col_ind).clone(),
+                input.query_input_arith_table_oracle.col(col_ind),
+                input.query_output_arith_table_oracle.col(col_ind).clone(),
                 filter,
             )?,
             _ => unimplemented!(),
@@ -170,31 +170,31 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         )
     }
 
-    fn build_selected_and_non_selected_col_comms(
-        input_col_comm: &ColCom<F, MvPCS, UvPCS>,
-        output_col_comm: &ColCom<F, MvPCS, UvPCS>,
+    fn build_selected_and_non_selected_arith_col_oracles(
+        input_arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
+        output_arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
         filter: F,
-    ) -> (ColCom<F, MvPCS, UvPCS>, ColCom<F, MvPCS, UvPCS>) {
+    ) -> (ArithColOracle<F, MvPCS, UvPCS>, ArithColOracle<F, MvPCS, UvPCS>) {
         let selected_actv =
-            input_col_comm.actv.as_ref().unwrap() * (output_col_comm.actv.as_ref().unwrap());
+            input_arith_col_oracle.actv.as_ref().unwrap() * (output_arith_col_oracle.actv.as_ref().unwrap());
 
-        let non_selected_actv = input_col_comm.actv.as_ref().unwrap()
-            * &(&(output_col_comm.actv.as_ref().unwrap() * (-F::one())) + F::one());
+        let non_selected_actv = input_arith_col_oracle.actv.as_ref().unwrap()
+            * &(&(output_arith_col_oracle.actv.as_ref().unwrap() * (-F::one())) + F::one());
 
-        let shifted_inner = &input_col_comm.inner - filter;
+        let shifted_inner = &input_arith_col_oracle.inner - filter;
 
         (
-            ColCom {
-                data_type: input_col_comm.data_type.clone(),
+            ArithColOracle {
+                data_type: input_arith_col_oracle.data_type.clone(),
                 inner: shifted_inner.clone(),
                 actv: Some(selected_actv),
-                num_vars: input_col_comm.num_vars,
+                num_vars: input_arith_col_oracle.num_vars,
             },
-            ColCom {
-                data_type: input_col_comm.data_type.clone(),
+            ArithColOracle {
+                data_type: input_arith_col_oracle.data_type.clone(),
                 inner: shifted_inner,
                 actv: Some(non_selected_actv),
-                num_vars: input_col_comm.num_vars,
+                num_vars: input_arith_col_oracle.num_vars,
             },
         )
     }
@@ -221,19 +221,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_eq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_col_comm: ColCom<F, MvPCS, UvPCS>,
-        output_col_comm: ColCom<F, MvPCS, UvPCS>,
+        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
         eq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_col_comm, non_selected_col_comm) =
-            Self::build_selected_and_non_selected_col_comms(
-                &input_col_comm,
-                &output_col_comm,
+        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
+            Self::build_selected_and_non_selected_arith_col_oracles(
+                &input_arith_col_oracle,
+                &output_arith_col_oracle,
                 eq_filter,
             );
-        verifier.add_zerocheck_claim(selected_col_comm.effective_comm().id);
+        verifier.add_zerocheck_claim(selected_arith_col_oracle.effective_comm().id);
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
-            col_comm: non_selected_col_comm,
+            arith_col_oracle: non_selected_arith_col_oracle,
         };
         NoZerosCheck::verify(verifier, no_zeros_check_verifier_input)?;
         Ok(())
@@ -271,20 +271,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_geq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_col_comm: ColCom<F, MvPCS, UvPCS>,
-        output_col_comm: ColCom<F, MvPCS, UvPCS>,
+        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_col_comm, non_selected_col_comm) =
-            Self::build_selected_and_non_selected_col_comms(
-                &input_col_comm,
-                &output_col_comm,
+        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
+            Self::build_selected_and_non_selected_arith_col_oracles(
+                &input_arith_col_oracle,
+                &output_arith_col_oracle,
                 geq_filter,
             );
         // Check if the selected ones are greater than or equal to the filter
         // The selected ones are the ones that are active in both the input and output
         let non_neg_sign_check_verifier_input = SignCheckVerifierInput {
-            col_comm: selected_col_comm,
+            arith_col_oracle: selected_arith_col_oracle,
             sign: col_toolbox::sign_check::Sign::NoneNegative,
         };
         SignCheckPIOP::verify(verifier, non_neg_sign_check_verifier_input)?;
@@ -293,7 +293,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The non-selected ones are the ones that were active in the input table but
         // not in the output table
         let neg_sign_check_verifier_input = SignCheckVerifierInput {
-            col_comm: non_selected_col_comm,
+            arith_col_oracle: non_selected_arith_col_oracle,
             sign: col_toolbox::sign_check::Sign::Negative,
         };
 
@@ -334,20 +334,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_leq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_col_comm: ColCom<F, MvPCS, UvPCS>,
-        output_col_comm: ColCom<F, MvPCS, UvPCS>,
+        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_col_comm, non_selected_col_comm) =
-            Self::build_selected_and_non_selected_col_comms(
-                &input_col_comm,
-                &output_col_comm,
+        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
+            Self::build_selected_and_non_selected_arith_col_oracles(
+                &input_arith_col_oracle,
+                &output_arith_col_oracle,
                 geq_filter,
             );
         // Check if the selected ones are greater than or equal to the filter
         // The selected ones are the ones that are active in both the input and output
         let non_neg_sign_check_verifier_input = SignCheckVerifierInput {
-            col_comm: selected_col_comm,
+            arith_col_oracle: selected_arith_col_oracle,
             sign: col_toolbox::sign_check::Sign::NonePositive,
         };
         SignCheckPIOP::verify(verifier, non_neg_sign_check_verifier_input)?;
@@ -356,7 +356,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The non-selected ones are the ones that were active in the input table but
         // not in the output table
         let neg_sign_check_verifier_input = SignCheckVerifierInput {
-            col_comm: non_selected_col_comm,
+            arith_col_oracle: non_selected_arith_col_oracle,
             sign: col_toolbox::sign_check::Sign::Positive,
         };
 
@@ -418,17 +418,17 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ))
     }
 
-    fn broadcast_actv_col_com(
+    fn broadcast_actv_arith_col_oracle(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_col_com: ColCom<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ColCom<F, MvPCS, UvPCS>> {
+        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<ArithColOracle<F, MvPCS, UvPCS>> {
         let broadcasted_actv_id = verifier.peek_next_id(); // Get the next ID for the broadcasted activator
         let broadcasted_actv_tr_com = verifier.track_mv_com_by_id(broadcasted_actv_id)?;
-        Ok(ColCom {
-            data_type: input_col_com.data_type.clone(),
-            inner: input_col_com.inner.clone(),
+        Ok(ArithColOracle {
+            data_type: input_arith_col_oracle.data_type.clone(),
+            inner: input_arith_col_oracle.inner.clone(),
             actv: Some(broadcasted_actv_tr_com),
-            num_vars: input_col_com.num_vars,
+            num_vars: input_arith_col_oracle.num_vars,
         })
     }
 }

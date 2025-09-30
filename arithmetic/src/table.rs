@@ -1,31 +1,21 @@
-use std::{iter::repeat_n, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
 
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
-    verifier::{errors::VerifierError, structs::oracle::TrackedOracle, Verifier},
 };
 
-use ark_serialize::CanonicalSerialize;
-use ark_std::cfg_iter;
-use datafusion::{
-    arrow::{array::RecordBatch, datatypes::Schema},
-    prelude::DataFrame,
+use datafusion::arrow::{
+    array::RecordBatch,
+    datatypes::{FieldRef, Schema},
 };
 use derivative::Derivative;
-use futures::StreamExt;
-use serde::{ser::SerializeStruct, Serialize, Serializer};
 
-use crate::{
-    col::{ArithCol, ColCom},
-    encoding::encode_arrow_array_to_field,
-    errors::EncodeError,
-};
+use crate::{col::ArithCol, encoding::encode_arrow_array_to_field, errors::EncodeError};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -62,7 +52,7 @@ where
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ArithTable")
             .field("num_cols", &self.num_cols())
-            .field("num_vars", &self.num_vars())
+            .field("log_size", &self.log_size())
             .field("has_actvtr", &self.actvtr_poly.is_some())
             .field("size", &self.size)
             .finish()
@@ -125,32 +115,37 @@ where
             }
         }
 
-        let column_polys: Vec<(usize, Arc<MLE<F>>)> = columns
-            .into_iter()
-            .enumerate()
-            .map(|(idx, values)| {
-                let mle = MLE::from_evaluations_slice(max_log_vars, &values);
-                (idx, Arc::new(mle))
-            })
-            .collect();
+        let mut column_polys: HashMap<FieldRef, Arc<MLE<F>>> = HashMap::with_capacity(num_cols);
+        for (idx, values) in columns.into_iter().enumerate() {
+            let mle = MLE::from_evaluations_slice(max_log_vars, &values);
+            let field = schema_ref.field(idx).clone();
+            column_polys.insert(Arc::new(field), Arc::new(mle));
+        }
 
         let prover_param = prover.mv_pcs_prover_param();
 
-        let column_commitments: Vec<MvPCS::Commitment> = {
-            cfg_iter!(column_polys)
-                .map(|(_, poly)| {
-                    MvPCS::commit(prover_param.clone(), poly)
-                        .expect("failed to commit witness polynomial")
-                })
-                .collect()
-        };
+        let mut column_commitments: HashMap<FieldRef, MvPCS::Commitment> =
+            HashMap::with_capacity(column_polys.len());
+        for (field_ref, poly) in &column_polys {
+            let commitment = MvPCS::commit(prover_param.clone(), poly)
+                .expect("failed to commit witness polynomial");
+            column_commitments.insert(field_ref.clone(), commitment);
+        }
 
         let mut data_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>> = Vec::with_capacity(num_cols);
         let mut activator_poly: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
 
-        for ((idx, poly_arc), commitment) in
-            column_polys.into_iter().zip(column_commitments.into_iter())
-        {
+        for idx in 0..num_cols {
+            let field_ref = Arc::new(schema_ref.field(idx).clone());
+            let poly_arc = column_polys
+                .get(&field_ref)
+                .expect("polynomial for field not found")
+                .clone();
+            let commitment = column_commitments
+                .get(&field_ref)
+                .expect("commitment for field not found")
+                .clone();
+
             let tracked = prover
                 .track_mat_mv_poly_with_commitment(poly_arc.as_ref(), commitment)
                 .expect("failed to commit witness polynomial");
@@ -203,7 +198,7 @@ where
             size,
         }
     }
-    pub fn num_vars(&self) -> usize {
+    pub fn log_size(&self) -> usize {
         self.data_polys[0].log_size()
     }
 
@@ -275,234 +270,4 @@ where
     pub fn actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
         self.actvtr_poly.clone()
     }
-}
-
-#[derive(Derivative)]
-#[derivative(
-    Clone(bound = "MvPCS: PCS<F>"),
-    PartialEq(bound = "MvPCS: PCS<F>"),
-    Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>")
-)]
-pub struct TableComm<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    schema: Option<Schema>,
-    col_vals: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
-    actvtr: Option<TrackedOracle<F, MvPCS, UvPCS>>,
-    num_vars: usize,
-}
-
-impl<F, MvPCS, UvPCS> Serialize for TableComm<F, MvPCS, UvPCS>
-where
-    F: PrimeField + CanonicalSerialize,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-    MvPCS::Commitment: CanonicalSerialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("TableComm", 4)?;
-        let schema_repr = self.schema.as_ref().map(|schema| format!("{:?}", schema));
-        state.serialize_field("schema", &schema_repr)?;
-        state.serialize_field("columns", &self.col_vals)?;
-        state.serialize_field("activator", &self.actvtr)?;
-        state.serialize_field("num_vars", &self.num_vars)?;
-        state.end()
-    }
-}
-
-// Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.
-impl<F, MvPCS, UvPCS> core::fmt::Debug for TableComm<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ArithTable")
-            .field("num_cols", &self.num_cols())
-            .field("num_vars", &self.num_vars())
-            .finish()
-    }
-}
-
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TableComm<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    pub fn new(
-        schema: Option<Schema>,
-        col_vals: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
-        actvtr: Option<TrackedOracle<F, MvPCS, UvPCS>>,
-        num_vars: usize,
-    ) -> Self {
-        Self {
-            schema,
-            col_vals,
-            actvtr,
-            num_vars,
-        }
-    }
-    pub fn num_vars(&self) -> usize {
-        self.num_vars
-    }
-
-    pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ColCom<F, MvPCS, UvPCS> {
-        let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &self.col_vals[col_inds[0]] * challs[0];
-        for i in 1..col_inds.len() {
-            folded += &(&self.col_vals[col_inds[i]].clone() * challs[i]);
-        }
-        ColCom::new(None, folded, self.actvtr.clone(), self.num_vars)
-    }
-
-    pub fn fold_all(&self, challs: &[F]) -> ColCom<F, MvPCS, UvPCS> {
-        self.fold(&(0..self.num_cols()).collect::<Vec<usize>>(), challs)
-    }
-
-    pub fn col(&self, col_ind: usize) -> ColCom<F, MvPCS, UvPCS> {
-        ColCom::new(
-            self.schema
-                .as_ref()
-                .map(|schema| schema.field(col_ind).clone().data_type().clone()),
-            self.col_vals[col_ind].clone(),
-            self.actvtr.clone(),
-            self.num_vars,
-        )
-    }
-
-    pub fn cols(&self, indice: &[usize]) -> Vec<ColCom<F, MvPCS, UvPCS>> {
-        indice.iter().map(|&i| self.col(i)).collect()
-    }
-    pub fn all_cols(&self) -> Vec<ColCom<F, MvPCS, UvPCS>> {
-        self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
-    }
-    pub fn num_cols(&self) -> usize {
-        self.col_vals.len()
-    }
-
-    pub fn from(
-        table: ArithTable<F, MvPCS, UvPCS>,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Self> {
-        let schema = table.schema.clone();
-        let num_vars = table.num_vars();
-
-        let data_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>> = table
-            .data_polys
-            .iter()
-            .map(|tracked_poly| -> SnarkResult<_> {
-                let id = tracked_poly.id_or_const().left().ok_or_else(|| {
-                    VerifierError::VerifierCheckFailed(
-                        "Table column polynomial is constant; expected commitment id".into(),
-                    )
-                })?;
-                verifier.track_mv_com_by_id(id)
-            })
-            .collect::<SnarkResult<_>>()?;
-
-        let actvtr_comm = match table.actvtr_poly.as_ref() {
-            Some(actvtr) => {
-                let id = actvtr.id_or_const().left().ok_or_else(|| {
-                    VerifierError::VerifierCheckFailed(
-                        "Activator polynomial is constant; expected commitment id".into(),
-                    )
-                })?;
-                Some(verifier.track_mv_com_by_id(id)?)
-            },
-            None => None,
-        };
-
-        Ok(Self::new(schema, data_comms, actvtr_comm, num_vars))
-    }
-    pub fn col_vals(&self) -> Vec<TrackedOracle<F, MvPCS, UvPCS>> {
-        self.col_vals.clone()
-    }
-
-    pub fn schema(&self) -> Option<Schema> {
-        self.schema.clone()
-    }
-    pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
-        self.actvtr.clone()
-    }
-}
-
-pub async fn fieldify_df<F: PrimeField>(df: DataFrame) -> Result<Vec<Vec<F>>, EncodeError> {
-    let mut field_vecs: Vec<Vec<F>> = vec![Vec::new(); df.schema().fields().len()];
-    let partitioned_streams = df.execute_stream_partitioned().await.unwrap();
-
-    for mut partition_stream in partitioned_streams {
-        while let Some(batch) = partition_stream.next().await {
-            for (i, array) in batch.unwrap().columns().iter().enumerate() {
-                let mut encoded = encode_arrow_array_to_field::<F>(array)?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<F>>();
-                field_vecs[i].append(&mut encoded);
-            }
-        }
-    }
-    Ok(field_vecs)
-}
-
-pub async fn arithmatize_df<F: PrimeField>(
-    df: DataFrame,
-    max_nv: usize,
-) -> Result<(Vec<MLE<F>>, usize), EncodeError> {
-    let mut field_vecs: Vec<Vec<F>> = fieldify_df::<F>(df).await?;
-    let col_size = field_vecs[0].len();
-    #[cfg(debug_assertions)]
-    {
-        field_vecs
-            .iter()
-            .for_each(|v| assert_eq!(v.len(), col_size));
-    }
-
-    field_vecs.iter_mut().for_each(|v| {
-        v.extend(repeat_n(F::zero(), (1 << max_nv) - v.len()));
-    });
-    let data_polys: Vec<MLE<F>> = field_vecs
-        .iter()
-        .map(|v| MLE::from_evaluations_slice(max_nv, v))
-        .collect();
-    Ok((data_polys, col_size))
-}
-
-pub async fn df_to_table<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-    df: DataFrame,
-    max_nv: usize,
-    compute_actvtr: bool,
-) -> Result<ArithTable<F, MvPCS, UvPCS>, EncodeError> {
-    let schema = df.schema();
-    let (data_polys, col_size) = arithmatize_df(df.clone(), max_nv).await?;
-    let data_tr_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>> = data_polys
-        .iter()
-        .map(|p| prover.track_and_commit_mat_mv_poly(p).unwrap())
-        .collect();
-    let actv_opt = if compute_actvtr {
-        let mut activator_evals: Vec<F> = vec![F::one(); col_size];
-        activator_evals.extend(vec![F::zero(); 2_usize.pow(max_nv as u32) - col_size]);
-        let activator_poly = MLE::from_evaluations_slice(max_nv, &activator_evals);
-        let activator_tr_poly: TrackedPoly<F, MvPCS, UvPCS> = prover
-            .track_and_commit_mat_mv_poly(&activator_poly)
-            .unwrap();
-        Some(activator_tr_poly)
-    } else {
-        None
-    };
-
-    let table = ArithTable::new(Some(schema.into()), data_tr_polys, actv_opt, col_size);
-    Ok(table)
 }

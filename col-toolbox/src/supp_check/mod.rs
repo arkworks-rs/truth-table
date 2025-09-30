@@ -16,7 +16,7 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -66,8 +66,8 @@ pub struct SuppCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col: ColCom<F, MvPCS, UvPCS>,
-    pub supp: ColCom<F, MvPCS, UvPCS>,
+    pub col: ArithColOracle<F, MvPCS, UvPCS>,
+    pub supp: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct SuppCheckProverOutput<
@@ -211,8 +211,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_with_advice(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col: &ColCom<F, MvPCS, UvPCS>,
-        supp: &ColCom<F, MvPCS, UvPCS>,
+        col: &ArithColOracle<F, MvPCS, UvPCS>,
+        supp: &ArithColOracle<F, MvPCS, UvPCS>,
         common_mset_supp_m: &TrackedOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         // Use ColMultitool PIOP to show col and supp share a Common Multiset
@@ -225,18 +225,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // col and supp are subsets of each other by showing multiplicity polys have no
         // zeros
-        let supp_no_dups_checker = ColCom::new(
+        let supp_no_dups_checker = ArithColOracle::new(
             None,
             common_mset_supp_m.clone(),
             supp.actv.clone(),
             supp.num_vars(),
         );
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
-            col_comm: supp_no_dups_checker,
+            arith_col_oracle: supp_no_dups_checker,
         };
         NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
         let no_dup_verifier_input = NoDupCheckVerifierInput {
-            col_comm: supp.clone(),
+            arith_col_oracle: supp.clone(),
         };
         NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, no_dup_verifier_input)?;
 

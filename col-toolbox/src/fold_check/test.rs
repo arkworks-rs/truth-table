@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_piop::{
     arithmetic::mat_poly::mle::MLE,
@@ -60,16 +60,16 @@ fn test_fold_check() -> SnarkResult<()> {
     verifier.set_proof(proof);
 
     let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.id())?;
-    let folded_comm = ColCom::new(
+    let folded_comm = ArithColOracle::new(
         None,
         verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().id())?,
         Some(actvm.clone()),
         actv_tracked_mle.log_size(),
     );
-    let input_comms: Vec<ColCom<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
+    let input_comms: Vec<ArithColOracle<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
         .iter()
         .map(|col| {
-            ColCom::new(
+            ArithColOracle::new(
                 None,
                 verifier.track_mv_com_by_id(col.data_poly().id()).unwrap(),
                 Some(actvm.clone()),

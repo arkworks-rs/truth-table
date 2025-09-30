@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::table::{ArithTable, TableComm};
+use arithmetic::{table::ArithTable, table_oracle::ArithTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -41,8 +41,8 @@ pub struct ProjectionPIOPVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub projection: Projection,
-    pub expr: Vec<TableComm<F, MvPCS, UvPCS>>,
-    pub input: Arc<TableComm<F, MvPCS, UvPCS>>,
+    pub expr: Vec<ArithTableOracle<F, MvPCS, UvPCS>>,
+    pub input: Arc<ArithTableOracle<F, MvPCS, UvPCS>>,
 }
 
 pub struct ProjectionPIOP;
@@ -88,4 +88,3 @@ where
         self.clone()
     }
 }
-

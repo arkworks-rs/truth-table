@@ -1,5 +1,5 @@
 use super::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput};
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -116,7 +116,7 @@ fn nozero_test_helper<
         None => None,
     };
     let no_zero_check_verifier_input = NoZerosCheckVerifierInput {
-        col_comm: ColCom {
+        arith_col_oracle: ArithColOracle {
             inner: inner_com,
             actv: actv_com,
             data_type: None,

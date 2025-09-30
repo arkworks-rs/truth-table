@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -220,34 +220,34 @@ fn inclusion_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let included_col_comm = verifier.track_mv_com_by_id(included_col_tr_p.id())?;
+    let included_arith_col_oracle = verifier.track_mv_com_by_id(included_col_tr_p.id())?;
     let included_col_actv_comm = match included_col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
-    let super_col_comm = verifier.track_mv_com_by_id(super_col_tr_p.id())?;
+    let super_arith_col_oracle = verifier.track_mv_com_by_id(super_col_tr_p.id())?;
     let super_col_actv_comm = match super_col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
 
-    let included_col_comm = ColCom::new(
+    let included_arith_col_oracle = ArithColOracle::new(
         included_col.data_type(),
-        included_col_comm,
+        included_arith_col_oracle,
         included_col_actv_comm,
         included_col.num_vars(),
     );
 
-    let super_col_comm = ColCom::new(
+    let super_arith_col_oracle = ArithColOracle::new(
         super_col.data_type(),
-        super_col_comm,
+        super_arith_col_oracle,
         super_col_actv_comm,
         super_col.num_vars(),
     );
 
     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-        included_col_comm,
-        super_col_comm,
+        included_arith_col_oracle,
+        super_arith_col_oracle,
     };
 
     InclusionCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, inclusion_check_verifier_input)?;

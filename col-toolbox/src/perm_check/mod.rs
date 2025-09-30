@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -56,8 +56,8 @@ pub struct PermPIOPVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub left_col_com: ColCom<F, MvPCS, UvPCS>,
-    pub right_col_com: ColCom<F, MvPCS, UvPCS>,
+    pub left_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub right_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for PermPIOP<F, MvPCS, UvPCS>
@@ -112,8 +112,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let multiplicity_check_vierifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![input.left_col_com],
-            gxs: vec![input.right_col_com],
+            fxs: vec![input.left_arith_col_oracle],
+            gxs: vec![input.right_arith_col_oracle],
             mfxs: vec![None],
             mgxs: vec![None],
         };

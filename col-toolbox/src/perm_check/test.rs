@@ -1,4 +1,4 @@
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::{Field, PrimeField};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -167,14 +167,14 @@ fn perm_check_test_helper<
     verifier.set_proof(proof);
     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
     let left_actvm = verifier.track_mv_com_by_id(left_actv_p.id())?;
-    let left_col_com = ColCom::new(None, left_comm, Some(left_actvm), left_nv);
+    let left_arith_col_oracle = ArithColOracle::new(None, left_comm, Some(left_actvm), left_nv);
 
     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
     let right_actvm = verifier.track_mv_com_by_id(right_actv_p.id())?;
-    let right_col_com = ColCom::new(None, right_comm, Some(right_actvm), right_nv);
+    let right_arith_col_oracle = ArithColOracle::new(None, right_comm, Some(right_actvm), right_nv);
     let perm_piop_verifier_input = PermPIOPVerifierInput {
-        left_col_com,
-        right_col_com,
+        left_arith_col_oracle,
+        right_arith_col_oracle,
     };
     PermPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, perm_piop_verifier_input)?;
     verifier.verify()?;

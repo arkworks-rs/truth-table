@@ -1,4 +1,4 @@
-use arithmetic::table::{ArithTable, TableComm};
+use arithmetic::table::{ArithTable, ArithTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -64,7 +64,7 @@ pub struct SelectVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub output_table_comm: TableComm<F, MvPCS, UvPCS>,
+    pub input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }

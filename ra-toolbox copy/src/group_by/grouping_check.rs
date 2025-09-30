@@ -1,6 +1,6 @@
 ////////////// Imports //////////////
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::col::{ArithCol, ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -73,8 +73,8 @@ pub struct GroupingCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_grouping_column_comms: Vec<ColCom<F, MvPCS, UvPCS>>,
-    pub output_grouping_column_comms: Vec<ColCom<F, MvPCS, UvPCS>>,
+    pub input_grouping_column_comms: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
+    pub output_grouping_column_comms: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
 }
 
 pub struct GroupingCheckVerifierOutput<
@@ -83,8 +83,8 @@ pub struct GroupingCheckVerifierOutput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub super_set_multiplicity_tr_com: TrackedOracle<F, MvPCS, UvPCS>,
-    pub input_folded_col_com: ColCom<F, MvPCS, UvPCS>,
-    pub output_folded_col_com: ColCom<F, MvPCS, UvPCS>,
+    pub input_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub output_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -160,20 +160,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .collect();
 
         // Fold the input grouping columns to a single column using the above challenges
-        let input_folded_col_com =
+        let input_folded_arith_col_oracle =
             fold_coms(&input.input_grouping_column_comms, &gpd_cols_fld_challs);
-        let output_folded_col_com =
+        let output_folded_arith_col_oracle =
             fold_coms(&input.output_grouping_column_comms, &gpd_cols_fld_challs);
         let supp_check_input = SuppCheckVerifierInput {
-            col: input_folded_col_com.clone(),
-            supp: output_folded_col_com.clone(),
+            col: input_folded_arith_col_oracle.clone(),
+            supp: output_folded_arith_col_oracle.clone(),
         };
         let supp_check_output =
             SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
         let output = Ok(GroupingCheckVerifierOutput {
             super_set_multiplicity_tr_com: supp_check_output.super_set_multiplicity_tr_com,
-            input_folded_col_com,
-            output_folded_col_com,
+            input_folded_arith_col_oracle,
+            output_folded_arith_col_oracle,
         });
         output
     }

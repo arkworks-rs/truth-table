@@ -6,8 +6,8 @@ use super::{
 };
 
 use arithmetic::{
-    col::{ArithCol, ColCom},
-    table::{ArithTable, TableComm},
+    col::{ArithCol, ArithColOracle},
+    table::{ArithTable, ArithTableOracle},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -77,10 +77,10 @@ pub struct StatCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub query_output_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub query_input_table_comm: TableComm<F, MvPCS, UvPCS>,
-    pub input_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    pub output_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
+    pub query_output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub query_input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub input_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub output_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
     pub super_set_multiplicity_tr_com: TrackedOracle<F, MvPCS, UvPCS>,
     pub instr: GroupByConfig,
 }
@@ -167,32 +167,32 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     AggregationType::Count => verify_count_stat(
                         verifier,
                         input.super_set_multiplicity_tr_com.clone(),
-                        input.query_output_table_comm.col(*col_ind),
+                        input.query_output_arith_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Sum => verify_sum_stat(
                         verifier,
-                        input.input_folded_col_comm.clone(),
-                        input.query_input_table_comm.col(*col_ind),
-                        input.output_folded_col_comm.clone(),
-                        input.query_output_table_comm.col(*col_ind),
+                        input.input_folded_arith_col_oracle.clone(),
+                        input.query_input_arith_table_oracle.col(*col_ind),
+                        input.output_folded_arith_col_oracle.clone(),
+                        input.query_output_arith_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Max => verify_max_min_stat(
                         verifier,
                         AggregationType::Max,
                         input.super_set_multiplicity_tr_com.clone(),
-                        input.input_folded_col_comm.clone(),
-                        input.query_input_table_comm.col(*col_ind),
-                        input.output_folded_col_comm.clone(),
-                        input.query_output_table_comm.col(*col_ind),
+                        input.input_folded_arith_col_oracle.clone(),
+                        input.query_input_arith_table_oracle.col(*col_ind),
+                        input.output_folded_arith_col_oracle.clone(),
+                        input.query_output_arith_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Min => verify_max_min_stat(
                         verifier,
                         AggregationType::Min,
                         input.super_set_multiplicity_tr_com.clone(),
-                        input.input_folded_col_comm.clone(),
-                        input.query_input_table_comm.col(*col_ind),
-                        input.output_folded_col_comm.clone(),
-                        input.query_output_table_comm.col(*col_ind),
+                        input.input_folded_arith_col_oracle.clone(),
+                        input.query_input_arith_table_oracle.col(*col_ind),
+                        input.output_folded_arith_col_oracle.clone(),
+                        input.query_output_arith_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Avg => todo!(),
                     _ => unimplemented!(),
@@ -216,9 +216,9 @@ fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, P
 fn verify_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     super_set_multiplicity_tr_comm: TrackedOracle<F, MvPCS, UvPCS>,
-    stat_col_comm: ColCom<F, MvPCS, UvPCS>,
+    stat_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
-    let witness_tr_comm = &super_set_multiplicity_tr_comm - (&stat_col_comm.effective_comm());
+    let witness_tr_comm = &super_set_multiplicity_tr_comm - (&stat_arith_col_oracle.effective_comm());
     verifier.add_zerocheck_claim(witness_tr_comm.id);
     Ok(())
 }
@@ -242,16 +242,16 @@ fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
 
 fn verify_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    input_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    input_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
+    input_table_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    input_table_tararith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    output_table_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    output_table_tararith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
-        fxs: vec![input_table_folded_col_comm.clone()],
-        gxs: vec![output_table_folded_col_comm.clone()],
-        mfxs: vec![Some(input_table_tarcol_comm.inner)],
-        mgxs: vec![Some(output_table_tarcol_comm.inner)],
+        fxs: vec![input_table_folded_arith_col_oracle.clone()],
+        gxs: vec![output_table_folded_arith_col_oracle.clone()],
+        mfxs: vec![Some(input_table_tararith_col_oracle.inner)],
+        mgxs: vec![Some(output_table_tararith_col_oracle.inner)],
     };
 
     MultiplicityCheck::<F, MvPCS, UvPCS>::verify(verifier, multiplicity_check_verifier_input)
@@ -352,18 +352,18 @@ fn verify_max_min_stat<
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     stat_type: AggregationType,
     common_mset_supp_m: TrackedOracle<F, MvPCS, UvPCS>,
-    input_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    input_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_folded_col_comm: ColCom<F, MvPCS, UvPCS>,
-    output_table_tarcol_comm: ColCom<F, MvPCS, UvPCS>,
+    input_table_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    input_table_tararith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    output_table_folded_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    output_table_tararith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let broadcasted_stat_oracle_id = verifier.peek_next_id();
     let broadcasted_stat_tr_comm = verifier.track_mv_com_by_id(broadcasted_stat_oracle_id)?;
-    let broadcast_col_comm = ColCom {
-        data_type: input_table_tarcol_comm.data_type.clone(),
+    let broadcast_arith_col_oracle = ArithColOracle {
+        data_type: input_table_tararith_col_oracle.data_type.clone(),
         inner: broadcasted_stat_tr_comm.clone(),
-        actv: input_table_tarcol_comm.actv.clone(),
-        num_vars: input_table_tarcol_comm.num_vars,
+        actv: input_table_tararith_col_oracle.actv.clone(),
+        num_vars: input_table_tararith_col_oracle.num_vars,
     };
     // Prove that the broadcasted column is computed correctly
     // First check that the output statistics foded with the output categories is
@@ -374,16 +374,16 @@ fn verify_max_min_stat<
 
     let input_tarfolded_with_broadcast = fold_coms(
         &[
-            broadcast_col_comm.clone(),
-            input_table_folded_col_comm.clone(),
+            broadcast_arith_col_oracle.clone(),
+            input_table_folded_arith_col_oracle.clone(),
         ],
         &broadcast_folding_challs,
     );
 
     let output_tarfolded_with_broadcast = fold_coms(
         &[
-            output_table_tarcol_comm.clone(),
-            output_table_folded_col_comm.clone(),
+            output_table_tararith_col_oracle.clone(),
+            output_table_folded_arith_col_oracle.clone(),
         ],
         &broadcast_folding_challs,
     );
@@ -398,17 +398,17 @@ fn verify_max_min_stat<
 
     // Second check that the maximum value does actually appear in the input data
     let chall = verifier.get_and_append_challenge(b"max_min").unwrap();
-    let data_poly = &input_table_folded_col_comm.inner
-        + &(&(&broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner) * (chall));
-    let super_col_comm = ColCom::new(
+    let data_poly = &input_table_folded_arith_col_oracle.inner
+        + &(&(&broadcasted_stat_tr_comm - &input_table_tararith_col_oracle.inner) * (chall));
+    let super_arith_col_oracle = ArithColOracle::new(
         None,
         data_poly,
-        input_table_folded_col_comm.actv,
-        input_table_folded_col_comm.num_vars,
+        input_table_folded_arith_col_oracle.actv,
+        input_table_folded_arith_col_oracle.num_vars,
     );
     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-        included_col_comm: output_table_folded_col_comm,
-        super_col_comm,
+        included_arith_col_oracle: output_table_folded_arith_col_oracle,
+        super_arith_col_oracle,
     };
 
     InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, inclusion_check_verifier_input)?;
@@ -416,13 +416,13 @@ fn verify_max_min_stat<
     // target column is non-negative; i.e. the input table target column is less
     // than or equal to the broadcasted stats
 
-    let non_negative_comm = &broadcasted_stat_tr_comm - &input_table_tarcol_comm.inner;
+    let non_negative_comm = &broadcasted_stat_tr_comm - &input_table_tararith_col_oracle.inner;
     let sign_check_piop_verifier_input = SignCheckVerifierInput {
-        col_comm: ColCom {
-            data_type: input_table_tarcol_comm.data_type.clone(),
+        arith_col_oracle: ArithColOracle {
+            data_type: input_table_tararith_col_oracle.data_type.clone(),
             inner: non_negative_comm,
-            actv: input_table_tarcol_comm.actv.clone(),
-            num_vars: input_table_tarcol_comm.num_vars,
+            actv: input_table_tararith_col_oracle.actv.clone(),
+            num_vars: input_table_tararith_col_oracle.num_vars,
         },
         sign: match stat_type {
             AggregationType::Max => col_toolbox::sign_check::Sign::NoneNegative,

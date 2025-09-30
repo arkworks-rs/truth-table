@@ -51,7 +51,7 @@ where
     ) -> SnarkResult<Self::VerifierOutput> {
         // let binary_check_input = BinaryCheckVerifierInput {
         //     activator_comm: input
-        //         .output_table_comm
+        //         .output_arith_table_oracle
         //         .actvtr_poly()
         //         .as_ref()
         //         .unwrap()

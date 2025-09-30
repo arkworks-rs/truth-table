@@ -2,7 +2,7 @@ use crate::no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput};
 
 use super::NoDupPIOP;
 
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::{Field, PrimeField};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -119,8 +119,8 @@ fn no_dup_test_helper<
     verifier.set_proof(proof);
     let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
     let actvm = verifier.track_mv_com_by_id(in_actv_p.id())?;
-    let col_comm = ColCom::new(None, in_comm, Some(actvm), nv);
-    let no_dup_verifier_input = NoDupCheckVerifierInput { col_comm };
+    let arith_col_oracle = ArithColOracle::new(None, in_comm, Some(actvm), nv);
+    let no_dup_verifier_input = NoDupCheckVerifierInput { arith_col_oracle };
     NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_dup_verifier_input)?;
     verifier.verify()?;
     Ok(())

@@ -6,7 +6,7 @@
 mod honest_prover;
 #[cfg(test)]
 mod test;
-use arithmetic::col::{ArithCol, ColCom};
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -51,8 +51,8 @@ pub struct MultiplicityCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub fxs: Vec<ColCom<F, MvPCS, UvPCS>>,
-    pub gxs: Vec<ColCom<F, MvPCS, UvPCS>>,
+    pub fxs: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
+    pub gxs: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
     pub mfxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
     pub mgxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
 }
@@ -246,7 +246,7 @@ where
 
     fn verify_generate_subclaims(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        col: ColCom<F, MvPCS, UvPCS>,
+        col: ArithColOracle<F, MvPCS, UvPCS>,
         m: Option<TrackedOracle<F, MvPCS, UvPCS>>,
         gamma: F,
     ) -> SnarkResult<F> {
