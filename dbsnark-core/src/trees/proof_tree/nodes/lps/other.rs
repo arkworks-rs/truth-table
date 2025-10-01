@@ -35,8 +35,9 @@ where
         todo!()
     }
 
-    fn from_logical_plan(
+    fn from_lp(
         ctx: &datafusion::prelude::SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self
     where
@@ -51,6 +52,7 @@ where
 
     fn from_expr(
         ctx: &datafusion::prelude::SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: datafusion::prelude::Expr,
         parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self

@@ -30,8 +30,8 @@ fn esc_label(s: &str) -> String {
 pub struct DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     plan: &'a PIOPTree<F, MvPCS, UvPCS>,
 }

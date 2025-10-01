@@ -65,7 +65,11 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -76,7 +80,8 @@ where
 
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
-        let input_tree = ProofTree::<F, MvPCS, UvPCS>::from_logical_plan(ctx, &projection.input);
+        let input_tree =
+            ProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &projection.input);
         let input_proof_plan = input_tree.root();
         let child_output_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
             .unwrap_or_else(|| (*projection.input).clone());
@@ -107,7 +112,9 @@ where
         // retained activator).
         let expr_proof_plans = original_exprs
             .into_iter()
-            .map(|expr| ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, expr, &output_plan))
+            .map(|expr| {
+                ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &output_plan)
+            })
             .collect();
 
         let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
@@ -122,6 +129,7 @@ where
 
     fn from_expr(
         ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: datafusion::prelude::Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self

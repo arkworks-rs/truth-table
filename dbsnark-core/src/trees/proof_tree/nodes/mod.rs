@@ -6,25 +6,20 @@ pub mod lps;
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use arithmetic::table::ArithTable;
+use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    piop::PIOP,
     prover::Prover,
 };
 use datafusion::{
-    logical_expr::{self as df, LogicalPlan},
+    logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
 
-use crate::trees::{
-    arithmetized_tree::{self, ArithmetizedTree},
-    piop_tree::PIOPTree,
-    proof_tree::nodes::exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
-};
+use crate::trees::piop_tree::PIOPTree;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ProverNodeNodeId {
@@ -55,7 +50,12 @@ where
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
+    fn from_expr(
+        ctx: &SessionContext,
+        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_logical_plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -63,7 +63,11 @@ where
     }
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
-    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    fn from_lp(
+        ctx: &SessionContext,
+        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {

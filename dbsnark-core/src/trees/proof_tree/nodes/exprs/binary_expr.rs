@@ -111,6 +111,7 @@ where
 
     fn from_expr(
         ctx: &datafusion::prelude::SessionContext,
+        prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self
@@ -130,11 +131,13 @@ where
             node_id: ProverNodeNodeId::Expr(expr),
             left_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
+                prover_ctx.clone(),
                 left_expr,
                 &parent_logical_plan,
             ),
             right_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
+                prover_ctx,
                 right_expr,
                 &parent_logical_plan,
             ),

@@ -35,7 +35,12 @@ fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
 }
 
 /// Display helper that renders a Graphviz DOT tree for a HintTree.
-pub struct DisplayableHintTree<'a, F, MvPCS, UvPCS> {
+pub struct DisplayableHintTree<'a, F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     tree: &'a HintTree<F, MvPCS, UvPCS>,
 }
 

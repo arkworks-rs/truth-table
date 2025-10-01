@@ -35,12 +35,22 @@ use crate::trees::proof_tree::{
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct HintTree<F, MvPCS, UvPCS> {
+pub struct HintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for HintTree<F, MvPCS, UvPCS> {
+impl<F, MvPCS, UvPCS> fmt::Debug for HintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HintTree")
             .field("num_nodes", &self.hint_map.len())
@@ -223,7 +233,12 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a HintTree<F, MvPCS, UvPCS> {
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a HintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     type Item = (&'a ProverNodeNodeId, &'a HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
         std::collections::hash_map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
@@ -233,7 +248,12 @@ impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a HintTree<F, MvPCS, UvPCS> {
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for HintTree<F, MvPCS, UvPCS> {
+impl<F, MvPCS, UvPCS> IntoIterator for HintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     type Item = (ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>);
     type IntoIter =
         std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;

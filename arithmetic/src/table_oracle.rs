@@ -229,6 +229,13 @@ where
 /// - A vector of column oracles (one for each column)
 /// - An optional activator oracle, If none, all the rows are active
 /// - The log size of the table
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Clone(bound = "UvPCS: PCS<F>"),
+    PartialEq(bound = "UvPCS: PCS<F>")
+)]
 pub struct SerializableArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
@@ -273,6 +280,14 @@ where
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
+
+    pub fn data_commitments(&self) -> &HashMap<FieldRef, MvPCS::Commitment> {
+        &self.data_commitments
+    }
+
+    pub fn activator_commitment(&self) -> Option<&MvPCS::Commitment> {
+        self.actvtr.as_ref()
+    }
 }
 
 impl<F, MvPCS, UvPCS> CanonicalSerialize for SerializableArithTableOracle<F, MvPCS, UvPCS>
@@ -282,7 +297,6 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + Sync,
     MvPCS::Commitment: CanonicalSerialize + Valid,
 {
-
     fn serialize_with_mode<W: Write>(
         &self,
         mut writer: W,

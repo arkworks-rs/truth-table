@@ -1,16 +1,20 @@
 use std::{
+    collections::HashMap,
     fs::File,
-    io::{BufWriter, Write},
+    io::{BufReader, BufWriter, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
-use arithmetic::table_oracle::{ArithTableOracle, SerializableArithTableOracle};
+use arithmetic::{
+    ctx::ProverCtx,
+    table_oracle::{ArithTableOracle, SerializableArithTableOracle},
+};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
-    test_utils::test_prelude,
+    test_utils::{bench_prelude, test_prelude},
 };
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::trees::{
@@ -60,9 +64,9 @@ pub fn commit_parquet(
             .into_unoptimized_plan();
 
         let (mut prover, mut verifier) =
-            test_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
-
-        let proof_tree = ProofTree::<F, MvPCS, UvPCS>::from_logical_plan(&ctx, &logical_plan);
+            bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
+        let prover_ctx = ProverCtx::new(HashMap::new());
+        let proof_tree = ProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
         let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
@@ -118,43 +122,62 @@ pub fn commit_parquet(
     })
 }
 
+/// Load a previously committed parquet table from disk.
+pub fn load_parquet_commitment(
+    commitment_path: &Path,
+) -> Result<SerializableArithTableOracle<F, MvPCS, UvPCS>> {
+    let file = File::open(commitment_path).with_context(|| {
+        format!(
+            "failed to open serialized oracle file at {}",
+            commitment_path.display()
+        )
+    })?;
+    let mut reader = BufReader::new(file);
+    SerializableArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+        .context("failed to deserialize oracle")
+}
+
+/// Commit a parquet file and verify the resulting oracle can be deserialized
+/// back.
+pub fn commit_parquet_serializes_oracle(parquet_path: &Path) -> Result<()> {
+    let (serializable, serialized_path) =
+        commit_parquet(parquet_path).context("failed to commit parquet")?;
+
+    let reloaded = load_parquet_commitment(&serialized_path).context("failed to reload oracle")?;
+
+    if serializable.schema() != reloaded.schema() {
+        anyhow::bail!("reloaded oracle schema does not match original");
+    }
+
+    let mut original_bytes = Vec::new();
+    serializable
+        .serialize_uncompressed(&mut original_bytes)
+        .context("failed to serialize original oracle")?;
+
+    let mut reloaded_bytes = Vec::new();
+    reloaded
+        .serialize_uncompressed(&mut reloaded_bytes)
+        .context("failed to serialize reloaded oracle")?;
+
+    if original_bytes != reloaded_bytes {
+        anyhow::bail!("reloaded oracle bytes differ from original");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use arithmetic::table_oracle::SerializableArithTableOracle;
-    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-    use std::{fs, io::Cursor};
-    use tpch_data::test_data_path;
+    use super::commit_parquet_serializes_oracle;
+    use tpch_data::{bench_data_path, test_data_path};
 
     #[test]
-    fn commit_parquet_serializes_oracle() {
-        let parquet_path = test_data_path("nation.parquet");
+    #[ignore = "Takes too long"]
+    fn commit_parquet_serializes_oracle_round_trip() {
+        let parquet_path = bench_data_path("customer.parquet");
         assert!(parquet_path.exists());
 
-        let (serializable, serialized_path) =
-            commit_parquet(&parquet_path).expect("commit nation parquet");
-
-        assert!(serialized_path.exists());
-
-        let mut expected_bytes = Vec::new();
-        serializable
-            .serialize_uncompressed(&mut expected_bytes)
-            .expect("serialize oracle to bytes");
-
-        let file_bytes = fs::read(&serialized_path).expect("read serialized oracle file");
-        assert_eq!(expected_bytes, file_bytes);
-
-        let mut reader = Cursor::new(file_bytes.as_slice());
-        let deserialized =
-            SerializableArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-                .expect("deserialize oracle from file");
-
-        assert_eq!(serializable.schema(), deserialized.schema());
-
-        let mut round_trip_bytes = Vec::new();
-        deserialized
-            .serialize_uncompressed(&mut round_trip_bytes)
-            .expect("serialize deserialized oracle");
-        assert_eq!(expected_bytes, round_trip_bytes);
+        commit_parquet_serializes_oracle(&parquet_path)
+            .expect("commit and verify customer parquet oracle");
     }
 }

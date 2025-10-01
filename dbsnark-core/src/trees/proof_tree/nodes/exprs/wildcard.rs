@@ -39,6 +39,7 @@ where
     }
     fn from_expr(
         ctx: &datafusion::prelude::SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self

@@ -24,8 +24,8 @@ use crate::trees::{
 pub struct PIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
@@ -34,8 +34,8 @@ where
 impl<F, MvPCS, UvPCS> fmt::Debug for PIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PIOPTree")
@@ -149,8 +149,8 @@ where
 impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a PIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
         &'a ProverNodeNodeId,
@@ -170,8 +170,8 @@ where
 impl<F, MvPCS, UvPCS> IntoIterator for PIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
         ProverNodeNodeId,
@@ -190,8 +190,8 @@ where
 struct VirtualNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 }
@@ -199,8 +199,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
@@ -227,8 +227,8 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
 struct VirtualTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
 }
@@ -236,8 +236,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();

@@ -42,12 +42,17 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
         let output_plan = Self::build_output_plan(plan.clone());
         let mut hint_generation_plans = HashMap::new();
+
         hint_generation_plans.insert("output_plan".to_string(), output_plan.clone());
         Self {
             plan: plan.clone(),
@@ -74,6 +79,7 @@ where
 
     fn from_expr(
         ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: datafusion::prelude::Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self

@@ -39,8 +39,8 @@ where
 impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
@@ -110,8 +110,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.graphviz())

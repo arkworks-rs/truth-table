@@ -12,7 +12,7 @@ use datafusion::{
     logical_expr::Expr,
     scalar::ScalarValue,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub struct LiteralExprNode {
@@ -39,6 +39,7 @@ where
 
     fn from_expr(
         _ctx: &datafusion::prelude::SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         _parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self
@@ -81,9 +82,21 @@ where
 
         let data_type = scalar.data_type();
 
-        let schema = Schema::new(vec![Field::new("literal", data_type, scalar.is_null())]);
+        let schema = Schema::new(vec![Field::new(
+            "literal",
+            data_type.clone(),
+            scalar.is_null(),
+        )]);
 
-        let table = ArithTable::new(Some(schema), vec![tracked_poly], None, 1);
+        let table = ArithTable::new(
+            Some(schema),
+            HashMap::from([(
+                Arc::new(Field::new("literal", data_type, scalar.is_null())),
+                tracked_poly,
+            )]),
+            None,
+            1,
+        );
 
         piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), table);
     }

@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use super::PIOPTree;
 use crate::{
     test_utils::test_df_plan,
     trees::{arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree},
 };
+use arithmetic::ctx::ProverCtx;
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
@@ -23,7 +26,8 @@ type UvPCS = KZG10<Bls12_381>;
 async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await?;
-    let proof_tree = ProofTree::from_logical_plan(&ctx, &plan);
+    let prover_ctx = ProverCtx::new(HashMap::new());
+    let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
 
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();

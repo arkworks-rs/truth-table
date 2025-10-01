@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 ark-ff = { workspace = true }
 ark-piop = { workspace = true, features = ["test-utils"] }
+ark-serialize = { workspace = true }
 datafusion = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

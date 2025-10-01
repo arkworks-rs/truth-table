@@ -1,19 +1,28 @@
 pub mod display;
 
-use std::{collections::HashMap, fmt};
-
-use arithmetic::{errors::EncodeError, table::ArithTable};
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-    prover::Prover,
-};
+use std::{collections::HashMap, fmt, hash::Hash, sync::Arc};
 
 use crate::trees::{
     hint_tree::HintTree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
 };
+use arithmetic::{
+    ctx::ProverCtx, encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable,
+};
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+    prover::{Prover, structs::polynomial::TrackedPoly},
+};
+use datafusion::{
+    arrow::{
+        array::RecordBatch,
+        datatypes::{FieldRef, Schema},
+    },
+    logical_expr::LogicalPlan,
+};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -26,8 +35,8 @@ pub mod tests;
 pub struct ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
@@ -36,8 +45,8 @@ where
 impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArithmetizedTree")
@@ -129,6 +138,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();
+        let prover_ctx = proof_tree.ctx();
         let mut tables_by_node: HashMap<
             ProverNodeNodeId,
             HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
@@ -137,7 +147,9 @@ where
         for (node_id, batches_by_label) in hint_map {
             let mut arith_tables = HashMap::with_capacity(batches_by_label.len());
             for (label, batches) in batches_by_label {
-                let table = ArithTable::<F, MvPCS, UvPCS>::from_record_batches(batches, prover)?;
+                let table = Self::arith_table_from_record_batches_and_ctx(
+                    &node_id, batches, prover_ctx, prover,
+                )?;
                 arith_tables.insert(label, table);
             }
             tables_by_node.insert(node_id, arith_tables);
@@ -145,13 +157,156 @@ where
 
         Ok(Self::new(proof_tree, tables_by_node))
     }
+
+    /// Computes an Arithmetic table from a vector of record batches
+    /// If the columns are already commited and are in the prover context, they
+    /// will not be commited again
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn arith_table_from_record_batches_and_ctx(
+        node_id: &ProverNodeNodeId,
+        record_batches: Vec<RecordBatch>,
+        prover_ctx: &ProverCtx<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) -> Result<ArithTable<F, MvPCS, UvPCS>, EncodeError> {
+        // If there is no record batch, just output empty arithmetic tables
+        if record_batches.is_empty() {
+            return Ok(ArithTable::new(None, HashMap::new(), None, 0));
+        }
+        // Get the schema ref of the record batches
+        let schema_ref = record_batches[0].schema();
+        // Get the index of the activator column in the set of columns
+        let activator_idx = schema_ref.index_of("activator").ok();
+        // Get the number of columns in the record batches
+        let num_cols = schema_ref.fields().len();
+        // Get the number of rows in the record batches
+        let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
+        // Assert that the number of rows are a power of two
+        assert!(total_rows.is_power_of_two());
+        // Get the log of the number of rows
+        let max_log_vars = total_rows.trailing_zeros() as usize;
+        // Get the values for each column in the record batches
+        let columns: Result<Vec<Vec<F>>, EncodeError> = (0..num_cols)
+            .into_par_iter()
+            .map(|col_idx| {
+                let mut values = Vec::with_capacity(total_rows);
+                for batch in &record_batches {
+                    let encoded = encode_arrow_array_to_field::<F>(batch.column(col_idx))?;
+                    // TODO: The current version only supports single column encoding
+                    let mut column_values = encoded.into_iter().next().expect("encoded column");
+                    values.append(&mut column_values);
+                }
+                Ok(values)
+            })
+            .collect();
+        let mut columns = columns?;
+
+        // Turn the columns into MLE polynomials
+        let column_polys: HashMap<FieldRef, Arc<MLE<F>>> = columns
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, values)| {
+                let mle = MLE::from_evaluations_slice(max_log_vars, &values);
+                let field_ref = Arc::new(schema_ref.field(idx).clone());
+                (field_ref, Arc::new(mle))
+            })
+            .collect();
+
+        let prover_param = prover.mv_pcs_prover_param();
+
+        let existing_table_commits = match node_id {
+            ProverNodeNodeId::LP(LogicalPlan::TableScan(_)) => {
+                dbg!(prover_ctx.table_oracles().keys().len());
+                dbg!(prover_ctx.table_oracles().keys().next());
+                dbg!(schema_ref.clone());
+                prover_ctx.table_oracle(schema_ref.as_ref())
+            },
+            _ => None,
+        };
+
+        let mut column_commitments: HashMap<FieldRef, MvPCS::Commitment> =
+            HashMap::with_capacity(column_polys.len());
+        for (field_ref, poly) in &column_polys {
+            let is_activator_field =
+                activator_idx.is_some_and(|idx| schema_ref.field(idx).name() == field_ref.name());
+            let commitment = if let Some(saved_table) = existing_table_commits {
+                if is_activator_field {
+                    saved_table
+                        .activator_commitment()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            MvPCS::commit(prover_param.clone(), poly)
+                                .expect("failed to commit witness polynomial")
+                        })
+                } else {
+                    saved_table
+                        .data_commitments()
+                        .get(field_ref)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            MvPCS::commit(prover_param.clone(), poly)
+                                .expect("failed to commit witness polynomial")
+                        })
+                }
+            } else {
+                MvPCS::commit(prover_param.clone(), poly)
+                    .expect("failed to commit witness polynomial")
+            };
+            column_commitments.insert(field_ref.clone(), commitment);
+        }
+
+        let mut data_polys: HashMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> = HashMap::with_capacity(num_cols);
+        let mut activator_poly: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
+
+        for idx in 0..num_cols {
+            let field_ref = Arc::new(schema_ref.field(idx).clone());
+            let poly_arc = column_polys
+                .get(&field_ref)
+                .expect("polynomial for field not found")
+                .clone();
+            let commitment = column_commitments
+                .get(&field_ref)
+                .expect("commitment for field not found")
+                .clone();
+
+            let tracked = prover
+                .track_mat_mv_poly_with_commitment(poly_arc.as_ref(), commitment)
+                .expect("failed to commit witness polynomial");
+            if Some(idx) == activator_idx {
+                activator_poly = Some(tracked);
+            } else {
+                data_polys.insert(field_ref.clone(), tracked);
+            }
+        }
+
+        let schema = Some(Schema::new(
+            schema_ref
+                .fields()
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, field)| {
+                    if Some(idx) == activator_idx {
+                        None
+                    } else {
+                        Some(field.clone())
+                    }
+                })
+                .collect::<datafusion::arrow::datatypes::Fields>(),
+        ));
+
+        Ok(ArithTable::new(
+            schema,
+            data_polys,
+            activator_poly,
+            total_rows,
+        ))
+    }
 }
 
 impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
         &'a ProverNodeNodeId,
@@ -171,8 +326,8 @@ where
 impl<F, MvPCS, UvPCS> IntoIterator for ArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
         ProverNodeNodeId,
@@ -191,8 +346,8 @@ where
 struct ArithNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
 }
@@ -200,8 +355,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
@@ -227,8 +382,8 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
 struct ArithTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
 }
@@ -236,8 +391,8 @@ where
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();

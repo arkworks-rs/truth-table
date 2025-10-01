@@ -8,6 +8,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
+    arrow::datatypes::FieldRef,
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
@@ -40,7 +41,12 @@ where
         Vec::new()
     }
 
-    fn from_expr(_ctx: &SessionContext, expr: Expr, _parent_logical_plan: LogicalPlan) -> Self
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        _parent_logical_plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -76,9 +82,19 @@ where
         let col = table
             .col_by_name(&column_expr.name)
             .expect("column not found in table");
+        // TODO: Clean this up later
         let output_table = ArithTable::new(
             None,
-            vec![col.data_poly().clone()],
+            vec![(
+                Arc::new(datafusion::arrow::datatypes::Field::new(
+                    column_expr.name.as_str(),
+                    col.data_type().expect("Column data type should not be None").clone(),
+                    true,
+                )),
+                col.data_poly().clone(),
+            )]
+            .into_iter()
+            .collect(),
             col.actvtr_poly().cloned(),
             0,
         );

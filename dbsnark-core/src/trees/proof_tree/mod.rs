@@ -1,8 +1,8 @@
 pub mod display;
 pub mod nodes;
-
 use std::{collections::HashMap, sync::Arc};
 
+use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -27,7 +27,13 @@ use self::nodes::{
 pub mod tests;
 
 #[derive(Clone)]
-pub struct ProofTree<F, MvPCS, UvPCS> {
+pub struct ProofTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    ctx: ProverCtx<F, MvPCS, UvPCS>,
     root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
@@ -41,12 +47,19 @@ where
         Arc::clone(&self.root)
     }
 
+    pub fn ctx(&self) -> &ProverCtx<F, MvPCS, UvPCS> {
+        &self.ctx
+    }
+
     pub fn root_ref(&self) -> &Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         &self.root
     }
 
-    pub fn new(root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> Self {
-        Self { root }
+    pub fn new(
+        root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+        ctx: ProverCtx<F, MvPCS, UvPCS>,
+    ) -> Self {
+        Self { root, ctx }
     }
 
     pub fn display_graphviz(&self) -> display::ProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
@@ -88,6 +101,7 @@ where
 
     pub fn from_expr(
         ctx: &SessionContext,
+        prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: &LogicalPlan,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
@@ -102,11 +116,15 @@ where
                 MvPCS,
                 UvPCS,
             >>::from_expr(
-                ctx, expr, parent_logical_plan.clone()
+                ctx,
+                prover_ctx.clone(),
+                expr,
+                parent_logical_plan.clone(),
             )),
             Expr::Column(_) => {
                 Arc::new(<ColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
                     ctx,
+                    prover_ctx.clone(),
                     expr,
                     parent_logical_plan.clone(),
                 ))
@@ -114,6 +132,7 @@ where
             Expr::Literal(_) => {
                 Arc::new(<LiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
                     ctx,
+                    prover_ctx.clone(),
                     expr,
                     parent_logical_plan.clone(),
                 ))
@@ -123,42 +142,49 @@ where
                 MvPCS,
                 UvPCS,
             >>::from_expr(
-                ctx, expr, parent_logical_plan.clone()
+                ctx, prover_ctx, expr, parent_logical_plan.clone()
             )),
             _ => todo!(),
         }
     }
 
     /// Build a `ProverNode` tree from a DataFusion `LogicalPlan`.
-    #[tracing::instrument(name = "from_logical_plan", skip(ctx, plan))]
-    pub fn from_logical_plan(ctx: &SessionContext, plan: &LogicalPlan) -> Self {
+    #[tracing::instrument(name = "from_lp", skip_all)]
+    pub fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        plan: &LogicalPlan,
+    ) -> Self {
         match plan {
-            df::LogicalPlan::TableScan(_ts) => Self::new(Arc::new(<TableScanNode as ProverNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_logical_plan(
-                ctx, plan.clone()
-            ))),
+            df::LogicalPlan::TableScan(_ts) => Self::new(
+                Arc::new(<TableScanNode as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                )),
+                prover_ctx,
+            ),
             df::LogicalPlan::Values(_vals) => todo!(),
-            df::LogicalPlan::Projection(_) => {
-                Self::new(Arc::new(<ProjectionNode<F, MvPCS, UvPCS> as ProverNode<
+            df::LogicalPlan::Projection(_) => Self::new(
+                Arc::new(<ProjectionNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
-                >>::from_logical_plan(
-                    ctx, plan.clone()
-                )))
-            },
-            df::LogicalPlan::Filter(_) => {
-                Self::new(Arc::new(<FilterNode<F, MvPCS, UvPCS> as ProverNode<
+                >>::from_lp(
+                    ctx, prover_ctx.clone(), plan.clone()
+                )),
+                prover_ctx,
+            ),
+            df::LogicalPlan::Filter(_) => Self::new(
+                Arc::new(<FilterNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
-                >>::from_logical_plan(
-                    ctx, plan.clone()
-                )))
-            },
+                >>::from_lp(
+                    ctx, prover_ctx.clone(), plan.clone()
+                )),
+                prover_ctx,
+            ),
             df::LogicalPlan::Window(_w) => todo!(),
             df::LogicalPlan::Aggregate(_aggr) => todo!(),
             df::LogicalPlan::Sort(_s) => todo!(),

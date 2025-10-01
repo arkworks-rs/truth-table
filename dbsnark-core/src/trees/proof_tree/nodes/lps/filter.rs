@@ -105,7 +105,11 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -116,15 +120,20 @@ where
         };
 
         // The input is itself a logical plan and needs to be proved
-        let input_proof_plan = ProofTree::<F, MvPCS, UvPCS>::from_logical_plan(ctx, &filter.input);
+        let input_proof_plan =
+            ProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
         // Fetching the output logical plan of the input logical plan
         let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
         // Build the output logical plan for this filter node on top of the child output
         // logical plan
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
-        let predicate_proof_plan =
-            ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, filter.predicate.clone(), &output_plan);
+        let predicate_proof_plan = ProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            filter.predicate.clone(),
+            &output_plan,
+        );
         // Building the witness generation plans map
         let hint_generation_plans =
             HashMap::from([("output_plan".to_string(), output_plan.clone())]);
@@ -150,7 +159,12 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn from_expr(ctx: &SessionContext, expr: Expr, parent_logical_plan: LogicalPlan) -> Self
+    fn from_expr(
+        ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_logical_plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {

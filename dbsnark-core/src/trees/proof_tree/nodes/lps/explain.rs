@@ -26,7 +26,11 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_logical_plan(ctx: &SessionContext, plan: LogicalPlan) -> Self
+    fn from_lp(
+        ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -50,6 +54,7 @@ where
 
     fn from_expr(
         ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
         expr: datafusion::prelude::Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self
