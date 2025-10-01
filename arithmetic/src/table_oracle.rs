@@ -39,7 +39,6 @@ where
 {
     schema: Option<Schema>,
     data_oracles: HashMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
-    actvtr: Option<TrackedOracle<F, MvPCS, UvPCS>>,
     log_size: usize,
 }
 
@@ -65,18 +64,15 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     /// Creates a new arithmetized table given an optional schema, a vector of
-    /// column oracles, an optional activator oracle (if none, all the rows are
-    /// active), and the log size of the table
+    /// column oracles and the log size of the table
     pub fn new(
         schema: Option<Schema>,
         data_oracles: HashMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
-        actvtr: Option<TrackedOracle<F, MvPCS, UvPCS>>,
         log_size: usize,
     ) -> Self {
         Self {
             schema,
             data_oracles,
-            actvtr,
             log_size,
         }
     }
@@ -109,7 +105,7 @@ where
                 .clone();
             folded += &(&col_oracle * challs[i]);
         }
-        ArithColOracle::new(None, folded, self.actvtr.clone(), self.log_size)
+        ArithColOracle::new(None, folded, self.actvtr_poly(), self.log_size)
     }
 
     /// Returns the folded column oracle of all the columns in the table with
@@ -139,7 +135,7 @@ where
             .get(&field_ref)
             .expect("column oracle not found")
             .clone();
-        ArithColOracle::new(Some(data_type), oracle, self.actvtr.clone(), self.log_size)
+        ArithColOracle::new(Some(data_type), oracle, self.actvtr_poly(), self.log_size)
     }
 
     /// Returns the column oracles at the specified indices
@@ -172,41 +168,18 @@ where
         let schema = table.schema().clone();
         let log_size = table.log_size();
 
-        let data_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>> = table
-            .data_polys()
-            .iter()
-            .map(|tracked_poly| -> SnarkResult<_> {
-                let id = tracked_poly.id_or_const().left().ok_or_else(|| {
-                    VerifierError::VerifierCheckFailed(
-                        "Table column polynomial is constant; expected commitment id".into(),
-                    )
-                })?;
-                verifier.track_mv_com_by_id(id)
-            })
-            .collect::<SnarkResult<_>>()?;
-
-        let actvtr_comm = match table.actvtr_poly().as_ref() {
-            Some(actvtr) => {
-                let id = actvtr.id_or_const().left().ok_or_else(|| {
-                    VerifierError::VerifierCheckFailed(
-                        "Activator polynomial is constant; expected commitment id".into(),
-                    )
-                })?;
-                Some(verifier.track_mv_com_by_id(id)?)
-            },
-            None => None,
-        };
-
-        let schema_fields: Vec<FieldRef> = schema
-            .as_ref()
-            .map(|s| s.fields().iter().cloned().collect())
-            .unwrap_or_default();
-        let mut data_map = HashMap::with_capacity(schema_fields.len());
-        for (field_ref, oracle) in schema_fields.into_iter().zip(data_comms.into_iter()) {
-            data_map.insert(field_ref, oracle);
+        let mut data_map = HashMap::with_capacity(table.num_cols());
+        for (field_ref, poly) in table.columns() {
+            let id = poly.id_or_const().left().ok_or_else(|| {
+                VerifierError::VerifierCheckFailed(
+                    "Table column polynomial is constant; expected commitment id".into(),
+                )
+            })?;
+            let oracle = verifier.track_mv_com_by_id(id)?;
+            data_map.insert(field_ref.clone(), oracle);
         }
 
-        Ok(Self::new(schema, data_map, actvtr_comm, log_size))
+        Ok(Self::new(schema, data_map, log_size))
     }
 
     /// Returns the vector of raw column oracles in the table
@@ -219,7 +192,9 @@ where
     }
     /// Returns the optional activator oracle of the table
     pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
-        self.actvtr.clone()
+        self.data_oracles
+            .iter()
+            .find_map(|(field, oracle)| (field.name() == "activator").then(|| oracle.clone()))
     }
 }
 
@@ -245,7 +220,6 @@ where
     _phantom: std::marker::PhantomData<UvPCS>,
     schema: Option<Schema>,
     data_commitments: HashMap<FieldRef, MvPCS::Commitment>,
-    actvtr: Option<MvPCS::Commitment>,
     log_size: usize,
 }
 
@@ -264,15 +238,10 @@ where
             .iter()
             .map(|(field_ref, oracle)| (field_ref.clone(), oracle.commitment()))
             .collect();
-        let actvtr = table_oracle
-            .actvtr_poly()
-            .as_ref()
-            .map(|oracle| oracle.commitment());
         Self {
             _phantom: std::marker::PhantomData,
             schema: table_oracle.schema(),
             data_commitments,
-            actvtr,
             log_size: table_oracle.log_size(),
         }
     }
@@ -286,7 +255,9 @@ where
     }
 
     pub fn activator_commitment(&self) -> Option<&MvPCS::Commitment> {
-        self.actvtr.as_ref()
+        self.data_commitments
+            .iter()
+            .find_map(|(field, comm)| (field.name() == "activator").then(|| comm))
     }
 }
 
@@ -330,7 +301,6 @@ where
             commitment.serialize_with_mode(&mut writer, compress)?;
         }
 
-        self.actvtr.serialize_with_mode(&mut writer, compress)?;
         (self.log_size as u64).serialize_with_mode(&mut writer, compress)?;
         Ok(())
     }
@@ -360,8 +330,7 @@ where
             size += commitment.serialized_size(compress);
         }
 
-        size + self.actvtr.serialized_size(compress)
-            + (self.log_size as u64).serialized_size(compress)
+        size + (self.log_size as u64).serialized_size(compress)
     }
 }
 
@@ -413,9 +382,6 @@ where
             data_commitments.insert(field_ref, commitment);
         }
 
-        let actvtr =
-            Option::<MvPCS::Commitment>::deserialize_with_mode(&mut reader, compress, validate)?;
-
         let log_size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let log_size =
             usize::try_from(log_size_raw).map_err(|_| SerializationError::InvalidData)?;
@@ -424,7 +390,6 @@ where
             _phantom: std::marker::PhantomData,
             schema,
             data_commitments,
-            actvtr,
             log_size,
         })
     }
@@ -440,9 +405,6 @@ where
     fn check(&self) -> Result<(), SerializationError> {
         for commitment in self.data_commitments.values() {
             commitment.check()?;
-        }
-        if let Some(actvtr) = &self.actvtr {
-            actvtr.check()?;
         }
         Ok(())
     }

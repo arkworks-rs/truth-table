@@ -6,6 +6,7 @@ use sql_toolbox::select::{
     SelectCheckPIOP,
 };
 use tokio::runtime::Runtime;
+use std::sync::Arc;
 
 const TABLE_QUERY: &str = "SELECT PRODUCTION_YEAR, ID FROM 'parquets/title-sanitized.parquet'";
 const AUX_QUERY: &str = "SELECT CASE WHEN PRODUCTION_YEAR = 2000 THEN 1 ELSE 0 END AS SELECTED FROM 'parquets/title-sanitized.parquet';";
@@ -29,12 +30,21 @@ fn prepare_prover_inputs() -> (
             where_clause: WhereClause::Eq(0, F::from(2000u64)),
         };
 
-        let output_table = ArithTable::new(
-            table.schema(),
-            table.data_polys(),
-            Some(aux_table.data_polys()[0].clone()),
-            table.size(),
-        );
+        let mut output_cols: Vec<_> = table
+            .columns()
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+            .collect();
+        if let Some(actv_poly) = aux_table.data_polys().first() {
+            output_cols.push((
+                Arc::new(datafusion::arrow::datatypes::Field::new(
+                    "activator",
+                    datafusion::arrow::datatypes::DataType::Boolean,
+                    true,
+                )),
+                actv_poly.clone(),
+            ));
+        }
+        let output_table = ArithTable::new(table.schema(), output_cols, table.size());
         let prover_input = SelectProverInput {
             input_table: table.clone(),
             output_table: output_table.clone(),
@@ -66,11 +76,33 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
             .actvtr_poly()
             .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
 
+        let mut output_oracles = input_arith_table_oracle.data_oracles();
+        if let Some(activator_oracle) = output_actv {
+            let activator_field = input_arith_table_oracle
+                .schema()
+                .as_ref()
+                .and_then(|schema| {
+                    schema
+                        .fields()
+                        .iter()
+                        .find(|field| field.name() == "activator")
+                        .cloned()
+                })
+                .unwrap_or_else(|| {
+                    Arc::new(datafusion::arrow::datatypes::Field::new(
+                        "activator",
+                        datafusion::arrow::datatypes::DataType::Boolean,
+                        true,
+                    ))
+                });
+            output_oracles.insert(activator_field, activator_oracle);
+        }
+
         let output_arith_table_oracle = ArithTableOracle::new(
             input_arith_table_oracle.schema(),
-            input_arith_table_oracle.col_vals(),
-            output_actv,
-            input_arith_table_oracle.num_vars(),
+            output_oracles,
+            None,
+            input_arith_table_oracle.log_size(),
         );
 
         let verifier_input = SelectVerifierInput {

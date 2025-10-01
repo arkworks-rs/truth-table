@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use ark_ff::PrimeField;
 
@@ -36,11 +36,8 @@ where
 {
     /// The schema of the table; i.e. the metadata about the table
     schema: Option<Schema>,
-    /// The polynomials representing the data columns
-    data_polys: HashMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
-    /// The polynomial representing the activator
-    /// If it is None, all the rows are active
-    actvtr_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+    /// The polynomials representing the data columns, stored in schema order
+    data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
     size: usize,
 }
 
@@ -55,7 +52,6 @@ where
         f.debug_struct("ArithTable")
             .field("num_cols", &self.num_cols())
             .field("log_size", &self.log_size())
-            .field("has_actvtr", &self.actvtr_poly.is_some())
             .field("size", &self.size)
             .finish()
     }
@@ -73,12 +69,8 @@ where
             .data_polys
             .iter()
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
-            .collect::<HashMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>>();
-        let actvtr_poly = self
-            .actvtr_poly
-            .as_ref()
-            .map(|poly| poly.deep_clone(prover));
-        Self::new(self.schema.clone(), data_polys, actvtr_poly, self.size)
+            .collect();
+        Self::new(self.schema.clone(), data_polys, self.size)
     }
 }
 
@@ -90,44 +82,42 @@ where
 {
     pub fn new(
         schema: Option<Schema>,
-        data_polys:  HashMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
-        actvtr_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
         // TODO: See if we can remove this
         size: usize,
     ) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            if actvtr_poly.is_some() {
-                let unwrapped_actvtr_poly = actvtr_poly.as_ref().unwrap();
-                for poly in data_polys.values() {
-                    assert_eq!(poly.log_size(), unwrapped_actvtr_poly.log_size());
-                    assert!(poly.same_tracker(unwrapped_actvtr_poly));
-                }
-            }
-        }
         Self {
             schema,
             data_polys,
-            actvtr_poly,
             size,
         }
     }
     pub fn log_size(&self) -> usize {
-        self.data_polys.values().next().unwrap().log_size()
+        self.data_polys
+            .first()
+            .expect("table should have columns")
+            .1
+            .log_size()
     }
 
     pub fn prover(&self) -> Prover<F, MvPCS, UvPCS> {
-        Prover::new_from_tracker_rc(self.data_polys.values().next().unwrap().tracker())
+        Prover::new_from_tracker_rc(
+            self.data_polys
+                .first()
+                .expect("table should have columns")
+                .1
+                .tracker(),
+        )
     }
 
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
         assert_eq!(col_inds.len(), challs.len());
-        let data_polys_values: Vec<_> = self.data_polys.values().collect();
-        let mut folded: TrackedPoly<F, MvPCS, UvPCS> = &data_polys_values[col_inds[0]].clone() * challs[0];
+        let mut folded: TrackedPoly<F, MvPCS, UvPCS> =
+            &self.data_polys[col_inds[0]].1.clone() * challs[0];
         for i in 1..col_inds.len() {
-            folded += &(data_polys_values[col_inds[i]] * challs[i]);
+            folded += &(&self.data_polys[col_inds[i]].1 * challs[i]);
         }
-        ArithCol::new(None, folded, self.actvtr_poly.clone())
+        ArithCol::new(None, folded, self.actvtr_poly())
     }
 
     pub fn fold_all(&self, challs: &[F]) -> ArithCol<F, MvPCS, UvPCS> {
@@ -145,8 +135,8 @@ where
                 }
                 schema.field(col_ind).clone().data_type().clone()
             }),
-            self.data_polys.values().collect::<Vec<_>>()[col_ind].clone(),
-            self.actvtr_poly.clone(),
+            self.data_polys[col_ind].1.clone(),
+            self.actvtr_poly(),
         )
     }
 
@@ -159,7 +149,10 @@ where
     }
 
     pub fn data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
-        self.data_polys.values().cloned().collect()
+        self.data_polys
+            .iter()
+            .map(|(_, poly)| poly.clone())
+            .collect()
     }
 
     pub fn size(&self) -> usize {
@@ -183,6 +176,12 @@ where
     }
 
     pub fn actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
-        self.actvtr_poly.clone()
+        self.data_polys
+            .iter()
+            .find_map(|(field, poly)| (field.name() == "activator").then(|| poly.clone()))
+    }
+
+    pub fn columns(&self) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<F, MvPCS, UvPCS>)> {
+        self.data_polys.iter().map(|(field, poly)| (field, poly))
     }
 }

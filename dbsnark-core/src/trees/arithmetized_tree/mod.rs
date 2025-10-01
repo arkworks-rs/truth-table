@@ -170,12 +170,10 @@ where
     ) -> Result<ArithTable<F, MvPCS, UvPCS>, EncodeError> {
         // If there is no record batch, just output empty arithmetic tables
         if record_batches.is_empty() {
-            return Ok(ArithTable::new(None, HashMap::new(), None, 0));
+            return Ok(ArithTable::new(None, Vec::new(), 0));
         }
         // Get the schema ref of the record batches
         let schema_ref = record_batches[0].schema();
-        // Get the index of the activator column in the set of columns
-        let activator_idx = schema_ref.index_of("activator").ok();
         // Get the number of columns in the record batches
         let num_cols = schema_ref.fields().len();
         // Get the number of rows in the record batches
@@ -215,9 +213,6 @@ where
 
         let existing_table_commits = match node_id {
             ProverNodeNodeId::LP(LogicalPlan::TableScan(_)) => {
-                dbg!(prover_ctx.table_oracles().keys().len());
-                dbg!(prover_ctx.table_oracles().keys().next());
-                dbg!(schema_ref.clone());
                 prover_ctx.table_oracle(schema_ref.as_ref())
             },
             _ => None,
@@ -226,27 +221,15 @@ where
         let mut column_commitments: HashMap<FieldRef, MvPCS::Commitment> =
             HashMap::with_capacity(column_polys.len());
         for (field_ref, poly) in &column_polys {
-            let is_activator_field =
-                activator_idx.is_some_and(|idx| schema_ref.field(idx).name() == field_ref.name());
             let commitment = if let Some(saved_table) = existing_table_commits {
-                if is_activator_field {
-                    saved_table
-                        .activator_commitment()
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            MvPCS::commit(prover_param.clone(), poly)
-                                .expect("failed to commit witness polynomial")
-                        })
-                } else {
-                    saved_table
-                        .data_commitments()
-                        .get(field_ref)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            MvPCS::commit(prover_param.clone(), poly)
-                                .expect("failed to commit witness polynomial")
-                        })
-                }
+                saved_table
+                    .data_commitments()
+                    .get(field_ref)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        MvPCS::commit(prover_param.clone(), poly)
+                            .expect("failed to commit witness polynomial")
+                    })
             } else {
                 MvPCS::commit(prover_param.clone(), poly)
                     .expect("failed to commit witness polynomial")
@@ -254,8 +237,8 @@ where
             column_commitments.insert(field_ref.clone(), commitment);
         }
 
-        let mut data_polys: HashMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> = HashMap::with_capacity(num_cols);
-        let mut activator_poly: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
+        let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+            Vec::with_capacity(num_cols);
 
         for idx in 0..num_cols {
             let field_ref = Arc::new(schema_ref.field(idx).clone());
@@ -271,34 +254,18 @@ where
             let tracked = prover
                 .track_mat_mv_poly_with_commitment(poly_arc.as_ref(), commitment)
                 .expect("failed to commit witness polynomial");
-            if Some(idx) == activator_idx {
-                activator_poly = Some(tracked);
-            } else {
-                data_polys.insert(field_ref.clone(), tracked);
-            }
+            data_polys.push((field_ref.clone(), tracked));
         }
 
         let schema = Some(Schema::new(
             schema_ref
                 .fields()
                 .iter()
-                .enumerate()
-                .filter_map(|(idx, field)| {
-                    if Some(idx) == activator_idx {
-                        None
-                    } else {
-                        Some(field.clone())
-                    }
-                })
+                .cloned()
                 .collect::<datafusion::arrow::datatypes::Fields>(),
         ));
 
-        Ok(ArithTable::new(
-            schema,
-            data_polys,
-            activator_poly,
-            total_rows,
-        ))
+        Ok(ArithTable::new(schema, data_polys, total_rows))
     }
 }
 

@@ -83,21 +83,29 @@ where
             .col_by_name(&column_expr.name)
             .expect("column not found in table");
         // TODO: Clean this up later
-        let output_table = ArithTable::new(
-            None,
-            vec![(
-                Arc::new(datafusion::arrow::datatypes::Field::new(
-                    column_expr.name.as_str(),
-                    col.data_type().expect("Column data type should not be None").clone(),
-                    true,
-                )),
-                col.data_poly().clone(),
-            )]
-            .into_iter()
-            .collect(),
-            col.actvtr_poly().cloned(),
-            0,
-        );
+        let mut data_polys: Vec<(Arc<datafusion::arrow::datatypes::Field>, ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>)> = vec![(
+            Arc::new(datafusion::arrow::datatypes::Field::new(
+                column_expr.name.as_str(),
+                col.data_type()
+                    .expect("Column data type should not be None")
+                    .clone(),
+                true,
+            )),
+            col.data_poly().clone(),
+        )]
+        .into_iter()
+        .collect();
+        data_polys.push((
+            Arc::new(datafusion::arrow::datatypes::Field::new(
+                "activator",
+                datafusion::arrow::datatypes::DataType::UInt8,
+                true,
+            )),
+            col.actvtr_poly()
+                .expect("Column activator polynomial should not be None")
+                .clone(),
+        ));
+        let output_table = ArithTable::new(None, data_polys, 0);
 
         piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
     }

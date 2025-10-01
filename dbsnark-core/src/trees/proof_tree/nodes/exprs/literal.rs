@@ -90,11 +90,10 @@ where
 
         let table = ArithTable::new(
             Some(schema),
-            HashMap::from([(
+            Vec::from([(
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            None,
             1,
         );
 
