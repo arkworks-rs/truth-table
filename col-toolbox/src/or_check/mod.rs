@@ -143,7 +143,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(
             prover,
             BinaryCheckProverInput {
-                activator: q.clone(),
+                predicate: q.clone(),
             },
         )?;
 
@@ -179,7 +179,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::verify(
             verifier,
             BinaryCheckVerifierInput {
-                activator_comm: q_orcl.clone(),
+                predicate_oracle: q_orcl.clone(),
             },
         )?;
 

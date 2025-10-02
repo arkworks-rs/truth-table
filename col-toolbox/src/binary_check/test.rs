@@ -92,7 +92,7 @@ fn binary_check_test_helper<
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &actv_values))?;
     let actv_clone = actv.clone();
     let binary_check_prover_input = BinaryCheckProverInput {
-        activator: actv_clone,
+        predicate: actv_clone,
     };
     BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, binary_check_prover_input)?;
     let proof = prover.build_proof()?;
@@ -101,7 +101,7 @@ fn binary_check_test_helper<
     let actv_id = verifier.peek_next_id();
     let actv = verifier.track_mv_com_by_id(actv_id)?;
     let binary_check_verifier_input = BinaryCheckVerifierInput {
-        activator_comm: actv,
+        predicate_oracle: actv,
     };
 
     BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, binary_check_verifier_input)?;

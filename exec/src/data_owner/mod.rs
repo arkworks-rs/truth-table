@@ -174,10 +174,10 @@ mod tests {
     #[test]
     #[ignore = "Takes too long"]
     fn commit_parquet_serializes_oracle_round_trip() {
-        let parquet_path = bench_data_path("customer.parquet");
+        let parquet_path = bench_data_path("lineitem.parquet");
         assert!(parquet_path.exists());
 
         commit_parquet_serializes_oracle(&parquet_path)
-            .expect("commit and verify customer parquet oracle");
+            .expect("commit and verify lineitem parquet oracle");
     }
 }

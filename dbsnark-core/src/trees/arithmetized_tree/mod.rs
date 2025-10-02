@@ -223,7 +223,7 @@ where
         for (field_ref, poly) in &column_polys {
             let commitment = if let Some(saved_table) = existing_table_commits {
                 saved_table
-                    .data_commitments()
+                    .data_oraclemitments()
                     .get(field_ref)
                     .cloned()
                     .unwrap_or_else(|| {

@@ -219,7 +219,7 @@ where
 {
     _phantom: std::marker::PhantomData<UvPCS>,
     schema: Option<Schema>,
-    data_commitments: HashMap<FieldRef, MvPCS::Commitment>,
+    data_oraclemitments: HashMap<FieldRef, MvPCS::Commitment>,
     log_size: usize,
 }
 
@@ -233,7 +233,7 @@ where
     where
         MvPCS::Commitment: Clone,
     {
-        let data_commitments = table_oracle
+        let data_oraclemitments = table_oracle
             .data_oracles()
             .iter()
             .map(|(field_ref, oracle)| (field_ref.clone(), oracle.commitment()))
@@ -241,7 +241,7 @@ where
         Self {
             _phantom: std::marker::PhantomData,
             schema: table_oracle.schema(),
-            data_commitments,
+            data_oraclemitments,
             log_size: table_oracle.log_size(),
         }
     }
@@ -250,12 +250,12 @@ where
         self.schema.clone()
     }
 
-    pub fn data_commitments(&self) -> &HashMap<FieldRef, MvPCS::Commitment> {
-        &self.data_commitments
+    pub fn data_oraclemitments(&self) -> &HashMap<FieldRef, MvPCS::Commitment> {
+        &self.data_oraclemitments
     }
 
     pub fn activator_commitment(&self) -> Option<&MvPCS::Commitment> {
-        self.data_commitments
+        self.data_oraclemitments
             .iter()
             .find_map(|(field, comm)| (field.name() == "activator").then(|| comm))
     }
@@ -285,7 +285,7 @@ where
         let ordered_fields: Vec<FieldRef> = if let Some(schema) = &self.schema {
             schema.fields().iter().cloned().collect()
         } else {
-            let mut keys = self.data_commitments.keys().cloned().collect::<Vec<_>>();
+            let mut keys = self.data_oraclemitments.keys().cloned().collect::<Vec<_>>();
             keys.sort_by(|a, b| a.name().cmp(b.name()));
             keys
         };
@@ -295,7 +295,7 @@ where
 
         for field_ref in ordered_fields.iter() {
             let commitment = self
-                .data_commitments
+                .data_oraclemitments
                 .get(field_ref)
                 .ok_or(SerializationError::InvalidData)?;
             commitment.serialize_with_mode(&mut writer, compress)?;
@@ -316,7 +316,7 @@ where
         let ordered_fields: Vec<FieldRef> = if let Some(schema) = &self.schema {
             schema.fields().iter().cloned().collect()
         } else {
-            let mut keys = self.data_commitments.keys().cloned().collect::<Vec<_>>();
+            let mut keys = self.data_oraclemitments.keys().cloned().collect::<Vec<_>>();
             keys.sort_by(|a, b| a.name().cmp(b.name()));
             keys
         };
@@ -324,7 +324,7 @@ where
         size += (ordered_fields.len() as u64).serialized_size(compress);
         for field_ref in ordered_fields.iter() {
             let commitment = self
-                .data_commitments
+                .data_oraclemitments
                 .get(field_ref)
                 .expect("commitment missing for field");
             size += commitment.serialized_size(compress);
@@ -359,7 +359,7 @@ where
 
         let count = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let count_usize = usize::try_from(count).map_err(|_| SerializationError::InvalidData)?;
-        let mut data_commitments = HashMap::with_capacity(count_usize);
+        let mut data_oraclemitments = HashMap::with_capacity(count_usize);
 
         let ordered_fields: Vec<FieldRef> = if let Some(schema) = &schema {
             let fields = schema.fields().iter().cloned().collect::<Vec<_>>();
@@ -379,7 +379,7 @@ where
         for field_ref in ordered_fields {
             let commitment =
                 MvPCS::Commitment::deserialize_with_mode(&mut reader, compress, validate)?;
-            data_commitments.insert(field_ref, commitment);
+            data_oraclemitments.insert(field_ref, commitment);
         }
 
         let log_size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
@@ -389,7 +389,7 @@ where
         Ok(Self {
             _phantom: std::marker::PhantomData,
             schema,
-            data_commitments,
+            data_oraclemitments,
             log_size,
         })
     }
@@ -403,7 +403,7 @@ where
     MvPCS::Commitment: Valid,
 {
     fn check(&self) -> Result<(), SerializationError> {
-        for commitment in self.data_commitments.values() {
+        for commitment in self.data_oraclemitments.values() {
             commitment.check()?;
         }
         Ok(())

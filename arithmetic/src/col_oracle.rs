@@ -15,8 +15,10 @@ use derivative::Derivative;
 #[derivative(
     Clone(bound = "MvPCS: PCS<F>"),
     PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "MvPCS: PCS<F>"),
     Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>")
+    PartialEq(bound = "UvPCS: PCS<F>"),
+    Debug(bound = "UvPCS: PCS<F>")
 )]
 pub struct ArithColOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
@@ -53,18 +55,27 @@ where
     }
 
     /// Returns the data polynomial of the column
-    pub fn data_com(&self) -> &TrackedOracle<F, MvPCS, UvPCS> {
+    pub fn data_oracle(&self) -> &TrackedOracle<F, MvPCS, UvPCS> {
         &self.inner
     }
     /// Returns the activator polynomial of the column
-    pub fn actvtr_com(&self) -> Option<&TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn actvtr_oracle(&self) -> Option<&TrackedOracle<F, MvPCS, UvPCS>> {
         self.actv.as_ref()
     }
 
     pub fn data_type(&self) -> Option<DataType> {
         self.data_type.clone()
     }
-
+    /// Returns the effective polynomial of the column, which is the product of
+    /// the activator and the column polynomial
+    /// Note that the non-activated elements are zeroed out, hence
+    /// indistinguishable from the actual zero elements
+    pub fn activated_data_oracle(&self) -> TrackedOracle<F, MvPCS, UvPCS> {
+        match &self.actv {
+            Some(actv) => &self.inner * actv,
+            None => self.inner.clone(),
+        }
+    }
     /// Returns a reference to the tracker of the column
     pub fn tracker_ref(&self) -> Verifier<F, MvPCS, UvPCS> {
         Verifier::new_from_tracker_rc(self.inner.tracker.clone())

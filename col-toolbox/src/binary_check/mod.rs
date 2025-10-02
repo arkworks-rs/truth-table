@@ -35,7 +35,7 @@ pub struct BinaryCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub activator: TrackedPoly<F, MvPCS, UvPCS>,
+    pub predicate: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -43,7 +43,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            activator: self.activator.deep_clone(prover),
+            predicate: self.predicate.deep_clone(prover),
         }
     }
 }
@@ -53,7 +53,7 @@ pub struct BinaryCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub activator_comm: TrackedOracle<F, MvPCS, UvPCS>,
+    pub predicate_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -69,7 +69,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        for elem in input.activator.evaluations().iter() {
+        for elem in input.predicate.evaluations().iter() {
             if !elem.is_zero() && !elem.is_one() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(
@@ -86,8 +86,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::ProverInput,
     ) -> SnarkResult<()> {
         // set up the tracker and add a zerocheck claim
-        let one_minus_sel = &(&input.activator * F::one().neg()) + F::one();
-        let check_poly = &input.activator * &one_minus_sel;
+        let one_minus_sel = &(&input.predicate * F::one().neg()) + F::one();
+        let check_poly = &input.predicate * &one_minus_sel;
         prover.add_mv_zerocheck_claim(check_poly.id())?;
         Ok(())
     }
@@ -96,8 +96,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<()> {
-        let one_minus_sel = &(&input.activator_comm * (F::one().neg())) + (F::one());
-        let check_poly = &(input.activator_comm) * &one_minus_sel;
+        let one_minus_sel = &(&input.predicate_oracle * (F::one().neg())) + (F::one());
+        let check_poly = &(input.predicate_oracle) * &one_minus_sel;
         verifier.add_zerocheck_claim(check_poly.id());
         Ok(())
     }
