@@ -3,12 +3,15 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::PCS, prover::Prover,
+    pcs::PCS,
+    piop::PIOP,
+    prover::Prover,
 };
 use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
+use ra_toolbox::lp_piop::filter_check::{FilterPIOP, FilterPIOPProverInput};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::trees::{
@@ -160,18 +163,6 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
-
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
@@ -194,6 +185,38 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let filter = match self.node_id().to_lp().unwrap() {
+            LogicalPlan::Filter(f) => f.clone(),
+            _ => panic!("expected filter logical plan"),
+        };
+
+
+        let predicate_col = piop_tree
+            .table(
+                &ProverNodeNodeId::Expr(filter.predicate.clone()),
+                "output_plan",
+            )
+            .unwrap()
+            .col(0);
+        let input_arith_table = piop_tree
+            .table(
+                &ProverNodeNodeId::LP(filter.input.as_ref().clone()),
+                "output_plan",
+            )
+            .unwrap()
+            .clone();
+        let output_arith_table = piop_tree
+            .table(&self.input_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .clone();
+
+        let filter_piop_prover_input = FilterPIOPProverInput {
+            filter,
+            predicate_col,
+            input_arith_table,
+            output_arith_table,
+        };
+
+        FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)
     }
 }

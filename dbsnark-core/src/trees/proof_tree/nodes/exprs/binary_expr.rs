@@ -1,19 +1,26 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::trees::proof_tree::{
-    ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId},
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::{
+        ProofTree,
+        nodes::{ProverNode, ProverNodeNodeId},
+    },
 };
+use arithmetic::col;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    piop::PIOP,
+    prover::Prover,
 };
 use datafusion::{
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
+use ra_toolbox::expr_piop::binary_expr::{BinaryExprPIOP, BinaryExprPIOPProverInput};
 #[derive(Clone)]
 pub struct BinaryExprNode<F, MvPCS, UvPCS>
 where
@@ -57,7 +64,7 @@ where
         input_plan: LogicalPlan,
     ) -> HashMap<String, LogicalPlan> {
         if Self::reauires_materialized_witness(bin_expr.op) {
-            let bool_expr = Expr::BinaryExpr(bin_expr).alias("expr_output");
+            let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
                 .project(vec![bool_expr])
                 .unwrap()
@@ -66,14 +73,14 @@ where
             let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
             let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
 
-            let selector = case(datafusion::prelude::col("expr_output"))
+            let selector = case(datafusion::prelude::col("output_plan"))
                 .when(
                     Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
                     one.clone(),
                 )
                 .otherwise(zero.clone())
                 .unwrap()
-                .alias("expr_output");
+                .alias("output_plan");
 
             let plan = LogicalPlanBuilder::from(bool_plan)
                 .project(vec![selector])
@@ -81,7 +88,7 @@ where
                 .build()
                 .unwrap();
 
-            HashMap::from([(String::from("expr_output"), plan)])
+            HashMap::from([(String::from("output_plan"), plan)])
         } else {
             HashMap::new()
         }
@@ -159,9 +166,36 @@ where
     }
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let op = match self.node_id.to_expr().unwrap() {
+            Expr::BinaryExpr(b) => b.op,
+            _ => panic!("expected binary expression"),
+        };
+        let left_col = piop_tree
+            .table(&self.left_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .col(0)
+            .clone();
+        let right_col = piop_tree
+            .table(&self.right_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .col(0)
+            .clone();
+
+        let output_col = piop_tree
+            .table(&self.node_id, "output_plan")
+            .unwrap()
+            .col(0)
+            .clone();
+        let binary_expr_piop_prover_input: BinaryExprPIOPProverInput<F, MvPCS, UvPCS> =
+            BinaryExprPIOPProverInput {
+                op,
+                left_col,
+                right_col,
+                output_col,
+            };
+        BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_expr_piop_prover_input)
     }
 }

@@ -197,14 +197,14 @@ fn filter_check_test_helper<
             activator_poly,
         ));
     }
-    let output_table = ArithTable::new(None, output_columns, table_len);
+    let output_arith_table = ArithTable::new(None, output_columns, table_len);
 
     let filter = dummy_filter();
     let prover_input = FilterPIOPProverInput {
         filter: filter.clone(),
         predicate_col: predicate_col.clone(),
         input_arith_table: input_table.clone(),
-        output_table: output_table.clone(),
+        output_arith_table: output_arith_table.clone(),
     };
 
     FilterPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
@@ -220,7 +220,7 @@ fn filter_check_test_helper<
     );
 
     let input_arith_table_oracle = ArithTableOracle::from(input_table, &mut verifier)?;
-    let output_arith_table_oracle = ArithTableOracle::from(output_table, &mut verifier)?;
+    let output_arith_table_oracle = ArithTableOracle::from(output_arith_table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,

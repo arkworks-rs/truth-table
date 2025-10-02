@@ -1,52 +1,218 @@
-use crate::expr_piop::impl_expr_piop_deep_clone;
+use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
 use ark_ff::PrimeField;
+#[cfg(feature = "honest-prover")]
+use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
+    errors::{SnarkError::ProverError, SnarkResult},
     pcs::PCS,
-    piop::PIOP,
-    prover::Prover,
+    piop::{DeepClone, PIOP},
+    prover::{
+        self, Prover,
+        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
+    },
     verifier::Verifier,
 };
-
-#[derive(Clone, Debug)]
-pub struct BinaryExprPIOPProverInput {
-    pub binary: datafusion::logical_expr::expr::BinaryExpr,
+use col_toolbox::no_zeros_check::{
+    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
+};
+use datafusion::logical_expr::Operator;
+use derivative::Derivative;
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "")
+)]
+pub struct BinaryExprPIOPProverInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub op: Operator,
+    pub left_col: ArithCol<F, MvPCS, UvPCS>,
+    pub right_col: ArithCol<F, MvPCS, UvPCS>,
+    pub output_col: ArithCol<F, MvPCS, UvPCS>,
 }
 
-#[derive(Clone, Debug)]
-pub struct BinaryExprPIOPVerifierInput {
-    pub binary: datafusion::logical_expr::expr::BinaryExpr,
-}
-
-pub struct BinaryExprExprPIOP;
-
-impl_expr_piop_deep_clone!(BinaryExprPIOPProverInput);
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    PIOP<F, MvPCS, UvPCS> for BinaryExprExprPIOP
+    DeepClone<F, MvPCS, UvPCS> for BinaryExprPIOPProverInput<F, MvPCS, UvPCS>
+{
+    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+        Self {
+            op: self.op,
+            left_col: self.left_col.deep_clone(prover.clone()),
+            right_col: self.right_col.deep_clone(prover.clone()),
+            output_col: self.output_col.deep_clone(prover),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BinaryExprPIOPVerifierInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub op: Operator,
+    pub left_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub right_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub output_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+}
+
+pub struct BinaryExprPIOP<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    std::marker::PhantomData<F>,
+    std::marker::PhantomData<MvPCS>,
+    std::marker::PhantomData<UvPCS>,
+);
+
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    PIOP<F, MvPCS, UvPCS> for BinaryExprPIOP<F, MvPCS, UvPCS>
 where
     F: ark_ff::PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    type ProverInput = BinaryExprPIOPProverInput;
+    type ProverInput = BinaryExprPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();
     type VerifierOutput = ();
-    type VerifierInput = BinaryExprPIOPVerifierInput;
+    type VerifierInput = BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS>;
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        if input.left_col.data_poly().log_size() != input.right_col.data_poly().log_size()
+            || input.left_col.data_poly().log_size() != input.output_col.data_poly().log_size()
+        {
+            return Err(ProverError(HonestProverError(FalseClaim)));
+        }
+
+        let left_act = input.left_col.actvtr_poly();
+        let right_act = input.right_col.actvtr_poly();
+        let output_act = input.output_col.actvtr_poly();
+        if !activators_match::<F, MvPCS, UvPCS>(left_act, right_act)
+            || !activators_match::<F, MvPCS, UvPCS>(left_act, output_act)
+            || !activators_match::<F, MvPCS, UvPCS>(right_act, output_act)
+        {
+            return Err(ProverError(HonestProverError(FalseClaim)));
+        }
+        Ok(())
+    }
 
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let _ = input;
+
+        match input.op {
+            Operator::And => todo!(),
+            Operator::Or => todo!(),
+            Operator::Eq => {
+                let actv = input.left_col.actvtr_poly();
+                let zero_poly = match actv {
+                    Some(actv_poly) => {
+                        &(input.left_col.data_poly() - input.right_col.data_poly())
+                            * &(input.output_col.data_poly() * actv_poly)
+                    },
+                    None => {
+                        &(input.left_col.data_poly() - input.right_col.data_poly())
+                            * input.output_col.data_poly()
+                    },
+                };
+                prover.add_mv_zerocheck_claim(zero_poly.id())?;
+
+                let no_zero_col = ArithCol::new(
+                    None,
+                    &(input.left_col.data_poly() - input.right_col.data_poly())
+                        * &(input.output_col.data_poly() - F::one()),
+                    actv.cloned(),
+                );
+                NoZerosCheck::<F, MvPCS, UvPCS>::prove(
+                    prover,
+                    NoZerosCheckProverInput { col: no_zero_col },
+                )?;
+            },
+            Operator::NotEq => todo!(),
+            Operator::Lt => todo!(),
+            Operator::LtEq => todo!(),
+            Operator::Gt => todo!(),
+            Operator::GtEq => todo!(),
+            _ => panic!("Unsupported binary operator in BinaryExprPIOP"),
+        }
         Ok(())
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let _ = input;
+        match input.op {
+            Operator::And => todo!(),
+            Operator::Or => todo!(),
+            Operator::Eq => {
+                let actv = input.left_col_oracle.actvtr_oracle();
+                let zero_oracle = match actv {
+                    Some(actv_poly) => {
+                        &(input.left_col_oracle.data_oracle()
+                            - input.right_col_oracle.data_oracle())
+                            * &(input.output_col_oracle.data_oracle() * actv_poly)
+                    },
+                    None => {
+                        &(input.left_col_oracle.data_oracle()
+                            - input.right_col_oracle.data_oracle())
+                            * input.output_col_oracle.data_oracle()
+                    },
+                };
+                verifier.add_zerocheck_claim(zero_oracle.id());
+
+                let no_zero_oracle = ArithColOracle::new(
+                    None,
+                    &(input.left_col_oracle.data_oracle() - input.right_col_oracle.data_oracle())
+                        * &(input.output_col_oracle.data_oracle() - F::one()),
+                    actv.cloned(),
+                    input.left_col_oracle.num_vars(),
+                );
+                NoZerosCheck::<F, MvPCS, UvPCS>::verify(
+                    verifier,
+                    NoZerosCheckVerifierInput {
+                        arith_col_oracle: no_zero_oracle,
+                    },
+                )?;
+            },
+            Operator::NotEq => todo!(),
+            Operator::Lt => todo!(),
+            Operator::LtEq => todo!(),
+            Operator::Gt => todo!(),
+            Operator::GtEq => todo!(),
+            _ => panic!("Unsupported binary operator in BinaryExprPIOP"),
+        }
         Ok(())
     }
+}
+
+#[cfg(feature = "honest-prover")]
+fn activators_match<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+    lhs: Option<&TrackedPoly<F, MvPCS, UvPCS>>,
+    rhs: Option<&TrackedPoly<F, MvPCS, UvPCS>>,
+) -> bool {
+    match (lhs, rhs) {
+        (None, None) => true,
+        (Some(poly), None) | (None, Some(poly)) => activator_is_all_ones(poly),
+        (Some(lhs_poly), Some(rhs_poly)) => {
+            lhs_poly.log_size() == rhs_poly.log_size()
+                && lhs_poly.evaluations() == rhs_poly.evaluations()
+        },
+    }
+}
+#[cfg(feature = "honest-prover")]
+fn activator_is_all_ones<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    poly: &TrackedPoly<F, MvPCS, UvPCS>,
+) -> bool {
+    poly.evaluations().into_iter().all(|val| val == F::one())
 }

@@ -40,8 +40,12 @@ impl std::fmt::Display for QuerySpec {
 }
 
 const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
+    // QuerySpec {
+    //     sql: "SELECT c_custkey FROM customer",
+    //     tables: &["customer"],
+    // },
     QuerySpec {
-        sql: "SELECT c_custkey FROM customer",
+        sql: "SELECT c_custkey FROM customer where c_nationkey = 15",
         tables: &["customer"],
     },
     // QuerySpec {

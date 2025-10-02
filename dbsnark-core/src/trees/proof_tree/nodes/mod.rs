@@ -36,6 +36,22 @@ impl std::fmt::Display for ProverNodeNodeId {
     }
 }
 
+impl ProverNodeNodeId {
+    pub fn to_lp(&self) -> Option<&LogicalPlan> {
+        match self {
+            ProverNodeNodeId::LP(plan) => Some(plan),
+            _ => None,
+        }
+    }
+
+    pub fn to_expr(&self) -> Option<&Expr> {
+        match self {
+            ProverNodeNodeId::Expr(expr) => Some(expr),
+            _ => None,
+        }
+    }
+}
+
 /// Common interface for a proof plan node.
 ///
 /// A proof plan is a tree of nodes, where each node represents a proof unit.

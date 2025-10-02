@@ -33,7 +33,6 @@ std = [
     "ark-poly/std",
     "ark-std/std",
 ]
-print-trace = ["ark-std/print-trace"]
 parallel = [
     "std",
     "ark-piop/parallel",

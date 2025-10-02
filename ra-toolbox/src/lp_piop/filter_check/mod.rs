@@ -15,9 +15,6 @@ use ark_piop::{
     },
     verifier::Verifier,
 };
-use col_toolbox::binary_check::{
-    BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput,
-};
 use datafusion::logical_expr::Filter;
 use derivative::Derivative;
 #[derive(Derivative)]
@@ -34,7 +31,7 @@ pub struct FilterPIOPProverInput<
     pub filter: Filter,
     pub predicate_col: ArithCol<F, MvPCS, UvPCS>,
     pub input_arith_table: ArithTable<F, MvPCS, UvPCS>,
-    pub output_table: ArithTable<F, MvPCS, UvPCS>,
+    pub output_arith_table: ArithTable<F, MvPCS, UvPCS>,
 }
 
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for FilterPIOPProverInput<F, MvPCS, UvPCS>
@@ -48,7 +45,7 @@ where
             filter: self.filter.clone(),
             predicate_col: self.predicate_col.deep_clone(prover.clone()),
             input_arith_table: self.input_arith_table.deep_clone(prover.clone()),
-            output_table: self.output_table.deep_clone(prover),
+            output_arith_table: self.output_arith_table.deep_clone(prover),
         }
     }
 }
@@ -87,11 +84,12 @@ where
     type VerifierOutput = ();
     type VerifierInput = FilterPIOPVerifierInput<F, MvPCS, UvPCS>;
 
+    #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // Create the selected and non-selected activator columns
         let zero_poly = match (
             input.input_arith_table.actvtr_poly(),
-            input.output_table.actvtr_poly(),
+            input.output_arith_table.actvtr_poly(),
         ) {
             (Some(in_actv), Some(out_actv)) => {
                 &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
@@ -116,10 +114,9 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-
         let zero_poly = match (
             input.input_arith_table.actvtr_poly(),
-            input.output_table.actvtr_poly(),
+            input.output_arith_table.actvtr_poly(),
         ) {
             (Some(in_actv), Some(out_actv)) => {
                 &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
@@ -139,8 +136,6 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-
-
         let zero_oracle = match (
             input.input_arith_table_oracle.actvtr_poly(),
             input.output_arith_table_oracle.actvtr_poly(),

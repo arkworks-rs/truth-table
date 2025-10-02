@@ -77,8 +77,7 @@ where
 
         let constant_value = column_values.pop().unwrap_or_else(F::zero);
 
-        let polynomial = MLE::from_evaluations_slice(0, &[constant_value]);
-        let tracked_poly = prover.track_mat_mv_poly(polynomial);
+        let tracked_poly = prover.track_mat_mv_cnst_poly(0, constant_value);
 
         let data_type = scalar.data_type();
 
@@ -104,6 +103,6 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }

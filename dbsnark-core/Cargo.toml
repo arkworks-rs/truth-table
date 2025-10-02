@@ -13,6 +13,7 @@ tokio = { workspace = true }
 futures = { workspace = true }
 rayon = { workspace = true, optional = true }
 arithmetic = { path = "../arithmetic" }
+ra-toolbox = { path = "../ra-toolbox" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 parquet = { version = "54", default-features = false, features = ["arrow"] }
