@@ -1,15 +1,26 @@
-use std::{collections::HashMap, fmt};
+pub mod display;
+#[cfg(test)]
+pub mod tests;
 
-use arithmetic::table::SerializableArithTable;
+use std::{collections::HashMap, fmt, sync::Arc};
+
+use arithmetic::{
+    encoding::encode_arrow_array_to_field, errors::EncodeError, table::SerializableArithTable,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+use datafusion::arrow::{
+    datatypes::{FieldRef, Schema},
+    record_batch::RecordBatch,
+};
+use rayon::prelude::*;
 
 use crate::trees::{
+    hint_tree::HintTree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
-    tracked_tree::TrackedTree,
 };
 
 pub struct ArithmetizedTree<F, MvPCS, UvPCS>
@@ -57,19 +68,64 @@ where
         }
     }
 
-    pub fn from_tracked_tree(tracked: TrackedTree<F, MvPCS, UvPCS>) -> Self {
-        let (proof_tree, tables) = tracked.into_parts();
-        let serializable_tables = tables
-            .into_iter()
-            .map(|(node_id, by_label)| {
-                let converted = by_label
-                    .into_iter()
-                    .map(|(label, table)| (label, SerializableArithTable::from(table)))
-                    .collect();
-                (node_id, converted)
+    #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree))]
+    pub fn from_hint_tree(hint_tree: HintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
+        let (proof_tree, hint_map) = hint_tree.into_parts();
+        let mut tables_by_node = HashMap::with_capacity(hint_map.len());
+
+        for (node_id, batches_by_label) in hint_map {
+            let mut tables = HashMap::with_capacity(batches_by_label.len());
+            for (label, batches) in batches_by_label {
+                let serial_table = Self::serializable_table_from_batches(batches)?;
+                tables.insert(label, serial_table);
+            }
+            tables_by_node.insert(node_id, tables);
+        }
+
+        Ok(Self::new(proof_tree, tables_by_node))
+    }
+
+    #[tracing::instrument(level = "debug", skip(record_batches))]
+    pub(crate) fn serializable_table_from_batches(
+        record_batches: Vec<RecordBatch>,
+    ) -> Result<SerializableArithTable<F>, EncodeError> {
+        if record_batches.is_empty() {
+            return Ok(SerializableArithTable::new(None, Vec::new(), 0));
+        }
+
+        let schema_ref = record_batches[0].schema();
+        let num_cols = schema_ref.fields().len();
+        let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
+        assert!(total_rows.is_power_of_two());
+        let log_vars = total_rows.trailing_zeros() as usize;
+
+        let columns: Result<Vec<Vec<F>>, EncodeError> = (0..num_cols)
+            .into_par_iter()
+            .map(|col_idx| {
+                let mut values = Vec::with_capacity(total_rows);
+                for batch in &record_batches {
+                    let encoded = encode_arrow_array_to_field::<F>(batch.column(col_idx))?;
+                    let mut column_values = encoded.into_iter().next().expect("encoded column");
+                    values.append(&mut column_values);
+                }
+                Ok(values)
             })
             .collect();
-        Self::new(proof_tree, serializable_tables)
+        let columns = columns?;
+
+        let data_polys: Vec<(FieldRef, MLE<F>)> = columns
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, values)| {
+                let mle = MLE::from_evaluations_slice(log_vars, &values);
+                let field_ref = Arc::new(schema_ref.field(idx).clone());
+                (field_ref, mle)
+            })
+            .collect();
+
+        let schema = Some(schema_ref.as_ref().clone());
+
+        Ok(SerializableArithTable::new(schema, data_polys, total_rows))
     }
 
     pub fn len(&self) -> usize {
@@ -99,6 +155,10 @@ where
 
     pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
+    }
+
+    pub fn display_graphviz(&self) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableArithmetizedTree::new(self)
     }
 
     pub fn into_parts(
