@@ -115,7 +115,7 @@ where
     }
 
     /// Build a virtualized plan from an arithmetized plan.
-    pub fn from_arithmetized_plan(
+    pub fn from_tracked_plan(
         arith_plan: TrackedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Self {

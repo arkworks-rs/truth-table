@@ -129,16 +129,6 @@ where
         (inner_proof_tree, tables)
     }
 
-    /// Build arithmetized tables for every hint node by consuming a hint
-    /// tree.
-    #[tracing::instrument(name = "tracked_tree::from_hint_tree", skip(hint_tree, prover))]
-    pub fn from_hint_tree(
-        hint_tree: HintTree<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> Result<Self, EncodeError> {
-        let arith_tree = ArithmetizedTree::from_hint_tree(hint_tree)?;
-        Self::from_arithmetized_tree(arith_tree, prover)
-    }
 
     #[tracing::instrument(
         name = "tracked_tree::from_arithmetized_tree",
@@ -183,7 +173,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<TrackedTable<F, MvPCS, UvPCS>, EncodeError> {
         let serial_table =
-            ArithmetizedTree::<F, MvPCS, UvPCS>::serializable_table_from_batches(record_batches)?;
+            ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(record_batches)?;
         Ok(Self::tracked_table_from_serializable(
             node_id,
             serial_table,

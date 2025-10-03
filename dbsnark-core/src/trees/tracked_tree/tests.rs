@@ -3,7 +3,7 @@ use std::{collections::HashMap, hash::Hash};
 use super::TrackedTree;
 use crate::{
     test_utils::test_df_plan,
-    trees::{hint_tree::HintTree, proof_tree::ProofTree},
+    trees::{arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree},
 };
 use arithmetic::ctx::ProverCtx;
 use ark_piop::{
@@ -36,8 +36,9 @@ async fn display_graphviz() {
     let prover_ctx = ProverCtx::default();
     let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-    let arith_tree = TrackedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
+    let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
 
-    println!("{}", arith_tree.display_graphviz());
+    println!("{}", tracked_tree.display_graphviz());
 }

@@ -140,15 +140,15 @@ where
 
     /// Returns the column oracles at the specified indices
     /// Note that the outputs of the function are not just  oracles, but
-    /// `TrackedColOracle` wrappers, which also contain the activator oracles (if
-    /// any)
+    /// `TrackedColOracle` wrappers, which also contain the activator oracles
+    /// (if any)
     pub fn cols(&self, indice: &[usize]) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
         indice.iter().map(|&i| self.col(i)).collect()
     }
     /// Returns all the column oracles in the table
     /// Note that the outputs of the function are not just  oracles, but
-    /// `TrackedColOracle` wrappers, which also contain the activator oracles (if
-    /// any)
+    /// `TrackedColOracle` wrappers, which also contain the activator oracles
+    /// (if any)
     pub fn all_cols(&self) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
         self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
     }
@@ -157,8 +157,8 @@ where
     pub fn num_cols(&self) -> usize {
         self.data_oracles.len()
     }
-    /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking the
-    /// column and activator polynomials using the provided verifier
+    /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking
+    /// the column and activator polynomials using the provided verifier
     /// It's assumed that the verifier already has the commitments of the
     /// polynomials being tracked
     pub fn from(
@@ -257,7 +257,7 @@ where
     pub fn activator_commitment(&self) -> Option<&MvPCS::Commitment> {
         self.data_comitments
             .iter()
-            .find_map(|(field, comm)| (field.name() == "activator").then(|| comm))
+            .find_map(|(field, comm)| (field.name() == "activator").then_some(comm))
     }
 }
 

@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use arithmetic::{
     ctx::ProverCtx,
-    table_oracle::{TrackedTableOracle, ArithTableOracle},
+    table_oracle::{ArithTableOracle, TrackedTableOracle},
 };
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
@@ -18,10 +18,11 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::trees::{
+    arithmetized_tree::ArithmetizedTree,
     hint_tree::HintTree,
     piop_tree::PIOPTree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
-    tracked_tree::TrackedTree,
+    tracked_tree::{self, TrackedTree},
 };
 use tokio::runtime::Runtime;
 
@@ -32,9 +33,7 @@ type UvPCS = KZG10<Bls12_381>;
 /// Commit the contents of a parquet file by materializing the table-scanned
 /// witness, producing the verifier-side oracle table, serializing it, and
 /// returning its serializable form together with the path where it was stored.
-pub fn commit_parquet(
-    parquet_path: &Path,
-) -> Result<(ArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
+pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
     let parquet_path = parquet_path.to_path_buf();
     let parquet_path_for_async = parquet_path.clone();
     let table_name = parquet_path
@@ -70,10 +69,10 @@ pub fn commit_parquet(
         let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
-        let arith_tree = TrackedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
+        let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
             .context("failed to arithmetize")?;
-
-        let mut piop_tree = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
+        let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
+        let mut piop_tree = PIOPTree::from_tracked_plan(tracked_tree, &mut prover);
         let flattened = piop_tree.proof_tree().clone().flatten();
         for node in flattened.values() {
             node.prove_piop(&mut prover, &mut piop_tree)
@@ -99,8 +98,7 @@ pub fn commit_parquet(
 
         let tracked_Table_oracle = tracked_Table_oracle.context("table scan result not found")?;
 
-        let serializable =
-            ArithTableOracle::from_tracked_Table_oracle(&tracked_Table_oracle);
+        let serializable = ArithTableOracle::from_tracked_Table_oracle(&tracked_Table_oracle);
 
         let output_path = parquet_path.with_extension("oracle");
         let file = File::create(&output_path).with_context(|| {

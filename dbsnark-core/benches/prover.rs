@@ -15,7 +15,8 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::trees::{
-    hint_tree::HintTree, piop_tree::PIOPTree, proof_tree::ProofTree, tracked_tree::TrackedTree,
+    arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, piop_tree::PIOPTree,
+    proof_tree::ProofTree, tracked_tree::TrackedTree,
 };
 use tokio::runtime::Runtime;
 type F = Fr;
@@ -86,10 +87,8 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 File::open(&customer_oracle_path).expect("open customer oracle commitment");
             let mut reader = BufReader::new(customer_oracle_file);
             let customer_serializable =
-                ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(
-                    &mut reader,
-                )
-                .expect("deserialize customer oracle");
+                ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+                    .expect("deserialize customer oracle");
 
             let mut table_oracles = HashMap::new();
             if let Some(schema) = customer_serializable.schema() {
@@ -123,10 +122,11 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree.clone())
                     .await
                     .expect("hint tree");
-                let arith_tree =
-                    TrackedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
-                        .expect("arithmetized tree");
-                let mut piop_tree = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
+                let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+                    .expect("arithmetized tree");
+                let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
+                    .expect("tracked tree");
+                let mut piop_tree = PIOPTree::from_tracked_plan(tracked_tree, &mut prover);
 
                 let flattened = piop_tree.proof_tree().clone().flatten();
                 for node in flattened.values() {

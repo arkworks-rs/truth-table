@@ -7,7 +7,6 @@ use ark_piop::{
     pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
-    verifier::{structs::oracle::TrackedOracle, Verifier},
 };
 use datafusion::arrow::datatypes::DataType;
 use derivative::Derivative;

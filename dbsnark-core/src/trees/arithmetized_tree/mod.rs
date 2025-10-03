@@ -76,7 +76,7 @@ where
         for (node_id, batches_by_label) in hint_map {
             let mut tables = HashMap::with_capacity(batches_by_label.len());
             for (label, batches) in batches_by_label {
-                let serial_table = Self::serializable_table_from_batches(batches)?;
+                let serial_table = Self::arith_table_from_batches(batches)?;
                 tables.insert(label, serial_table);
             }
             tables_by_node.insert(node_id, tables);
@@ -86,7 +86,7 @@ where
     }
 
     #[tracing::instrument(level = "debug", skip(record_batches))]
-    pub(crate) fn serializable_table_from_batches(
+    pub(crate) fn arith_table_from_batches(
         record_batches: Vec<RecordBatch>,
     ) -> Result<ArithTable<F>, EncodeError> {
         if record_batches.is_empty() {
