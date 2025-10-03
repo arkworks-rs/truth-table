@@ -1,4 +1,4 @@
-// use arithmetic::col::{ArithCol, ArithColOracle};
+// use arithmetic::col::{TrackedCol, TrackedColOracle};
 // use ark_ff::{Field, PrimeField};
 // use ark_piop::{
 //     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -146,14 +146,14 @@
 //     let left_actv_p = prover
 //         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(left_nv, left_actv))
 //         .unwrap();
-//     let left_col = ArithCol::new(None, left_tr_p.clone(), Some(left_actv_p.clone()));
+//     let left_col = TrackedCol::new(None, left_tr_p.clone(), Some(left_actv_p.clone()));
 //     /////////////////////////////////////////////////////
 //     let right_mle = MLE::from_evaluations_vec(right_nv, right_evals);
 //     let right_tr_p = prover.track_and_commit_mat_mv_poly(&right_mle).unwrap();
 //     let right_actv_p = prover
 //         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(right_nv, right_actv))
 //         .unwrap();
-//     let right_col = ArithCol::new(None, right_tr_p.clone(), Some(right_actv_p.clone()));
+//     let right_col = TrackedCol::new(None, right_tr_p.clone(), Some(right_actv_p.clone()));
 
 //     /////////////////////////////////////////////////////////
 
@@ -167,14 +167,14 @@
 //     verifier.set_proof(proof);
 //     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
 //     let left_actvm = verifier.track_mv_com_by_id(left_actv_p.id())?;
-//     let left_arith_col_oracle = ArithColOracle::new(None, left_comm, Some(left_actvm), left_nv);
+//     let left_tracked_col_oracle = TrackedColOracle::new(None, left_comm, Some(left_actvm), left_nv);
 
 //     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
 //     let right_actvm = verifier.track_mv_com_by_id(right_actv_p.id())?;
-//     let right_arith_col_oracle = ArithColOracle::new(None, right_comm, Some(right_actvm), right_nv);
+//     let right_tracked_col_oracle = TrackedColOracle::new(None, right_comm, Some(right_actvm), right_nv);
 //     let perm_piop_verifier_input = PermPIOPVerifierInput {
-//         left_arith_col_oracle,
-//         right_arith_col_oracle,
+//         left_tracked_col_oracle,
+//         right_tracked_col_oracle,
 //     };
 //     PermPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, perm_piop_verifier_input)?;
 //     verifier.verify()?;

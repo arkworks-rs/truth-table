@@ -11,7 +11,7 @@ use ark_serialize::{
     Write,
 };
 
-use crate::{col_oracle::ArithColOracle, table::ArithTable};
+use crate::{col_oracle::TrackedColOracle, table::TrackedTable};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use derivative::Derivative;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
@@ -31,7 +31,7 @@ use std::{collections::HashMap, convert::TryFrom, sync::Arc};
 /// - A vector of column oracles (one for each column)
 /// - An optional activator oracle, If none, all the rows are active
 /// - The log size of the table
-pub struct ArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
+pub struct TrackedTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -43,21 +43,21 @@ where
 }
 
 // Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.
-impl<F, MvPCS, UvPCS> core::fmt::Debug for ArithTableOracle<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ArithTable")
+        f.debug_struct("TrackedTable")
             .field("num_cols", &self.num_cols())
             .field("log_size", &self.log_size())
             .finish()
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> ArithTableOracle<F, MvPCS, UvPCS>
+impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -84,7 +84,7 @@ where
     /// Given a list of column indices and a list of challenges, returns the
     /// folded column oracle, which is the linear combination of the specified
     /// columns with the specified challenges as coefficients
-    pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> ArithColOracle<F, MvPCS, UvPCS> {
+    pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
         let schema = self
             .schema
             .as_ref()
@@ -105,12 +105,12 @@ where
                 .clone();
             folded += &(&col_oracle * challs[i]);
         }
-        ArithColOracle::new(None, folded, self.actvtr_poly(), self.log_size)
+        TrackedColOracle::new(None, folded, self.actvtr_poly(), self.log_size)
     }
 
     /// Returns the folded column oracle of all the columns in the table with
     /// the specified challenges as coefficients
-    pub fn fold_all(&self, challs: &[F]) -> ArithColOracle<F, MvPCS, UvPCS> {
+    pub fn fold_all(&self, challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
         let schema = self
             .schema
             .as_ref()
@@ -121,9 +121,9 @@ where
 
     /// Returns the column at the specified index
     /// Note that the output of the function is not just an oracle, but an
-    /// `ArithColOracle` wrapper, which also contains the activator oracle (if
+    /// `TrackedColOracle` wrapper, which also contains the activator oracle (if
     /// any)
-    pub fn col(&self, col_ind: usize) -> ArithColOracle<F, MvPCS, UvPCS> {
+    pub fn col(&self, col_ind: usize) -> TrackedColOracle<F, MvPCS, UvPCS> {
         let schema = self
             .schema
             .as_ref()
@@ -135,21 +135,21 @@ where
             .get(&field_ref)
             .expect("column oracle not found")
             .clone();
-        ArithColOracle::new(Some(data_type), oracle, self.actvtr_poly(), self.log_size)
+        TrackedColOracle::new(Some(data_type), oracle, self.actvtr_poly(), self.log_size)
     }
 
     /// Returns the column oracles at the specified indices
     /// Note that the outputs of the function are not just  oracles, but
-    /// `ArithColOracle` wrappers, which also contain the activator oracles (if
+    /// `TrackedColOracle` wrappers, which also contain the activator oracles (if
     /// any)
-    pub fn cols(&self, indice: &[usize]) -> Vec<ArithColOracle<F, MvPCS, UvPCS>> {
+    pub fn cols(&self, indice: &[usize]) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
         indice.iter().map(|&i| self.col(i)).collect()
     }
     /// Returns all the column oracles in the table
     /// Note that the outputs of the function are not just  oracles, but
-    /// `ArithColOracle` wrappers, which also contain the activator oracles (if
+    /// `TrackedColOracle` wrappers, which also contain the activator oracles (if
     /// any)
-    pub fn all_cols(&self) -> Vec<ArithColOracle<F, MvPCS, UvPCS>> {
+    pub fn all_cols(&self) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
         self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
     }
 
@@ -157,12 +157,12 @@ where
     pub fn num_cols(&self) -> usize {
         self.data_oracles.len()
     }
-    /// Constructs an `ArithTableOracle` from an `ArithTable` by tracking the
+    /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking the
     /// column and activator polynomials using the provided verifier
     /// It's assumed that the verifier already has the commitments of the
     /// polynomials being tracked
     pub fn from(
-        table: ArithTable<F, MvPCS, UvPCS>,
+        table: TrackedTable<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Self> {
         let schema = table.schema().clone();
@@ -211,7 +211,7 @@ where
     Clone(bound = "UvPCS: PCS<F>"),
     PartialEq(bound = "UvPCS: PCS<F>")
 )]
-pub struct SerializableArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
+pub struct ArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -223,13 +223,13 @@ where
     log_size: usize,
 }
 
-impl<F, MvPCS, UvPCS> SerializableArithTableOracle<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn from_arith_table_oracle(table_oracle: &ArithTableOracle<F, MvPCS, UvPCS>) -> Self
+    pub fn from_tracked_Table_oracle(table_oracle: &TrackedTableOracle<F, MvPCS, UvPCS>) -> Self
     where
         MvPCS::Commitment: Clone,
     {
@@ -261,7 +261,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> CanonicalSerialize for SerializableArithTableOracle<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> CanonicalSerialize for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -334,7 +334,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> CanonicalDeserialize for SerializableArithTableOracle<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> CanonicalDeserialize for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -395,7 +395,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Valid for SerializableArithTableOracle<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> Valid for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

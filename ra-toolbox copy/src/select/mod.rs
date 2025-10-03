@@ -78,7 +78,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<Self::VerifierOutput> {
         let binary_check_input = BinaryCheckVerifierInput {
             activator_comm: input
-                .output_arith_table_oracle
+                .output_tracked_Table_oracle
                 .actvtr_poly()
                 .as_ref()
                 .unwrap()
@@ -89,8 +89,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         //////////// Check the selection was done correctly ////////////
         let selection_check_verifier_input = SelectionCheckVerifierInput {
-            query_input_arith_table_oracle: input.input_arith_table_oracle.clone(),
-            query_output_arith_table_oracle: input.output_arith_table_oracle.clone(),
+            query_input_tracked_Table_oracle: input.input_tracked_Table_oracle.clone(),
+            query_output_tracked_Table_oracle: input.output_tracked_Table_oracle.clone(),
             select_conf: input.select_conf.clone(),
         };
         selection_check::SelectionCheckPIOP::<F, MvPCS, UvPCS>::verify(

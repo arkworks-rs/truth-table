@@ -1,4 +1,4 @@
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_piop::{
     arithmetic::mat_poly::mle::MLE,
@@ -30,16 +30,16 @@ fn test_fold_check() -> SnarkResult<()> {
     let challs = vec![Fr::rand(&mut rng); num];
     let folded_poly = fold_mles(&input_mles, &challs);
 
-    let folded_tracked_poly = ArithCol::new(
+    let folded_tracked_poly = TrackedCol::new(
         None,
         prover.track_and_commit_mat_mv_poly(&folded_poly).unwrap(),
         Some(actv_tracked_mle.clone()),
     );
 
-    let input_cols: Vec<ArithCol<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_mles
+    let input_cols: Vec<TrackedCol<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_mles
         .iter()
         .map(|mle| {
-            ArithCol::new(
+            TrackedCol::new(
                 None,
                 prover.track_and_commit_mat_mv_poly(mle).unwrap(),
                 Some(actv_tracked_mle.clone()),
@@ -60,16 +60,16 @@ fn test_fold_check() -> SnarkResult<()> {
     verifier.set_proof(proof);
 
     let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.id())?;
-    let folded_comm = ArithColOracle::new(
+    let folded_comm = TrackedColOracle::new(
         None,
         verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().id())?,
         Some(actvm.clone()),
         actv_tracked_mle.log_size(),
     );
-    let input_comms: Vec<ArithColOracle<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
+    let input_comms: Vec<TrackedColOracle<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
         .iter()
         .map(|col| {
-            ArithColOracle::new(
+            TrackedColOracle::new(
                 None,
                 verifier.track_mv_com_by_id(col.data_poly().id()).unwrap(),
                 Some(actvm.clone()),

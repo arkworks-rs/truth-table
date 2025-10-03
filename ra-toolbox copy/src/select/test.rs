@@ -1,5 +1,5 @@
 use crate::select::SelectCheckPIOP;
-use arithmetic::table::{ArithTable, ArithTableOracle};
+use arithmetic::table::{TrackedTable, TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -219,7 +219,7 @@ fn select_check_helper<
     ]);
 
     // Input table
-    let in_table = ArithTable::new(
+    let in_table = TrackedTable::new(
         Some(schema.clone()),
         vec![tr_p_1.clone(), tr_p_2.clone(), tr_p_3.clone()],
         Some(in_actv_tr_p.clone()),
@@ -227,7 +227,7 @@ fn select_check_helper<
     );
 
     // Output table
-    let out_table = ArithTable::new(
+    let out_table = TrackedTable::new(
         Some(schema.clone()),
         vec![tr_p_1.clone(), tr_p_2.clone(), tr_p_3.clone()],
         Some(out_actv_tr_p.clone()),
@@ -255,13 +255,13 @@ fn select_check_helper<
     let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
 
     // Input and Output table commitments
-    let in_arith_table_oracle = ArithTableOracle::new(
+    let in_tracked_Table_oracle = TrackedTableOracle::new(
         Some(schema.clone()),
         vec![tr_comm_1.clone(), tr_comm_2.clone(), tr_comm_3.clone()],
         Some(in_actv_tr_comm),
         nv,
     );
-    let out_arith_table_oracle = ArithTableOracle::new(
+    let out_tracked_Table_oracle = TrackedTableOracle::new(
         Some(schema),
         vec![tr_comm_1, tr_comm_2, tr_comm_3],
         Some(out_actv_tr_comm),
@@ -269,8 +269,8 @@ fn select_check_helper<
     );
 
     let select_check_verifier_input = SelectVerifierInput {
-        input_arith_table_oracle: in_arith_table_oracle,
-        output_arith_table_oracle: out_arith_table_oracle,
+        input_tracked_Table_oracle: in_tracked_Table_oracle,
+        output_tracked_Table_oracle: out_tracked_Table_oracle,
         select_conf: select_instr.clone(),
     };
 

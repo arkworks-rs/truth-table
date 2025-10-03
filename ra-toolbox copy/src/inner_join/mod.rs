@@ -5,8 +5,8 @@
 ////////////// imports //////////////
 
 use arithmetic::{
-    col::{ArithCol, ArithColOracle},
-    table::{ArithTable, ArithTableOracle},
+    col::{TrackedCol, TrackedColOracle},
+    table::{TrackedTable, TrackedTableOracle},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -48,15 +48,15 @@ pub struct InnerJoinProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub left_table: ArithTable<F, MvPCS, UvPCS>,
-    pub right_table: ArithTable<F, MvPCS, UvPCS>,
-    pub out_table: ArithTable<F, MvPCS, UvPCS>,
-    pub left_key_support: ArithCol<F, MvPCS, UvPCS>,
-    pub right_key_support: ArithCol<F, MvPCS, UvPCS>,
-    pub out_key_support: ArithCol<F, MvPCS, UvPCS>,
-    pub all_key_support: ArithCol<F, MvPCS, UvPCS>,
-    pub join_left_source: ArithCol<F, MvPCS, UvPCS>,
-    pub join_right_source: ArithCol<F, MvPCS, UvPCS>,
+    pub left_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub right_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub out_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub left_key_support: TrackedCol<F, MvPCS, UvPCS>,
+    pub right_key_support: TrackedCol<F, MvPCS, UvPCS>,
+    pub out_key_support: TrackedCol<F, MvPCS, UvPCS>,
+    pub all_key_support: TrackedCol<F, MvPCS, UvPCS>,
+    pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
+    pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
     pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 }
@@ -88,15 +88,15 @@ pub struct InnerJoinVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub left_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub right_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub out_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub left_key_support_comm: ArithColOracle<F, MvPCS, UvPCS>,
-    pub right_key_support_comm: ArithColOracle<F, MvPCS, UvPCS>,
-    pub out_key_support_comm: ArithColOracle<F, MvPCS, UvPCS>,
-    pub all_key_support_comm: ArithColOracle<F, MvPCS, UvPCS>,
-    pub join_left_source_comm: ArithColOracle<F, MvPCS, UvPCS>,
-    pub join_right_source_comm: ArithColOracle<F, MvPCS, UvPCS>,
+    pub left_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub right_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub out_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub left_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub right_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub out_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub all_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub join_left_source_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub join_right_source_comm: TrackedColOracle<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
     pub left_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
@@ -190,7 +190,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let folded = &(input.join_left_source.data_poly() * r_vec[0])
             + &(input.join_right_source.data_poly() * r_vec[1]);
         let folded_sources =
-            ArithCol::new(None, folded, input.join_left_source.actvtr_poly().cloned());
+            TrackedCol::new(None, folded, input.join_left_source.actvtr_poly().cloned());
 
         // NoDupCheck on source_L + r(source_R)
         let no_dup_prover_input = NoDupCheckProverInput {
@@ -210,7 +210,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .map(|i| F::from(i as u64))
                 .collect(),
         ));
-        let input_right_folded_col = ArithCol::new(
+        let input_right_folded_col = TrackedCol::new(
             None,
             &input_right_table_folded_col.data_poly().clone() + &right_ind_poly,
             input_right_table_folded_col.actvtr_poly().cloned(),
@@ -226,7 +226,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .out_table
             .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
 
-        let output_right_folded_col = ArithCol::new(
+        let output_right_folded_col = TrackedCol::new(
             None,
             &output_right_table_folded_col.data_poly().clone()
                 + input.join_right_source.data_poly(),
@@ -254,7 +254,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .map(|i| F::from(i as u64))
                 .collect(),
         ));
-        let input_left_folded_col = ArithCol::new(
+        let input_left_folded_col = TrackedCol::new(
             None,
             &input_left_table_folded_col.data_poly().clone() + &left_ind_poly,
             input_left_table_folded_col.actvtr_poly().cloned(),
@@ -265,7 +265,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .out_table
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
 
-        let output_left_folded_col = ArithCol::new(
+        let output_left_folded_col = TrackedCol::new(
             None,
             &output_left_table_folded_col.data_poly().clone() + input.join_left_source.data_poly(),
             output_left_table_folded_col.actvtr_poly().cloned(),
@@ -290,21 +290,21 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Parse the config
         // Support Check on left_key_support, log output
         let supp_left_verifier_input = SuppCheckVerifierInput {
-            col: input.left_arith_table_oracle.col(0),
+            col: input.left_tracked_Table_oracle.col(0),
             supp: input.left_key_support_comm.clone(),
         };
         let left_supp_check_output = SuppCheckPIOP::verify(verifier, supp_left_verifier_input)?;
 
         // Support Check on right_key_support, log output
         let supp_right_verifier_input = SuppCheckVerifierInput {
-            col: input.right_arith_table_oracle.col(0),
+            col: input.right_tracked_Table_oracle.col(0),
             supp: input.right_key_support_comm.clone(),
         };
         let right_supp_check_output = SuppCheckPIOP::verify(verifier, supp_right_verifier_input)?;
 
         // Support Check on the out table
         let supp_out_verifier_input = SuppCheckVerifierInput {
-            col: input.out_arith_table_oracle.col(0),
+            col: input.out_tracked_Table_oracle.col(0),
             supp: input.out_key_support_comm.clone(),
         };
         let out_supp_check_output = SuppCheckPIOP::verify(verifier, supp_out_verifier_input)?;
@@ -354,25 +354,25 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ];
         let folded = &(&input.join_left_source_comm.inner * (r_vec[0]))
             + &(&input.join_right_source_comm.inner * r_vec[1]);
-        let folded_sources_cm = ArithColOracle::new(
+        let folded_sources_cm = TrackedColOracle::new(
             None,
             folded,
             input.join_left_source_comm.actv.clone(),
             input.join_left_source_comm.num_vars,
         );
         let no_dup_verifier_input = NoDupCheckVerifierInput {
-            arith_col_oracle: folded_sources_cm.clone(),
+            tracked_col_oracle: folded_sources_cm.clone(),
         };
         NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         // Folding of key_out and source_R
-        let alpha_vec = (0..(input.right_arith_table_oracle.num_cols() + 1))
+        let alpha_vec = (0..(input.right_tracked_Table_oracle.num_cols() + 1))
             .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
-        let input_right_table_folded_arith_col_oracle = input
-            .right_arith_table_oracle
+        let input_right_table_folded_tracked_col_oracle = input
+            .right_tracked_Table_oracle
             .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
-        let nv = input.right_arith_table_oracle.num_vars();
+        let nv = input.right_tracked_Table_oracle.num_vars();
         let right_ind_closure = Arc::new(move |point: Vec<F>| {
             let mut eval = F::zero();
             for (i, coord) in point.iter().take(nv).enumerate() {
@@ -383,46 +383,46 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let right_ind_oracle =
             verifier.track_oracle(Oracle::Multivariate(right_ind_closure.clone()));
 
-        let input_right_folded_arith_col_oracle = ArithColOracle::new(
+        let input_right_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
-            &input_right_table_folded_arith_col_oracle.inner.clone() + &(right_ind_oracle),
-            input_right_table_folded_arith_col_oracle.actv,
-            input_right_table_folded_arith_col_oracle.num_vars,
+            &input_right_table_folded_tracked_col_oracle.inner.clone() + &(right_ind_oracle),
+            input_right_table_folded_tracked_col_oracle.actv,
+            input_right_table_folded_tracked_col_oracle.num_vars,
         );
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
-            &(1..(input.right_arith_table_oracle.num_cols()))
-                .map(|i| i + input.left_arith_table_oracle.num_cols() - 1)
+            &(1..(input.right_tracked_Table_oracle.num_cols()))
+                .map(|i| i + input.left_tracked_Table_oracle.num_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
-        let output_right_table_folded_arith_col_oracle = input
-            .out_arith_table_oracle
+        let output_right_table_folded_tracked_col_oracle = input
+            .out_tracked_Table_oracle
             .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
 
-        let output_right_folded_arith_col_oracle = ArithColOracle::new(
+        let output_right_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
-            &output_right_table_folded_arith_col_oracle.inner.clone()
+            &output_right_table_folded_tracked_col_oracle.inner.clone()
                 + &(input.join_right_source_comm.inner),
-            output_right_table_folded_arith_col_oracle.actv,
-            output_right_table_folded_arith_col_oracle.num_vars,
+            output_right_table_folded_tracked_col_oracle.actv,
+            output_right_table_folded_tracked_col_oracle.num_vars,
         );
         // Right multiplicity check
         let right_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![output_right_folded_arith_col_oracle],
-            gxs: vec![input_right_folded_arith_col_oracle.clone()],
+            fxs: vec![output_right_folded_tracked_col_oracle],
+            gxs: vec![input_right_folded_tracked_col_oracle.clone()],
             mfxs: vec![None],
             mgxs: vec![Some(input.right_table_multiplicity.clone())],
         };
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
-        let beta_vec = (0..(input.left_arith_table_oracle.num_cols() + 1))
+        let beta_vec = (0..(input.left_tracked_Table_oracle.num_cols() + 1))
             .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
-        let input_left_table_folded_arith_col_oracle = input
-            .left_arith_table_oracle
+        let input_left_table_folded_tracked_col_oracle = input
+            .left_tracked_Table_oracle
             .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
-        let nv = input.left_arith_table_oracle.num_vars();
+        let nv = input.left_tracked_Table_oracle.num_vars();
         let left_ind_closure = Arc::new(move |point: Vec<F>| {
             let mut eval = F::zero();
             for (i, coord) in point.iter().take(nv).enumerate() {
@@ -432,27 +432,27 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         });
         let left_ind_oracle = verifier.track_oracle(Oracle::Multivariate(left_ind_closure.clone()));
 
-        let input_left_folded_arith_col_oracle = ArithColOracle::new(
+        let input_left_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
-            &input_left_table_folded_arith_col_oracle.inner.clone() + &(left_ind_oracle),
-            input_left_table_folded_arith_col_oracle.actv,
-            input_left_table_folded_arith_col_oracle.num_vars,
+            &input_left_table_folded_tracked_col_oracle.inner.clone() + &(left_ind_oracle),
+            input_left_table_folded_tracked_col_oracle.actv,
+            input_left_table_folded_tracked_col_oracle.num_vars,
         );
-        let output_left_indices = (0..(input.left_arith_table_oracle.num_cols())).collect::<Vec<usize>>();
-        let output_left_table_folded_arith_col_oracle = input
-            .out_arith_table_oracle
+        let output_left_indices = (0..(input.left_tracked_Table_oracle.num_cols())).collect::<Vec<usize>>();
+        let output_left_table_folded_tracked_col_oracle = input
+            .out_tracked_Table_oracle
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
 
-        let output_left_folded_arith_col_oracle = ArithColOracle::new(
+        let output_left_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
-            &output_left_table_folded_arith_col_oracle.inner.clone() + &(input.join_left_source_comm.inner),
-            output_left_table_folded_arith_col_oracle.actv,
-            output_left_table_folded_arith_col_oracle.num_vars,
+            &output_left_table_folded_tracked_col_oracle.inner.clone() + &(input.join_left_source_comm.inner),
+            output_left_table_folded_tracked_col_oracle.actv,
+            output_left_table_folded_tracked_col_oracle.num_vars,
         );
         // Right multiplicity check
         let left_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![output_left_folded_arith_col_oracle],
-            gxs: vec![input_left_folded_arith_col_oracle.clone()],
+            fxs: vec![output_left_folded_tracked_col_oracle],
+            gxs: vec![input_left_folded_tracked_col_oracle.clone()],
             mfxs: vec![None],
             mgxs: vec![Some(input.left_table_multiplicity.clone())],
         };

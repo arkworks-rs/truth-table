@@ -16,7 +16,7 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -46,8 +46,8 @@ pub struct SuppCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col: ArithCol<F, MvPCS, UvPCS>,
-    pub supp: ArithCol<F, MvPCS, UvPCS>,
+    pub col: TrackedCol<F, MvPCS, UvPCS>,
+    pub supp: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -66,8 +66,8 @@ pub struct SuppCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col: ArithColOracle<F, MvPCS, UvPCS>,
-    pub supp: ArithColOracle<F, MvPCS, UvPCS>,
+    pub col: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub supp: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct SuppCheckProverOutput<
@@ -178,8 +178,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 {
     pub fn prove_with_advice(
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        col: &ArithCol<F, MvPCS, UvPCS>,
-        supp: &ArithCol<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+        supp: &TrackedCol<F, MvPCS, UvPCS>,
         common_mset_supp_m: &TrackedPoly<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         // Show col \subseteq supp
@@ -195,7 +195,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // be valid otherwise calc_inclusion_multiplicity would not
         // return something without zeros by default Note: can resuse the
         // supp.selector as the supp_m.selector
-        let supp_no_dups_checker = ArithCol::new(
+        let supp_no_dups_checker = TrackedCol::new(
             None,
             common_mset_supp_m.clone(),
             supp.actvtr_poly().cloned(),
@@ -211,8 +211,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     pub fn verify_with_advice(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col: &ArithColOracle<F, MvPCS, UvPCS>,
-        supp: &ArithColOracle<F, MvPCS, UvPCS>,
+        col: &TrackedColOracle<F, MvPCS, UvPCS>,
+        supp: &TrackedColOracle<F, MvPCS, UvPCS>,
         common_mset_supp_m: &TrackedOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         // Use ColMultitool PIOP to show col and supp share a Common Multiset
@@ -225,18 +225,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // col and supp are subsets of each other by showing multiplicity polys have no
         // zeros
-        let supp_no_dups_checker = ArithColOracle::new(
+        let supp_no_dups_checker = TrackedColOracle::new(
             None,
             common_mset_supp_m.clone(),
             supp.actv.clone(),
             supp.num_vars(),
         );
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
-            arith_col_oracle: supp_no_dups_checker,
+            tracked_col_oracle: supp_no_dups_checker,
         };
         NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
         let no_dup_verifier_input = NoDupCheckVerifierInput {
-            arith_col_oracle: supp.clone(),
+            tracked_col_oracle: supp.clone(),
         };
         NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, no_dup_verifier_input)?;
 

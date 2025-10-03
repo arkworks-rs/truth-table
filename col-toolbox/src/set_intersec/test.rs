@@ -1,4 +1,4 @@
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -293,10 +293,10 @@ fn set_inter_union_test_helper<
         None => None,
     };
     let set_inter_union_check_prover_input = SetInterUnionProverInput {
-        col_left: ArithCol::new(None, values_left, actv_left.clone()),
-        col_right: ArithCol::new(None, values_right, actv_right.clone()),
-        col_inter: ArithCol::new(None, values_inter, actv_inter.clone()),
-        col_union: ArithCol::new(None, values_union, actv_union.clone()),
+        col_left: TrackedCol::new(None, values_left, actv_left.clone()),
+        col_right: TrackedCol::new(None, values_right, actv_right.clone()),
+        col_inter: TrackedCol::new(None, values_inter, actv_inter.clone()),
+        col_union: TrackedCol::new(None, values_union, actv_union.clone()),
     };
     SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::prove(
         &mut prover,
@@ -346,25 +346,25 @@ fn set_inter_union_test_helper<
     //////////////////////////////////////////////////////////////////////
 
     let set_inter_union_check_verifier_input = SetInterUnionVerifierInput {
-        col_left: ArithColOracle {
+        col_left: TrackedColOracle {
             inner: left_com,
             actv: left_actv_com,
             data_type: None,
             num_vars: nv_left,
         },
-        col_right: ArithColOracle {
+        col_right: TrackedColOracle {
             inner: right_com,
             actv: right_actv_com,
             data_type: None,
             num_vars: nv_right,
         },
-        col_inter: ArithColOracle {
+        col_inter: TrackedColOracle {
             inner: inter_com,
             actv: inter_actv_com,
             data_type: None,
             num_vars: nv_union_inter,
         },
-        col_union: ArithColOracle {
+        col_union: TrackedColOracle {
             inner: union_com,
             actv: union_actv_com,
             data_type: None,

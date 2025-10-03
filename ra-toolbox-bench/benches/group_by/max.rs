@@ -1,4 +1,4 @@
-// use arithmetic::table::{ArithTable, ArithTableOracle};
+// use arithmetic::table::{TrackedTable, TrackedTableOracle};
 // use ark_piop::{errors::SnarkResult, piop::PIOP, prover::Prover,
 // verifier::Verifier}; use sql_toolbox::group_by::{
 //     GroupByPIOP, GroupByProverInput, GroupByVerifierInput,
@@ -18,8 +18,8 @@
 // fn prepare_prover_inputs() -> (
 //     Prover<F, P, K>,
 //     Verifier<F, P, K>,
-//     ArithTable<F, P, K>,
-//     ArithTable<F, P, K>,
+//     TrackedTable<F, P, K>,
+//     TrackedTable<F, P, K>,
 //     GroupByProverInput<F, P, K>,
 // ) {
 //     let rt = Runtime::new().unwrap();
@@ -57,12 +57,12 @@
 //         verifier.set_proof(proof);
 
 //         // Commit tables
-//         let input_comm = ArithTableOracle::from(input_table, &mut verifier);
-//         let output_comm = ArithTableOracle::from(output_table, &mut verifier);
+//         let input_comm = TrackedTableOracle::from(input_table, &mut verifier);
+//         let output_comm = TrackedTableOracle::from(output_table, &mut verifier);
 
 //         let verifier_input = GroupByVerifierInput {
-//             input_arith_table_oracle: input_comm,
-//             output_arith_table_oracle: output_comm,
+//             input_tracked_Table_oracle: input_comm,
+//             output_tracked_Table_oracle: output_comm,
 //             instr: prover_input.instr,
 //         };
 

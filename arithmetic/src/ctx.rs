@@ -7,7 +7,7 @@ use ark_piop::{
 };
 use datafusion::arrow::datatypes::Schema;
 
-use crate::table_oracle::SerializableArithTableOracle;
+use crate::table_oracle::ArithTableOracle;
 #[derive(Clone)]
 pub struct ProverCtx<F, MvPCS, UvPCS>
 where
@@ -15,7 +15,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    table_oracles: HashMap<Schema, SerializableArithTableOracle<F, MvPCS, UvPCS>>,
+    table_oracles: HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
     already_committed_polys: HashMap<Arc<MLE<F>>, MvPCS::Commitment>,
 }
 
@@ -26,7 +26,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub fn new(
-        table_oracles: HashMap<Schema, SerializableArithTableOracle<F, MvPCS, UvPCS>>,
+        table_oracles: HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
         already_committed_polys: HashMap<Arc<MLE<F>>, MvPCS::Commitment>,
     ) -> Self {
         Self {
@@ -38,11 +38,11 @@ where
     pub fn table_oracle(
         &self,
         schema: &Schema,
-    ) -> Option<&SerializableArithTableOracle<F, MvPCS, UvPCS>> {
+    ) -> Option<&ArithTableOracle<F, MvPCS, UvPCS>> {
         self.table_oracles.get(schema)
     }
 
-    pub fn table_oracles(&self) -> &HashMap<Schema, SerializableArithTableOracle<F, MvPCS, UvPCS>> {
+    pub fn table_oracles(&self) -> &HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>> {
         &self.table_oracles
     }
 

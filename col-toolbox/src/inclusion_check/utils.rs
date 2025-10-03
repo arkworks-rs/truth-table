@@ -1,4 +1,4 @@
-use arithmetic::col::ArithCol;
+use arithmetic::col::TrackedCol;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -12,8 +12,8 @@ use crate::util::multiplicity_count::vec_multiplicity_count;
 /// representing the multiplicity of the super polynomial elements in the
 /// claimed included column. This MLE will be used in the Multiplicity check
 pub fn calc_inclusion_multiplicity<F, MvPCS, UvPCS>(
-    included_col: &ArithCol<F, MvPCS, UvPCS>,
-    super_col: &ArithCol<F, MvPCS, UvPCS>,
+    included_col: &TrackedCol<F, MvPCS, UvPCS>,
+    super_col: &TrackedCol<F, MvPCS, UvPCS>,
 ) -> MLE<F>
 where
     F: PrimeField,

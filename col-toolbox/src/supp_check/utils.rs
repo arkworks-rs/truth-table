@@ -1,4 +1,4 @@
-use arithmetic::col::ArithCol;
+use arithmetic::col::TrackedCol;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -12,7 +12,7 @@ pub fn calc_supp_check_advice<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    col: &ArithCol<F, MvPCS, UvPCS>,
+    col: &TrackedCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<(MLE<F>, MLE<F>, MLE<F>)>
 // (supp, m)
 where

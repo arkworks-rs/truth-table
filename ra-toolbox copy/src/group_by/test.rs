@@ -4,7 +4,7 @@ use super::{
 };
 use crate::group_by::GroupByPIOP;
 
-use arithmetic::table::{ArithTable, ArithTableOracle};
+use arithmetic::table::{TrackedTable, TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -331,7 +331,7 @@ fn groupby_test_helper<
             .map(|i| Field::new(format!("col{}", i), DataType::UInt8, false))
             .collect::<Vec<Field>>(),
     );
-    let in_table = ArithTable::new(
+    let in_table = TrackedTable::new(
         Some(in_schema.clone()),
         in_tr_ps.clone(),
         Some(in_actv_tr_p.clone()),
@@ -349,7 +349,7 @@ fn groupby_test_helper<
             .map(|i| Field::new(format!("col{}", i), DataType::UInt8, false))
             .collect::<Vec<Field>>(),
     );
-    let out_table = ArithTable::new(
+    let out_table = TrackedTable::new(
         Some(out_schema.clone()),
         out_tr_ps,
         Some(out_actv_tr_p.clone()),
@@ -376,7 +376,7 @@ fn groupby_test_helper<
     let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
     let input_tartr_comm = verifier.track_mv_com_by_id(input_tartr_poly.id())?;
     let in_tr_comms = vec![gp_tr_comm_1.clone(), gp_tr_comm_2.clone(), input_tartr_comm];
-    let in_arith_table_oracle = ArithTableOracle::new(
+    let in_tracked_Table_oracle = TrackedTableOracle::new(
         Some(in_schema),
         in_tr_comms.clone(),
         Some(in_actv_tr_comm),
@@ -384,11 +384,11 @@ fn groupby_test_helper<
     );
     let out_tartr_comm = verifier.track_mv_com_by_id(out_tartr_p.id())?;
     let out_tr_comms = vec![gp_tr_comm_1, gp_tr_comm_2, out_tartr_comm];
-    let out_arith_table_oracle = ArithTableOracle::new(Some(out_schema), out_tr_comms, Some(out_actv_tr_comm), nv);
+    let out_tracked_Table_oracle = TrackedTableOracle::new(Some(out_schema), out_tr_comms, Some(out_actv_tr_comm), nv);
 
     let group_by_check_verifier_input = GroupByVerifierInput {
-        input_arith_table_oracle: in_arith_table_oracle,
-        output_arith_table_oracle: out_arith_table_oracle,
+        input_tracked_Table_oracle: in_tracked_Table_oracle,
+        output_tracked_Table_oracle: out_tracked_Table_oracle,
         instr: group_by_instr,
     };
     GroupByPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, group_by_check_verifier_input)?;

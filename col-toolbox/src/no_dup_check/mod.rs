@@ -25,7 +25,7 @@
 
 use std::marker::PhantomData;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -61,7 +61,7 @@ pub struct NoDupCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col: ArithCol<F, MvPCS, UvPCS>,
+    pub col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -79,7 +79,7 @@ pub struct NoDupCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for NoDupPIOP<F, MvPCS, UvPCS>
@@ -209,24 +209,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         ///////////////////// Deduplication check /////////////////////
-        let defraged_in_arith_col_oracle =
-            Defragmenter::defrag_arith_col_oracle(verifier, &verifier_input.arith_col_oracle)?;
-        // let defraged_in_arith_col_oracle = in_cm;
+        let defraged_in_tracked_col_oracle =
+            Defragmenter::defrag_tracked_col_oracle(verifier, &verifier_input.tracked_col_oracle)?;
+        // let defraged_in_tracked_col_oracle = in_cm;
 
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_arith_col_oracle.num_vars();
+        let num_vars = defraged_in_tracked_col_oracle.num_vars();
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
         let f_query_point: Vec<F> = std::iter::once(F::zero())
             .chain((0..num_vars - 1).map(|_| F::one()))
             .collect();
 
         ///////////////////// Deduplication check /////////////////////
-        if let Some(defraged_actv_arith_col_oracle) = defraged_in_arith_col_oracle.actv {
+        if let Some(defraged_actv_tracked_col_oracle) = defraged_in_tracked_col_oracle.actv {
             let dedup_cm_id = verifier.peek_next_id();
             let dedup_tr_cm = verifier.track_mv_com_by_id(dedup_cm_id)?;
-            let dedup_wit_tr_cm = &(&dedup_tr_cm - &defraged_in_arith_col_oracle.inner)
-                * &defraged_actv_arith_col_oracle;
+            let dedup_wit_tr_cm = &(&dedup_tr_cm - &defraged_in_tracked_col_oracle.inner)
+                * &defraged_actv_tracked_col_oracle;
             verifier.add_zerocheck_claim(dedup_wit_tr_cm.id());
         }
 
@@ -265,7 +265,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     rng: &mut dyn RngCore,
-    in_col: &ArithCol<F, MvPCS, UvPCS>,
+    in_col: &TrackedCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<MLE<F>> {
     // TODO: Fix this
     let mut evals = in_col.data_poly().evaluations();

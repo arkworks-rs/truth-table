@@ -1,7 +1,7 @@
 mod group_by;
 mod select;
 
-use arithmetic::table::{ArithTable, df_to_table};
+use arithmetic::table::{TrackedTable, df_to_table};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
@@ -15,7 +15,7 @@ type F = Fr;
 
 const MAX_LOG_VAR: usize = 23;
 
-async fn prepare_table(query: &str, prover: &mut Prover<F, P, K>) -> ArithTable<F, P, K> {
+async fn prepare_table(query: &str, prover: &mut Prover<F, P, K>) -> TrackedTable<F, P, K> {
     exec_custom_query(query, prover, true).await
 }
 
@@ -23,7 +23,7 @@ async fn exec_custom_query(
     query: &str,
     prover: &mut Prover<F, P, K>,
     compute_actvtr: bool,
-) -> ArithTable<F, P, K> {
+) -> TrackedTable<F, P, K> {
     let ctx = SessionContext::new().enable_url_table();
 
     let df = ctx.sql(query).await.unwrap();

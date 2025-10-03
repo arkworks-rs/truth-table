@@ -103,11 +103,11 @@ where
 }
 
 // TODO: Compute the following witnesses:
-// pub left_key_support: ArithCol<F, MvPCS, UvPCS>,
-// pub right_key_support: ArithCol<F, MvPCS, UvPCS>,
-// pub out_key_support: ArithCol<F, MvPCS, UvPCS>,
-// pub all_key_support: ArithCol<F, MvPCS, UvPCS>,
-// pub join_left_source: ArithCol<F, MvPCS, UvPCS>,
-// pub join_right_source: ArithCol<F, MvPCS, UvPCS>,
+// pub left_key_support: TrackedCol<F, MvPCS, UvPCS>,
+// pub right_key_support: TrackedCol<F, MvPCS, UvPCS>,
+// pub out_key_support: TrackedCol<F, MvPCS, UvPCS>,
+// pub all_key_support: TrackedCol<F, MvPCS, UvPCS>,
+// pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
+// pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
 // pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 // pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,

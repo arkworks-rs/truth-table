@@ -1,4 +1,4 @@
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -180,7 +180,7 @@ fn supp_check_test_helper<
         None => None,
     };
 
-    let col = ArithCol::new(None, col_tr_p.clone(), col_actv_tr_p.clone());
+    let col = TrackedCol::new(None, col_tr_p.clone(), col_actv_tr_p.clone());
 
     let supp_col_tr_p = prover
         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(supp_nv, &supp_col_values))?;
@@ -192,7 +192,7 @@ fn supp_check_test_helper<
             None => None,
         };
 
-    let supp_col = ArithCol::new(None, supp_col_tr_p.clone(), supp_col_actv_tr_p.clone());
+    let supp_col = TrackedCol::new(None, supp_col_tr_p.clone(), supp_col_actv_tr_p.clone());
 
     let supp_check_prover_input = SuppCheckProverInput {
         col: col.clone(),
@@ -203,34 +203,34 @@ fn supp_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let arith_col_oracle = verifier.track_mv_com_by_id(col_tr_p.id())?;
+    let tracked_col_oracle = verifier.track_mv_com_by_id(col_tr_p.id())?;
     let col_actv_comm = match col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
-    let supp_arith_col_oracle = verifier.track_mv_com_by_id(supp_col_tr_p.id())?;
+    let supp_tracked_col_oracle = verifier.track_mv_com_by_id(supp_col_tr_p.id())?;
     let supp_col_actv_comm = match supp_col_actv_tr_p {
         Some(actv_tr_p) => Some(verifier.track_mv_com_by_id(actv_tr_p.id())?),
         None => None,
     };
 
-    let arith_col_oracle = ArithColOracle::new(
+    let tracked_col_oracle = TrackedColOracle::new(
         col.data_type(),
-        arith_col_oracle,
+        tracked_col_oracle,
         col_actv_comm,
         col.num_vars(),
     );
 
-    let supp_arith_col_oracle = ArithColOracle::new(
+    let supp_tracked_col_oracle = TrackedColOracle::new(
         supp_col.data_type(),
-        supp_arith_col_oracle,
+        supp_tracked_col_oracle,
         supp_col_actv_comm,
         supp_col.num_vars(),
     );
 
     let supp_check_verifier_input = SuppCheckVerifierInput {
-        col: arith_col_oracle,
-        supp: supp_arith_col_oracle,
+        col: tracked_col_oracle,
+        supp: supp_tracked_col_oracle,
     };
 
     SuppCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, supp_check_verifier_input)?;

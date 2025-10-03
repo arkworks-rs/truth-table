@@ -1,7 +1,7 @@
 //! A tool to defragment a column by removing the non-activated elements
 use std::marker::PhantomData;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -34,8 +34,8 @@ where
 {
     pub fn defrag_col(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
-        col: &ArithCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ArithCol<F, MvPCS, UvPCS>> {
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
         if col.actvtr_poly().is_none() {
             return Ok(col.clone());
         }
@@ -67,7 +67,7 @@ where
             });
         new_actv_evals.resize(1 << new_nv, F::zero());
         new_inner_evals.resize(1 << new_nv, F::zero());
-        let new_col = ArithCol::new(
+        let new_col = TrackedCol::new(
             col.data_type(),
             tracker.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
                 new_nv,
@@ -90,12 +90,12 @@ where
         Ok(new_col)
     }
 
-    pub fn defrag_arith_col_oracle(
+    pub fn defrag_tracked_col_oracle(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ArithColOracle<F, MvPCS, UvPCS>> {
-        if arith_col_oracle.actv.is_none() {
-            return Ok(arith_col_oracle.clone());
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
+        if tracked_col_oracle.actv.is_none() {
+            return Ok(tracked_col_oracle.clone());
         }
 
         let new_col_inner_id = verifier.peek_next_id();
@@ -103,19 +103,19 @@ where
         let new_col_actv_id = verifier.peek_next_id();
         let new_col_actv_tr = verifier.track_mv_com_by_id(new_col_actv_id)?;
 
-        let new_arith_col_oracle = ArithColOracle::new(
-            arith_col_oracle.data_type.clone(),
+        let new_tracked_col_oracle = TrackedColOracle::new(
+            tracked_col_oracle.data_type.clone(),
             new_col_inner_tr.clone(),
             Some(new_col_actv_tr),
             verifier.commitment_num_vars(new_col_inner_id)?,
         );
 
         let perm_piop_verifier_input = PermPIOPVerifierInput {
-            left_arith_col_oracle: arith_col_oracle.clone(),
-            right_arith_col_oracle: new_arith_col_oracle.clone(),
+            left_tracked_col_oracle: tracked_col_oracle.clone(),
+            right_tracked_col_oracle: new_tracked_col_oracle.clone(),
         };
 
         PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
-        Ok(new_arith_col_oracle)
+        Ok(new_tracked_col_oracle)
     }
 }

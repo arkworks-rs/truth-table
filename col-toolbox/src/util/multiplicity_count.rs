@@ -1,4 +1,4 @@
-use arithmetic::col::ArithCol;
+use arithmetic::col::TrackedCol;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -30,7 +30,7 @@ where
     mults_map
 }
 
-pub fn col_multiplicity_count<F, MvPCS, UvPCS>(col: &ArithCol<F, MvPCS, UvPCS>) -> HashMap<F, u64>
+pub fn col_multiplicity_count<F, MvPCS, UvPCS>(col: &TrackedCol<F, MvPCS, UvPCS>) -> HashMap<F, u64>
 where
     F: PrimeField + PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

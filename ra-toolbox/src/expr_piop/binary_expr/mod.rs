@@ -1,4 +1,4 @@
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 #[cfg(feature = "honest-prover")]
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -30,9 +30,9 @@ pub struct BinaryExprPIOPProverInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub op: Operator,
-    pub left_col: ArithCol<F, MvPCS, UvPCS>,
-    pub right_col: ArithCol<F, MvPCS, UvPCS>,
-    pub output_col: ArithCol<F, MvPCS, UvPCS>,
+    pub left_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub right_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub output_col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -55,9 +55,9 @@ pub struct BinaryExprPIOPVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub op: Operator,
-    pub left_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-    pub right_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-    pub output_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub left_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub right_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub output_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct BinaryExprPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
@@ -118,7 +118,7 @@ where
                 };
                 prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
-                let no_zero_col = ArithCol::new(
+                let no_zero_col = TrackedCol::new(
                     None,
                     &(input.left_col.data_poly() - input.right_col.data_poly())
                         * &(input.output_col.data_poly() - F::one()),
@@ -162,7 +162,7 @@ where
                 };
                 verifier.add_zerocheck_claim(zero_oracle.id());
 
-                let no_zero_oracle = ArithColOracle::new(
+                let no_zero_oracle = TrackedColOracle::new(
                     None,
                     &(input.left_col_oracle.data_oracle() - input.right_col_oracle.data_oracle())
                         * &(input.output_col_oracle.data_oracle() - F::one()),
@@ -172,7 +172,7 @@ where
                 NoZerosCheck::<F, MvPCS, UvPCS>::verify(
                     verifier,
                     NoZerosCheckVerifierInput {
-                        arith_col_oracle: no_zero_oracle,
+                        tracked_col_oracle: no_zero_oracle,
                     },
                 )?;
             },

@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use arithmetic::{
     ctx::ProverCtx,
-    table_oracle::{ArithTableOracle, SerializableArithTableOracle},
+    table_oracle::{TrackedTableOracle, ArithTableOracle},
 };
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
@@ -34,7 +34,7 @@ type UvPCS = KZG10<Bls12_381>;
 /// returning its serializable form together with the path where it was stored.
 pub fn commit_parquet(
     parquet_path: &Path,
-) -> Result<(SerializableArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
+) -> Result<(ArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
     let parquet_path = parquet_path.to_path_buf();
     let parquet_path_for_async = parquet_path.clone();
     let table_name = parquet_path
@@ -84,23 +84,23 @@ pub fn commit_parquet(
 
         let (_, tables_by_node) = piop_tree.into_parts();
 
-        let mut arith_table_oracle: Option<ArithTableOracle<F, MvPCS, UvPCS>> = None;
+        let mut tracked_Table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
         for (node_id, tables) in &tables_by_node {
             if let ProverNodeNodeId::LP(plan) = node_id {
                 if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
                     if let Some(table) = tables.get("output_plan") {
-                        arith_table_oracle =
-                            Some(ArithTableOracle::from(table.clone(), &mut verifier)?);
+                        tracked_Table_oracle =
+                            Some(TrackedTableOracle::from(table.clone(), &mut verifier)?);
                         break;
                     }
                 }
             }
         }
 
-        let arith_table_oracle = arith_table_oracle.context("table scan result not found")?;
+        let tracked_Table_oracle = tracked_Table_oracle.context("table scan result not found")?;
 
         let serializable =
-            SerializableArithTableOracle::from_arith_table_oracle(&arith_table_oracle);
+            ArithTableOracle::from_tracked_Table_oracle(&tracked_Table_oracle);
 
         let output_path = parquet_path.with_extension("oracle");
         let file = File::create(&output_path).with_context(|| {
@@ -124,7 +124,7 @@ pub fn commit_parquet(
 /// Load a previously committed parquet table from disk.
 pub fn load_parquet_commitment(
     commitment_path: &Path,
-) -> Result<SerializableArithTableOracle<F, MvPCS, UvPCS>> {
+) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
     let file = File::open(commitment_path).with_context(|| {
         format!(
             "failed to open serialized oracle file at {}",
@@ -132,7 +132,7 @@ pub fn load_parquet_commitment(
         )
     })?;
     let mut reader = BufReader::new(file);
-    SerializableArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+    ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
         .context("failed to deserialize oracle")
 }
 

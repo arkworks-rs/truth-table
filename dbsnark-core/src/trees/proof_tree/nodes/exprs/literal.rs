@@ -1,5 +1,5 @@
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
-use arithmetic::{encoding::encode_arrow_array_to_field, table::ArithTable};
+use arithmetic::{encoding::encode_arrow_array_to_field, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -87,7 +87,7 @@ where
             scalar.is_null(),
         )]);
 
-        let table = ArithTable::new(
+        let table = TrackedTable::new(
             Some(schema),
             Vec::from([(
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),

@@ -1,5 +1,5 @@
 use super::{MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput};
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -648,12 +648,12 @@ fn multiplicity_test_helper<
     let f_cols = f_tr
         .iter()
         .zip(f_actv_tr.iter())
-        .map(|(tr, actv)| ArithCol::new(None, tr.clone(), actv.clone()))
+        .map(|(tr, actv)| TrackedCol::new(None, tr.clone(), actv.clone()))
         .collect::<Vec<_>>();
     let g_cols = g_tr
         .iter()
         .zip(g_actv_tr.iter())
-        .map(|(tr, actv)| ArithCol::new(None, tr.clone(), actv.clone()))
+        .map(|(tr, actv)| TrackedCol::new(None, tr.clone(), actv.clone()))
         .collect::<Vec<_>>();
     let multiplicity_check_prover_input = MultiplicityCheckProverInput {
         fxs: f_cols,
@@ -703,22 +703,22 @@ fn multiplicity_test_helper<
         })
         .collect::<Vec<_>>();
     //////////////////////////////////////////////////////////////////////
-    let f_arith_col_oracles = f_tr_comms
+    let f_tracked_col_oracles = f_tr_comms
         .iter()
         .zip(f_actv_comms.iter())
         .zip(f_nvs.iter())
-        .map(|((tr, actv), nv)| ArithColOracle::new(None, tr.clone(), actv.clone(), *nv))
+        .map(|((tr, actv), nv)| TrackedColOracle::new(None, tr.clone(), actv.clone(), *nv))
         .collect::<Vec<_>>();
-    let g_arith_col_oracles = g_tr_comms
+    let g_tracked_col_oracles = g_tr_comms
         .iter()
         .zip(g_actv_comms.iter())
         .zip(g_nvs.iter())
-        .map(|((tr, actv), nv)| ArithColOracle::new(None, tr.clone(), actv.clone(), *nv))
+        .map(|((tr, actv), nv)| TrackedColOracle::new(None, tr.clone(), actv.clone(), *nv))
         .collect::<Vec<_>>();
 
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
-        fxs: f_arith_col_oracles,
-        gxs: g_arith_col_oracles,
+        fxs: f_tracked_col_oracles,
+        gxs: g_tracked_col_oracles,
         mfxs: f_mul_tr_comms.clone(),
         mgxs: g_mul_tr_comms.clone(),
     };

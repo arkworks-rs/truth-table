@@ -1,5 +1,5 @@
 use super::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput};
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -100,7 +100,7 @@ fn nozero_test_helper<
     };
     let actv_clone = actv.clone();
     let no_zero_check_prover_input = NoZerosCheckProverInput {
-        col: ArithCol::new(None, inner, actv_clone),
+        col: TrackedCol::new(None, inner, actv_clone),
     };
     NoZerosCheck::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_zero_check_prover_input)?;
     let proof = prover.build_proof()?;
@@ -116,7 +116,7 @@ fn nozero_test_helper<
         None => None,
     };
     let no_zero_check_verifier_input = NoZerosCheckVerifierInput {
-        arith_col_oracle: ArithColOracle {
+        tracked_col_oracle: TrackedColOracle {
             inner: inner_com,
             actv: actv_com,
             data_type: None,

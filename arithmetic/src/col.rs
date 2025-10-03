@@ -18,7 +18,7 @@ use derivative::Derivative;
 /// an arithmetized column is represented by two polynomials: A data polynomial
 /// and an activator polynomial If the activator polynomial is None, all the
 /// rows are active
-pub struct ArithCol<F, MvPCS, UvPCS>
+pub struct TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -38,14 +38,14 @@ where
 }
 
 // Custom Debug impl that does not require `MvPCS`/`UvPCS` to implement Debug.
-impl<F, MvPCS, UvPCS> core::fmt::Debug for ArithCol<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ArithCol")
+        f.debug_struct("TrackedCol")
             .field("num_vars", &self.num_vars())
             .field("has_actvtr", &self.actvtr_poly.is_some())
             .field("data_type", &self.data_type)
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ArithCol<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -139,7 +139,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ArithCol<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Clone,

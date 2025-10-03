@@ -1,6 +1,6 @@
 use arithmetic::{
-    col::{ArithCol, ArithColOracle},
-    table::{ArithTable, ArithTableOracle},
+    col::{TrackedCol, TrackedColOracle},
+    table::{TrackedTable, TrackedTableOracle},
 };
 use ark_ec::pairing::Pairing;
 use ark_piop::{
@@ -675,40 +675,40 @@ fn inner_join_test_helper<
 
     let inner_join_prover_input: InnerJoinProverInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinProverInput {
-            left_table: ArithTable::new(
+            left_table: TrackedTable::new(
                 None,
                 data_left_table_polys,
                 actv_left_table_poly.clone(),
                 input.nv_left_table,
             ),
-            right_table: ArithTable::new(
+            right_table: TrackedTable::new(
                 None,
                 data_right_table_polys,
                 actv_right_table_poly.clone(),
                 input.nv_right_table,
             ),
-            out_table: ArithTable::new(
+            out_table: TrackedTable::new(
                 None,
                 data_out_table_polys,
                 actv_out_table_poly,
                 input.nv_out_table,
             ),
             // keysupps
-            left_key_support: ArithCol::new(None, data_left_keysupp_poly, actv_left_keysupp_poly),
-            right_key_support: ArithCol::new(
+            left_key_support: TrackedCol::new(None, data_left_keysupp_poly, actv_left_keysupp_poly),
+            right_key_support: TrackedCol::new(
                 None,
                 data_right_keysupp_poly,
                 actv_right_keysupp_poly,
             ),
-            out_key_support: ArithCol::new(None, data_out_keysupp_poly, actv_out_keysupp_poly),
-            all_key_support: ArithCol::new(None, data_all_keysupp_poly, actv_all_keysupp_poly),
+            out_key_support: TrackedCol::new(None, data_out_keysupp_poly, actv_out_keysupp_poly),
+            all_key_support: TrackedCol::new(None, data_all_keysupp_poly, actv_all_keysupp_poly),
             // source cols
-            join_left_source: ArithCol::new(
+            join_left_source: TrackedCol::new(
                 None,
                 join_left_source_poly,
                 actv_left_table_poly.clone(),
             ),
-            join_right_source: ArithCol::new(
+            join_right_source: TrackedCol::new(
                 None,
                 join_right_source_poly,
                 actv_right_table_poly.clone(),
@@ -723,7 +723,7 @@ fn inner_join_test_helper<
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////
 
-    let actv_left_arith_table_oracle = match &input.actv_left_table {
+    let actv_left_tracked_Table_oracle = match &input.actv_left_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
@@ -731,7 +731,7 @@ fn inner_join_test_helper<
 
         None => None,
     };
-    let data_left_arith_table_oracles = input
+    let data_left_tracked_Table_oracles = input
         .data_left_table
         .iter()
         .map(|_| {
@@ -739,14 +739,14 @@ fn inner_join_test_helper<
             verifier.track_mv_com_by_id(id).unwrap()
         })
         .collect::<Vec<_>>();
-    let actv_right_arith_table_oracle = match &input.actv_right_table {
+    let actv_right_tracked_Table_oracle = match &input.actv_right_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_right_arith_table_oracles = input
+    let data_right_tracked_Table_oracles = input
         .data_right_table
         .iter()
         .map(|_| {
@@ -754,14 +754,14 @@ fn inner_join_test_helper<
             verifier.track_mv_com_by_id(id).unwrap()
         })
         .collect::<Vec<_>>();
-    let actv_out_arith_table_oracle = match &input.actv_out_table {
+    let actv_out_tracked_Table_oracle = match &input.actv_out_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_out_arith_table_oracles = input
+    let data_out_tracked_Table_oracles = input
         .data_out_table
         .iter()
         .map(|_| {
@@ -819,58 +819,58 @@ fn inner_join_test_helper<
 
     let inner_join_verifier_input: InnerJoinVerifierInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinVerifierInput {
-            left_arith_table_oracle: ArithTableOracle::new(
+            left_tracked_Table_oracle: TrackedTableOracle::new(
                 None,
-                data_left_arith_table_oracles,
-                actv_left_arith_table_oracle.clone(),
+                data_left_tracked_Table_oracles,
+                actv_left_tracked_Table_oracle.clone(),
                 input.nv_left_table,
             ),
-            right_arith_table_oracle: ArithTableOracle::new(
+            right_tracked_Table_oracle: TrackedTableOracle::new(
                 None,
-                data_right_arith_table_oracles,
-                actv_right_arith_table_oracle.clone(),
+                data_right_tracked_Table_oracles,
+                actv_right_tracked_Table_oracle.clone(),
                 input.nv_right_table,
             ),
-            out_arith_table_oracle: ArithTableOracle::new(
+            out_tracked_Table_oracle: TrackedTableOracle::new(
                 None,
-                data_out_arith_table_oracles,
-                actv_out_arith_table_oracle,
+                data_out_tracked_Table_oracles,
+                actv_out_tracked_Table_oracle,
                 input.nv_out_table,
             ),
-            left_key_support_comm: ArithColOracle::new(
+            left_key_support_comm: TrackedColOracle::new(
                 None,
                 data_left_keysupp_comm,
                 actv_left_keysupp_comm,
                 input.nv_left_keysupp,
             ),
-            right_key_support_comm: ArithColOracle::new(
+            right_key_support_comm: TrackedColOracle::new(
                 None,
                 data_right_keysupp_comm,
                 actv_right_keysupp_comm,
                 input.nv_right_keysupp,
             ),
-            out_key_support_comm: ArithColOracle::new(
+            out_key_support_comm: TrackedColOracle::new(
                 None,
                 data_out_keysupp_comm,
                 actv_out_keysupp_comm,
                 input.nv_out_keysupp,
             ),
-            all_key_support_comm: ArithColOracle::new(
+            all_key_support_comm: TrackedColOracle::new(
                 None,
                 data_all_keysupp_comm,
                 actv_all_keysupp_comm,
                 input.nv_all_keysupp,
             ),
-            join_left_source_comm: ArithColOracle::new(
+            join_left_source_comm: TrackedColOracle::new(
                 None,
                 join_left_source_comm,
-                actv_left_arith_table_oracle.clone(),
+                actv_left_tracked_Table_oracle.clone(),
                 input.nv_out_table,
             ),
-            join_right_source_comm: ArithColOracle::new(
+            join_right_source_comm: TrackedColOracle::new(
                 None,
                 join_right_source_comm,
-                actv_right_arith_table_oracle.clone(),
+                actv_right_tracked_Table_oracle.clone(),
                 input.nv_out_table,
             ),
             right_table_multiplicity: right_table_multiplicity_comm,

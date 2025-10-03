@@ -1,5 +1,5 @@
 use crate::{exec_custom_query, prepare_table, F, K, P};
-use arithmetic::table::{ArithTable, ArithTableOracle};
+use arithmetic::table::{TrackedTable, TrackedTableOracle};
 use ark_piop::{piop::PIOP, prover::Prover, test_utils::bench_prelude, verifier::Verifier};
 use sql_toolbox::select::{
     structs::{SelectConfig, SelectProverInput, SelectVerifierInput, WhereClause},
@@ -15,8 +15,8 @@ const AUX_QUERY: &str = "SELECT CASE WHEN PRODUCTION_YEAR = 2000 THEN 1 ELSE 0 E
 fn prepare_prover_inputs() -> (
     Prover<F, P, K>,
     Verifier<F, P, K>,
-    ArithTable<F, P, K>,
-    ArithTable<F, P, K>,
+    TrackedTable<F, P, K>,
+    TrackedTable<F, P, K>,
     SelectProverInput<F, P, K>,
 ) {
     let rt = Runtime::new().unwrap();
@@ -44,7 +44,7 @@ fn prepare_prover_inputs() -> (
                 actv_poly.clone(),
             ));
         }
-        let output_table = ArithTable::new(table.schema(), output_cols, table.size());
+        let output_table = TrackedTable::new(table.schema(), output_cols, table.size());
         let prover_input = SelectProverInput {
             input_table: table.clone(),
             output_table: output_table.clone(),
@@ -71,14 +71,14 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         verifier.set_proof(proof);
 
         // Commit tables
-        let input_arith_table_oracle = ArithTableOracle::from(input_table, &mut verifier)?;
+        let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
         let output_actv = output_table
             .actvtr_poly()
             .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
 
-        let mut output_oracles = input_arith_table_oracle.data_oracles();
+        let mut output_oracles = input_tracked_Table_oracle.data_oracles();
         if let Some(activator_oracle) = output_actv {
-            let activator_field = input_arith_table_oracle
+            let activator_field = input_tracked_Table_oracle
                 .schema()
                 .as_ref()
                 .and_then(|schema| {
@@ -98,16 +98,16 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
             output_oracles.insert(activator_field, activator_oracle);
         }
 
-        let output_arith_table_oracle = ArithTableOracle::new(
-            input_arith_table_oracle.schema(),
+        let output_tracked_Table_oracle = TrackedTableOracle::new(
+            input_tracked_Table_oracle.schema(),
             output_oracles,
             None,
-            input_arith_table_oracle.log_size(),
+            input_tracked_Table_oracle.log_size(),
         );
 
         let verifier_input = SelectVerifierInput {
-            input_arith_table_oracle,
-            output_arith_table_oracle,
+            input_tracked_Table_oracle,
+            output_tracked_Table_oracle,
             select_conf: prover_input.select_conf,
         };
 

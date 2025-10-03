@@ -197,14 +197,14 @@ where
             )
             .unwrap()
             .col(0);
-        let input_arith_table = piop_tree
+        let input_tracked_Table = piop_tree
             .table(
                 &ProverNodeNodeId::LP(filter.input.as_ref().clone()),
                 "output_plan",
             )
             .unwrap()
             .clone();
-        let output_arith_table = piop_tree
+        let output_tracked_Table = piop_tree
             .table(&self.input_proof_plan.node_id(), "output_plan")
             .unwrap()
             .clone();
@@ -212,8 +212,8 @@ where
         let filter_piop_prover_input = FilterPIOPProverInput {
             filter,
             predicate_col,
-            input_arith_table,
-            output_arith_table,
+            input_tracked_Table,
+            output_tracked_Table,
         };
 
         FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)

@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
 
-use arithmetic::{ctx::ProverCtx, table_oracle::SerializableArithTableOracle};
+use arithmetic::{ctx::ProverCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
@@ -86,7 +86,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 File::open(&customer_oracle_path).expect("open customer oracle commitment");
             let mut reader = BufReader::new(customer_oracle_file);
             let customer_serializable =
-                SerializableArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(
+                ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(
                     &mut reader,
                 )
                 .expect("deserialize customer oracle");

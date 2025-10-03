@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{PrimeField, batch_inversion};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -136,7 +136,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(
             prover,
             NoZerosCheckProverInput {
-                col: ArithCol::new(None, p.clone(), None),
+                col: TrackedCol::new(None, p.clone(), None),
             },
         )?;
 
@@ -172,7 +172,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoZerosCheck::<F, MvPCS, UvPCS>::verify(
             verifier,
             NoZerosCheckVerifierInput {
-                arith_col_oracle: ArithColOracle::new(None, p_orcl.clone(), None, 0),
+                tracked_col_oracle: TrackedColOracle::new(None, p_orcl.clone(), None, 0),
             },
         )?;
 

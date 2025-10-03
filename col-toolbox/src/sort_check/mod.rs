@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -33,7 +33,7 @@ pub struct SortCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col: ArithCol<F, MvPCS, UvPCS>,
+    pub col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -51,7 +51,7 @@ pub struct SortCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub com: ArithColOracle<F, MvPCS, UvPCS>,
+    pub com: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for SortCheck<F, MvPCS, UvPCS>

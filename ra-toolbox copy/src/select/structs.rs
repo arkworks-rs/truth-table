@@ -1,4 +1,4 @@
-use arithmetic::table::{ArithTable, ArithTableOracle};
+use arithmetic::table::{TrackedTable, TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -35,8 +35,8 @@ pub struct SelectProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_table: ArithTable<F, MvPCS, UvPCS>,
-    pub output_table: ArithTable<F, MvPCS, UvPCS>,
+    pub input_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub output_table: TrackedTable<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }
 
@@ -64,7 +64,7 @@ pub struct SelectVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }

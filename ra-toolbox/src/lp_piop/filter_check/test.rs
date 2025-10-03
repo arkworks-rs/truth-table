@@ -3,7 +3,7 @@ use super::*;
 use std::sync::Arc;
 
 use arithmetic::{
-    col::ArithCol, col_oracle::ArithColOracle, table::ArithTable, table_oracle::ArithTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -155,7 +155,7 @@ fn filter_check_test_helper<
 
     let predicate_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &predicate_values))?;
-    let predicate_col = ArithCol::new(Some(DataType::Boolean), predicate_poly.clone(), None);
+    let predicate_col = TrackedCol::new(Some(DataType::Boolean), predicate_poly.clone(), None);
 
     let table_len = predicate_values.len();
     let data_values = predicate_values.clone();
@@ -173,7 +173,7 @@ fn filter_check_test_helper<
             activator_poly,
         ));
     }
-    let input_table = ArithTable::new(None, input_columns, table_len);
+    let input_table = TrackedTable::new(None, input_columns, table_len);
 
     let output_data_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
@@ -188,14 +188,14 @@ fn filter_check_test_helper<
             activator_poly,
         ));
     }
-    let output_arith_table = ArithTable::new(None, output_columns, table_len);
+    let output_tracked_Table = TrackedTable::new(None, output_columns, table_len);
 
     let filter = dummy_filter();
     let prover_input = FilterPIOPProverInput {
         filter: filter.clone(),
         predicate_col: predicate_col.clone(),
-        input_arith_table: input_table.clone(),
-        output_arith_table: output_arith_table.clone(),
+        input_tracked_Table: input_table.clone(),
+        output_tracked_Table: output_tracked_Table.clone(),
     };
 
     FilterPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
@@ -204,16 +204,16 @@ fn filter_check_test_helper<
 
     let predicate_data_oracle = verifier.track_mv_com_by_id(predicate_poly.id())?;
     let predicate_oracle =
-        ArithColOracle::new(predicate_col.data_type(), predicate_data_oracle, None, nv);
+        TrackedColOracle::new(predicate_col.data_type(), predicate_data_oracle, None, nv);
 
-    let input_arith_table_oracle = ArithTableOracle::from(input_table, &mut verifier)?;
-    let output_arith_table_oracle = ArithTableOracle::from(output_arith_table, &mut verifier)?;
+    let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
+    let output_tracked_Table_oracle = TrackedTableOracle::from(output_tracked_Table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,
         predicate_oracle,
-        input_arith_table_oracle,
-        output_arith_table_oracle,
+        input_tracked_Table_oracle,
+        output_tracked_Table_oracle,
     };
 
     FilterPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;

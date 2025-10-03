@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -44,10 +44,10 @@ pub struct SetInterUnionProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col_left: ArithCol<F, MvPCS, UvPCS>,
-    pub col_right: ArithCol<F, MvPCS, UvPCS>,
-    pub col_inter: ArithCol<F, MvPCS, UvPCS>,
-    pub col_union: ArithCol<F, MvPCS, UvPCS>,
+    pub col_left: TrackedCol<F, MvPCS, UvPCS>,
+    pub col_right: TrackedCol<F, MvPCS, UvPCS>,
+    pub col_inter: TrackedCol<F, MvPCS, UvPCS>,
+    pub col_union: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -67,10 +67,10 @@ pub struct SetInterUnionVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub col_left: ArithColOracle<F, MvPCS, UvPCS>,
-    pub col_right: ArithColOracle<F, MvPCS, UvPCS>,
-    pub col_inter: ArithColOracle<F, MvPCS, UvPCS>,
-    pub col_union: ArithColOracle<F, MvPCS, UvPCS>,
+    pub col_left: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub col_right: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub col_inter: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub col_union: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -223,7 +223,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         assert_eq!(input.col_inter.num_vars, input.col_union.num_vars);
         let no_dup_verifier_input = no_dup_check::NoDupCheckVerifierInput {
-            arith_col_oracle: input.col_union.clone(),
+            tracked_col_oracle: input.col_union.clone(),
         };
         NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         let mgx = match (&input.col_inter.actv, &input.col_union.actv) {

@@ -20,7 +20,7 @@ use derivative::Derivative;
     PartialEq(bound = "UvPCS: PCS<F>"),
     Debug(bound = "UvPCS: PCS<F>")
 )]
-pub struct ArithColOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
+pub struct TrackedColOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -31,7 +31,7 @@ where
     pub actv: Option<TrackedOracle<F, MvPCS, UvPCS>>,
     pub num_vars: usize,
 }
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> ArithColOracle<F, MvPCS, UvPCS>
+impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TrackedColOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

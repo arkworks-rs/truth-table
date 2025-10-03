@@ -7,7 +7,7 @@ use std::{
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
 use super::PIOPTree;
-use arithmetic::table::ArithTable;
+use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -68,7 +68,7 @@ where
                 ProverNodeNodeId::Expr(expr) => ("Expr", expr_label(expr)),
             };
 
-            let mut table_entries: Vec<(&String, &ArithTable<F, MvPCS, UvPCS>)> = self
+            let mut table_entries: Vec<(&String, &TrackedTable<F, MvPCS, UvPCS>)> = self
                 .plan
                 .tables_for(&node_kind)
                 .map(|m| m.iter().collect())

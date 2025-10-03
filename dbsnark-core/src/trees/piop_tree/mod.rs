@@ -5,7 +5,7 @@ mod tests;
 
 use std::{collections::HashMap, fmt};
 
-use arithmetic::table::ArithTable;
+use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -27,7 +27,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -58,7 +58,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+        tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -76,14 +76,14 @@ where
 
     pub fn tables(
         &self,
-    ) -> &HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+    ) -> &HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.tables
     }
 
     pub fn tables_for(
         &self,
         node_id: &ProverNodeNodeId,
-    ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+    ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tables.get(node_id)
     }
 
@@ -99,7 +99,7 @@ where
         &mut self,
         node_id: ProverNodeNodeId,
         label: String,
-        table: ArithTable<F, MvPCS, UvPCS>,
+        table: TrackedTable<F, MvPCS, UvPCS>,
     ) {
         self.tables.entry(node_id).or_default().insert(label, table);
     }
@@ -108,7 +108,7 @@ where
         &self,
         node_id: &ProverNodeNodeId,
         label: &str,
-    ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
+    ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
         self.tables
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
@@ -136,7 +136,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+        HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let PIOPTree {
             tables,
@@ -154,12 +154,12 @@ where
 {
     type Item = (
         &'a ProverNodeNodeId,
-        &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::Iter<
         'a,
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -175,11 +175,11 @@ where
 {
     type Item = (
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::IntoIter<
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -193,7 +193,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
@@ -230,7 +230,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    inner: &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualTablesDebug<'a, F, MvPCS, UvPCS>

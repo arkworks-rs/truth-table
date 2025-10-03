@@ -10,7 +10,7 @@ use crate::trees::{
 use arithmetic::{
     ctx::ProverCtx,
     errors::EncodeError,
-    table::{ArithTable, SerializableArithTable},
+    table::{TrackedTable, ArithTable},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -37,7 +37,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -68,7 +68,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+        tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -78,7 +78,7 @@ where
 
     pub fn table_by_node_map(
         self,
-    ) -> HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+    ) -> HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         let (_, tables) = self.into_parts();
         tables
     }
@@ -94,7 +94,7 @@ where
     pub fn tables_for(
         &self,
         node_id: &ProverNodeNodeId,
-    ) -> Option<&HashMap<String, ArithTable<F, MvPCS, UvPCS>>> {
+    ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tables.get(node_id)
     }
 
@@ -102,7 +102,7 @@ where
         &self,
         node_id: &ProverNodeNodeId,
         label: &str,
-    ) -> Option<&ArithTable<F, MvPCS, UvPCS>> {
+    ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
         self.tables
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
@@ -120,7 +120,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+        HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let TrackedTree {
             tables,
@@ -152,11 +152,11 @@ where
         let mut prover_ctx = proof_tree.ctx_mut();
         let mut tables_by_node: HashMap<
             ProverNodeNodeId,
-            HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+            HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
         > = HashMap::with_capacity(serial_tables.len());
 
         for (node_id, tables) in serial_tables {
-            let mut arith_tables = HashMap::with_capacity(tables.len());
+            let mut tracked_Tables = HashMap::with_capacity(tables.len());
             for (label, serial_table) in tables {
                 let table = Self::tracked_table_from_serializable(
                     &node_id,
@@ -164,9 +164,9 @@ where
                     &mut prover_ctx,
                     prover,
                 );
-                arith_tables.insert(label, table);
+                tracked_Tables.insert(label, table);
             }
-            tables_by_node.insert(node_id, arith_tables);
+            tables_by_node.insert(node_id, tracked_Tables);
         }
 
         Ok(Self::new(proof_tree, tables_by_node))
@@ -181,7 +181,7 @@ where
         record_batches: Vec<RecordBatch>,
         prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> Result<ArithTable<F, MvPCS, UvPCS>, EncodeError> {
+    ) -> Result<TrackedTable<F, MvPCS, UvPCS>, EncodeError> {
         let serial_table =
             ArithmetizedTree::<F, MvPCS, UvPCS>::serializable_table_from_batches(record_batches)?;
         Ok(Self::tracked_table_from_serializable(
@@ -194,16 +194,16 @@ where
 
     fn tracked_table_from_serializable(
         node_id: &ProverNodeNodeId,
-        serial_table: SerializableArithTable<F>,
+        serial_table: ArithTable<F>,
         prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> ArithTable<F, MvPCS, UvPCS> {
+    ) -> TrackedTable<F, MvPCS, UvPCS> {
         let schema = serial_table.schema();
         let size = serial_table.size();
         let num_cols = serial_table.num_cols();
 
         if num_cols == 0 {
-            return ArithTable::new(schema, Vec::new(), size);
+            return TrackedTable::new(schema, Vec::new(), size);
         }
 
         let prover_param = prover.mv_pcs_prover_param();
@@ -245,7 +245,7 @@ where
             data_polys.push((field_ref.clone(), tracked));
         }
 
-        ArithTable::new(schema, data_polys, size)
+        TrackedTable::new(schema, data_polys, size)
     }
 }
 
@@ -257,12 +257,12 @@ where
 {
     type Item = (
         &'a ProverNodeNodeId,
-        &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::Iter<
         'a,
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -278,11 +278,11 @@ where
 {
     type Item = (
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
     type IntoIter = std::collections::hash_map::IntoIter<
         ProverNodeNodeId,
-        HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -296,7 +296,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
+    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
@@ -310,7 +310,7 @@ where
         for (node_id, tables) in self.inner.iter() {
             map.entry(
                 &NodeIdDebug { node_id },
-                &ArithTablesDebug { inner: tables },
+                &TrackedTablesDebug { inner: tables },
             );
         }
         map.finish()
@@ -326,16 +326,16 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
         f.write_str(&self.node_id.to_string())
     }
 }
-struct ArithTablesDebug<'a, F, MvPCS, UvPCS>
+struct TrackedTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
+    inner: &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithTablesDebug<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Debug for TrackedTablesDebug<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

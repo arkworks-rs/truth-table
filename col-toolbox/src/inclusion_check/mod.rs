@@ -7,7 +7,7 @@
 mod test;
 pub(crate) mod utils;
 
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -34,8 +34,8 @@ pub struct InclusionCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub included_col: ArithCol<F, MvPCS, UvPCS>,
-    pub super_col: ArithCol<F, MvPCS, UvPCS>,
+    pub included_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub super_col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for InclusionCheckProverInput<F, MvPCS, UvPCS>
@@ -65,8 +65,8 @@ pub struct InclusionCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub included_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-    pub super_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+    pub included_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct InclusionCheckVerifierOutput<
@@ -137,8 +137,8 @@ where
         let super_col_m = verifier.track_mv_com_by_id(super_col_m_id)?;
         Self::verify_with_advice(
             verifier,
-            &input.included_arith_col_oracle,
-            &input.super_arith_col_oracle,
+            &input.included_tracked_col_oracle,
+            &input.super_tracked_col_oracle,
             &super_col_m,
         )?;
         Ok(InclusionCheckVerifierOutput {
@@ -155,8 +155,8 @@ where
 {
     pub fn prove_with_advice(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
-        included_col: &ArithCol<F, MvPCS, UvPCS>,
-        super_col: &ArithCol<F, MvPCS, UvPCS>,
+        included_col: &TrackedCol<F, MvPCS, UvPCS>,
+        super_col: &TrackedCol<F, MvPCS, UvPCS>,
         super_col_m: &TrackedPoly<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let nv = included_col.num_vars();
@@ -179,8 +179,8 @@ where
 
     pub fn verify_with_advice(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        included_col: &ArithColOracle<F, MvPCS, UvPCS>,
-        super_col: &ArithColOracle<F, MvPCS, UvPCS>,
+        included_col: &TrackedColOracle<F, MvPCS, UvPCS>,
+        super_col: &TrackedColOracle<F, MvPCS, UvPCS>,
         super_col_m: &TrackedOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };

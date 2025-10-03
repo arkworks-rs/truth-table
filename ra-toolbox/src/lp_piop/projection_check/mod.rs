@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{table::ArithTable, table_oracle::ArithTableOracle};
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -25,8 +25,8 @@ pub struct ProjectionPIOPProverInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub projection: Projection,
-    pub expr: Vec<ArithTable<F, MvPCS, UvPCS>>,
-    pub input: ArithTable<F, MvPCS, UvPCS>,
+    pub expr: Vec<TrackedTable<F, MvPCS, UvPCS>>,
+    pub input: TrackedTable<F, MvPCS, UvPCS>,
 }
 
 #[derive(Derivative)]
@@ -41,8 +41,8 @@ pub struct ProjectionPIOPVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub projection: Projection,
-    pub expr: Vec<ArithTableOracle<F, MvPCS, UvPCS>>,
-    pub input: Arc<ArithTableOracle<F, MvPCS, UvPCS>>,
+    pub expr: Vec<TrackedTableOracle<F, MvPCS, UvPCS>>,
+    pub input: Arc<TrackedTableOracle<F, MvPCS, UvPCS>>,
 }
 
 pub struct ProjectionPIOP;

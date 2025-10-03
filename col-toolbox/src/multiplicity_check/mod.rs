@@ -6,7 +6,7 @@
 mod honest_prover;
 #[cfg(test)]
 mod test;
-use arithmetic::{col::ArithCol, col_oracle::ArithColOracle};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -40,8 +40,8 @@ pub struct MultiplicityCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub fxs: Vec<ArithCol<F, MvPCS, UvPCS>>,
-    pub gxs: Vec<ArithCol<F, MvPCS, UvPCS>>,
+    pub fxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
+    pub gxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub mfxs: Vec<Option<TrackedPoly<F, MvPCS, UvPCS>>>,
     pub mgxs: Vec<Option<TrackedPoly<F, MvPCS, UvPCS>>>,
 }
@@ -51,8 +51,8 @@ pub struct MultiplicityCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub fxs: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
-    pub gxs: Vec<ArithColOracle<F, MvPCS, UvPCS>>,
+    pub fxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
+    pub gxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub mfxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
     pub mgxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
 }
@@ -188,7 +188,7 @@ where
 {
     fn prove_generate_subclaims(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
-        col: ArithCol<F, MvPCS, UvPCS>,
+        col: TrackedCol<F, MvPCS, UvPCS>,
         m: Option<TrackedPoly<F, MvPCS, UvPCS>>,
         gamma: F,
     ) -> SnarkResult<()> {
@@ -246,7 +246,7 @@ where
 
     fn verify_generate_subclaims(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        col: ArithColOracle<F, MvPCS, UvPCS>,
+        col: TrackedColOracle<F, MvPCS, UvPCS>,
         m: Option<TrackedOracle<F, MvPCS, UvPCS>>,
         gamma: F,
     ) -> SnarkResult<F> {

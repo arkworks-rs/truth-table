@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use arithmetic::{
-    col::ArithCol, col_oracle::ArithColOracle, table::ArithTable, table_oracle::ArithTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -29,9 +29,9 @@ pub struct FilterPIOPProverInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub filter: Filter,
-    pub predicate_col: ArithCol<F, MvPCS, UvPCS>,
-    pub input_arith_table: ArithTable<F, MvPCS, UvPCS>,
-    pub output_arith_table: ArithTable<F, MvPCS, UvPCS>,
+    pub predicate_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub input_tracked_Table: TrackedTable<F, MvPCS, UvPCS>,
+    pub output_tracked_Table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for FilterPIOPProverInput<F, MvPCS, UvPCS>
@@ -44,8 +44,8 @@ where
         Self {
             filter: self.filter.clone(),
             predicate_col: self.predicate_col.deep_clone(prover.clone()),
-            input_arith_table: self.input_arith_table.deep_clone(prover.clone()),
-            output_arith_table: self.output_arith_table.deep_clone(prover),
+            input_tracked_Table: self.input_tracked_Table.deep_clone(prover.clone()),
+            output_tracked_Table: self.output_tracked_Table.deep_clone(prover),
         }
     }
 }
@@ -62,9 +62,9 @@ pub struct FilterPIOPVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub filter: Filter,
-    pub predicate_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-    pub input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub predicate_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct FilterPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -88,8 +88,8 @@ where
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // Create the selected and non-selected activator columns
         let zero_poly = match (
-            input.input_arith_table.actvtr_poly(),
-            input.output_arith_table.actvtr_poly(),
+            input.input_tracked_Table.actvtr_poly(),
+            input.output_tracked_Table.actvtr_poly(),
         ) {
             (Some(in_actv), Some(out_actv)) => {
                 &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
@@ -115,8 +115,8 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let zero_poly = match (
-            input.input_arith_table.actvtr_poly(),
-            input.output_arith_table.actvtr_poly(),
+            input.input_tracked_Table.actvtr_poly(),
+            input.output_tracked_Table.actvtr_poly(),
         ) {
             (Some(in_actv), Some(out_actv)) => {
                 &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
@@ -137,8 +137,8 @@ where
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let zero_oracle = match (
-            input.input_arith_table_oracle.actvtr_poly(),
-            input.output_arith_table_oracle.actvtr_poly(),
+            input.input_tracked_Table_oracle.actvtr_poly(),
+            input.output_tracked_Table_oracle.actvtr_poly(),
         ) {
             (Some(in_actv), Some(out_actv)) => {
                 &out_actv - &(&in_actv * &input.predicate_oracle.activated_data_oracle())

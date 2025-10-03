@@ -5,7 +5,7 @@ pub mod tests;
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use arithmetic::{
-    encoding::encode_arrow_array_to_field, errors::EncodeError, table::SerializableArithTable,
+    encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -29,7 +29,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: HashMap<ProverNodeNodeId, HashMap<String, SerializableArithTable<F>>>,
+    tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -60,7 +60,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: HashMap<ProverNodeNodeId, HashMap<String, SerializableArithTable<F>>>,
+        tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     ) -> Self {
         Self {
             tables,
@@ -88,9 +88,9 @@ where
     #[tracing::instrument(level = "debug", skip(record_batches))]
     pub(crate) fn serializable_table_from_batches(
         record_batches: Vec<RecordBatch>,
-    ) -> Result<SerializableArithTable<F>, EncodeError> {
+    ) -> Result<ArithTable<F>, EncodeError> {
         if record_batches.is_empty() {
-            return Ok(SerializableArithTable::new(None, Vec::new(), 0));
+            return Ok(ArithTable::new(None, Vec::new(), 0));
         }
 
         let schema_ref = record_batches[0].schema();
@@ -125,7 +125,7 @@ where
 
         let schema = Some(schema_ref.as_ref().clone());
 
-        Ok(SerializableArithTable::new(schema, data_polys, total_rows))
+        Ok(ArithTable::new(schema, data_polys, total_rows))
     }
 
     pub fn len(&self) -> usize {
@@ -139,7 +139,7 @@ where
     pub fn tables_for(
         &self,
         node_id: &ProverNodeNodeId,
-    ) -> Option<&HashMap<String, SerializableArithTable<F>>> {
+    ) -> Option<&HashMap<String, ArithTable<F>>> {
         self.tables.get(node_id)
     }
 
@@ -147,7 +147,7 @@ where
         &self,
         node_id: &ProverNodeNodeId,
         label: &str,
-    ) -> Option<&SerializableArithTable<F>> {
+    ) -> Option<&ArithTable<F>> {
         self.tables
             .get(node_id)
             .and_then(|tables| tables.get(label))
@@ -165,7 +165,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, SerializableArithTable<F>>>,
+        HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     ) {
         let ArithmetizedTree {
             tables,
@@ -181,10 +181,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (ProverNodeNodeId, HashMap<String, SerializableArithTable<F>>);
+    type Item = (ProverNodeNodeId, HashMap<String, ArithTable<F>>);
     type IntoIter = std::collections::hash_map::IntoIter<
         ProverNodeNodeId,
-        HashMap<String, SerializableArithTable<F>>,
+        HashMap<String, ArithTable<F>>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -196,7 +196,7 @@ struct ArithNodesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, SerializableArithTable<F>>>,
+    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
 }
 
 impl<'a, F> fmt::Debug for ArithNodesDebug<'a, F>
@@ -208,7 +208,7 @@ where
         for (node_id, tables) in self.inner.iter() {
             map.entry(
                 &NodeIdDebug { node_id },
-                &ArithTablesDebug { inner: tables },
+                &TrackedTablesDebug { inner: tables },
             );
         }
         map.finish()
@@ -225,14 +225,14 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
     }
 }
 
-struct ArithTablesDebug<'a, F>
+struct TrackedTablesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a HashMap<String, SerializableArithTable<F>>,
+    inner: &'a HashMap<String, ArithTable<F>>,
 }
 
-impl<'a, F> fmt::Debug for ArithTablesDebug<'a, F>
+impl<'a, F> fmt::Debug for TrackedTablesDebug<'a, F>
 where
     F: PrimeField,
 {

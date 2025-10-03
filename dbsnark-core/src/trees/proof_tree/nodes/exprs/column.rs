@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::table::ArithTable;
+use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -108,7 +108,7 @@ where
                 .expect("Column activator polynomial should not be None")
                 .clone(),
         ));
-        let output_table = ArithTable::new(None, data_polys, 0);
+        let output_table = TrackedTable::new(None, data_polys, 0);
 
         piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
     }

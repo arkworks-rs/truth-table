@@ -1,8 +1,8 @@
 ////////////// Imports //////////////
 
 use arithmetic::{
-    col::{ArithCol, ArithColOracle},
-    table::{ArithTable, ArithTableOracle},
+    col::{TrackedCol, TrackedColOracle},
+    table::{TrackedTable, TrackedTableOracle},
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -39,8 +39,8 @@ pub struct SelectionCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub query_input_table: ArithTable<F, MvPCS, UvPCS>,
-    pub query_output_table: ArithTable<F, MvPCS, UvPCS>,
+    pub query_input_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub query_output_table: TrackedTable<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }
 
@@ -61,8 +61,8 @@ pub struct SelectionCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub query_output_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
-    pub query_input_arith_table_oracle: ArithTableOracle<F, MvPCS, UvPCS>,
+    pub query_output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub query_input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }
 
@@ -119,20 +119,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => Self::verify_eq_selection(
                 verifier,
-                input.query_input_arith_table_oracle.col(col_ind),
-                input.query_output_arith_table_oracle.col(col_ind),
+                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_output_tracked_Table_oracle.col(col_ind),
                 filter,
             )?,
             WhereClause::Geq(col_ind, filter) => Self::verify_geq_selection(
                 verifier,
-                input.query_input_arith_table_oracle.col(col_ind),
-                input.query_output_arith_table_oracle.col(col_ind).clone(),
+                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_output_tracked_Table_oracle.col(col_ind).clone(),
                 filter,
             )?,
             WhereClause::Leq(col_ind, filter) => Self::verify_leq_selection(
                 verifier,
-                input.query_input_arith_table_oracle.col(col_ind),
-                input.query_output_arith_table_oracle.col(col_ind).clone(),
+                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_output_tracked_Table_oracle.col(col_ind).clone(),
                 filter,
             )?,
             _ => unimplemented!(),
@@ -145,10 +145,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     SelectionCheckPIOP<F, MvPCS, UvPCS>
 {
     fn build_selected_and_non_selected_cols(
-        input_col: &ArithCol<F, MvPCS, UvPCS>,
-        output_col: &ArithCol<F, MvPCS, UvPCS>,
+        input_col: &TrackedCol<F, MvPCS, UvPCS>,
+        output_col: &TrackedCol<F, MvPCS, UvPCS>,
         filter: F,
-    ) -> (ArithCol<F, MvPCS, UvPCS>, ArithCol<F, MvPCS, UvPCS>) {
+    ) -> (TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>) {
         let selected_actv = input_col.actvtr_poly().unwrap() * (output_col.actvtr_poly().unwrap());
 
         let complement = output_col.actvtr_poly().unwrap() * (-F::one());
@@ -157,12 +157,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let shifted_inner = (input_col.data_poly()) - filter;
 
         (
-            ArithCol::new(
+            TrackedCol::new(
                 input_col.data_type().clone(),
                 shifted_inner.clone(),
                 Some(selected_actv),
             ),
-            ArithCol::new(
+            TrackedCol::new(
                 input_col.data_type().clone(),
                 shifted_inner,
                 Some(non_selected_actv),
@@ -170,39 +170,39 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         )
     }
 
-    fn build_selected_and_non_selected_arith_col_oracles(
-        input_arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
-        output_arith_col_oracle: &ArithColOracle<F, MvPCS, UvPCS>,
+    fn build_selected_and_non_selected_tracked_col_oracles(
+        input_tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        output_tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
         filter: F,
-    ) -> (ArithColOracle<F, MvPCS, UvPCS>, ArithColOracle<F, MvPCS, UvPCS>) {
+    ) -> (TrackedColOracle<F, MvPCS, UvPCS>, TrackedColOracle<F, MvPCS, UvPCS>) {
         let selected_actv =
-            input_arith_col_oracle.actv.as_ref().unwrap() * (output_arith_col_oracle.actv.as_ref().unwrap());
+            input_tracked_col_oracle.actv.as_ref().unwrap() * (output_tracked_col_oracle.actv.as_ref().unwrap());
 
-        let non_selected_actv = input_arith_col_oracle.actv.as_ref().unwrap()
-            * &(&(output_arith_col_oracle.actv.as_ref().unwrap() * (-F::one())) + F::one());
+        let non_selected_actv = input_tracked_col_oracle.actv.as_ref().unwrap()
+            * &(&(output_tracked_col_oracle.actv.as_ref().unwrap() * (-F::one())) + F::one());
 
-        let shifted_inner = &input_arith_col_oracle.inner - filter;
+        let shifted_inner = &input_tracked_col_oracle.inner - filter;
 
         (
-            ArithColOracle {
-                data_type: input_arith_col_oracle.data_type.clone(),
+            TrackedColOracle {
+                data_type: input_tracked_col_oracle.data_type.clone(),
                 inner: shifted_inner.clone(),
                 actv: Some(selected_actv),
-                num_vars: input_arith_col_oracle.num_vars,
+                num_vars: input_tracked_col_oracle.num_vars,
             },
-            ArithColOracle {
-                data_type: input_arith_col_oracle.data_type.clone(),
+            TrackedColOracle {
+                data_type: input_tracked_col_oracle.data_type.clone(),
                 inner: shifted_inner,
                 actv: Some(non_selected_actv),
-                num_vars: input_arith_col_oracle.num_vars,
+                num_vars: input_tracked_col_oracle.num_vars,
             },
         )
     }
 
     fn prove_eq_selection(
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        input_col: ArithCol<F, MvPCS, UvPCS>,
-        output_col: ArithCol<F, MvPCS, UvPCS>,
+        input_col: TrackedCol<F, MvPCS, UvPCS>,
+        output_col: TrackedCol<F, MvPCS, UvPCS>,
         eq_filter: F,
     ) -> SnarkResult<()> {
         let (selected_col, non_selected_col) =
@@ -221,19 +221,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_eq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        output_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
         eq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
-            Self::build_selected_and_non_selected_arith_col_oracles(
-                &input_arith_col_oracle,
-                &output_arith_col_oracle,
+        let (selected_tracked_col_oracle, non_selected_tracked_col_oracle) =
+            Self::build_selected_and_non_selected_tracked_col_oracles(
+                &input_tracked_col_oracle,
+                &output_tracked_col_oracle,
                 eq_filter,
             );
-        verifier.add_zerocheck_claim(selected_arith_col_oracle.effective_comm().id);
+        verifier.add_zerocheck_claim(selected_tracked_col_oracle.effective_comm().id);
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
-            arith_col_oracle: non_selected_arith_col_oracle,
+            tracked_col_oracle: non_selected_tracked_col_oracle,
         };
         NoZerosCheck::verify(verifier, no_zeros_check_verifier_input)?;
         Ok(())
@@ -241,8 +241,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn prove_geq_selection(
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        input_col: ArithCol<F, MvPCS, UvPCS>,
-        output_col: ArithCol<F, MvPCS, UvPCS>,
+        input_col: TrackedCol<F, MvPCS, UvPCS>,
+        output_col: TrackedCol<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
         let (selected_col, non_selected_col) =
@@ -271,20 +271,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_geq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        output_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
-            Self::build_selected_and_non_selected_arith_col_oracles(
-                &input_arith_col_oracle,
-                &output_arith_col_oracle,
+        let (selected_tracked_col_oracle, non_selected_tracked_col_oracle) =
+            Self::build_selected_and_non_selected_tracked_col_oracles(
+                &input_tracked_col_oracle,
+                &output_tracked_col_oracle,
                 geq_filter,
             );
         // Check if the selected ones are greater than or equal to the filter
         // The selected ones are the ones that are active in both the input and output
         let non_neg_sign_check_verifier_input = SignCheckVerifierInput {
-            arith_col_oracle: selected_arith_col_oracle,
+            tracked_col_oracle: selected_tracked_col_oracle,
             sign: col_toolbox::sign_check::Sign::NoneNegative,
         };
         SignCheckPIOP::verify(verifier, non_neg_sign_check_verifier_input)?;
@@ -293,7 +293,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The non-selected ones are the ones that were active in the input table but
         // not in the output table
         let neg_sign_check_verifier_input = SignCheckVerifierInput {
-            arith_col_oracle: non_selected_arith_col_oracle,
+            tracked_col_oracle: non_selected_tracked_col_oracle,
             sign: col_toolbox::sign_check::Sign::Negative,
         };
 
@@ -304,8 +304,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn prove_leq_selection(
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        input_col: ArithCol<F, MvPCS, UvPCS>,
-        output_col: ArithCol<F, MvPCS, UvPCS>,
+        input_col: TrackedCol<F, MvPCS, UvPCS>,
+        output_col: TrackedCol<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
         let (selected_col, non_selected_col) =
@@ -334,20 +334,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn verify_leq_selection(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-        output_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
+        input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        output_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
         geq_filter: F,
     ) -> SnarkResult<()> {
-        let (selected_arith_col_oracle, non_selected_arith_col_oracle) =
-            Self::build_selected_and_non_selected_arith_col_oracles(
-                &input_arith_col_oracle,
-                &output_arith_col_oracle,
+        let (selected_tracked_col_oracle, non_selected_tracked_col_oracle) =
+            Self::build_selected_and_non_selected_tracked_col_oracles(
+                &input_tracked_col_oracle,
+                &output_tracked_col_oracle,
                 geq_filter,
             );
         // Check if the selected ones are greater than or equal to the filter
         // The selected ones are the ones that are active in both the input and output
         let non_neg_sign_check_verifier_input = SignCheckVerifierInput {
-            arith_col_oracle: selected_arith_col_oracle,
+            tracked_col_oracle: selected_tracked_col_oracle,
             sign: col_toolbox::sign_check::Sign::NonePositive,
         };
         SignCheckPIOP::verify(verifier, non_neg_sign_check_verifier_input)?;
@@ -356,7 +356,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The non-selected ones are the ones that were active in the input table but
         // not in the output table
         let neg_sign_check_verifier_input = SignCheckVerifierInput {
-            arith_col_oracle: non_selected_arith_col_oracle,
+            tracked_col_oracle: non_selected_tracked_col_oracle,
             sign: col_toolbox::sign_check::Sign::Positive,
         };
 
@@ -367,9 +367,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     fn broadcast_actv_col(
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        input_col: ArithCol<F, MvPCS, UvPCS>,
-        output_col: ArithCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ArithCol<F, MvPCS, UvPCS>> {
+        input_col: TrackedCol<F, MvPCS, UvPCS>,
+        output_col: TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
         // let mut selected_hash_set: HashSet<F> = HashSet::new();
         let output_inner_evals = output_col.data_poly().evaluations();
         let selected_hash_set: HashSet<F> = match output_col.actvtr_poly() {
@@ -411,24 +411,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             MLE::from_evaluations_vec(input_col.num_vars(), broadcasted_selector_evals.clone());
 
         let broadcasted_actv = prover.track_and_commit_mat_mv_poly(&broadcasted_selector_mle)?;
-        Ok(ArithCol::new(
+        Ok(TrackedCol::new(
             input_col.data_type(),
             input_col.data_poly().clone(),
             Some(broadcasted_actv),
         ))
     }
 
-    fn broadcast_actv_arith_col_oracle(
+    fn broadcast_actv_tracked_col_oracle(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        input_arith_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<ArithColOracle<F, MvPCS, UvPCS>> {
+        input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
         let broadcasted_actv_id = verifier.peek_next_id(); // Get the next ID for the broadcasted activator
         let broadcasted_actv_tr_com = verifier.track_mv_com_by_id(broadcasted_actv_id)?;
-        Ok(ArithColOracle {
-            data_type: input_arith_col_oracle.data_type.clone(),
-            inner: input_arith_col_oracle.inner.clone(),
+        Ok(TrackedColOracle {
+            data_type: input_tracked_col_oracle.data_type.clone(),
+            inner: input_tracked_col_oracle.inner.clone(),
             actv: Some(broadcasted_actv_tr_com),
-            num_vars: input_arith_col_oracle.num_vars,
+            num_vars: input_tracked_col_oracle.num_vars,
         })
     }
 }
