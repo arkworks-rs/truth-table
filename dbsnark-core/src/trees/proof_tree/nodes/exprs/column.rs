@@ -83,7 +83,10 @@ where
             .col_by_name(&column_expr.name)
             .expect("column not found in table");
         // TODO: Clean this up later
-        let mut data_polys: Vec<(Arc<datafusion::arrow::datatypes::Field>, ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>)> = vec![(
+        let mut data_polys: Vec<(
+            Arc<datafusion::arrow::datatypes::Field>,
+            ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
+        )> = vec![(
             Arc::new(datafusion::arrow::datatypes::Field::new(
                 column_expr.name.as_str(),
                 col.data_type()

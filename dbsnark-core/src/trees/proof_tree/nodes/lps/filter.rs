@@ -190,7 +190,6 @@ where
             _ => panic!("expected filter logical plan"),
         };
 
-
         let predicate_col = piop_tree
             .table(
                 &ProverNodeNodeId::Expr(filter.predicate.clone()),

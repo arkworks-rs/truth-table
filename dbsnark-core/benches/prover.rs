@@ -15,8 +15,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::trees::{
-    tracked_tree::TrackedTree, hint_tree::HintTree, piop_tree::PIOPTree,
-    proof_tree::ProofTree,
+    hint_tree::HintTree, piop_tree::PIOPTree, proof_tree::ProofTree, tracked_tree::TrackedTree,
 };
 use tokio::runtime::Runtime;
 type F = Fr;

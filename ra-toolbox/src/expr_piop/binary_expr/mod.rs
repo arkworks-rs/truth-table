@@ -60,11 +60,7 @@ pub struct BinaryExprPIOPVerifierInput<
     pub output_col_oracle: ArithColOracle<F, MvPCS, UvPCS>,
 }
 
-pub struct BinaryExprPIOP<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
+pub struct BinaryExprPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     std::marker::PhantomData<F>,
     std::marker::PhantomData<MvPCS>,
     std::marker::PhantomData<UvPCS>,
@@ -105,7 +101,6 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-
         match input.op {
             Operator::And => todo!(),
             Operator::Or => todo!(),

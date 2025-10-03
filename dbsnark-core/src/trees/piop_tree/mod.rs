@@ -15,9 +15,9 @@ use ark_piop::{
 };
 
 use crate::trees::{
-    tracked_tree::TrackedTree,
     piop_tree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
+    tracked_tree::TrackedTree,
 };
 
 /// Virtualized tables indexed by proof-plan node identifier.

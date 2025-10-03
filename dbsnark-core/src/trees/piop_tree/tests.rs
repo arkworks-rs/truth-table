@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::PIOPTree;
 use crate::{
     test_utils::test_df_plan,
-    trees::{tracked_tree::TrackedTree, hint_tree::HintTree, proof_tree::ProofTree},
+    trees::{hint_tree::HintTree, proof_tree::ProofTree, tracked_tree::TrackedTree},
 };
 use arithmetic::ctx::ProverCtx;
 use ark_piop::{

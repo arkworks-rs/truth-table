@@ -18,10 +18,10 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::trees::{
-    tracked_tree::TrackedTree,
     hint_tree::HintTree,
     piop_tree::PIOPTree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
+    tracked_tree::TrackedTree,
 };
 use tokio::runtime::Runtime;
 
@@ -70,9 +70,8 @@ pub fn commit_parquet(
         let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
-        let arith_tree =
-            TrackedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
-                .context("failed to arithmetize")?;
+        let arith_tree = TrackedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
+            .context("failed to arithmetize")?;
 
         let mut piop_tree = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
         let flattened = piop_tree.proof_tree().clone().flatten();

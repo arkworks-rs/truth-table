@@ -2,21 +2,18 @@ use super::*;
 
 use std::sync::Arc;
 
+use arithmetic::{
+    col::ArithCol, col_oracle::ArithColOracle, table::ArithTable, table_oracle::ArithTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
-    pcs::{kzg10::KZG10, pst13::PST13, PCS},
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
     test_utils::test_prelude,
     to_field_vec,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use arithmetic::{
-    col::ArithCol,
-    col_oracle::ArithColOracle,
-    table::ArithTable,
-    table_oracle::ArithTableOracle,
-};
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
     logical_expr::{Expr, Filter, LogicalPlanBuilder},
@@ -125,11 +122,9 @@ fn filter_check_test_soundness_helper<
     {
         assert!(matches!(
             err,
-            SnarkError::ProverError(
-                ark_piop::prover::errors::ProverError::HonestProverError(
-                    ark_piop::prover::errors::HonestProverError::FalseClaim
-                )
-            )
+            SnarkError::ProverError(ark_piop::prover::errors::ProverError::HonestProverError(
+                ark_piop::prover::errors::HonestProverError::FalseClaim
+            ))
         ));
     }
 
@@ -158,25 +153,21 @@ fn filter_check_test_helper<
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
 
-    let predicate_poly = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &predicate_values))?;
-    let predicate_col = ArithCol::new(
-        Some(DataType::Boolean),
-        predicate_poly.clone(),
-        None,
-    );
+    let predicate_poly =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &predicate_values))?;
+    let predicate_col = ArithCol::new(Some(DataType::Boolean), predicate_poly.clone(), None);
 
     let table_len = predicate_values.len();
     let data_values = predicate_values.clone();
 
-    let input_data_poly = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
+    let input_data_poly =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
     let input_data_field: FieldRef = Arc::new(Field::new("col0", DataType::UInt64, false));
 
     let mut input_columns = vec![(input_data_field.clone(), input_data_poly.clone())];
     if let Some(values) = input_activator_values {
-        let activator_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
+        let activator_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
         input_columns.push((
             Arc::new(Field::new("activator", DataType::Boolean, false)),
             activator_poly,
@@ -184,14 +175,14 @@ fn filter_check_test_helper<
     }
     let input_table = ArithTable::new(None, input_columns, table_len);
 
-    let output_data_poly = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
+    let output_data_poly =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
     let output_data_field: FieldRef = Arc::new(Field::new("col0", DataType::UInt64, false));
 
     let mut output_columns = vec![(output_data_field.clone(), output_data_poly.clone())];
     if let Some(values) = output_activator_values {
-        let activator_poly = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
+        let activator_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
         output_columns.push((
             Arc::new(Field::new("activator", DataType::Boolean, false)),
             activator_poly,
@@ -212,12 +203,8 @@ fn filter_check_test_helper<
     verifier.set_proof(proof);
 
     let predicate_data_oracle = verifier.track_mv_com_by_id(predicate_poly.id())?;
-    let predicate_oracle = ArithColOracle::new(
-        predicate_col.data_type(),
-        predicate_data_oracle,
-        None,
-        nv,
-    );
+    let predicate_oracle =
+        ArithColOracle::new(predicate_col.data_type(), predicate_data_oracle, None, nv);
 
     let input_arith_table_oracle = ArithTableOracle::from(input_table, &mut verifier)?;
     let output_arith_table_oracle = ArithTableOracle::from(output_arith_table, &mut verifier)?;
