@@ -15,7 +15,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::trees::{
-    arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, piop_tree::PIOPTree,
+    tracked_tree::TrackedTree, hint_tree::HintTree, piop_tree::PIOPTree,
     proof_tree::ProofTree,
 };
 use tokio::runtime::Runtime;
@@ -62,7 +62,7 @@ struct BenchInputs {
     prover: Prover<F, MvPCS, UvPCS>,
 }
 
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 10)]
+#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 1)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
@@ -125,7 +125,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                     .await
                     .expect("hint tree");
                 let arith_tree =
-                    ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
+                    TrackedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree, &mut prover)
                         .expect("arithmetized tree");
                 let mut piop_tree = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
 

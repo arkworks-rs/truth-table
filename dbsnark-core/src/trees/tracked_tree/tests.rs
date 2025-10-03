@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::Hash};
 
-use super::ArithmetizedTree;
+use super::TrackedTree;
 use crate::{
     test_utils::test_df_plan,
     trees::{hint_tree::HintTree, proof_tree::ProofTree},
@@ -37,7 +37,7 @@ async fn display_graphviz() {
     let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-    let arith_tree = ArithmetizedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
+    let arith_tree = TrackedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
 
     println!("{}", arith_tree.display_graphviz());
 }

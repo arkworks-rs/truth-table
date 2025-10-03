@@ -6,7 +6,7 @@ use std::{
 
 use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
 
-use super::ArithmetizedTree;
+use super::TrackedTree;
 use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -25,30 +25,30 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for an `ArithmetizedTree`
+/// Display helper that renders a Treeviz DOT tree for an `TrackedTree`
 /// tree.
-pub struct DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+pub struct DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
+    plan: &'a TrackedTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(plan: &'a TrackedTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
     }
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph ArithmetizedTree {\n");
+        out.push_str("digraph TrackedTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -107,7 +107,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

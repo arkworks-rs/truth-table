@@ -33,7 +33,7 @@ pub mod tests;
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct ArithmetizedTree<F, MvPCS, UvPCS>
+pub struct TrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -43,14 +43,14 @@ where
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for TrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ArithmetizedTree")
+        f.debug_struct("TrackedTree")
             .field("num_nodes", &self.tables.len())
             .field(
                 "nodes",
@@ -62,7 +62,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> TrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -114,8 +114,8 @@ where
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
-        display::DisplayableArithmetizedTree::new(self)
+    pub fn display_graphviz(&self) -> display::DisplayableTrackedTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableTrackedTree::new(self)
     }
 
     pub fn into_parts(
@@ -124,7 +124,7 @@ where
         ProofTree<F, MvPCS, UvPCS>,
         HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F, MvPCS, UvPCS>>>,
     ) {
-        let ArithmetizedTree {
+        let TrackedTree {
             tables,
             inner_proof_tree,
         } = self;
@@ -133,7 +133,7 @@ where
 
     /// Build arithmetized tables for every hint node by consuming a hint
     /// tree.
-    #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree, prover))]
+    #[tracing::instrument(name = "tracked_tree::from_hint_tree", skip(hint_tree, prover))]
     pub fn from_hint_tree(
         hint_tree: HintTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
@@ -283,7 +283,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ArithmetizedTree<F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a TrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -304,7 +304,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for TrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

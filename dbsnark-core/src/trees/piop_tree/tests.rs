@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::PIOPTree;
 use crate::{
     test_utils::test_df_plan,
-    trees::{arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree},
+    trees::{tracked_tree::TrackedTree, hint_tree::HintTree, proof_tree::ProofTree},
 };
 use arithmetic::ctx::ProverCtx;
 use ark_piop::{
@@ -31,7 +31,7 @@ async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
 
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-    let arith_tree = ArithmetizedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
+    let arith_tree = TrackedTree::from_hint_tree(hint_tree, &mut prover).unwrap();
     let piop_plan = PIOPTree::from_arithmetized_plan(arith_tree, &mut prover);
 
     println!("{}", piop_plan.display_graphviz());

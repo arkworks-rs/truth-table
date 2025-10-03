@@ -15,7 +15,7 @@ use ark_piop::{
 };
 
 use crate::trees::{
-    arithmetized_tree::ArithmetizedTree,
+    tracked_tree::TrackedTree,
     piop_tree,
     proof_tree::{ProofTree, nodes::ProverNodeNodeId},
 };
@@ -116,7 +116,7 @@ where
 
     /// Build a virtualized plan from an arithmetized plan.
     pub fn from_arithmetized_plan(
-        arith_plan: ArithmetizedTree<F, MvPCS, UvPCS>,
+        arith_plan: TrackedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Self {
         let (proof_tree, tables_by_node) = arith_plan.into_parts();
