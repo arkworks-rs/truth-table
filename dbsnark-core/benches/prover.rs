@@ -1,6 +1,6 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use std::{collections::HashMap, fs::File, io::BufReader};
+use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
 
 use arithmetic::{ctx::ProverCtx, table_oracle::SerializableArithTableOracle};
 use ark_piop::{
@@ -97,7 +97,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 table_oracles.insert(schema, customer_serializable);
             }
 
-            let prover_ctx = ProverCtx::new(table_oracles);
+            let prover_ctx = ProverCtx::new(table_oracles, HashMap::new());
             let (prover, _) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
 
             BenchInputs {

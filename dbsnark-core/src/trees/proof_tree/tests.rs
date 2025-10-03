@@ -27,7 +27,7 @@ async fn display_graphviz() {
     )
     .await
     .unwrap();
-    let prover_ctx = ProverCtx::new(HashMap::new());
+    let prover_ctx = ProverCtx::default();
     let proof_tree: ProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
         ProofTree::from_lp(&ctx, prover_ctx, &plan);
     println!("{}", proof_tree.display_graphviz());

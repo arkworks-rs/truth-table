@@ -26,7 +26,7 @@ type UvPCS = KZG10<Bls12_381>;
 async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await?;
-    let prover_ctx = ProverCtx::new(HashMap::new());
+    let prover_ctx = ProverCtx::default();
     let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
 

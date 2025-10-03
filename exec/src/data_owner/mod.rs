@@ -65,7 +65,7 @@ pub fn commit_parquet(
 
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
-        let prover_ctx = ProverCtx::new(HashMap::new());
+        let prover_ctx = ProverCtx::default();
         let proof_tree = ProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
         let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree)
             .await

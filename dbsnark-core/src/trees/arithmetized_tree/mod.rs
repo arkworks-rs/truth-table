@@ -23,6 +23,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use tracing_subscriber::field::debug;
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -137,8 +138,8 @@ where
         hint_tree: HintTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
-        let (proof_tree, hint_map) = hint_tree.into_parts();
-        let prover_ctx = proof_tree.ctx();
+        let (mut proof_tree, hint_map) = hint_tree.into_parts();
+        let mut prover_ctx = proof_tree.ctx_mut();
         let mut tables_by_node: HashMap<
             ProverNodeNodeId,
             HashMap<String, ArithTable<F, MvPCS, UvPCS>>,
@@ -148,7 +149,10 @@ where
             let mut arith_tables = HashMap::with_capacity(batches_by_label.len());
             for (label, batches) in batches_by_label {
                 let table = Self::arith_table_from_record_batches_and_ctx(
-                    &node_id, batches, prover_ctx, prover,
+                    &node_id,
+                    batches,
+                    &mut prover_ctx,
+                    prover,
                 )?;
                 arith_tables.insert(label, table);
             }
@@ -165,7 +169,7 @@ where
     pub fn arith_table_from_record_batches_and_ctx(
         node_id: &ProverNodeNodeId,
         record_batches: Vec<RecordBatch>,
-        prover_ctx: &ProverCtx<F, MvPCS, UvPCS>,
+        prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<ArithTable<F, MvPCS, UvPCS>, EncodeError> {
         // If there is no record batch, just output empty arithmetic tables
@@ -211,30 +215,40 @@ where
 
         let prover_param = prover.mv_pcs_prover_param();
 
-        let existing_table_commits = match node_id {
-            ProverNodeNodeId::LP(LogicalPlan::TableScan(_)) => {
-                prover_ctx.table_oracle(schema_ref.as_ref())
-            },
-            _ => None,
-        };
-
-        let mut column_commitments: HashMap<FieldRef, MvPCS::Commitment> =
+        let mut poly_to_commitments_map: HashMap<&MLE<F>, MvPCS::Commitment> =
             HashMap::with_capacity(column_polys.len());
         for (field_ref, poly) in &column_polys {
-            let commitment = if let Some(saved_table) = existing_table_commits {
-                saved_table
-                    .data_oraclemitments()
-                    .get(field_ref)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        MvPCS::commit(prover_param.clone(), poly)
-                            .expect("failed to commit witness polynomial")
-                    })
+            let commitment = if let Some(commitment) =
+                prover_ctx.already_committed_poly(poly).cloned()
+            {
+                commitment
             } else {
-                MvPCS::commit(prover_param.clone(), poly)
-                    .expect("failed to commit witness polynomial")
+                let saved_commitment = if let ProverNodeNodeId::LP(LogicalPlan::TableScan(_)) =
+                    node_id
+                {
+                    prover_ctx
+                        .table_oracle(schema_ref.as_ref())
+                        .map(|saved_table| {
+                            tracing::debug!("Table column {:?} was already committed", field_ref);
+                            saved_table
+                                .data_comitments()
+                                .get(field_ref)
+                                .cloned()
+                                .unwrap()
+                        })
+                } else {
+                    None
+                };
+
+                if let Some(commitment) = saved_commitment {
+                    commitment
+                } else {
+                    MvPCS::commit(prover_param.clone(), poly)
+                        .expect("failed to commit witness polynomial")
+                }
             };
-            column_commitments.insert(field_ref.clone(), commitment);
+            prover_ctx.add_committed_poly(poly.clone(), commitment.clone());
+            poly_to_commitments_map.insert(poly, commitment);
         }
 
         let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
@@ -246,8 +260,8 @@ where
                 .get(&field_ref)
                 .expect("polynomial for field not found")
                 .clone();
-            let commitment = column_commitments
-                .get(&field_ref)
+            let commitment = poly_to_commitments_map
+                .get(poly_arc.as_ref())
                 .expect("commitment for field not found")
                 .clone();
 

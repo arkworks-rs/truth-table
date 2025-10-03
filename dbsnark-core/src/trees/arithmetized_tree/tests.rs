@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
 use super::ArithmetizedTree;
 use crate::{
@@ -33,7 +33,7 @@ async fn display_graphviz() {
     )
     .await
     .unwrap();
-    let prover_ctx = ProverCtx::new(HashMap::new());
+    let prover_ctx = ProverCtx::default();
     let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();

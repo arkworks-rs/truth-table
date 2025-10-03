@@ -51,6 +51,10 @@ where
         &self.ctx
     }
 
+    pub fn ctx_mut(&mut self) -> &mut ProverCtx<F, MvPCS, UvPCS> {
+        &mut self.ctx
+    }
+
     pub fn root_ref(&self) -> &Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         &self.root
     }
