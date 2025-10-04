@@ -4,9 +4,7 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use arithmetic::{
-    encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable,
-};
+use arithmetic::{encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -143,11 +141,7 @@ where
         self.tables.get(node_id)
     }
 
-    pub fn table_for(
-        &self,
-        node_id: &ProverNodeNodeId,
-        label: &str,
-    ) -> Option<&ArithTable<F>> {
+    pub fn table_for(&self, node_id: &ProverNodeNodeId, label: &str) -> Option<&ArithTable<F>> {
         self.tables
             .get(node_id)
             .and_then(|tables| tables.get(label))
@@ -182,10 +176,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (ProverNodeNodeId, HashMap<String, ArithTable<F>>);
-    type IntoIter = std::collections::hash_map::IntoIter<
-        ProverNodeNodeId,
-        HashMap<String, ArithTable<F>>,
-    >;
+    type IntoIter =
+        std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, ArithTable<F>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
