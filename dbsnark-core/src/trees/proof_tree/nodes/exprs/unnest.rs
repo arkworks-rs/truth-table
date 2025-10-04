@@ -1,4 +1,4 @@
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -47,6 +47,14 @@ where
     where
         Self: Sized,
     {
+        todo!()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
         todo!()
     }
 

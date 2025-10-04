@@ -10,6 +10,8 @@ use datafusion::{
 };
 use std::{collections::HashMap, sync::Arc};
 
+use crate::trees::proof_tree::nodes::cost::ProvingCost;
+
 use crate::trees::{
     piop_tree::PIOPTree,
     proof_tree::nodes::{ProverNode, ProverNodeNodeId},
@@ -94,6 +96,14 @@ where
             child.append_sorted_descendants(out);
             out.push(Arc::clone(child));
         }
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

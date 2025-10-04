@@ -8,6 +8,8 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
+use crate::trees::proof_tree::nodes::cost::ProvingCost;
+
 use crate::{
     proof_tree::nodes::{ProverNode, ProverNodeNodeId},
     trees::piop_tree::PIOPTree,
@@ -71,6 +73,14 @@ where
 
     fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

@@ -1,4 +1,4 @@
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost};
 use arithmetic::{encoding::encode_arrow_array_to_field, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -49,6 +49,14 @@ where
         Self {
             node_id: ProverNodeNodeId::Expr(expr),
         }
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

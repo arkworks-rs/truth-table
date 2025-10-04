@@ -54,7 +54,8 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     // },
     QuerySpec {
         sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 AND
-    l_extendedprice = 100.1",     tables: &["lineitem"],
+    l_extendedprice = 100.1",
+        tables: &["lineitem"],
     },
 ];
 

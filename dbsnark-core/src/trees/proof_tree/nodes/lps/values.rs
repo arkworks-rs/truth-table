@@ -8,7 +8,10 @@ use ark_piop::{
 };
 use datafusion::prelude::SessionContext;
 
-use crate::trees::{piop_tree::PIOPTree, proof_tree::nodes::ProverNode};
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::nodes::{ProverNode, cost::ProvingCost},
+};
 
 pub struct ValuesNode {}
 
@@ -56,6 +59,14 @@ where
     {
         std::unimplemented!()
     }
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
+    }
+
     fn add_virtual_witness(
         &self,
         piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,

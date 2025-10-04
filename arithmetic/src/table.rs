@@ -202,7 +202,11 @@ pub struct ArithTable<F: PrimeField> {
 }
 
 impl<F: PrimeField> ArithTable<F> {
-    pub fn new(schema: Option<Schema>, data_polys: Vec<(FieldRef, Arc<MLE<F>>)>, size: usize) -> Self {
+    pub fn new(
+        schema: Option<Schema>,
+        data_polys: Vec<(FieldRef, Arc<MLE<F>>)>,
+        size: usize,
+    ) -> Self {
         Self {
             schema,
             data_polys,

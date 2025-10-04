@@ -14,6 +14,8 @@ use datafusion::{
 use ra_toolbox::lp_piop::filter_check::{FilterPIOP, FilterPIOPProverInput};
 use std::{collections::HashMap, sync::Arc};
 
+use crate::trees::proof_tree::nodes::cost::ProvingCost;
+
 use crate::trees::{
     piop_tree::PIOPTree,
     proof_tree::{
@@ -172,6 +174,14 @@ where
 
     fn name(&self) -> String {
         self.node_id().to_string()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

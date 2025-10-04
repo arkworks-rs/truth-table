@@ -1,9 +1,9 @@
 //! The proof plan module contains a set of tools to build a proof plan from a
 //! DataFusion logical plan.
+pub mod cost;
 pub mod display;
 pub mod exprs;
 pub mod lps;
-
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use arithmetic::ctx::ProverCtx;
@@ -15,11 +15,13 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
+    arrow::datatypes::SchemaRef,
+    common::Statistics,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
 
-use crate::trees::piop_tree::PIOPTree;
+use crate::{proof_tree::nodes::cost::ProvingCost, trees::piop_tree::PIOPTree};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ProverNodeNodeId {
@@ -139,6 +141,8 @@ where
     ) -> SnarkResult<()> {
         todo!()
     }
+
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
 }
 
 pub fn output_logical_plan<F, MvPCS, UvPCS>(

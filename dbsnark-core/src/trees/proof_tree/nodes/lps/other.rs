@@ -7,7 +7,10 @@ use ark_piop::{
     pcs::PCS,
 };
 
-use crate::trees::{piop_tree::PIOPTree, proof_tree::nodes::ProverNode};
+use crate::trees::{
+    piop_tree::PIOPTree,
+    proof_tree::nodes::{ProverNode, cost::ProvingCost},
+};
 
 pub struct OtherNode<F, MvPCS, UvPCS>
 where
@@ -71,6 +74,14 @@ where
 
     fn name(&self) -> String {
         self.node_id().to_string()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

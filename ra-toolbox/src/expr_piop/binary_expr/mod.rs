@@ -1,5 +1,5 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
+use ark_ff::{PrimeField, batch_inversion};
 #[cfg(feature = "honest-prover")]
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::{
@@ -109,10 +109,7 @@ where
                     predicate: input.output_col.activated_data_poly().clone(),
                 };
                 BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
-
-
-
-
+ 
 
             },
             Operator::Eq => {

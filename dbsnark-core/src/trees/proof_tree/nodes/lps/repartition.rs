@@ -8,7 +8,7 @@ use ark_piop::{
 };
 use datafusion::prelude::SessionContext;
 
-use crate::trees::proof_tree::nodes::ProverNode;
+use crate::trees::proof_tree::nodes::{ProverNode, cost::ProvingCost};
 
 pub struct RepartitionNode<F, MvPCS, UvPCS>
 where
@@ -49,6 +49,14 @@ where
     }
 
     fn node_id(&self) -> crate::trees::proof_tree::nodes::ProverNodeNodeId {
+        todo!()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
         todo!()
     }
 

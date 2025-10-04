@@ -4,7 +4,7 @@ use crate::trees::{
     piop_tree::PIOPTree,
     proof_tree::{
         ProofTree,
-        nodes::{ProverNode, ProverNodeNodeId},
+        nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost},
     },
 };
 use arithmetic::{col::TrackedCol, table::TrackedTable};
@@ -152,6 +152,14 @@ where
             ),
             hint_generation_plans,
         }
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
+        todo!()
     }
 
     fn add_virtual_witness(

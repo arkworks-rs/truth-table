@@ -8,7 +8,7 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 
-use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost};
 
 #[derive(Clone)]
 pub struct CaseExprNode<F, MvPCS, UvPCS>
@@ -49,6 +49,14 @@ where
     where
         Self: Sized,
     {
+        todo!()
+    }
+
+    fn cost(
+        &self,
+        _statistics: datafusion::common::Statistics,
+        _schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> ProvingCost {
         todo!()
     }
 
