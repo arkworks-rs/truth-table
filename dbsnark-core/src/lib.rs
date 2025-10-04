@@ -1,6 +1,6 @@
-pub mod trees;
+pub mod prover_trees;
 
-pub use trees::proof_tree;
+pub use prover_trees::proof_tree;
 
 #[cfg(test)]
 mod test_utils;

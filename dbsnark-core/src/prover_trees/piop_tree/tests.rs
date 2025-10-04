@@ -1,0 +1,57 @@
+use std::collections::HashMap;
+
+use super::PIOPTree;
+use crate::{
+    test_utils::test_df_plan,
+    prover_trees::{
+        arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree,
+        tracked_tree::TrackedTree,
+    },
+};
+use arithmetic::ctx::ProverCtx;
+use ark_piop::{
+    pcs::{kzg10::KZG10, pst13::PST13},
+    prover::Prover,
+    test_utils::test_prelude,
+};
+use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use datafusion::{error::Result as DFResult, prelude::SessionContext};
+
+type F = Fr;
+type MvPCS = PST13<Bls12_381>;
+type UvPCS = KZG10<Bls12_381>;
+
+async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
+    let ctx = SessionContext::new();
+    let plan = test_df_plan(&ctx, query, table).await?;
+    let prover_ctx = ProverCtx::default();
+    let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
+    let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
+    let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
+    let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
+    let piop_plan = PIOPTree::from_tracked_plan(tracked_tree, &mut prover);
+
+    println!("{}", piop_plan.display_graphviz());
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn display_graphviz_1() -> DFResult<()> {
+    display_graphviz_for(
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "lineitem",
+    )
+    .await
+}
+
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn display_graphviz_2() -> DFResult<()> {
+    display_graphviz_for(
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= 20",
+        "lineitem",
+    )
+    .await
+}

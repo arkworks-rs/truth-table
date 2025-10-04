@@ -14,7 +14,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
-use dbsnark_core::trees::{
+use dbsnark_core::prover_trees::{
     arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, piop_tree::PIOPTree,
     proof_tree::ProofTree, tracked_tree::TrackedTree,
 };
@@ -40,20 +40,20 @@ impl std::fmt::Display for QuerySpec {
 }
 
 const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 AND
+        sql: "SELECT l_partkey FROM lineitem",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
     l_extendedprice = 100.1",
         tables: &["lineitem"],
     },

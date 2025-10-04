@@ -20,63 +20,9 @@ use datafusion::arrow::{
     },
     datatypes::{DataType, IntervalUnit, TimeUnit},
 };
-/// A trait for encoding types into PrimeField elements.
-pub trait Encodable<F: PrimeField>: Sized {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError>;
-    fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError>;
-}
-
-fn field_element_byte_capacity<F: PrimeField>() -> usize {
-    let bits = F::MODULUS_BIT_SIZE as usize;
-    let bytes = (bits + 7) / 8;
-    bytes.max(1)
-}
-
-fn encode_bytes_to_fields<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
-    if bytes.is_empty() {
-        return Vec::new();
-    }
-    let chunk_size = field_element_byte_capacity::<F>();
-    bytes
-        .chunks(chunk_size)
-        .map(|chunk| F::from_le_bytes_mod_order(chunk))
-        .collect()
-}
-
-fn collect_by_columns<F: PrimeField, R>(rows: usize, mut row_fn: R) -> Vec<Vec<F>>
-where
-    R: FnMut(usize) -> Vec<F>,
-{
-    let mut columns: Vec<Vec<F>> = Vec::new();
-
-    for idx in 0..rows {
-        let row_fields = row_fn(idx);
-
-        if columns.is_empty() && row_fields.is_empty() {
-            columns.push(Vec::with_capacity(rows));
-        }
-
-        if columns.len() < row_fields.len() {
-            let existing = columns.len();
-            columns.resize_with(row_fields.len(), || Vec::with_capacity(rows));
-            for column in columns.iter_mut().skip(existing) {
-                column.resize(idx, F::zero());
-            }
-        }
-
-        for col_idx in 0..columns.len() {
-            let value = row_fields.get(col_idx).copied().unwrap_or_else(F::zero);
-            columns[col_idx].push(value);
-        }
-    }
-
-    if columns.is_empty() {
-        vec![Vec::new()]
-    } else {
-        columns
-    }
-}
-
+/// This macro implements the `Encodable` trait for Arrow array types that can
+/// be mapped directly to field elements. No decoding functionality is provided
+/// (or needed) for now.
 macro_rules! impl_col_adapter_map {
     ($array_ty:ty, $map:expr) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
@@ -96,27 +42,8 @@ macro_rules! impl_col_adapter_map {
         }
     };
 }
-
-macro_rules! impl_col_adapter_map_with_index {
-    ($array_ty:ty, $map:expr) => {
-        impl<F: PrimeField> Encodable<F> for $array_ty {
-            fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-                Ok(collect_by_columns(self.len(), |idx| {
-                    if self.is_null(idx) {
-                        Vec::new()
-                    } else {
-                        $map(self, idx)
-                    }
-                }))
-            }
-
-            fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
-                todo!("Decoding {} is not implemented yet", stringify!($array_ty));
-            }
-        }
-    };
-}
-
+/// This macro implements the `Encodable` trait for Arrow array types that are
+/// not supported yet
 macro_rules! impl_col_adapter_unsupported {
     ($array_ty:ty, $name:expr) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
@@ -131,28 +58,28 @@ macro_rules! impl_col_adapter_unsupported {
     };
 }
 
-impl<F: PrimeField> Encodable<F> for NullArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(vec![vec![F::zero(); self.len()]])
-    }
 
-    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
-        todo!("Decoding {} is not implemented yet", stringify!(NullArray));
-    }
+
+/// A trait for encoding types into PrimeField elements.
+pub trait Encodable<F: PrimeField>: Sized {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError>;
+    fn decode(field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError>;
 }
 
+// Implementation of Encodable for various Arrow array types.
+// Boolean
 impl_col_adapter_map!(BooleanArray, |v| if v { F::one() } else { F::zero() });
-
+// Integers
 impl_col_adapter_map!(Int8Array, |v| F::from(v as i128));
 impl_col_adapter_map!(Int16Array, |v| F::from(v as i128));
 impl_col_adapter_map!(Int32Array, |v| F::from(v as i128));
 impl_col_adapter_map!(Int64Array, |v| F::from(v as i128));
-
+// Unsigned Integers
 impl_col_adapter_map!(UInt8Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt16Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt32Array, |v| F::from(v as u64));
 impl_col_adapter_map!(UInt64Array, |v| F::from(v));
-
+// Floating point numbers
 impl_col_adapter_map!(Float16Array, |v: <datafusion::arrow::datatypes::Float16Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
     &v.to_bits().to_le_bytes()
 ));
@@ -162,24 +89,25 @@ impl_col_adapter_map!(Float32Array, |v: <datafusion::arrow::datatypes::Float32Ty
 impl_col_adapter_map!(Float64Array, |v: <datafusion::arrow::datatypes::Float64Type as datafusion::arrow::datatypes::ArrowPrimitiveType>::Native| F::from_le_bytes_mod_order(
     &v.to_le_bytes()
 ));
-
+// TimeStamps
 impl_col_adapter_map!(TimestampSecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMillisecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampNanosecondArray, |v| F::from(v as i128));
-
+// Date
 impl_col_adapter_map!(Date32Array, |v| F::from(v as i128));
 impl_col_adapter_map!(Date64Array, |v| F::from(v as i128));
-
+// Time
 impl_col_adapter_map!(Time32SecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(Time32MillisecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(Time64MicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(Time64NanosecondArray, |v| F::from(v as i128));
-
+// Duration
 impl_col_adapter_map!(DurationSecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(DurationMillisecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(DurationMicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(DurationNanosecondArray, |v| F::from(v as i128));
+//
 
 impl_col_adapter_map!(IntervalYearMonthArray, |v| F::from(v as i128));
 
@@ -190,29 +118,180 @@ impl_col_adapter_map!(Decimal256Array, |v: <datafusion::arrow::datatypes::Decima
     &v.to_le_bytes()
 ));
 
-impl_col_adapter_map_with_index!(BinaryArray, |array: &BinaryArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx))
-});
-impl_col_adapter_map_with_index!(LargeBinaryArray, |array: &LargeBinaryArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx))
-});
-impl_col_adapter_map_with_index!(BinaryViewArray, |array: &BinaryViewArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx))
-});
+#[inline]
+fn hash_to_32_bytes(data: &[u8]) -> [u8; 32] {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
 
-impl_col_adapter_map_with_index!(FixedSizeBinaryArray, |array: &FixedSizeBinaryArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx))
-});
+    fn fnv1a_with_seed(data: &[u8], seed: u64) -> u64 {
+        let mut hash = seed;
+        for &byte in data {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
+    }
 
-impl_col_adapter_map_with_index!(StringArray, |array: &StringArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx).as_bytes())
-});
-impl_col_adapter_map_with_index!(LargeStringArray, |array: &LargeStringArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx).as_bytes())
-});
-impl_col_adapter_map_with_index!(StringViewArray, |array: &StringViewArray, idx| {
-    encode_bytes_to_fields::<F>(array.value(idx).as_bytes())
-});
+    let mut out = [0u8; 32];
+    let mut seed = FNV_OFFSET_BASIS;
+    for i in 0..4 {
+        let hash = fnv1a_with_seed(data, seed);
+        out[i * 8..(i + 1) * 8].copy_from_slice(&hash.to_le_bytes());
+        seed ^= hash.rotate_left(13);
+    }
+    out
+}
+
+#[inline]
+fn encode_hashed_bytes<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
+    let hash_bytes = hash_to_32_bytes(bytes);
+    encode_bytes_to_fields::<F>(&hash_bytes)
+}
+
+impl<F: PrimeField> Encodable<F> for BinaryArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx))
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(BinaryArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for LargeBinaryArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx))
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(LargeBinaryArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for BinaryViewArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx))
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(BinaryViewArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx))
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(FixedSizeBinaryArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for StringArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(StringArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for LargeStringArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(LargeStringArray)
+        );
+    }
+}
+
+impl<F: PrimeField> Encodable<F> for StringViewArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(collect_by_columns(self.len(), |idx| {
+            if self.is_null(idx) {
+                Vec::new()
+            } else {
+                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
+            }
+        }))
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!(
+            "Decoding {} is not implemented yet",
+            stringify!(StringViewArray)
+        );
+    }
+}
+
+// Some manual implementation of Encodable for complex types
+
+impl<F: PrimeField> Encodable<F> for NullArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        Ok(vec![vec![F::zero(); self.len()]])
+    }
+
+    fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
+        todo!("Decoding {} is not implemented yet", stringify!(NullArray));
+    }
+}
 
 impl<F: PrimeField> Encodable<F> for IntervalDayTimeArray {
     fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
@@ -261,15 +340,6 @@ impl<F: PrimeField> Encodable<F> for IntervalMonthDayNanoArray {
     }
 }
 
-impl_col_adapter_unsupported!(ListArray, "List");
-impl_col_adapter_unsupported!(LargeListArray, "LargeList");
-impl_col_adapter_unsupported!(ListViewArray, "ListView");
-impl_col_adapter_unsupported!(LargeListViewArray, "LargeListView");
-impl_col_adapter_unsupported!(FixedSizeListArray, "FixedSizeList");
-impl_col_adapter_unsupported!(StructArray, "Struct");
-impl_col_adapter_unsupported!(UnionArray, "Union");
-impl_col_adapter_unsupported!(MapArray, "Map");
-
 impl<F: PrimeField, K> Encodable<F> for DictionaryArray<K>
 where
     K: datafusion::arrow::datatypes::ArrowDictionaryKeyType,
@@ -286,6 +356,15 @@ where
     }
 }
 
+// Unsupported data types
+impl_col_adapter_unsupported!(ListArray, "List");
+impl_col_adapter_unsupported!(LargeListArray, "LargeList");
+impl_col_adapter_unsupported!(ListViewArray, "ListView");
+impl_col_adapter_unsupported!(LargeListViewArray, "LargeListView");
+impl_col_adapter_unsupported!(FixedSizeListArray, "FixedSizeList");
+impl_col_adapter_unsupported!(StructArray, "Struct");
+impl_col_adapter_unsupported!(UnionArray, "Union");
+impl_col_adapter_unsupported!(MapArray, "Map");
 impl_col_adapter_unsupported!(Int16RunArray, "RunEndEncoded");
 impl_col_adapter_unsupported!(Int32RunArray, "RunEndEncoded");
 impl_col_adapter_unsupported!(Int64RunArray, "RunEndEncoded");
@@ -295,9 +374,10 @@ impl_col_adapter_unsupported!(Int64RunArray, "RunEndEncoded");
     skip_all,
     fields(
         len = array.len(),
-        dtype = %array.data_type()   // use % for Display, ? for Debug
+        dtype = %array.data_type()
     )
 )]
+/// The main function for dispatching encoders based on the Arrow data type.
 pub fn encode_arrow_array_to_field<F: PrimeField>(
     array: &ArrayRef,
 ) -> Result<Vec<Vec<F>>, EncodeError> {
@@ -546,5 +626,56 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
             ))),
         },
         other => Err(EncodeError::TypeNotSupported(other.to_string())),
+    }
+}
+
+fn field_element_byte_capacity<F: PrimeField>() -> usize {
+    let bits = F::MODULUS_BIT_SIZE as usize;
+    let bytes = bits.div_ceil(8);
+    bytes.max(1)
+}
+
+fn encode_bytes_to_fields<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
+    if bytes.is_empty() {
+        return Vec::new();
+    }
+    let chunk_size = field_element_byte_capacity::<F>();
+    bytes
+        .chunks(chunk_size)
+        .map(|chunk| F::from_le_bytes_mod_order(chunk))
+        .collect()
+}
+
+fn collect_by_columns<F: PrimeField, R>(rows: usize, mut row_fn: R) -> Vec<Vec<F>>
+where
+    R: FnMut(usize) -> Vec<F>,
+{
+    let mut columns: Vec<Vec<F>> = Vec::new();
+
+    for idx in 0..rows {
+        let row_fields = row_fn(idx);
+
+        if columns.is_empty() && row_fields.is_empty() {
+            columns.push(Vec::with_capacity(rows));
+        }
+
+        if columns.len() < row_fields.len() {
+            let existing = columns.len();
+            columns.resize_with(row_fields.len(), || Vec::with_capacity(rows));
+            for column in columns.iter_mut().skip(existing) {
+                column.resize(idx, F::zero());
+            }
+        }
+
+        for col_idx in 0..columns.len() {
+            let value = row_fields.get(col_idx).copied().unwrap_or_else(F::zero);
+            columns[col_idx].push(value);
+        }
+    }
+
+    if columns.is_empty() {
+        vec![Vec::new()]
+    } else {
+        columns
     }
 }

@@ -17,7 +17,7 @@ use ark_piop::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use dbsnark_core::trees::{
+use dbsnark_core::prover_trees::{
     arithmetized_tree::ArithmetizedTree,
     hint_tree::HintTree,
     piop_tree::PIOPTree,
