@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 pub mod display;
 pub mod nodes;
 use std::{collections::HashMap, sync::Arc};
@@ -15,8 +16,6 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 
-use crate::proof_tree::nodes::ProverNodeNodeId;
-
 use self::nodes::{
     ProverNode,
     exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
@@ -27,7 +26,7 @@ use self::nodes::{
 pub mod tests;
 
 #[derive(Clone)]
-pub struct ProofTree<F, MvPCS, UvPCS>
+pub struct ProverProofTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -37,7 +36,7 @@ where
     root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> ProofTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverProofTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -66,8 +65,8 @@ where
         Self { root, ctx }
     }
 
-    pub fn display_graphviz(&self) -> display::ProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
-        display::ProofTreeGraphviz::new(&self.root)
+    pub fn display_graphviz(&self) -> display::ProverProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
+        display::ProverProofTreeGraphviz::new(&self.root)
     }
 
     /// Returns all descendants including root in post-order.
@@ -78,7 +77,7 @@ where
     }
 
     /// Returns a map from node identifier to the corresponding prover node.
-    pub fn flatten(&self) -> HashMap<ProverNodeNodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>
+    pub fn flatten(&self) -> HashMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -86,7 +85,7 @@ where
     {
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-            out: &mut HashMap<ProverNodeNodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+            out: &mut HashMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
             MvPCS: PCS<F, Poly = MLE<F>> + 'static,

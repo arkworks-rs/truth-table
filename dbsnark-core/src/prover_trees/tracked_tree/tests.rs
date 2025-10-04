@@ -1,9 +1,11 @@
 use std::{collections::HashMap, hash::Hash};
 
-use super::TrackedTree;
+use super::ProverTrackedTree;
 use crate::{
+    prover_trees::{
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
+    },
     test_utils::test_df_plan,
-    prover_trees::{arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree},
 };
 use arithmetic::ctx::ProverCtx;
 use ark_piop::{
@@ -34,11 +36,11 @@ async fn display_graphviz() {
     .await
     .unwrap();
     let prover_ctx = ProverCtx::default();
-    let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
-    let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
+    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-    let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
+    let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
 
     println!("{}", tracked_tree.display_graphviz());
 }

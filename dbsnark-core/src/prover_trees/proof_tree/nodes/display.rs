@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -10,7 +11,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
 /// Display helper for `ProverNode` that renders a Treeviz DOT tree.
 /// Similar in spirit to DataFusion's `DisplayableExecutionPlan`.
@@ -56,8 +57,8 @@ where
             }
 
             let (node_label, variant_label) = match node.node_id() {
-                ProverNodeNodeId::LP(plan) => ("LogicalPlan", format!("{}", plan.display())),
-                ProverNodeNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                NodeId::LP(plan) => ("LogicalPlan", format!("{}", plan.display())),
+                NodeId::Expr(expr) => ("Expr", expr.to_string()),
             };
             let witness_keys = {
                 let mut keys: Vec<_> = node.hint_generation_plans().keys().cloned().collect();

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use super::PIOPTree;
+use super::ProverPIOPTree;
 use crate::{
-    test_utils::test_df_plan,
     prover_trees::{
-        arithmetized_tree::ArithmetizedTree, hint_tree::HintTree, proof_tree::ProofTree,
-        tracked_tree::TrackedTree,
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
+        tracked_tree::ProverTrackedTree,
     },
+    test_utils::test_df_plan,
 };
 use arithmetic::ctx::ProverCtx;
 use ark_piop::{
@@ -25,12 +25,12 @@ async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await?;
     let prover_ctx = ProverCtx::default();
-    let proof_tree = ProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = HintTree::from_proof_tree(&ctx, proof_tree).await?;
-    let arith_tree = ArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
+    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await?;
+    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
-    let tracked_tree = TrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
-    let piop_plan = PIOPTree::from_tracked_plan(tracked_tree, &mut prover);
+    let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
+    let piop_plan = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
 
     println!("{}", piop_plan.display_graphviz());
     Ok(())

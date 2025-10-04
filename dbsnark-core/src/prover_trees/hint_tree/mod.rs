@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
@@ -27,8 +28,8 @@ use futures::{
 use tracing::{debug, trace};
 
 use crate::prover_trees::proof_tree::{
-    ProofTree,
-    nodes::{ProverNode, ProverNodeNodeId, lps::TableScanNode},
+    ProverProofTree,
+    nodes::{ProverNode, lps::TableScanNode},
 };
 
 /// A data structure holding the hint tables needed to prove a given proof-tree.
@@ -37,24 +38,24 @@ use crate::prover_trees::proof_tree::{
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct HintTree<F, MvPCS, UvPCS>
+pub struct ProverHintTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    hint_map: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
-    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
+    hint_map: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
+    inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for HintTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for ProverHintTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HintTree")
+        f.debug_struct("ProverHintTree")
             .field("num_nodes", &self.hint_map.len())
             .field(
                 "nodes",
@@ -66,15 +67,15 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> HintTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverHintTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        hint_map: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        hint_map: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
     ) -> Self {
         Self {
             hint_map,
@@ -92,11 +93,7 @@ where
 
     /// Return the batches collected for a specific hint label at the
     /// requested proof-tree node, if present.
-    pub fn batches_for(
-        &self,
-        node_id: &ProverNodeNodeId,
-        label: &str,
-    ) -> Option<&Vec<RecordBatch>> {
+    pub fn batches_for(&self, node_id: &NodeId, label: &str) -> Option<&Vec<RecordBatch>> {
         self.hint_map
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
@@ -104,34 +101,31 @@ where
 
     /// Heuristic to pick a "primary" result set for a proof-tree node. Prefers
     /// `output_tree`, falls back to `relative_output`, then any entry.
-    pub fn primary_batches(&self, node_id: &ProverNodeNodeId) -> Option<&Vec<RecordBatch>> {
+    pub fn primary_batches(&self, node_id: &NodeId) -> Option<&Vec<RecordBatch>> {
         self.batches_for(node_id, "output_tree")
             .or_else(|| self.batches_for(node_id, "relative_output"))
             .or_else(|| self.hint_map.get(node_id).and_then(|m| m.values().next()))
     }
 
-    pub fn results_for(
-        &self,
-        node_id: &ProverNodeNodeId,
-    ) -> Option<&HashMap<String, Vec<RecordBatch>>> {
+    pub fn results_for(&self, node_id: &NodeId) -> Option<&HashMap<String, Vec<RecordBatch>>> {
         self.hint_map.get(node_id)
     }
 
-    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
+    pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableHintTree<'_, F, MvPCS, UvPCS> {
-        display::DisplayableHintTree::new(self)
+    pub fn display_graphviz(&self) -> display::DisplayableProverHintTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableProverHintTree::new(self)
     }
 
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree<F, MvPCS, UvPCS>,
-        IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+        ProverProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
     ) {
-        let HintTree {
+        let ProverHintTree {
             hint_map,
             inner_proof_tree,
         } = self;
@@ -144,7 +138,7 @@ where
     #[tracing::instrument(name = "hint_tree::from_proof_tree", skip_all)]
     pub async fn from_proof_tree(
         ctx: &SessionContext,
-        proof_tree: ProofTree<F, MvPCS, UvPCS>,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DFResult<Self> {
         let root = proof_tree.root();
         // Collect all nodes (post-order) from the proof tree so we can spawn
@@ -228,7 +222,7 @@ where
             .partition(|node| node.as_any().downcast_ref::<TableScanNode>().is_some());
         table_scan_nodes.extend(other_nodes);
 
-        let mut results_by_node_id: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>> =
+        let mut results_by_node_id: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>> =
             IndexMap::with_capacity(node_count);
         for node in table_scan_nodes {
             let node_id = node.node_id();
@@ -241,37 +235,37 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a HintTree<F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ProverHintTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (&'a ProverNodeNodeId, &'a HashMap<String, Vec<RecordBatch>>);
-    type IntoIter = indexmap::map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
+    type Item = (&'a NodeId, &'a HashMap<String, Vec<RecordBatch>>);
+    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.hint_map.iter()
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for HintTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for ProverHintTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>);
-    type IntoIter = indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
+    type Item = (NodeId, HashMap<String, Vec<RecordBatch>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let HintTree { hint_map, .. } = self;
+        let ProverHintTree { hint_map, .. } = self;
         hint_map.into_iter()
     }
 }
 
 struct HintNodesDebug<'a> {
-    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    inner: &'a IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
 }
 
 impl<'a> fmt::Debug for HintNodesDebug<'a> {
@@ -320,7 +314,7 @@ impl<'a> fmt::Debug for HintBatchSummary<'a> {
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProverNodeNodeId,
+    node_id: &'a NodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {
@@ -338,8 +332,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     match node.node_id() {
-        ProverNodeNodeId::LP(_) => "LogicalPlan",
-        ProverNodeNodeId::Expr(_) => "Expr",
+        NodeId::LP(_) => "LogicalPlan",
+        NodeId::Expr(_) => "Expr",
     }
 }
 

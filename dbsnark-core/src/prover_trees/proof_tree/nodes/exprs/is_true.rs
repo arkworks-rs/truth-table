@@ -1,4 +1,7 @@
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost};
+use crate::{
+    id::NodeId,
+    prover_trees::proof_tree::nodes::{ProverNode, cost::ProvingCost},
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -30,8 +33,8 @@ where
         self
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
-        ProverNodeNodeId::Expr(self.relative_expr.clone())
+    fn node_id(&self) -> NodeId {
+        NodeId::Expr(self.relative_expr.clone())
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -60,7 +63,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -68,7 +71,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

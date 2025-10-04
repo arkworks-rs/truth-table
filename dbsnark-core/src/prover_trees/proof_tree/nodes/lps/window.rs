@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -9,7 +10,7 @@ use ark_piop::{
 use datafusion::{logical_expr as df, prelude::SessionContext};
 
 use crate::prover_trees::{
-    piop_tree::PIOPTree,
+    piop_tree::ProverPIOPTree,
     proof_tree::nodes::{ProverNode, cost::ProvingCost},
 };
 
@@ -52,7 +53,7 @@ where
         todo!()
     }
 
-    fn node_id(&self) -> crate::prover_trees::proof_tree::nodes::ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         todo!()
     }
 
@@ -89,7 +90,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -97,7 +98,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

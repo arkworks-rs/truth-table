@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -16,10 +17,10 @@ use datafusion::{
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
 
 use crate::prover_trees::{
-    piop_tree::PIOPTree,
+    piop_tree::ProverPIOPTree,
     proof_tree::{
-        ProofTree,
-        nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
+        ProverProofTree,
+        nodes::{ProverNode, output_logical_plan},
     },
 };
 /// Projection operator that preserves the `activator` column.
@@ -36,7 +37,7 @@ where
 {
     pub expr_proof_plans: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -59,7 +60,7 @@ where
         children
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -83,7 +84,7 @@ where
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
         let input_tree =
-            ProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &projection.input);
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &projection.input);
         let input_proof_plan = input_tree.root();
         let child_output_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
             .unwrap_or_else(|| (*projection.input).clone());
@@ -115,7 +116,7 @@ where
         let expr_proof_plans = original_exprs
             .into_iter()
             .map(|expr| {
-                ProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &output_plan)
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &output_plan)
             })
             .collect();
 
@@ -124,7 +125,7 @@ where
         Self {
             expr_proof_plans,
             input_proof_plan,
-            node_id: ProverNodeNodeId::LP(plan),
+            node_id: NodeId::LP(plan),
             hint_generation_plans,
         }
     }
@@ -162,14 +163,14 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
     }
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }

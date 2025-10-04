@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 pub mod display;
 
 #[cfg(test)]
@@ -16,31 +17,27 @@ use ark_piop::{
     prover::Prover,
 };
 
-use crate::prover_trees::{
-    piop_tree,
-    proof_tree::{ProofTree, nodes::ProverNodeNodeId},
-    tracked_tree::TrackedTree,
-};
+use crate::prover_trees::{piop_tree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree};
 
 /// Virtualized tables indexed by proof-plan node identifier.
-pub struct PIOPTree<F, MvPCS, UvPCS>
+pub struct ProverPIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
-    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
+    tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for PIOPTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for ProverPIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PIOPTree")
+        f.debug_struct("ProverPIOPTree")
             .field("num_nodes", &self.tables.len())
             .field(
                 "nodes",
@@ -52,15 +49,15 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> PIOPTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverPIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -76,41 +73,35 @@ where
         self.tables.is_empty()
     }
 
-    pub fn tables(
-        &self,
-    ) -> &IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    pub fn tables(&self) -> &IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.tables
     }
 
     pub fn tables_for(
         &self,
-        node_id: &ProverNodeNodeId,
+        node_id: &NodeId,
     ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tables.get(node_id)
     }
 
-    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
+    pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayablePIOPTree<'_, F, MvPCS, UvPCS> {
-        display::DisplayablePIOPTree::new(self)
+    pub fn display_graphviz(&self) -> display::DisplayableProverPIOPTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableProverPIOPTree::new(self)
     }
 
     pub fn add_table(
         &mut self,
-        node_id: ProverNodeNodeId,
+        node_id: NodeId,
         label: String,
         table: TrackedTable<F, MvPCS, UvPCS>,
     ) {
         self.tables.entry(node_id).or_default().insert(label, table);
     }
 
-    pub fn table(
-        &self,
-        node_id: &ProverNodeNodeId,
-        label: &str,
-    ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
+    pub fn table(&self, node_id: &NodeId, label: &str) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
         self.tables
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
@@ -118,12 +109,12 @@ where
 
     /// Build a virtualized plan from an arithmetized plan.
     pub fn from_tracked_plan(
-        arith_plan: TrackedTree<F, MvPCS, UvPCS>,
+        arith_plan: ProverTrackedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Self {
         let (proof_tree, tables_by_node) = arith_plan.into_parts();
         // TODO: See if we can avoid these clones, specially cloning the tables_by_node
-        let mut piop_tree = PIOPTree::new(proof_tree.clone(), tables_by_node.clone());
+        let mut piop_tree = ProverPIOPTree::new(proof_tree.clone(), tables_by_node.clone());
         let flattened_proof_tree = proof_tree.flatten();
         for (node_id, _) in tables_by_node.iter() {
             let prover_node = flattened_proof_tree
@@ -137,10 +128,10 @@ where
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree<F, MvPCS, UvPCS>,
-        IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        ProverProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
-        let PIOPTree {
+        let ProverPIOPTree {
             tables,
             inner_proof_tree,
         } = self;
@@ -148,36 +139,31 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a PIOPTree<F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ProverPIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
-        &'a ProverNodeNodeId,
+        &'a NodeId,
         &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter =
-        indexmap::map::Iter<'a, ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.iter()
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for PIOPTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for ProverPIOPTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (
-        ProverNodeNodeId,
-        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-    );
-    type IntoIter =
-        indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type Item = (NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
@@ -190,7 +176,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
@@ -212,7 +198,7 @@ where
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProverNodeNodeId,
+    node_id: &'a NodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {

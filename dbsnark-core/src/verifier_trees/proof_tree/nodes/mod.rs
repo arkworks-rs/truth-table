@@ -1,33 +1,16 @@
-//! The proof plan module contains a set of tools to build a proof plan from a
-//! DataFusion logical plan.
-use crate::id::NodeId;
-pub mod cost;
-pub mod display;
-pub mod exprs;
-pub mod lps;
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, sync::Arc};
 
 use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    prover::Prover,
-};
-use datafusion::{
-    arrow::datatypes::SchemaRef,
-    common::Statistics,
-    logical_expr::LogicalPlan,
-    prelude::{Expr, SessionContext},
-};
+use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::PCS, verifier::Verifier};
+use datafusion::{logical_expr::LogicalPlan, prelude::{Expr, SessionContext}};
 
-use crate::{proof_tree::nodes::cost::ProvingCost, prover_trees::piop_tree::ProverPIOPTree};
+use crate::{id::NodeId, verifier_trees::piop_tree::VerifierPIOPTree};
 
 /// Common interface for a proof plan node.
 ///
 /// A proof plan is a tree of nodes, where each node represents a proof unit.
-pub trait ProverNode<F, MvPCS, UvPCS>: Any + Send + Sync
+pub trait VerifierNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -63,17 +46,17 @@ where
     /// Returns the Proof plan as `Any` so that it can be downcast to a specific
     /// implementation.
     fn as_any(&self) -> &dyn Any;
-
+    
     /// Short name for the ProverNode node, such as `FilterNode`.
     /// Children of this node expressed as proof plan trait objects. Leaf nodes
     /// return an empty list.
-    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>>;
+    fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>;
 
     /// Appends all the descendants of this node in 'post-order' to the given
     /// mutable vector.
     /// Post-order over descendants: for each child, traverse its descendants
     /// first, then push the child; the current node itself is not included.
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
             out.push(Arc::clone(child));
@@ -91,43 +74,23 @@ where
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
     /// the key `"output_plan"`.
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        HashMap::new()
+    fn hint_generation_plans(&self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Complete the piop plan
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Verifier<F, MvPCS, UvPCS>,
     );
 
-    fn prove_piop(
+    fn verify_piop(
         &self,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }
 
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-}
-
-pub fn output_logical_plan<F, MvPCS, UvPCS>(
-    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-) -> Option<LogicalPlan>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    node.hint_generation_plans()
-        .into_iter()
-        .find_map(|(label, plan)| {
-            if label == "output_plan" {
-                Some(plan)
-            } else {
-                None
-            }
-        })
 }

@@ -1,12 +1,13 @@
+use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
-use super::PIOPTree;
+use super::ProverPIOPTree;
 use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -25,30 +26,30 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for a `PIOPTree`
+/// Display helper that renders a Treeviz DOT tree for a `ProverPIOPTree`
 /// tree.
-pub struct DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
+pub struct DisplayableProverPIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    plan: &'a PIOPTree<F, MvPCS, UvPCS>,
+    plan: &'a ProverPIOPTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableProverPIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(plan: &'a PIOPTree<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(plan: &'a ProverPIOPTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
     }
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph PIOPTree {\n");
+        out.push_str("digraph ProverPIOPTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -64,8 +65,8 @@ where
             let node_kind = node.node_id();
 
             let (node_label, variant_label) = match &node_kind {
-                ProverNodeNodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
-                ProverNodeNodeId::Expr(expr) => ("Expr", expr_label(expr)),
+                NodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
+                NodeId::Expr(expr) => ("Expr", expr_label(expr)),
             };
 
             let mut table_entries: Vec<(&String, &TrackedTable<F, MvPCS, UvPCS>)> = self
@@ -107,7 +108,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayablePIOPTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableProverPIOPTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

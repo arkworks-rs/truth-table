@@ -1,4 +1,7 @@
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost};
+use crate::{
+    id::NodeId,
+    prover_trees::proof_tree::nodes::{ProverNode, cost::ProvingCost},
+};
 use arithmetic::{encoding::encode_arrow_array_to_field, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -16,7 +19,7 @@ use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub struct LiteralExprNode {
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for LiteralExprNode
@@ -29,7 +32,7 @@ where
         self
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -47,7 +50,7 @@ where
         Self: Sized,
     {
         Self {
-            node_id: ProverNodeNodeId::Expr(expr),
+            node_id: NodeId::Expr(expr),
         }
     }
 
@@ -61,11 +64,11 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
         let scalar = match &self.node_id {
-            ProverNodeNodeId::Expr(Expr::Literal(value)) => value.clone(),
+            NodeId::Expr(Expr::Literal(value)) => value.clone(),
             _ => panic!("literal node expected literal expression"),
         };
 
@@ -109,7 +112,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }

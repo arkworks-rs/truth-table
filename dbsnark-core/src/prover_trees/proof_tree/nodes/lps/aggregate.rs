@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -10,10 +11,7 @@ use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
 
-use crate::{
-    proof_tree::nodes::{ProverNode, ProverNodeNodeId},
-    prover_trees::piop_tree::PIOPTree,
-};
+use crate::{proof_tree::nodes::ProverNode, prover_trees::piop_tree::ProverPIOPTree};
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where
@@ -24,7 +22,7 @@ where
     pub group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -67,7 +65,7 @@ where
         vec![&self.input]
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -85,7 +83,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -93,7 +91,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

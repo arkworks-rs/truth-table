@@ -1,11 +1,10 @@
+use crate::id::NodeId;
 pub mod display;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use crate::prover_trees::{
-    arithmetized_tree::ArithmetizedTree,
-    hint_tree::HintTree,
-    proof_tree::{ProofTree, nodes::ProverNodeNodeId},
+    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
 };
 use arithmetic::{
     ctx::ProverCtx,
@@ -36,24 +35,24 @@ pub mod tests;
 /// to their associated hint data, since we don't need the topology of the
 /// prover nodes any more. This discrepancy is to keep a consistent naming for
 /// the IRs.
-pub struct TrackedTree<F, MvPCS, UvPCS>
+pub struct ProverTrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
-    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
+    tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for TrackedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for ProverTrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrackedTree")
+        f.debug_struct("ProverTrackedTree")
             .field("num_nodes", &self.tables.len())
             .field(
                 "nodes",
@@ -65,15 +64,15 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> TrackedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverTrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -83,7 +82,7 @@ where
 
     pub fn table_by_node_map(
         self,
-    ) -> IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         let (_, tables) = self.into_parts();
         tables
     }
@@ -98,14 +97,14 @@ where
 
     pub fn tables_for(
         &self,
-        node_id: &ProverNodeNodeId,
+        node_id: &NodeId,
     ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tables.get(node_id)
     }
 
     pub fn table_for(
         &self,
-        node_id: &ProverNodeNodeId,
+        node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
         self.tables
@@ -113,21 +112,21 @@ where
             .and_then(|by_label| by_label.get(label))
     }
 
-    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
+    pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableTrackedTree<'_, F, MvPCS, UvPCS> {
-        display::DisplayableTrackedTree::new(self)
+    pub fn display_graphviz(&self) -> display::DisplayableProverTrackedTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableProverTrackedTree::new(self)
     }
 
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree<F, MvPCS, UvPCS>,
-        IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        ProverProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
-        let TrackedTree {
+        let ProverTrackedTree {
             tables,
             inner_proof_tree,
         } = self;
@@ -139,7 +138,7 @@ where
         skip(arith_tree, prover)
     )]
     pub fn from_arithmetized_tree(
-        arith_tree: ArithmetizedTree<F, MvPCS, UvPCS>,
+        arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
         let (mut proof_tree, node_arith_tables) = arith_tree.into_parts();
@@ -158,7 +157,7 @@ where
         // Now, if a node was a TableScan and we have a saved oracle for it, use the
         // saved commitments to avoid recomputing them.
         for (node_id, arith_tables) in &node_arith_tables {
-            let is_table_scan = matches!(node_id, ProverNodeNodeId::LP(LogicalPlan::TableScan(_)));
+            let is_table_scan = matches!(node_id, NodeId::LP(LogicalPlan::TableScan(_)));
             for arith_table in arith_tables.values() {
                 if let Some(schema) = arith_table.schema() {
                     if is_table_scan {
@@ -204,10 +203,8 @@ where
                 .expect("missing commitment for polynomial");
             *entry = Some(commitment);
         }
-        let mut tables_by_node: IndexMap<
-            ProverNodeNodeId,
-            HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-        > = IndexMap::with_capacity(node_arith_tables.len());
+        let mut tables_by_node: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> =
+            IndexMap::with_capacity(node_arith_tables.len());
         for (node_id, tables) in node_arith_tables {
             let mut tracked_tables = HashMap::with_capacity(tables.len());
             for (label, arith_table) in tables {
@@ -242,36 +239,31 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a TrackedTree<F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a ProverTrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (
-        &'a ProverNodeNodeId,
+        &'a NodeId,
         &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter =
-        indexmap::map::Iter<'a, ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.iter()
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for TrackedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for ProverTrackedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (
-        ProverNodeNodeId,
-        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-    );
-    type IntoIter =
-        indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type Item = (NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
@@ -284,7 +276,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
@@ -306,7 +298,7 @@ where
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProverNodeNodeId,
+    node_id: &'a NodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {

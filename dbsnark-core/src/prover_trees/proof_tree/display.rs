@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
@@ -10,13 +11,13 @@ use ark_piop::{
     pcs::PCS,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
-pub struct ProofTreeGraphviz<'a, F, MvPCS, UvPCS> {
+pub struct ProverProofTreeGraphviz<'a, F, MvPCS, UvPCS> {
     root: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl<'a, F, MvPCS, UvPCS> ProofTreeGraphviz<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> ProverProofTreeGraphviz<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -28,7 +29,7 @@ where
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph ProofTree {\n");
+        out.push_str("digraph ProverProofTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited = HashSet::new();
@@ -42,8 +43,8 @@ where
             }
 
             let (kind, detail) = match node.node_id() {
-                ProverNodeNodeId::LP(ref plan) => ("LogicalPlan", plan.display().to_string()),
-                ProverNodeNodeId::Expr(ref expr) => ("Expr", expr.to_string()),
+                NodeId::LP(ref plan) => ("LogicalPlan", plan.display().to_string()),
+                NodeId::Expr(ref expr) => ("Expr", expr.to_string()),
             };
 
             let raw_label = format!("{}\\n{}", kind, detail);
@@ -62,7 +63,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for ProofTreeGraphviz<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for ProverProofTreeGraphviz<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

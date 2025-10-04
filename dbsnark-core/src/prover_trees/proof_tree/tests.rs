@@ -5,7 +5,7 @@ use crate::{
     test_utils::test_df_plan,
 };
 
-use super::ProofTree;
+use super::ProverProofTree;
 use arithmetic::ctx::ProverCtx;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
@@ -28,7 +28,7 @@ async fn display_graphviz() {
     .await
     .unwrap();
     let prover_ctx = ProverCtx::default();
-    let proof_tree: ProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
-        ProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
+        ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
     println!("{}", proof_tree.display_graphviz());
 }

@@ -1,12 +1,13 @@
+use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
-use super::{HintTree, rows_cols_activated};
+use super::{ProverHintTree, rows_cols_activated};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -34,29 +35,29 @@ fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
     }
 }
 
-/// Display helper that renders a Graphviz DOT tree for a HintTree.
-pub struct DisplayableHintTree<'a, F, MvPCS, UvPCS>
+/// Display helper that renders a Graphviz DOT tree for a ProverHintTree.
+pub struct DisplayableProverHintTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tree: &'a HintTree<F, MvPCS, UvPCS>,
+    tree: &'a ProverHintTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayableHintTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableProverHintTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(tree: &'a HintTree<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(tree: &'a ProverHintTree<F, MvPCS, UvPCS>) -> Self {
         Self { tree }
     }
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph HintTree {\n");
+        out.push_str("digraph ProverHintTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -71,8 +72,8 @@ where
 
             let node_kind = node.node_id();
             let (node_label, variant_label) = match &node_kind {
-                ProverNodeNodeId::LP(tree) => ("LogicalPlan", format!("{}", tree.display())),
-                ProverNodeNodeId::Expr(expr) => ("Expr", expr.to_string()),
+                NodeId::LP(tree) => ("LogicalPlan", format!("{}", tree.display())),
+                NodeId::Expr(expr) => ("Expr", expr.to_string()),
             };
 
             let hint_keys = {
@@ -112,7 +113,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableHintTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableProverHintTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use std::sync::Arc;
 
 use arithmetic::table::TrackedTable;
@@ -15,14 +16,11 @@ use datafusion::{
 
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
 
-use crate::prover_trees::{
-    piop_tree::PIOPTree,
-    proof_tree::nodes::{ProverNode, ProverNodeNodeId},
-};
+use crate::prover_trees::{piop_tree::ProverPIOPTree, proof_tree::nodes::ProverNode};
 
 #[derive(Clone)]
 pub struct ColumnExprNode {
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ColumnExprNode
@@ -35,7 +33,7 @@ where
         self
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -53,7 +51,7 @@ where
         Self: Sized,
     {
         Self {
-            node_id: ProverNodeNodeId::Expr(expr),
+            node_id: NodeId::Expr(expr),
         }
     }
 
@@ -67,11 +65,11 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         let column_expr = match &self.node_id {
-            ProverNodeNodeId::Expr(Expr::Column(column)) => column,
+            NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
         let relation = match column_expr.relation.as_ref() {
@@ -79,9 +77,7 @@ where
             None => todo!(),
         };
         let matching_table_scan = piop_tree.tables().keys().find(|node_id| match node_id {
-            ProverNodeNodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                &scan_plan.table_name == relation
-            },
+            NodeId::LP(LogicalPlan::TableScan(scan_plan)) => &scan_plan.table_name == relation,
             _ => false,
         });
 
@@ -125,7 +121,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }

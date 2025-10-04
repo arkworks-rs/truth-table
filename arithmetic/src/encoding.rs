@@ -58,8 +58,6 @@ macro_rules! impl_col_adapter_unsupported {
     };
 }
 
-
-
 /// A trait for encoding types into PrimeField elements.
 pub trait Encodable<F: PrimeField>: Sized {
     fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError>;

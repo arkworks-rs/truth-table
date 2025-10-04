@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
@@ -20,29 +21,26 @@ use datafusion::arrow::{
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::prover_trees::{
-    hint_tree::HintTree,
-    proof_tree::{ProofTree, nodes::ProverNodeNodeId},
-};
+use crate::prover_trees::{hint_tree::ProverHintTree, proof_tree::ProverProofTree};
 
-pub struct ArithmetizedTree<F, MvPCS, UvPCS>
+pub struct ProverArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
-    inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
+    tables: IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
+    inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> fmt::Debug for ProverArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ArithmetizedTree")
+        f.debug_struct("ProverArithmetizedTree")
             .field("num_nodes", &self.tables.len())
             .field(
                 "nodes",
@@ -54,15 +52,15 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub fn new(
-        proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        tables: IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
     ) -> Self {
         Self {
             tables,
@@ -71,7 +69,7 @@ where
     }
 
     #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree))]
-    pub fn from_hint_tree(hint_tree: HintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
+    pub fn from_hint_tree(hint_tree: ProverHintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();
         let mut tables_by_node = IndexMap::with_capacity(hint_map.len());
 
@@ -137,34 +135,31 @@ where
         self.tables.is_empty()
     }
 
-    pub fn tables_for(
-        &self,
-        node_id: &ProverNodeNodeId,
-    ) -> Option<&HashMap<String, ArithTable<F>>> {
+    pub fn tables_for(&self, node_id: &NodeId) -> Option<&HashMap<String, ArithTable<F>>> {
         self.tables.get(node_id)
     }
 
-    pub fn table_for(&self, node_id: &ProverNodeNodeId, label: &str) -> Option<&ArithTable<F>> {
+    pub fn table_for(&self, node_id: &NodeId, label: &str) -> Option<&ArithTable<F>> {
         self.tables
             .get(node_id)
             .and_then(|tables| tables.get(label))
     }
 
-    pub fn proof_tree(&self) -> &ProofTree<F, MvPCS, UvPCS> {
+    pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableArithmetizedTree<'_, F, MvPCS, UvPCS> {
-        display::DisplayableArithmetizedTree::new(self)
+    pub fn display_graphviz(&self) -> display::DisplayableProverArithmetizedTree<'_, F, MvPCS, UvPCS> {
+        display::DisplayableProverArithmetizedTree::new(self)
     }
 
     pub fn into_parts(
         self,
     ) -> (
-        ProofTree<F, MvPCS, UvPCS>,
-        IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+        ProverProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
     ) {
-        let ArithmetizedTree {
+        let ProverArithmetizedTree {
             tables,
             inner_proof_tree,
         } = self;
@@ -172,14 +167,14 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> IntoIterator for ArithmetizedTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> IntoIterator for ProverArithmetizedTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (ProverNodeNodeId, HashMap<String, ArithTable<F>>);
-    type IntoIter = indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, ArithTable<F>>>;
+    type Item = (NodeId, HashMap<String, ArithTable<F>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, ArithTable<F>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
@@ -190,7 +185,7 @@ struct ArithNodesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+    inner: &'a IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
 }
 
 impl<'a, F> fmt::Debug for ArithNodesDebug<'a, F>
@@ -210,7 +205,7 @@ where
 }
 
 struct NodeIdDebug<'a> {
-    node_id: &'a ProverNodeNodeId,
+    node_id: &'a NodeId,
 }
 
 impl<'a> fmt::Debug for NodeIdDebug<'a> {

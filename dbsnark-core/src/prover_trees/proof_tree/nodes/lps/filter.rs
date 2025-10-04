@@ -1,3 +1,4 @@
+use crate::id::NodeId;
 use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -17,10 +18,10 @@ use std::{collections::HashMap, sync::Arc};
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
 
 use crate::prover_trees::{
-    piop_tree::PIOPTree,
+    piop_tree::ProverPIOPTree,
     proof_tree::{
-        ProofTree,
-        nodes::{ProverNode, ProverNodeNodeId, output_logical_plan},
+        ProverProofTree,
+        nodes::{ProverNode, output_logical_plan},
     },
 };
 
@@ -38,7 +39,7 @@ where
 {
     pub predicate_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -127,14 +128,14 @@ where
 
         // The input is itself a logical plan and needs to be proved
         let input_proof_plan =
-            ProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
         // Fetching the output logical plan of the input logical plan
         let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
         // Build the output logical plan for this filter node on top of the child output
         // logical plan
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
-        let predicate_proof_plan = ProofTree::<F, MvPCS, UvPCS>::from_expr(
+        let predicate_proof_plan = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx,
             filter.predicate.clone(),
@@ -146,7 +147,7 @@ where
         Self {
             predicate_proof_plan,
             input_proof_plan: input_proof_plan.root(),
-            node_id: ProverNodeNodeId::LP(plan),
+            node_id: NodeId::LP(plan),
             hint_generation_plans,
         }
     }
@@ -157,7 +158,7 @@ where
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input_proof_plan, &self.predicate_proof_plan]
     }
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -186,14 +187,14 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
     }
     fn prove_piop(
         &self,
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let filter = match self.node_id().to_lp().unwrap() {
             LogicalPlan::Filter(f) => f.clone(),
@@ -201,17 +202,11 @@ where
         };
 
         let predicate_col = piop_tree
-            .table(
-                &ProverNodeNodeId::Expr(filter.predicate.clone()),
-                "output_plan",
-            )
+            .table(&NodeId::Expr(filter.predicate.clone()), "output_plan")
             .unwrap()
             .col(0);
         let input_tracked_Table = piop_tree
-            .table(
-                &ProverNodeNodeId::LP(filter.input.as_ref().clone()),
-                "output_plan",
-            )
+            .table(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
             .unwrap()
             .clone();
         let output_tracked_Table = piop_tree

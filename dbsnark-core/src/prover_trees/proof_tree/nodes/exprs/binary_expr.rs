@@ -1,10 +1,11 @@
+use crate::id::NodeId;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::prover_trees::{
-    piop_tree::PIOPTree,
+    piop_tree::ProverPIOPTree,
     proof_tree::{
-        ProofTree,
-        nodes::{ProverNode, ProverNodeNodeId, cost::ProvingCost},
+        ProverProofTree,
+        nodes::{ProverNode, cost::ProvingCost},
     },
 };
 use arithmetic::{col::TrackedCol, table::TrackedTable};
@@ -29,7 +30,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
     pub left_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub right_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
@@ -107,7 +108,7 @@ where
         self
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -137,14 +138,14 @@ where
             Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
 
         Self {
-            node_id: ProverNodeNodeId::Expr(expr),
-            left_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
+            node_id: NodeId::Expr(expr),
+            left_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 prover_ctx.clone(),
                 left_expr,
                 &parent_logical_plan,
             ),
-            right_proof_plan: ProofTree::<F, MvPCS, UvPCS>::from_expr(
+            right_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 prover_ctx,
                 right_expr,
@@ -164,7 +165,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
@@ -215,7 +216,7 @@ where
     fn prove_piop(
         &self,
         prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let op = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.op,

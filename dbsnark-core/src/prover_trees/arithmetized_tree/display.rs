@@ -1,12 +1,13 @@
+use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
-use super::ArithmetizedTree;
+use super::ProverArithmetizedTree;
 use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -30,29 +31,29 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for an `ArithmetizedTree`.
-pub struct DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+/// Display helper that renders a Treeviz DOT tree for an `ProverArithmetizedTree`.
+pub struct DisplayableProverArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>,
+    plan: &'a ProverArithmetizedTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableProverArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(plan: &'a ArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(plan: &'a ProverArithmetizedTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
     }
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph ArithmetizedTree {\n");
+        out.push_str("digraph ProverArithmetizedTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -68,8 +69,8 @@ where
             let node_kind = node.node_id();
 
             let (node_label, variant_label) = match &node_kind {
-                ProverNodeNodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
-                ProverNodeNodeId::Expr(expr) => ("Expr", expr_label(expr)),
+                NodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
+                NodeId::Expr(expr) => ("Expr", expr_label(expr)),
             };
 
             let mut table_entries: Vec<(&String, &ArithTable<F>)> = self
@@ -118,7 +119,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableArithmetizedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableProverArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

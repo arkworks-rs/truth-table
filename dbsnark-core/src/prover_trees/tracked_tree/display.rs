@@ -1,12 +1,13 @@
+use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
 
-use crate::prover_trees::proof_tree::nodes::{ProverNode, ProverNodeNodeId};
+use crate::prover_trees::proof_tree::nodes::ProverNode;
 
-use super::TrackedTree;
+use super::ProverTrackedTree;
 use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -25,30 +26,30 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for an `TrackedTree`
+/// Display helper that renders a Treeviz DOT tree for an `ProverTrackedTree`
 /// tree.
-pub struct DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
+pub struct DisplayableProverTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    plan: &'a TrackedTree<F, MvPCS, UvPCS>,
+    plan: &'a ProverTrackedTree<F, MvPCS, UvPCS>,
 }
 
-impl<'a, F, MvPCS, UvPCS> DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> DisplayableProverTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(plan: &'a TrackedTree<F, MvPCS, UvPCS>) -> Self {
+    pub fn new(plan: &'a ProverTrackedTree<F, MvPCS, UvPCS>) -> Self {
         Self { plan }
     }
 
     pub fn graphviz(&self) -> String {
         let mut out = String::new();
-        out.push_str("digraph TrackedTree {\n");
+        out.push_str("digraph ProverTrackedTree {\n");
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
@@ -64,8 +65,8 @@ where
             let node_kind = node.node_id();
 
             let (node_label, variant_label) = match &node_kind {
-                ProverNodeNodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
-                ProverNodeNodeId::Expr(expr) => ("Expr", expr_label(expr)),
+                NodeId::LP(plan) => ("LogicalPlan", logical_plan_label(plan)),
+                NodeId::Expr(expr) => ("Expr", expr_label(expr)),
             };
 
             let mut table_entries: Vec<(&String, &TrackedTable<F, MvPCS, UvPCS>)> = self
@@ -107,7 +108,7 @@ where
     }
 }
 
-impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableTrackedTree<'a, F, MvPCS, UvPCS>
+impl<'a, F, MvPCS, UvPCS> fmt::Display for DisplayableProverTrackedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

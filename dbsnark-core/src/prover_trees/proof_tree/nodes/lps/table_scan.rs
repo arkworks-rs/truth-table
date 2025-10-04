@@ -1,3 +1,6 @@
+use crate::id::NodeId;
+use std::{collections::HashMap, sync::Arc};
+
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -8,13 +11,10 @@ use datafusion::{
     logical_expr::{self as df, LogicalPlan},
     prelude::SessionContext,
 };
-use std::{collections::HashMap, sync::Arc};
-
-use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
 
 use crate::prover_trees::{
-    piop_tree::PIOPTree,
-    proof_tree::nodes::{ProverNode, ProverNodeNodeId},
+    piop_tree::ProverPIOPTree,
+    proof_tree::nodes::{ProverNode, cost::ProvingCost},
 };
 
 /// Proof node representing a base table scan.
@@ -24,7 +24,7 @@ use crate::prover_trees::{
 ///   original ("relative_output") scan plan.
 pub struct TableScanNode {
     pub plan: LogicalPlan,
-    pub node_id: ProverNodeNodeId,
+    pub node_id: NodeId,
     pub hint_generation_plans: HashMap<String, LogicalPlan>,
 }
 
@@ -58,7 +58,7 @@ where
         hint_generation_plans.insert("output_plan".to_string(), output_plan.clone());
         Self {
             plan: plan.clone(),
-            node_id: ProverNodeNodeId::LP(plan),
+            node_id: NodeId::LP(plan),
             hint_generation_plans,
         }
     }
@@ -71,7 +71,7 @@ where
         Vec::new()
     }
 
-    fn node_id(&self) -> ProverNodeNodeId {
+    fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
@@ -108,14 +108,14 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut PIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
     }
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }
