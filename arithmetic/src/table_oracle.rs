@@ -4,6 +4,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    prover::Prover,
     verifier::{errors::VerifierError, structs::oracle::TrackedOracle, Verifier},
 };
 use ark_serialize::{
@@ -11,7 +12,11 @@ use ark_serialize::{
     Write,
 };
 
-use crate::{col_oracle::TrackedColOracle, table::TrackedTable};
+use crate::{
+    col_oracle::TrackedColOracle,
+    ctx::ProverCtx,
+    table::{ArithTable, TrackedTable},
+};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use derivative::Derivative;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
@@ -229,7 +234,19 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn from_tracked_Table_oracle(table_oracle: &TrackedTableOracle<F, MvPCS, UvPCS>) -> Self
+    pub fn new(
+        schema: Option<Schema>,
+        data_comitments: HashMap<FieldRef, MvPCS::Commitment>,
+        log_size: usize,
+    ) -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+            schema,
+            data_comitments,
+            log_size,
+        }
+    }
+    pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<F, MvPCS, UvPCS>) -> Self
     where
         MvPCS::Commitment: Clone,
     {

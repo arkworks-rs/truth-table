@@ -13,8 +13,9 @@ use ark_piop::{
     },
     verifier::Verifier,
 };
-use col_toolbox::no_zeros_check::{
-    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
+use col_toolbox::{
+    binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
+    no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use datafusion::logical_expr::Operator;
 use derivative::Derivative;
@@ -102,9 +103,24 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         match input.op {
-            Operator::And => todo!(),
-            Operator::Or => todo!(),
+            Operator::And => {},
+            Operator::Or => {
+                let binary_check_prover_input = BinaryCheckProverInput {
+                    predicate: input.output_col.activated_data_poly().clone(),
+                };
+                BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
+
+
+
+
+
+            },
             Operator::Eq => {
+                let binary_check_prover_input = BinaryCheckProverInput {
+                    predicate: input.output_col.activated_data_poly().clone(),
+                };
+                BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
+
                 let actv = input.left_col.actvtr_poly();
                 let zero_poly = match actv {
                     Some(actv_poly) => {
@@ -147,6 +163,11 @@ where
             Operator::And => todo!(),
             Operator::Or => todo!(),
             Operator::Eq => {
+                let binary_check_verifier_input = BinaryCheckVerifierInput {
+                    predicate_oracle: input.output_col_oracle.activated_data_oracle().clone(),
+                };
+                BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
+
                 let actv = input.left_col_oracle.actvtr_oracle();
                 let zero_oracle = match actv {
                     Some(actv_poly) => {

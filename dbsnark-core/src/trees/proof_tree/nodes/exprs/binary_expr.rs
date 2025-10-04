@@ -7,7 +7,7 @@ use crate::trees::{
         nodes::{ProverNode, ProverNodeNodeId},
     },
 };
-use arithmetic::col;
+use arithmetic::{col::TrackedCol, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -17,6 +17,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
+    arrow::datatypes::{Field, FieldRef},
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
@@ -40,7 +41,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn reauires_materialized_witness(op: Operator) -> bool {
+    fn requires_materialized_witness(op: Operator) -> bool {
         matches!(
             op,
             Operator::Eq
@@ -49,6 +50,7 @@ where
                 | Operator::GtEq
                 | Operator::LtEq
                 | Operator::NotEq
+                | Operator::Or
         )
     }
 }
@@ -63,7 +65,7 @@ where
         bin_expr: BinaryExpr,
         input_plan: LogicalPlan,
     ) -> HashMap<String, LogicalPlan> {
-        if Self::reauires_materialized_witness(bin_expr.op) {
+        if Self::requires_materialized_witness(bin_expr.op) {
             let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
                 .project(vec![bool_expr])
@@ -157,11 +159,49 @@ where
         piop_tree: &mut crate::trees::piop_tree::PIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        if !Self::reauires_materialized_witness(match &self.node_id {
-            ProverNodeNodeId::Expr(Expr::BinaryExpr(b)) => b.op,
-            _ => panic!("expected binary expression"),
-        }) {
-            todo!()
+        if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
+            if !Self::requires_materialized_witness(bin_expr.op) {
+                let size = piop_tree
+                    .table(&self.left_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .size();
+                let left_col = piop_tree
+                    .table(&self.left_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .col(0)
+                    .clone();
+                let right_col = piop_tree
+                    .table(&self.right_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .col(0)
+                    .clone();
+                let output_data_poly = match bin_expr.op {
+                    Operator::And => {
+                        let data_mult = left_col.data_poly() * right_col.data_poly();
+
+                        match (left_col.actvtr_poly(), right_col.actvtr_poly()) {
+                            (Some(l), Some(r)) => &(l * r) * &data_mult,
+                            (Some(l), None) => l * &data_mult,
+                            (None, Some(r)) => r * &data_mult,
+                            (None, None) => data_mult,
+                        }
+                    },
+                    _ => panic!("unsupported operator for virtual witness"),
+                };
+                let field_ref = FieldRef::new(Field::new(
+                    "output",
+                    datafusion::arrow::datatypes::DataType::BinaryView,
+                    false,
+                ));
+
+                let output_table =
+                    TrackedTable::new(None, vec![(field_ref, output_data_poly)], size);
+                piop_tree.add_table(
+                    self.node_id.clone(),
+                    "output_plan".to_string(),
+                    output_table,
+                );
+            }
         }
     }
     fn prove_piop(

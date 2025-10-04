@@ -12,7 +12,7 @@ use crate::trees::{
 use arithmetic::{
     ctx::ProverCtx,
     errors::EncodeError,
-    table::{ArithTable, TrackedTable},
+    table::{ArithTable, TrackedTable}, table_oracle::ArithTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -148,10 +148,10 @@ where
 
         for (node_id, tables) in serial_tables {
             let mut tracked_Tables = HashMap::with_capacity(tables.len());
-            for (label, serial_table) in tables {
-                let table = Self::tracked_table_from_serializable(
+            for (label, arith_table) in tables {
+                let table = Self::tracked_table_from_arith_table(
                     &node_id,
-                    serial_table,
+                    arith_table,
                     &mut prover_ctx,
                     prover,
                 );
@@ -163,27 +163,7 @@ where
         Ok(Self::new(proof_tree, tables_by_node))
     }
 
-    /// Computes an arithmetic table from a vector of record batches by
-    /// first turning them into serializable tables and then tracking the
-    /// resulting polynomials.
-    #[tracing::instrument(level = "debug", skip(record_batches, prover_ctx, prover))]
-    pub fn tracked_table_from_record_batches_and_ctx(
-        node_id: &ProverNodeNodeId,
-        record_batches: Vec<RecordBatch>,
-        prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> Result<TrackedTable<F, MvPCS, UvPCS>, EncodeError> {
-        let serial_table =
-            ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(record_batches)?;
-        Ok(Self::tracked_table_from_serializable(
-            node_id,
-            serial_table,
-            prover_ctx,
-            prover,
-        ))
-    }
-
-    fn tracked_table_from_serializable(
+    fn tracked_table_from_arith_table(
         node_id: &ProverNodeNodeId,
         serial_table: ArithTable<F>,
         prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
@@ -238,6 +218,7 @@ where
 
         TrackedTable::new(schema, data_polys, size)
     }
+
 }
 
 impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a TrackedTree<F, MvPCS, UvPCS>

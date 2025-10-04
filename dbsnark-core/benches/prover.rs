@@ -40,18 +40,22 @@ impl std::fmt::Display for QuerySpec {
 }
 
 const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
-    // QuerySpec {
-    //     sql: "SELECT c_custkey FROM customer",
-    //     tables: &["customer"],
-    // },
     QuerySpec {
-        sql: "SELECT c_custkey FROM customer where c_nationkey = 15",
-        tables: &["customer"],
+        sql: "SELECT l_partkey FROM lineitem",
+        tables: &["lineitem"],
     },
-    // QuerySpec {
-    //     sql: "SELECT l_orderkey FROM lineitem WHERE l_quantity >= 20",
-    //     tables: &["lineitem"],
-    // },
+    QuerySpec {
+        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 AND l_extendedprice = 100.1",
+        tables: &["lineitem"],
+    },
 ];
 
 struct BenchInputs {
@@ -62,7 +66,7 @@ struct BenchInputs {
     prover: Prover<F, MvPCS, UvPCS>,
 }
 
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 1)]
+#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
@@ -82,17 +86,16 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                     .into_unoptimized_plan()
             });
 
-            let customer_oracle_path = tpch_data::bench_data_path("customer.oracle");
-            let customer_oracle_file =
-                File::open(&customer_oracle_path).expect("open customer oracle commitment");
-            let mut reader = BufReader::new(customer_oracle_file);
-            let customer_serializable =
+            let table_oracle_path = tpch_data::bench_data_path(spec.tables.join("_") + ".oracle");
+            let table_oracle_file =
+                File::open(&table_oracle_path).expect("open table oracle commitment");
+            let mut reader = BufReader::new(table_oracle_file);
+            let table_serializable =
                 ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-                    .expect("deserialize customer oracle");
-
+                    .expect("deserialize table oracle");
             let mut table_oracles = HashMap::new();
-            if let Some(schema) = customer_serializable.schema() {
-                table_oracles.insert(schema, customer_serializable);
+            if let Some(schema) = table_serializable.schema() {
+                table_oracles.insert(schema, table_serializable);
             }
 
             let prover_ctx = ProverCtx::new(table_oracles, HashMap::new());

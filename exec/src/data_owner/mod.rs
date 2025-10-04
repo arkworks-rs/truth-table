@@ -98,7 +98,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 
         let tracked_Table_oracle = tracked_Table_oracle.context("table scan result not found")?;
 
-        let serializable = ArithTableOracle::from_tracked_Table_oracle(&tracked_Table_oracle);
+        let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_Table_oracle);
 
         let output_path = parquet_path.with_extension("oracle");
         let file = File::create(&output_path).with_context(|| {
@@ -169,9 +169,9 @@ mod tests {
     use tpch_data::{bench_data_path, test_data_path};
 
     #[test]
-    #[ignore = "Takes too long"]
+    // #[ignore = "Takes too long"]
     fn commit_parquet_serializes_oracle_round_trip() {
-        let parquet_path = bench_data_path("customer.parquet");
+        let parquet_path = bench_data_path("lineitem.parquet");
         assert!(parquet_path.exists());
 
         commit_parquet_serializes_oracle(&parquet_path)
