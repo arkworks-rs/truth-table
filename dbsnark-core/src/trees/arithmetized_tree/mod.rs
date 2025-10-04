@@ -4,6 +4,7 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use ark_std::cfg_into_iter;
 use indexmap::IndexMap;
 
 use arithmetic::{encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable};
@@ -16,6 +17,7 @@ use datafusion::arrow::{
     datatypes::{FieldRef, Schema},
     record_batch::RecordBatch,
 };
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::trees::{
@@ -99,8 +101,7 @@ where
         assert!(total_rows.is_power_of_two());
         let log_vars = total_rows.trailing_zeros() as usize;
 
-        let columns: Result<Vec<Vec<F>>, EncodeError> = (0..num_cols)
-            .into_par_iter()
+        let columns: Result<Vec<Vec<F>>, EncodeError> = cfg_into_iter!(0..num_cols)
             .map(|col_idx| {
                 let mut values = Vec::with_capacity(total_rows);
                 for batch in &record_batches {
@@ -113,11 +114,10 @@ where
             .collect();
         let columns = columns?;
 
-        let data_polys: Vec<(FieldRef, MLE<F>)> = columns
-            .into_par_iter()
+        let data_polys: Vec<(FieldRef, Arc<MLE<F>>)> = cfg_into_iter!(columns)
             .enumerate()
             .map(|(idx, values)| {
-                let mle = MLE::from_evaluations_slice(log_vars, &values);
+                let mle = Arc::new(MLE::from_evaluations_slice(log_vars, &values));
                 let field_ref = Arc::new(schema_ref.field(idx).clone());
                 (field_ref, mle)
             })

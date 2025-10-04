@@ -2,8 +2,6 @@ pub mod display;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use indexmap::IndexMap;
-
 use crate::trees::{
     arithmetized_tree::ArithmetizedTree,
     hint_tree::HintTree,
@@ -12,7 +10,8 @@ use crate::trees::{
 use arithmetic::{
     ctx::ProverCtx,
     errors::EncodeError,
-    table::{ArithTable, TrackedTable}, table_oracle::ArithTableOracle,
+    table::{ArithTable, TrackedTable},
+    table_oracle::ArithTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -20,10 +19,14 @@ use ark_piop::{
     pcs::PCS,
     prover::{Prover, structs::polynomial::TrackedPoly},
 };
+use ark_std::{cfg_into_iter, cfg_iter};
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::FieldRef},
     logical_expr::LogicalPlan,
 };
+use indexmap::IndexMap;
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -139,86 +142,104 @@ where
         arith_tree: ArithmetizedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
-        let (mut proof_tree, serial_tables) = arith_tree.into_parts();
-        let mut prover_ctx = proof_tree.ctx_mut();
+        let (mut proof_tree, node_arith_tables) = arith_tree.into_parts();
+        let prover_ctx = proof_tree.ctx_mut();
+        let mut commitment_map: HashMap<Arc<MLE<F>>, Option<MvPCS::Commitment>> = HashMap::new();
+        // First initialize the commitment mapping for all polynomials in the
+        // arithmetized tree.
+        for (_, arith_tables) in &node_arith_tables {
+            for arith_table in arith_tables.values() {
+                for (_, mle) in arith_table.data_polys() {
+                    commitment_map.insert(mle.clone(), None);
+                }
+            }
+        }
+
+        // Now, if a node was a TableScan and we have a saved oracle for it, use the
+        // saved commitments to avoid recomputing them.
+        for (node_id, arith_tables) in &node_arith_tables {
+            let is_table_scan = matches!(node_id, ProverNodeNodeId::LP(LogicalPlan::TableScan(_)));
+            for arith_table in arith_tables.values() {
+                if let Some(schema) = arith_table.schema() {
+                    if is_table_scan {
+                        for (field_ref, mle) in arith_table.data_polys() {
+                            let saved_commitment =
+                                prover_ctx
+                                    .table_oracle(&schema)
+                                    .and_then(|saved_table_oracle| {
+                                        saved_table_oracle.data_comitments().get(field_ref).cloned()
+                                    });
+                            commitment_map.insert(mle.clone(), saved_commitment);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now build a list of all polynomials that are still missing commitments
+        let missing_commitments: Vec<Arc<MLE<F>>> = commitment_map
+            .iter()
+            .filter_map(|(mle_arc, com_opt)| {
+                if com_opt.is_none() {
+                    Some(mle_arc.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let pcs_param = prover.mv_pcs_prover_param().clone();
+
+        let new_commitments: Vec<_> = cfg_into_iter!(missing_commitments)
+            .map(|mle_arc| {
+                let commitment = MvPCS::commit(pcs_param.clone(), &mle_arc)
+                    .expect("failed to commit witness polynomial");
+                (mle_arc, commitment)
+            })
+            .collect();
+
+        for (mle_arc, commitment) in new_commitments {
+            let entry = commitment_map
+                .get_mut(&mle_arc)
+                .expect("missing commitment for polynomial");
+            *entry = Some(commitment);
+        }
         let mut tables_by_node: IndexMap<
             ProverNodeNodeId,
             HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-        > = IndexMap::with_capacity(serial_tables.len());
-
-        for (node_id, tables) in serial_tables {
-            let mut tracked_Tables = HashMap::with_capacity(tables.len());
+        > = IndexMap::with_capacity(node_arith_tables.len());
+        for (node_id, tables) in node_arith_tables {
+            let mut tracked_tables = HashMap::with_capacity(tables.len());
             for (label, arith_table) in tables {
-                let table = Self::tracked_table_from_arith_table(
-                    &node_id,
-                    arith_table,
-                    &mut prover_ctx,
-                    prover,
-                );
-                tracked_Tables.insert(label, table);
+                let num_cols = arith_table.num_cols();
+                let table = if num_cols == 0 {
+                    TrackedTable::new(arith_table.schema(), Vec::new(), arith_table.size())
+                } else {
+                    let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+                        Vec::with_capacity(num_cols);
+
+                    for (field_ref, mle) in arith_table.data_polys() {
+                        let commitment = commitment_map
+                            .get(mle)
+                            .expect("missing commitment for polynomial")
+                            .clone()
+                            .expect("missing commitment for polynomial");
+                        let tracked = prover
+                            .track_mat_mv_poly_with_commitment(mle.as_ref(), commitment)
+                            .expect("failed to commit witness polynomial");
+                        data_polys.push((field_ref.clone(), tracked));
+                    }
+
+                    TrackedTable::new(arith_table.schema(), data_polys, arith_table.size())
+                };
+
+                tracked_tables.insert(label, table);
             }
-            tables_by_node.insert(node_id, tracked_Tables);
+            tables_by_node.insert(node_id, tracked_tables);
         }
 
         Ok(Self::new(proof_tree, tables_by_node))
     }
-
-    fn tracked_table_from_arith_table(
-        node_id: &ProverNodeNodeId,
-        serial_table: ArithTable<F>,
-        prover_ctx: &mut ProverCtx<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) -> TrackedTable<F, MvPCS, UvPCS> {
-        let schema = serial_table.schema();
-        let size = serial_table.size();
-        let num_cols = serial_table.num_cols();
-
-        if num_cols == 0 {
-            return TrackedTable::new(schema, Vec::new(), size);
-        }
-
-        let prover_param = prover.mv_pcs_prover_param();
-        let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
-            Vec::with_capacity(num_cols);
-
-        for (field_ref, mle) in serial_table.data_polys() {
-            let poly_arc = Arc::new(mle.clone());
-            let commitment = if let Some(commitment) = prover_ctx
-                .already_committed_poly(poly_arc.as_ref())
-                .cloned()
-            {
-                commitment
-            } else {
-                let saved_commitment =
-                    if let (ProverNodeNodeId::LP(LogicalPlan::TableScan(_)), Some(schema_ref)) =
-                        (node_id, schema.as_ref())
-                    {
-                        prover_ctx.table_oracle(schema_ref).and_then(|saved_table| {
-                            saved_table.data_comitments().get(field_ref).cloned()
-                        })
-                    } else {
-                        None
-                    };
-
-                if let Some(commitment) = saved_commitment {
-                    commitment
-                } else {
-                    MvPCS::commit(prover_param.clone(), &poly_arc)
-                        .expect("failed to commit witness polynomial")
-                }
-            };
-
-            prover_ctx.add_committed_poly(poly_arc.clone(), commitment.clone());
-
-            let tracked = prover
-                .track_mat_mv_poly_with_commitment(poly_arc.as_ref(), commitment)
-                .expect("failed to commit witness polynomial");
-            data_polys.push((field_ref.clone(), tracked));
-        }
-
-        TrackedTable::new(schema, data_polys, size)
-    }
-
 }
 
 impl<'a, F, MvPCS, UvPCS> IntoIterator for &'a TrackedTree<F, MvPCS, UvPCS>

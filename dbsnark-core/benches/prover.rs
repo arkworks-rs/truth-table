@@ -40,21 +40,21 @@ impl std::fmt::Display for QuerySpec {
 }
 
 const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 AND l_extendedprice = 100.1",
-        tables: &["lineitem"],
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 AND
+    l_extendedprice = 100.1",     tables: &["lineitem"],
     },
 ];
 
@@ -98,7 +98,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 table_oracles.insert(schema, table_serializable);
             }
 
-            let prover_ctx = ProverCtx::new(table_oracles, HashMap::new());
+            let prover_ctx = ProverCtx::new(table_oracles);
             let (prover, _) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
 
             BenchInputs {

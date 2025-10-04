@@ -197,12 +197,12 @@ where
 /// without the original prover tracker state.
 pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
-    data_polys: Vec<(FieldRef, MLE<F>)>,
+    data_polys: Vec<(FieldRef, Arc<MLE<F>>)>,
     size: usize,
 }
 
 impl<F: PrimeField> ArithTable<F> {
-    pub fn new(schema: Option<Schema>, data_polys: Vec<(FieldRef, MLE<F>)>, size: usize) -> Self {
+    pub fn new(schema: Option<Schema>, data_polys: Vec<(FieldRef, Arc<MLE<F>>)>, size: usize) -> Self {
         Self {
             schema,
             data_polys,
@@ -214,7 +214,7 @@ impl<F: PrimeField> ArithTable<F> {
         self.schema.clone()
     }
 
-    pub fn data_polys(&self) -> &[(FieldRef, MLE<F>)] {
+    pub fn data_polys(&self) -> &[(FieldRef, Arc<MLE<F>>)] {
         &self.data_polys
     }
 
@@ -237,7 +237,7 @@ impl<F: PrimeField> ArithTable<F> {
             .columns()
             .map(|(field, poly)| {
                 let evals = poly.evaluations();
-                let mle = MLE::from_evaluations_slice(poly.log_size(), &evals);
+                let mle = Arc::new(MLE::from_evaluations_slice(poly.log_size(), &evals));
                 (field.clone(), mle)
             })
             .collect();
@@ -357,7 +357,7 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
                 let value = F::deserialize_with_mode(&mut reader, compress, validate)?;
                 evaluations.push(value);
             }
-            let mle = MLE::from_evaluations_vec(nv, evaluations);
+            let mle = Arc::new(MLE::from_evaluations_vec(nv, evaluations));
             data_polys.push((field_ref, mle));
         }
 
