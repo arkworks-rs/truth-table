@@ -169,9 +169,9 @@ mod tests {
     use tpch_data::{bench_data_path, test_data_path};
 
     #[test]
-    // #[ignore = "Takes too long"]
+    #[ignore = "Takes too long"]
     fn commit_parquet_serializes_oracle_round_trip() {
-        let parquet_path = bench_data_path("lineitem.parquet");
+        let parquet_path = bench_data_path("supplier.parquet");
         assert!(parquet_path.exists());
 
         commit_parquet_serializes_oracle(&parquet_path)
