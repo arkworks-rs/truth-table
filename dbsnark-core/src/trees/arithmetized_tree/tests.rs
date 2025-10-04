@@ -52,8 +52,7 @@ async fn from_hint_tree_produces_serializable_tables() {
 
 #[test]
 fn arith_table_from_batches_empty() {
-    let table =
-        ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(Vec::new()).unwrap();
+    let table = ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(Vec::new()).unwrap();
     assert_eq!(table.size(), 0);
     assert_eq!(table.num_cols(), 0);
     assert!(table.schema().is_none());
@@ -65,8 +64,7 @@ fn arith_table_from_batches_basic() {
     let data = Arc::new(Int32Array::from(vec![1, 2, 3, 4])) as Arc<_>;
     let batch = RecordBatch::try_new(schema.clone(), vec![data]).unwrap();
 
-    let table =
-        ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(vec![batch]).unwrap();
+    let table = ArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(vec![batch]).unwrap();
 
     assert_eq!(table.size(), 4);
     assert_eq!(table.num_cols(), 1);

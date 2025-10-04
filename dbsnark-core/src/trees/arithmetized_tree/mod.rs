@@ -4,6 +4,8 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use indexmap::IndexMap;
+
 use arithmetic::{encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -27,7 +29,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+    tables: IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -58,7 +60,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+        tables: IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     ) -> Self {
         Self {
             tables,
@@ -69,7 +71,7 @@ where
     #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree))]
     pub fn from_hint_tree(hint_tree: HintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();
-        let mut tables_by_node = HashMap::with_capacity(hint_map.len());
+        let mut tables_by_node = IndexMap::with_capacity(hint_map.len());
 
         for (node_id, batches_by_label) in hint_map {
             let mut tables = HashMap::with_capacity(batches_by_label.len());
@@ -159,7 +161,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+        IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
     ) {
         let ArithmetizedTree {
             tables,
@@ -176,8 +178,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (ProverNodeNodeId, HashMap<String, ArithTable<F>>);
-    type IntoIter =
-        std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, ArithTable<F>>>;
+    type IntoIter = indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, ArithTable<F>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
@@ -188,7 +189,7 @@ struct ArithNodesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
+    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, ArithTable<F>>>,
 }
 
 impl<'a, F> fmt::Debug for ArithNodesDebug<'a, F>

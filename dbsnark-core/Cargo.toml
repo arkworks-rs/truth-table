@@ -17,6 +17,7 @@ ra-toolbox = { path = "../ra-toolbox" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 parquet = { version = "54", default-features = false, features = ["arrow"] }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 divan.workspace = true

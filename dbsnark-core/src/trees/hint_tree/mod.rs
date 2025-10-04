@@ -4,6 +4,8 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use indexmap::IndexMap;
+
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -41,7 +43,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    hint_map: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -72,7 +74,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        hint_map: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+        hint_map: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     ) -> Self {
         Self {
             hint_map,
@@ -127,7 +129,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+        IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
     ) {
         let HintTree {
             hint_map,
@@ -220,9 +222,15 @@ where
             by_id.entry(node_ptr_id(node)).or_default();
         }
 
-        let mut results_by_node_id: HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>> =
-            HashMap::with_capacity(nodes.len());
-        for node in nodes {
+        let node_count = nodes.len();
+        let (mut table_scan_nodes, mut other_nodes): (Vec<_>, Vec<_>) = nodes
+            .into_iter()
+            .partition(|node| node.as_any().downcast_ref::<TableScanNode>().is_some());
+        table_scan_nodes.extend(other_nodes);
+
+        let mut results_by_node_id: IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>> =
+            IndexMap::with_capacity(node_count);
+        for node in table_scan_nodes {
             let node_id = node.node_id();
             let ptr_id = node_ptr_id(&node);
             let entry = by_id.remove(&ptr_id).unwrap_or_default();
@@ -240,8 +248,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (&'a ProverNodeNodeId, &'a HashMap<String, Vec<RecordBatch>>);
-    type IntoIter =
-        std::collections::hash_map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
+    type IntoIter = indexmap::map::Iter<'a, ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.hint_map.iter()
@@ -255,8 +262,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>);
-    type IntoIter =
-        std::collections::hash_map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
+    type IntoIter = indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         let HintTree { hint_map, .. } = self;
@@ -265,7 +271,7 @@ where
 }
 
 struct HintNodesDebug<'a> {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
+    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, Vec<RecordBatch>>>,
 }
 
 impl<'a> fmt::Debug for HintNodesDebug<'a> {

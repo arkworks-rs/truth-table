@@ -5,6 +5,8 @@ mod tests;
 
 use std::{collections::HashMap, fmt};
 
+use indexmap::IndexMap;
+
 use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -27,7 +29,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -58,7 +60,7 @@ where
 {
     pub fn new(
         proof_tree: ProofTree<F, MvPCS, UvPCS>,
-        tables: HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        tables: IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -76,7 +78,7 @@ where
 
     pub fn tables(
         &self,
-    ) -> &HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> &IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.tables
     }
 
@@ -136,7 +138,7 @@ where
         self,
     ) -> (
         ProofTree<F, MvPCS, UvPCS>,
-        HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let PIOPTree {
             tables,
@@ -156,11 +158,8 @@ where
         &'a ProverNodeNodeId,
         &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = std::collections::hash_map::Iter<
-        'a,
-        ProverNodeNodeId,
-        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-    >;
+    type IntoIter =
+        indexmap::map::Iter<'a, ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.iter()
@@ -177,10 +176,8 @@ where
         ProverNodeNodeId,
         HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = std::collections::hash_map::IntoIter<
-        ProverNodeNodeId,
-        HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
-    >;
+    type IntoIter =
+        indexmap::map::IntoIter<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()
@@ -193,7 +190,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<ProverNodeNodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>

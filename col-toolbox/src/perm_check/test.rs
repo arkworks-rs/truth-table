@@ -171,7 +171,8 @@ fn perm_check_test_helper<
 
     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
     let right_actvm = verifier.track_mv_com_by_id(right_actv_p.id())?;
-    let right_tracked_col_oracle = TrackedColOracle::new(None, right_comm, Some(right_actvm), right_nv);
+    let right_tracked_col_oracle =
+        TrackedColOracle::new(None, right_comm, Some(right_actvm), right_nv);
     let perm_piop_verifier_input = PermPIOPVerifierInput {
         left_tracked_col_oracle,
         right_tracked_col_oracle,

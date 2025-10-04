@@ -3,7 +3,8 @@ use super::*;
 use std::sync::Arc;
 
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::TrackedTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -207,7 +208,8 @@ fn filter_check_test_helper<
         TrackedColOracle::new(predicate_col.data_type(), predicate_data_oracle, None, nv);
 
     let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
-    let output_tracked_Table_oracle = TrackedTableOracle::from(output_tracked_Table, &mut verifier)?;
+    let output_tracked_Table_oracle =
+        TrackedTableOracle::from(output_tracked_Table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,

@@ -35,10 +35,7 @@ where
         }
     }
 
-    pub fn table_oracle(
-        &self,
-        schema: &Schema,
-    ) -> Option<&ArithTableOracle<F, MvPCS, UvPCS>> {
+    pub fn table_oracle(&self, schema: &Schema) -> Option<&ArithTableOracle<F, MvPCS, UvPCS>> {
         self.table_oracles.get(schema)
     }
 

@@ -15,12 +15,7 @@ use ark_piop::{
     test_utils::test_prelude,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    error::Result as DFResult,
-    logical_expr::LogicalPlan,
-    prelude::{ParquetReadOptions, SessionContext},
-};
-use tpch_data::test_data_path;
+use datafusion::{error::Result as DFResult, prelude::SessionContext};
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
