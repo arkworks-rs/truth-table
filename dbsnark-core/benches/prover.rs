@@ -1,14 +1,22 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
+use ark_piop::prover::structs::proof::Proof;
+use std::{
+    collections::HashMap,
+    fs::File,
+    hash::Hash,
+    io::BufReader,
+    sync::{Mutex, OnceLock},
+};
 
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
     test_utils::bench_prelude,
+    verifier::Verifier,
 };
-use ark_serialize::CanonicalDeserialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
     logical_expr::LogicalPlan,
@@ -22,8 +30,28 @@ use tokio::runtime::Runtime;
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
+type ProofForBench = Proof<F, MvPCS, UvPCS>;
 
-#[derive(Clone, Copy)]
+static PROOF_CACHE: OnceLock<Mutex<HashMap<QuerySpec, ProofForBench>>> = OnceLock::new();
+
+fn proof_cache() -> &'static Mutex<HashMap<QuerySpec, ProofForBench>> {
+    PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_proof(spec: QuerySpec) -> Option<ProofForBench> {
+    proof_cache()
+        .lock()
+        .expect("proof cache lock poisoned")
+        .get(&spec)
+        .cloned()
+}
+
+fn cache_proof(spec: QuerySpec, proof: &ProofForBench) {
+    let mut cache = proof_cache().lock().expect("proof cache lock poisoned");
+    cache.entry(spec).or_insert_with(|| proof.clone());
+}
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 struct QuerySpec {
     sql: &'static str,
     tables: &'static [&'static str],
@@ -59,89 +87,175 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     },
 ];
 
-struct BenchInputs {
+struct CommonInputs {
     runtime: Runtime,
     ctx: SessionContext,
     logical_plan: LogicalPlan,
     prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+}
+
+struct ProverInputs {
+    spec: QuerySpec,
+    common: CommonInputs,
     prover: Prover<F, MvPCS, UvPCS>,
+}
+
+struct VerifierInputs {
+    spec: QuerySpec,
+    common: CommonInputs,
+    verifier: Verifier<F, MvPCS, UvPCS>,
+    proof: ProofForBench,
+}
+
+fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
+    let runtime = Runtime::new().expect("tokio runtime");
+    let ctx = SessionContext::new();
+
+    runtime.block_on(async {
+        for &table in spec.tables {
+            register_tpch_table(&ctx, table).await;
+        }
+    });
+
+    let logical_plan = runtime.block_on(async {
+        ctx.sql(spec.sql)
+            .await
+            .expect("sql execution")
+            .into_unoptimized_plan()
+    });
+
+    let table_oracle_path = tpch_data::bench_data_path(spec.tables.join("_") + ".oracle");
+    let table_oracle_file = File::open(&table_oracle_path).expect("open table oracle commitment");
+    let mut reader = BufReader::new(table_oracle_file);
+    let table_serializable =
+        ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+            .expect("deserialize table oracle");
+    let mut table_oracles = HashMap::new();
+    if let Some(schema) = table_serializable.schema() {
+        table_oracles.insert(schema, table_serializable);
+    }
+
+    let prover_ctx = SharedCtx::new(table_oracles);
+
+    CommonInputs {
+        runtime,
+        ctx,
+        logical_plan,
+        prover_ctx,
+    }
+}
+
+fn build_proof(
+    runtime: &Runtime,
+    ctx: &SessionContext,
+    logical_plan: &LogicalPlan,
+    prover_ctx: &SharedCtx<F, MvPCS, UvPCS>,
+    prover: &mut Prover<F, MvPCS, UvPCS>,
+) -> ProofForBench {
+    let proof_tree =
+        ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), logical_plan);
+    let hint_tree = runtime
+        .block_on(ProverHintTree::from_proof_tree(ctx, proof_tree.clone()))
+        .expect("hint tree");
+    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+        .expect("arithmetized tree");
+    let tracked_tree =
+        ProverTrackedTree::from_arithmetized_tree(arith_tree, prover).expect("tracked tree");
+    let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, prover);
+    let flattened = piop_tree.proof_tree().clone().flatten();
+    for node in flattened.values() {
+        node.prove_piop(prover, &mut piop_tree).expect("prove piop");
+    }
+    prover.build_proof().expect("build proof")
+}
+
+fn get_or_generate_proof(
+    spec: QuerySpec,
+    common: &CommonInputs,
+    prover: &mut Prover<F, MvPCS, UvPCS>,
+) -> ProofForBench {
+    if let Some(proof) = cached_proof(spec) {
+        println!(
+            "Reusing cached proof for {spec} ({} bytes)",
+            proof.serialized_size(ark_serialize::Compress::Yes)
+        );
+        return proof;
+    }
+
+    let proof = build_proof(
+        &common.runtime,
+        &common.ctx,
+        &common.logical_plan,
+        &common.prover_ctx,
+        prover,
+    );
+    cache_proof(spec, &proof);
+    println!(
+        "Recomputing proof for {spec} ({} bytes)",
+        proof.serialized_size(ark_serialize::Compress::Yes)
+    );
+    proof
 }
 
 #[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
-            let runtime = Runtime::new().expect("tokio runtime");
-            let ctx = SessionContext::new();
-
-            runtime.block_on(async {
-                for &table in spec.tables {
-                    register_tpch_table(&ctx, table).await;
-                }
-            });
-
-            let logical_plan = runtime.block_on(async {
-                ctx.sql(spec.sql)
-                    .await
-                    .expect("sql execution")
-                    .into_unoptimized_plan()
-            });
-
-            let table_oracle_path = tpch_data::bench_data_path(spec.tables.join("_") + ".oracle");
-            let table_oracle_file =
-                File::open(&table_oracle_path).expect("open table oracle commitment");
-            let mut reader = BufReader::new(table_oracle_file);
-            let table_serializable =
-                ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-                    .expect("deserialize table oracle");
-            let mut table_oracles = HashMap::new();
-            if let Some(schema) = table_serializable.schema() {
-                table_oracles.insert(schema, table_serializable);
-            }
-
-            let prover_ctx = SharedCtx::new(table_oracles);
+            let common = prepare_common_inputs(spec);
             let (prover, _) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
 
-            BenchInputs {
-                runtime,
-                ctx,
-                logical_plan,
-                prover_ctx,
+            ProverInputs {
+                spec,
+                common,
                 prover,
             }
         })
         .bench_local_values(|inputs| {
-            let BenchInputs {
-                runtime,
-                ctx,
-                logical_plan,
-                prover_ctx,
-                prover,
+            let ProverInputs {
+                spec,
+                common,
+                mut prover,
             } = inputs;
 
-            runtime.block_on(async move {
-                let mut prover = prover;
-                let proof_tree =
-                    ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
-                let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
-                    .await
-                    .expect("hint tree");
-                let arith_tree =
-                    ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
-                        .expect("arithmetized tree");
-                let tracked_tree =
-                    ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
-                        .expect("tracked tree");
-                let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
+            let proof = build_proof(
+                &common.runtime,
+                &common.ctx,
+                &common.logical_plan,
+                &common.prover_ctx,
+                &mut prover,
+            );
+            cache_proof(spec, &proof);
+            let _ = divan::black_box(proof);
+        });
+}
 
-                let flattened = piop_tree.proof_tree().clone().flatten();
-                for node in flattened.values() {
-                    node.prove_piop(&mut prover, &mut piop_tree)
-                        .expect("prove piop");
-                }
-                let proof = prover.build_proof();
-                let _ = divan::black_box(proof);
-            });
+#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
+fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
+    bencher
+        .with_inputs(move || {
+            let common = prepare_common_inputs(spec);
+            let (mut prover, verifier) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
+            let proof = get_or_generate_proof(spec, &common, &mut prover);
+
+            VerifierInputs {
+                spec,
+                common,
+                verifier,
+                proof,
+            }
+        })
+        .bench_local_values(|inputs| {
+            let VerifierInputs {
+                spec: _,
+                common: CommonInputs { .. },
+                mut verifier,
+                proof,
+            } = inputs;
+
+            verifier.set_proof(proof.clone());
+            verifier.verify().expect("verify proof");
+            divan::black_box(verifier);
+            divan::black_box(proof);
         });
 }
 

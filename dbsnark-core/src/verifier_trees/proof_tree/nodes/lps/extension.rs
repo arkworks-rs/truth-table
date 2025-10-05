@@ -44,8 +44,6 @@ where
         self.inputs.iter().collect()
     }
 
-
-
     fn node_id(&self) -> NodeId {
         todo!()
     }
