@@ -15,8 +15,8 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::prover_trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, piop_tree::ProverPIOPTree,
-    proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+    piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
 };
 use tokio::runtime::Runtime;
 type F = Fr;
@@ -126,10 +126,12 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
                     .await
                     .expect("hint tree");
-                let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
-                    .expect("arithmetized tree");
-                let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
-                    .expect("tracked tree");
+                let arith_tree =
+                    ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+                        .expect("arithmetized tree");
+                let tracked_tree =
+                    ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
+                        .expect("tracked tree");
                 let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
 
                 let flattened = piop_tree.proof_tree().clone().flatten();

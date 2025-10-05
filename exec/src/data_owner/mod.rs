@@ -17,13 +17,16 @@ use ark_piop::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use dbsnark_core::{id::NodeId, prover_trees::{
-    arithmetized_tree::ProverArithmetizedTree,
-    hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree,
-    proof_tree::ProverProofTree,
-    tracked_tree::{self, ProverTrackedTree},
-}};
+use dbsnark_core::{
+    id::NodeId,
+    prover_trees::{
+        arithmetized_tree::ProverArithmetizedTree,
+        hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree,
+        proof_tree::ProverProofTree,
+        tracked_tree::{self, ProverTrackedTree},
+    },
+};
 use tokio::runtime::Runtime;
 
 type F = Fr;
@@ -65,13 +68,15 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
         let prover_ctx = ProverCtx::default();
-        let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
+        let proof_tree =
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
         let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
             .context("failed to arithmetize")?;
-        let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
+        let tracked_tree =
+            ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
         let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
         let flattened = piop_tree.proof_tree().clone().flatten();
         for node in flattened.values() {

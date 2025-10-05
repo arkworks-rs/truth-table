@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use super::ProverPIOPTree;
 use crate::{
     prover_trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
-        tracked_tree::ProverTrackedTree,
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
     },
     test_utils::test_df_plan,
 };

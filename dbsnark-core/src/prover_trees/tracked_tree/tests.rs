@@ -3,7 +3,8 @@ use std::{collections::HashMap, hash::Hash};
 use super::ProverTrackedTree;
 use crate::{
     prover_trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        proof_tree::ProverProofTree,
     },
     test_utils::test_df_plan,
 };
@@ -37,7 +38,9 @@ async fn display_graphviz() {
     .unwrap();
     let prover_ctx = ProverCtx::default();
     let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .unwrap();
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();

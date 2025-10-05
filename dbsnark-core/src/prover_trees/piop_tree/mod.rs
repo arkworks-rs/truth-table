@@ -17,7 +17,9 @@ use ark_piop::{
     prover::Prover,
 };
 
-use crate::prover_trees::{piop_tree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree};
+use crate::prover_trees::{
+    piop_tree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+};
 
 /// Virtualized tables indexed by proof-plan node identifier.
 pub struct ProverPIOPTree<F, MvPCS, UvPCS>

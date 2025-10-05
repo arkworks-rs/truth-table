@@ -1,27 +1,37 @@
-use std::{any::Any, sync::Arc};
+//! Verifier-side proof tree nodes and trait definitions.
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
-use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::PCS, verifier::Verifier};
-use datafusion::{logical_expr::LogicalPlan, prelude::{Expr, SessionContext}};
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
+    pcs::PCS,
+    verifier::Verifier,
+};
+use datafusion::{
+    logical_expr::LogicalPlan,
+    prelude::{Expr, SessionContext},
+};
 
-use crate::{id::NodeId, verifier_trees::piop_tree::VerifierPIOPTree};
+use crate::{
+    id::NodeId,
+    verifier_trees::piop_tree::VerifierPIOPTree,
+};
 
-/// Common interface for a proof plan node.
-///
-/// A proof plan is a tree of nodes, where each node represents a proof unit.
+pub mod exprs;
+pub mod lps;
+
+/// Common interface for a verifier proof tree node.
 pub trait VerifierNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    /// Constructs a proof plan node from a DataFusion expression and its parent
-    /// logical plan.
-    // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(
         ctx: &SessionContext,
-        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _verifier_ctx: ProverCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self
@@ -30,11 +40,10 @@ where
     {
         unimplemented!()
     }
-    /// Constructs a proof plan node from a DataFusion logical plan.
-    // TODO: We might not need ctx here
+
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _verifier_ctx: ProverCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where
@@ -43,19 +52,10 @@ where
         unimplemented!()
     }
 
-    /// Returns the Proof plan as `Any` so that it can be downcast to a specific
-    /// implementation.
     fn as_any(&self) -> &dyn Any;
-    
-    /// Short name for the ProverNode node, such as `FilterNode`.
-    /// Children of this node expressed as proof plan trait objects. Leaf nodes
-    /// return an empty list.
+
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>;
 
-    /// Appends all the descendants of this node in 'post-order' to the given
-    /// mutable vector.
-    /// Post-order over descendants: for each child, traverse its descendants
-    /// first, then push the child; the current node itself is not included.
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
@@ -63,34 +63,30 @@ where
         }
     }
 
-    /// A human-readable name for this node
     fn name(&self) -> String {
         self.node_id().to_string()
     }
 
-    /// Classification of this node (used for optional metadata extraction).
     fn node_id(&self) -> NodeId;
 
-    /// A map of named logical plans that can be used to materialize witnesses
-    /// for this node. Logical plan nodes typically return a single entry with
-    /// the key `"output_plan"`.
-    fn hint_generation_plans(&self) -> Vec<String> {
-        Vec::new()
+    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+        HashMap::new()
     }
 
-    /// Complete the piop plan
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
     );
 
     fn verify_piop(
         &self,
-        _prover: &mut Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }
-
 }
+
+pub use exprs::*;
+pub use lps::*;

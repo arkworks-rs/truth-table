@@ -4,7 +4,8 @@ pub mod display;
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use crate::prover_trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree, proof_tree::ProverProofTree,
+    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+    proof_tree::ProverProofTree,
 };
 use arithmetic::{
     ctx::ProverCtx,

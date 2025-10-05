@@ -32,8 +32,11 @@ async fn from_hint_tree_produces_serializable_tables() {
     .await
     .unwrap();
     let prover_ctx = ProverCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
+        ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .unwrap();
 
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     assert!(arith_tree.len() > 0);
@@ -52,7 +55,8 @@ async fn from_hint_tree_produces_serializable_tables() {
 
 #[test]
 fn arith_table_from_batches_empty() {
-    let table = ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(Vec::new()).unwrap();
+    let table =
+        ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(Vec::new()).unwrap();
     assert_eq!(table.size(), 0);
     assert_eq!(table.num_cols(), 0);
     assert!(table.schema().is_none());
@@ -64,7 +68,8 @@ fn arith_table_from_batches_basic() {
     let data = Arc::new(Int32Array::from(vec![1, 2, 3, 4])) as Arc<_>;
     let batch = RecordBatch::try_new(schema.clone(), vec![data]).unwrap();
 
-    let table = ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(vec![batch]).unwrap();
+    let table =
+        ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(vec![batch]).unwrap();
 
     assert_eq!(table.size(), 4);
     assert_eq!(table.num_cols(), 1);
@@ -85,8 +90,11 @@ async fn display_graphviz() {
     .await
     .unwrap();
     let prover_ctx = ProverCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
+        ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .unwrap();
     let arith_tree = ProverArithmetizedTree::from_hint_tree(hint_tree).unwrap();
 
     println!("{}", arith_tree.display_graphviz());

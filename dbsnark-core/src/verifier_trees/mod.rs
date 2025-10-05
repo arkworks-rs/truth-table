@@ -1,2 +1,2 @@
-mod proof_tree;
 mod piop_tree;
+mod proof_tree;

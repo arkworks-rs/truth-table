@@ -149,7 +149,9 @@ where
         &self.inner_proof_tree
     }
 
-    pub fn display_graphviz(&self) -> display::DisplayableProverArithmetizedTree<'_, F, MvPCS, UvPCS> {
+    pub fn display_graphviz(
+        &self,
+    ) -> display::DisplayableProverArithmetizedTree<'_, F, MvPCS, UvPCS> {
         display::DisplayableProverArithmetizedTree::new(self)
     }
 

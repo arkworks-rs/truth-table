@@ -31,7 +31,8 @@ fn esc_label(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-/// Display helper that renders a Treeviz DOT tree for an `ProverArithmetizedTree`.
+/// Display helper that renders a Treeviz DOT tree for an
+/// `ProverArithmetizedTree`.
 pub struct DisplayableProverArithmetizedTree<'a, F, MvPCS, UvPCS>
 where
     F: PrimeField,

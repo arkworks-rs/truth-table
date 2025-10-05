@@ -21,6 +21,8 @@ async fn display_graphviz() {
     let prover_ctx = ProverCtx::default();
     let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
         ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await.unwrap();
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .unwrap();
     println!("{}", hint_tree.display_graphviz());
 }

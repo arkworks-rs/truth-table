@@ -116,7 +116,12 @@ where
         let expr_proof_plans = original_exprs
             .into_iter()
             .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &output_plan)
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr,
+                    &output_plan,
+                )
             })
             .collect();
 

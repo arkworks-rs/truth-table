@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use arithmetic::ctx::ProverCtx;
 use ark_ff::PrimeField;
-use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS};
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+};
 
 use crate::verifier_trees::proof_tree::nodes::VerifierNode;
 
