@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
 
-use arithmetic::{ctx::ProverCtx, table_oracle::ArithTableOracle};
+use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
@@ -63,7 +63,7 @@ struct BenchInputs {
     runtime: Runtime,
     ctx: SessionContext,
     logical_plan: LogicalPlan,
-    prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+    prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
     prover: Prover<F, MvPCS, UvPCS>,
 }
 
@@ -99,7 +99,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 table_oracles.insert(schema, table_serializable);
             }
 
-            let prover_ctx = ProverCtx::new(table_oracles);
+            let prover_ctx = SharedCtx::new(table_oracles);
             let (prover, _) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
 
             BenchInputs {

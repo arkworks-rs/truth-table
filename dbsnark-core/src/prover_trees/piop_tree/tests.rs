@@ -8,7 +8,7 @@ use crate::{
     },
     test_utils::test_df_plan,
 };
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
@@ -24,7 +24,7 @@ type UvPCS = KZG10<Bls12_381>;
 async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await?;
-    let prover_ctx = ProverCtx::default();
+    let prover_ctx = SharedCtx::default();
     let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await?;
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();

@@ -1,7 +1,7 @@
 //! Verifier-side proof tree nodes and trait definitions.
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -31,7 +31,7 @@ where
 {
     fn from_expr(
         ctx: &SessionContext,
-        _verifier_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self
@@ -43,7 +43,7 @@ where
 
     fn from_lp(
         ctx: &SessionContext,
-        _verifier_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where
@@ -87,6 +87,3 @@ where
         todo!()
     }
 }
-
-pub use exprs::*;
-pub use lps::*;

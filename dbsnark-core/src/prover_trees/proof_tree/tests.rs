@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::ProverProofTree;
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
@@ -27,7 +27,7 @@ async fn display_graphviz() {
     )
     .await
     .unwrap();
-    let prover_ctx = ProverCtx::default();
+    let prover_ctx = SharedCtx::default();
     let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
         ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
     println!("{}", proof_tree.display_graphviz());

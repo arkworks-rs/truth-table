@@ -14,7 +14,7 @@ use ark_serialize::{
 
 use crate::{
     col_oracle::TrackedColOracle,
-    ctx::ProverCtx,
+    ctx::SharedCtx,
     table::{ArithTable, TrackedTable},
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};

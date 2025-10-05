@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use arithmetic::{
-    ctx::ProverCtx,
+    ctx::SharedCtx,
     table_oracle::{ArithTableOracle, TrackedTableOracle},
 };
 use ark_piop::{
@@ -67,7 +67,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
-        let prover_ctx = ProverCtx::default();
+        let prover_ctx = SharedCtx::default();
         let proof_tree =
             ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)

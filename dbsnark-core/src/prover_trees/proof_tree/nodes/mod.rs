@@ -7,7 +7,7 @@ pub mod exprs;
 pub mod lps;
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -38,7 +38,7 @@ where
     // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(
         ctx: &SessionContext,
-        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: LogicalPlan,
     ) -> Self
@@ -51,7 +51,7 @@ where
     // TODO: We might not need ctx here
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where

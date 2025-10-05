@@ -3,7 +3,7 @@ pub mod display;
 pub mod nodes;
 use std::{collections::HashMap, sync::Arc};
 
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -32,7 +32,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    ctx: ProverCtx<F, MvPCS, UvPCS>,
+    ctx: SharedCtx<F, MvPCS, UvPCS>,
     root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
@@ -46,11 +46,11 @@ where
         Arc::clone(&self.root)
     }
 
-    pub fn ctx(&self) -> &ProverCtx<F, MvPCS, UvPCS> {
+    pub fn ctx(&self) -> &SharedCtx<F, MvPCS, UvPCS> {
         &self.ctx
     }
 
-    pub fn ctx_mut(&mut self) -> &mut ProverCtx<F, MvPCS, UvPCS> {
+    pub fn ctx_mut(&mut self) -> &mut SharedCtx<F, MvPCS, UvPCS> {
         &mut self.ctx
     }
 
@@ -60,7 +60,7 @@ where
 
     pub fn new(
         root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-        ctx: ProverCtx<F, MvPCS, UvPCS>,
+        ctx: SharedCtx<F, MvPCS, UvPCS>,
     ) -> Self {
         Self { root, ctx }
     }
@@ -104,7 +104,7 @@ where
 
     pub fn from_expr(
         ctx: &SessionContext,
-        prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: &LogicalPlan,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
@@ -155,7 +155,7 @@ where
     #[tracing::instrument(name = "from_lp", skip_all)]
     pub fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: &LogicalPlan,
     ) -> Self {
         match plan {

@@ -42,7 +42,7 @@ where
 
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: df::LogicalPlan,
     ) -> Self
     where

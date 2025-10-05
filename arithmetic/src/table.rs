@@ -21,7 +21,7 @@ use derivative::Derivative;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 
 use crate::{
-    col::TrackedCol, ctx::ProverCtx, encoding::encode_arrow_array_to_field, errors::EncodeError,
+    col::TrackedCol, ctx::SharedCtx, encoding::encode_arrow_array_to_field, errors::EncodeError,
 };
 
 #[cfg(feature = "parallel")]

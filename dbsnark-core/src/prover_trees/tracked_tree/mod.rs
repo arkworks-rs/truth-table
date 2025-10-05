@@ -8,7 +8,7 @@ use crate::prover_trees::{
     proof_tree::ProverProofTree,
 };
 use arithmetic::{
-    ctx::ProverCtx,
+    ctx::SharedCtx,
     errors::EncodeError,
     table::{ArithTable, TrackedTable},
     table_oracle::ArithTableOracle,

@@ -2,7 +2,7 @@ use crate::{
     id::NodeId,
     verifier_trees::proof_tree::{VerifierProofTree, nodes::VerifierNode},
 };
-use arithmetic::ctx::ProverCtx;
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -109,7 +109,7 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: ProverCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where

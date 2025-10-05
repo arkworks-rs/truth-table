@@ -43,7 +43,7 @@ where
 
     fn from_expr(
         _ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         _parent_logical_plan: LogicalPlan,
     ) -> Self

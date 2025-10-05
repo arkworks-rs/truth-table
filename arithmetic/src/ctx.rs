@@ -9,7 +9,7 @@ use datafusion::arrow::datatypes::Schema;
 
 use crate::table_oracle::ArithTableOracle;
 #[derive(Clone)]
-pub struct ProverCtx<F, MvPCS, UvPCS>
+pub struct SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -18,7 +18,7 @@ where
     table_oracles: HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> ProverCtx<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -37,7 +37,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Default for ProverCtx<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> Default for SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

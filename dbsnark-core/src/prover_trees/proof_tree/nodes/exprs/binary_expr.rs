@@ -121,7 +121,7 @@ where
 
     fn from_expr(
         ctx: &datafusion::prelude::SessionContext,
-        prover_ctx: arithmetic::ctx::ProverCtx<F, MvPCS, UvPCS>,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_logical_plan: datafusion::logical_expr::LogicalPlan,
     ) -> Self
