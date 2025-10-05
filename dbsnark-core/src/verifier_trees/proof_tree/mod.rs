@@ -21,7 +21,7 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 mod display;
-mod nodes;
+pub mod nodes;
 #[derive(Clone)]
 pub struct VerifierProofTree<F, MvPCS, UvPCS>
 where
