@@ -22,6 +22,8 @@ use datafusion::{
 };
 mod display;
 pub mod nodes;
+#[cfg(test)]
+pub mod tests;
 #[derive(Clone)]
 pub struct VerifierProofTree<F, MvPCS, UvPCS>
 where

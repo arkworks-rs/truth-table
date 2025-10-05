@@ -1,16 +1,8 @@
-use std::{collections::HashMap, hash::Hash};
-
-use crate::test_utils::test_df_plan;
-
-use super::ProverProofTree;
+use crate::{test_utils::test_df_plan, verifier_trees::proof_tree::VerifierProofTree};
 use arithmetic::ctx::SharedCtx;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    error::Result as DFResult,
-    logical_expr::LogicalPlan,
-    prelude::{ParquetReadOptions, SessionContext},
-};
+use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use tpch_data::test_data_path;
 
 #[tokio::test]
@@ -24,8 +16,8 @@ async fn display_graphviz() {
     )
     .await
     .unwrap();
-    let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let verifier_ctx = SharedCtx::default();
+    let proof_tree: VerifierProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
+        VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan);
     println!("{}", proof_tree.display_graphviz());
 }

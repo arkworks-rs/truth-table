@@ -125,33 +125,31 @@ where
     where
         Self: Sized,
     {
-        todo!()
-        // let bin_expr = match expr.clone() {
-        //     Expr::BinaryExpr(b) => b,
-        //     _ => panic!("expected binary expression"),
-        // };
-        // let left_expr = bin_expr.left.as_ref().clone();
-        // let right_expr = bin_expr.right.as_ref().clone();
-        // let hint_generation_plans =
-        //     Self::build_witness_plans(bin_expr.clone(),
-        // parent_logical_plan.clone());
+        let bin_expr = match expr.clone() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
+        let left_expr = bin_expr.left.as_ref().clone();
+        let right_expr = bin_expr.right.as_ref().clone();
+        let hint_generation_plans =
+            Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
 
-        // Self {
-        //     node_id: NodeId::Expr(expr),
-        //     left_proof_plan: VerifierVerifierProofTree::<F, MvPCS,
-        // UvPCS>::from_expr(         ctx,
-        //         prover_ctx.clone(),
-        //         left_expr,
-        //         &parent_logical_plan,
-        //     ),
-        //     right_proof_plan: VerifierVerifierProofTree::<F, MvPCS,
-        // UvPCS>::from_expr(         ctx,
-        //         prover_ctx,
-        //         right_expr,
-        //         &parent_logical_plan,
-        //     ),
-        //     hint_generation_plans,
-        // }
+        Self {
+            node_id: NodeId::Expr(expr),
+            left_proof_plan: VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                ctx,
+                prover_ctx.clone(),
+                left_expr,
+                &parent_logical_plan,
+            ),
+            right_proof_plan: VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                ctx,
+                prover_ctx,
+                right_expr,
+                &parent_logical_plan,
+            ),
+            hint_generation_plans,
+        }
     }
 
     fn add_virtual_witness(

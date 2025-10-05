@@ -1,5 +1,4 @@
-use crate::id::NodeId;
-use crate::verifier_trees::proof_tree::nodes::VerifierNode;
+use crate::{id::NodeId, verifier_trees::proof_tree::nodes::VerifierNode};
 use std::sync::Arc;
 
 use ark_ff::PrimeField;

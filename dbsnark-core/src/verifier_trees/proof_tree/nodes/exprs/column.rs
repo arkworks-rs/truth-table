@@ -67,13 +67,14 @@ where
         //     Some(relation) => relation,
         //     None => todo!(),
         // };
-        // let matching_table_scan = piop_tree.tables().keys().find(|node_id| match node_id {
-        //     NodeId::LP(LogicalPlan::TableScan(scan_plan)) => &scan_plan.table_name == relation,
-        //     _ => false,
+        // let matching_table_scan = piop_tree.tables().keys().find(|node_id|
+        // match node_id {
+        //     NodeId::LP(LogicalPlan::TableScan(scan_plan)) =>
+        // &scan_plan.table_name == relation,     _ => false,
         // });
 
-        // let table_scan_node_id = matching_table_scan.expect("matching table scan not found");
-        // let table = piop_tree
+        // let table_scan_node_id = matching_table_scan.expect("matching table
+        // scan not found"); let table = piop_tree
         //     .table(table_scan_node_id, "output_plan")
         //     .expect("table not found in PIOP tree");
         // let col = table
@@ -82,8 +83,8 @@ where
         // // TODO: Clean this up later
         // let mut data_polys: Vec<(
         //     Arc<datafusion::arrow::datatypes::Field>,
-        //     ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-        // )> = vec![(
+        //     ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS,
+        // UvPCS>, )> = vec![(
         //     Arc::new(datafusion::arrow::datatypes::Field::new(
         //         column_expr.name.as_str(),
         //         col.data_type()
@@ -107,7 +108,8 @@ where
         // ));
         // let output_table = TrackedTable::new(None, data_polys, 0);
 
-        // piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
+        // piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(),
+        // output_table);
     }
     fn verify_piop(
         &self,

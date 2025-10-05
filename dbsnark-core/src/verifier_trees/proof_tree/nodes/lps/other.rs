@@ -1,5 +1,4 @@
-use crate::id::NodeId;
-use crate::verifier_trees::proof_tree::nodes::VerifierNode;
+use crate::{id::NodeId, verifier_trees::proof_tree::nodes::VerifierNode};
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -9,9 +8,7 @@ use ark_piop::{
     pcs::PCS,
 };
 
-use crate::verifier_trees::{
-    piop_tree::VerifierPIOPTree,
-};
+use crate::verifier_trees::piop_tree::VerifierPIOPTree;
 
 pub struct OtherNode<F, MvPCS, UvPCS>
 where

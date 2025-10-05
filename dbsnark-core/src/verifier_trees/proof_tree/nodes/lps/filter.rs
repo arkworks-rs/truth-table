@@ -1,6 +1,9 @@
 use crate::{
     id::NodeId,
-    verifier_trees::proof_tree::{VerifierProofTree, nodes::VerifierNode},
+    verifier_trees::proof_tree::{
+        VerifierProofTree,
+        nodes::{VerifierNode, output_logical_plan},
+    },
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -115,40 +118,37 @@ where
     where
         Self: Sized,
     {
-        todo!()
-        // // Match only on filter logical plan
-        // let filter = match &plan {
-        //     df::LogicalPlan::Filter(f) => f,
-        //     _ => panic!("expected filter logical plan"),
-        // };
+        // Match only on filter logical plan
+        let filter = match &plan {
+            df::LogicalPlan::Filter(f) => f,
+            _ => panic!("expected filter logical plan"),
+        };
 
-        // // The input is itself a logical plan and needs to be proved
-        // let input_proof_plan = VerifierVerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-        //     ctx,
-        //     prover_ctx.clone(),
-        //     &filter.input,
-        // );
-        // // Fetching the output logical plan of the input logical plan
-        // let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
-        // // Build the output logical plan for this filter node on top of the child output
-        // // logical plan
-        // let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
-        // // The predicate is an expr and needs to be proved
-        // let predicate_proof_plan = VerifierVerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-        //     ctx,
-        //     prover_ctx,
-        //     filter.predicate.clone(),
-        //     &output_plan,
-        // );
-        // // Building the witness generation plans map
-        // let hint_generation_plans =
-        //     HashMap::from([("output_plan".to_string(), output_plan.clone())]);
-        // Self {
-        //     predicate_proof_plan,
-        //     input_proof_plan: input_proof_plan.root(),
-        //     node_id: NodeId::LP(plan),
-        //     hint_generation_plans,
-        // }
+        // The input is itself a logical plan and needs to be proved
+        let input_proof_plan =
+            VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
+        // Fetching the output logical plan of the input logical plan
+        let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
+        // Build the
+        // output logical plan for this filter node on top of the child output
+        // logical plan
+        let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
+        // The predicate is an expr and needs to be proved
+        let predicate_proof_plan = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            filter.predicate.clone(),
+            &output_plan,
+        );
+        // Building the witness generation plans map
+        let hint_generation_plans =
+            HashMap::from([("output_plan".to_string(), output_plan.clone())]);
+        Self {
+            predicate_proof_plan,
+            input_proof_plan: input_proof_plan.root(),
+            node_id: NodeId::LP(plan),
+            hint_generation_plans,
+        }
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -213,6 +213,7 @@ where
         //     output_tracked_Table,
         // };
 
-        // FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_verifier_input)
+        // FilterPIOP::<F, MvPCS, UvPCS>::prove(prover,
+        // filter_piop_verifier_input)
     }
 }

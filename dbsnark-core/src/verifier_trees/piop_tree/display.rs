@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
 };
 
-
 use super::VerifierPIOPTree;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;

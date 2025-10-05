@@ -15,7 +15,7 @@ use datafusion::{
 };
 
 use crate::{
-    id::NodeId,
+    id::NodeId, prover_trees::proof_tree::nodes::ProverNode,
     verifier_trees::piop_tree::VerifierPIOPTree,
 };
 
@@ -86,4 +86,23 @@ where
     ) -> SnarkResult<()> {
         todo!()
     }
+}
+
+pub fn output_logical_plan<F, MvPCS, UvPCS>(
+    node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+) -> Option<LogicalPlan>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    node.hint_generation_plans()
+        .into_iter()
+        .find_map(|(label, plan)| {
+            if label == "output_plan" {
+                Some(plan)
+            } else {
+                None
+            }
+        })
 }

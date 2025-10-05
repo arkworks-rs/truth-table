@@ -79,14 +79,6 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-
-
-
-        
-
-
-
-
         Ok(())
     }
 

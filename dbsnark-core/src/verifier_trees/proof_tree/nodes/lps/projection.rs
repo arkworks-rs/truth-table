@@ -1,6 +1,9 @@
 use crate::{
     id::NodeId,
-    verifier_trees::proof_tree::{VerifierProofTree, nodes::VerifierNode},
+    verifier_trees::proof_tree::{
+        VerifierProofTree,
+        nodes::{VerifierNode, output_logical_plan},
+    },
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -71,67 +74,72 @@ where
     where
         Self: Sized,
     {
-        todo!()
-        // let projection = match &plan {
-        //     Projection(p) => p,
-        //     _ => panic!("expected projection logical plan"),
-        // };
+        let projection = match &plan {
+            Projection(p) => p,
+            _ => panic!("expected projection logical plan"),
+        };
 
-        // // Recurse into the input subtree and fetch the logical plan that feeds this
-        // // projection.
-        // let input_tree = VerifierVerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-        //     ctx,
-        //     prover_ctx.clone(),
-        //     &projection.input,
-        // );
-        // let input_proof_plan = input_tree.root();
-        // let child_output_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
-        //     .unwrap_or_else(|| (*projection.input).clone());
+        // // Recurse into the input subtree and fetch the logical plan that
+        // feeds this // projection.
+        let input_tree = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &projection.input,
+        );
+        let input_proof_plan = input_tree.root();
+        let child_output_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
+            .unwrap_or_else(|| (*projection.input).clone());
 
         // // Normalize the projection expressions against the child plan.
-        // let mut normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
-        //     .expect("failed to normalize projection expressions");
-        // let original_exprs = normalized_exprs.clone();
+        let mut normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
+            .expect(
+                "failed to normalize
+        projection expressions",
+            );
+        let original_exprs = normalized_exprs.clone();
 
         // // Ensure the activator column is preserved in the output.
-        // let activator_present = projection
-        //     .schema
-        //     .field_with_unqualified_name("activator")
-        //     .is_ok();
-        // if !activator_present {
-        //     let mut activator_expr = normalize_cols(vec![col("activator")], &child_output_plan)
-        //         .expect("failed to normalize activator column");
-        //     normalized_exprs.push(activator_expr.pop().expect("missing activator expression"));
-        // }
+        let activator_present = projection
+            .schema
+            .field_with_unqualified_name("activator")
+            .is_ok();
+        if !activator_present {
+            let mut activator_expr = normalize_cols(vec![col("activator")], &child_output_plan)
+                .expect(
+                    "failed to normalize
+        activator column",
+                );
+            normalized_exprs.push(activator_expr.pop().expect("missing activator expression"));
+        }
 
-        // let output_plan = LogicalPlanBuilder::from(child_output_plan.clone())
-        //     .project(normalized_exprs.clone())
-        //     .expect("failed to apply projection")
-        //     .build()
-        //     .expect("failed to build projection logical plan");
+        let output_plan = LogicalPlanBuilder::from(child_output_plan.clone())
+            .project(normalized_exprs.clone())
+            .expect("failed to apply projection")
+            .build()
+            .expect("failed to build projection logical plan");
 
-        // // Build expression proof plans for the projection expressions (excluding the
-        // // retained activator).
-        // let expr_proof_plans = original_exprs
-        //     .into_iter()
-        //     .map(|expr| {
-        //         VerifierVerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-        //             ctx,
-        //             prover_ctx.clone(),
-        //             expr,
-        //             &output_plan,
-        //         )
-        //     })
-        //     .collect();
+        // Build expression proof plans for the projection expressions (excluding the //
+        // retained activator).
+        let expr_proof_plans = original_exprs
+            .into_iter()
+            .map(|expr| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr,
+                    &output_plan,
+                )
+            })
+            .collect();
 
-        // let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
+        let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
 
-        // Self {
-        //     expr_proof_plans,
-        //     input_proof_plan,
-        //     node_id: NodeId::LP(plan),
-        //     hint_generation_plans,
-        // }
+        Self {
+            expr_proof_plans,
+            input_proof_plan,
+            node_id: NodeId::LP(plan),
+            hint_generation_plans,
+        }
     }
 
     fn from_expr(

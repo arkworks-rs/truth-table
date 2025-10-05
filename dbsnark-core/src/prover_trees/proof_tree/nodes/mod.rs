@@ -1,6 +1,9 @@
 //! The proof plan module contains a set of tools to build a proof plan from a
 //! DataFusion logical plan.
-use crate::id::NodeId;
+use crate::{
+    id::NodeId,
+    prover_trees::{piop_tree::ProverPIOPTree, proof_tree::nodes::cost::ProvingCost},
+};
 pub mod cost;
 pub mod display;
 pub mod exprs;
@@ -21,8 +24,6 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
-
-use crate::{proof_tree::nodes::cost::ProvingCost, prover_trees::piop_tree::ProverPIOPTree};
 
 /// Common interface for a proof plan node.
 ///

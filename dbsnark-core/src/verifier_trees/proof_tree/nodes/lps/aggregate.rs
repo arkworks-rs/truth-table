@@ -1,5 +1,7 @@
-use crate::{id::NodeId, verifier_trees::piop_tree::VerifierPIOPTree};
-use crate::verifier_trees::proof_tree::nodes::VerifierNode;
+use crate::{
+    id::NodeId,
+    verifier_trees::{piop_tree::VerifierPIOPTree, proof_tree::nodes::VerifierNode},
+};
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -9,8 +11,6 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
-
-
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where

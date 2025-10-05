@@ -1,4 +1,7 @@
-use crate::id::NodeId;
+use crate::{
+    id::NodeId,
+    prover_trees::{piop_tree::ProverPIOPTree, proof_tree::nodes::ProverNode},
+};
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -10,8 +13,6 @@ use ark_piop::{
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
-
-use crate::{proof_tree::nodes::ProverNode, prover_trees::piop_tree::ProverPIOPTree};
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where

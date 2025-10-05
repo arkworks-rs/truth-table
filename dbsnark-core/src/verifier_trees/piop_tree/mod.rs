@@ -6,7 +6,8 @@ use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS, verifier::Verifier,
+    pcs::PCS,
+    verifier::Verifier,
 };
 use indexmap::IndexMap;
 
@@ -22,7 +23,6 @@ where
     tables: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
-
 
 impl<F, MvPCS, UvPCS> fmt::Debug for VerifierPIOPTree<F, MvPCS, UvPCS>
 where
@@ -67,7 +67,9 @@ where
         self.tables.is_empty()
     }
 
-    pub fn tables(&self) -> &IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
+    pub fn tables(
+        &self,
+    ) -> &IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         &self.tables
     }
 
@@ -95,7 +97,11 @@ where
         self.tables.entry(node_id).or_default().insert(label, table);
     }
 
-    pub fn table(&self, node_id: &NodeId, label: &str) -> Option<&TrackedTableOracle<F, MvPCS, UvPCS>> {
+    pub fn table(
+        &self,
+        node_id: &NodeId,
+        label: &str,
+    ) -> Option<&TrackedTableOracle<F, MvPCS, UvPCS>> {
         self.tables
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
@@ -133,7 +139,8 @@ where
         &'a NodeId,
         &'a HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
+    type IntoIter =
+        indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.iter()
@@ -147,7 +154,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
+    type IntoIter =
+        indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tables.into_iter()

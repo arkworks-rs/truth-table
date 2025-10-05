@@ -1,5 +1,4 @@
-use crate::id::NodeId;
-use crate::verifier_trees::proof_tree::nodes::VerifierNode;
+use crate::{id::NodeId, verifier_trees::proof_tree::nodes::VerifierNode};
 use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -9,7 +8,6 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
-
 
 pub struct SortNode<F, MvPCS, UvPCS>
 where
