@@ -16,7 +16,7 @@ use ark_piop::{
     test_utils::bench_prelude,
     verifier::Verifier,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
     logical_expr::LogicalPlan,
@@ -64,6 +64,20 @@ impl std::fmt::Display for QuerySpec {
         } else {
             write!(f, "{} [{}]", self.sql, self.tables.join(", "))
         }
+    }
+}
+
+impl QuerySpec {
+    fn short_label(&self) -> String {
+        let mut words = self.sql.split_whitespace();
+        let first = words.next().unwrap_or("");
+        let last = words.last().unwrap_or(first);
+        let tables = if self.tables.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", self.tables.join(", "))
+        };
+        format!("{} ... {}{}", first, last, tables)
     }
 }
 
@@ -176,8 +190,9 @@ fn get_or_generate_proof(
 ) -> ProofForBench {
     if let Some(proof) = cached_proof(spec) {
         println!(
-            "Reusing cached proof for {spec} ({} bytes)",
-            proof.serialized_size(ark_serialize::Compress::Yes)
+            "\nReusing cached proof for {} ({} bytes)",
+            spec.short_label(),
+            proof.serialized_size(Compress::Yes)
         );
         return proof;
     }
@@ -191,13 +206,14 @@ fn get_or_generate_proof(
     );
     cache_proof(spec, &proof);
     println!(
-        "Recomputing proof for {spec} ({} bytes)",
+        "\nRecomputing proof for {} ({} bytes)",
+        spec.short_label(),
         proof.serialized_size(ark_serialize::Compress::Yes)
     );
     proof
 }
 
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
+#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 1)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
