@@ -19,7 +19,7 @@ use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::{
     id::NodeId,
-    prover_trees::{
+    prover::trees::{
         arithmetized_tree::ProverArithmetizedTree,
         hint_tree::ProverHintTree,
         piop_tree::ProverPIOPTree,

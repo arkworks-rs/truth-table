@@ -22,7 +22,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
-use dbsnark_core::prover_trees::{
+use dbsnark_core::prover::trees::{
     arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
     piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
 };
