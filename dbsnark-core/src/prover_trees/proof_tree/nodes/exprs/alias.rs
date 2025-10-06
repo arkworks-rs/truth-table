@@ -83,7 +83,15 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        if let Some(inner) = self.inputs.first() {
+            if let Some(table) = piop_tree.table(&inner.node_id(), "output_plan") {
+                piop_tree.add_table(
+                    self.node_id.clone(),
+                    "output_plan".to_string(),
+                    table.clone(),
+                );
+            }
+        }
     }
     fn prove_piop(
         &self,
