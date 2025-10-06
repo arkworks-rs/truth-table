@@ -8,7 +8,7 @@ use crate::{
         },
     },
 };
-use arithmetic::ctx::SharedCtx;
+use arithmetic::{ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -251,11 +251,51 @@ where
             _ => panic!("expected aggregate logical plan"),
         }
         .clone();
-    
+
+        let mut grouping_columns: Vec<(
+            datafusion::arrow::datatypes::FieldRef,
+            ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
+        )> = Vec::new();
+        let mut grouping_table_size: Option<usize> = None;
+
+        for group_node in &self.group_expr {
+            let table = piop_tree
+                .table(&group_node.node_id(), "output_plan")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for group expr {}",
+                        group_node.name()
+                    )
+                });
+
+            let table_size = table.size();
+            if let Some(expected) = grouping_table_size {
+                assert_eq!(
+                    expected, table_size,
+                    "grouping expression tables must have matching sizes",
+                );
+            } else {
+                grouping_table_size = Some(table_size);
+            }
+
+            for (field, poly) in table.columns() {
+                if field.name() == "activator" {
+                    continue;
+                }
+                grouping_columns.push((field.clone(), poly.clone()));
+            }
+        }
+
+        let input_grouping_table = if grouping_columns.is_empty() {
+            panic!("aggregate PIOP requires at least one grouping column");
+        } else {
+            TrackedTable::new(None, grouping_columns, grouping_table_size.unwrap_or(0))
+        };
+
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,
-                input_grouping_table: todo!(),
+                input_grouping_table,
                 output_grouping_table: todo!(),
             };
         AggregatePIOP::prove(prover, aggregate_piop_prover_input)
