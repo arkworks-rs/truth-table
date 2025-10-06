@@ -2,8 +2,7 @@ use crate::{test_utils::test_df_plan, verifier_trees::proof_tree::VerifierProofT
 use arithmetic::ctx::SharedCtx;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use tpch_data::test_data_path;
+use datafusion::prelude::SessionContext;
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]

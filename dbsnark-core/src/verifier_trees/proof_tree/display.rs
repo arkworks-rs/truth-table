@@ -1,9 +1,11 @@
-use crate::id::NodeId;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
+
+use crate::id::NodeId;
+use datafusion::logical_expr::Expr;
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -43,8 +45,11 @@ where
             }
 
             let (kind, detail) = match node.node_id() {
-                NodeId::LP(ref plan) => ("LogicalPlan", plan.display().to_string()),
-                NodeId::Expr(ref expr) => ("Expr", expr.to_string()),
+                NodeId::LP(ref plan) => (String::from("LogicalPlan"), plan.display().to_string()),
+                NodeId::Expr(ref expr) => (
+                    format!("Expr ({})", expr_variant_name(expr)),
+                    expr.to_string(),
+                ),
             };
 
             let raw_label = format!("{}\\n{}", kind, detail);
@@ -82,4 +87,42 @@ fn escape_label(raw: &str) -> String {
     raw.replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+fn expr_variant_name(expr: &Expr) -> &'static str {
+    match expr {
+        Expr::Alias(_) => "Alias",
+        Expr::Column(_) => "Column",
+        Expr::ScalarVariable(..) => "ScalarVariable",
+        Expr::Literal(_) => "Literal",
+        Expr::BinaryExpr(_) => "BinaryExpr",
+        Expr::Like(_) => "Like",
+        Expr::SimilarTo(_) => "SimilarTo",
+        Expr::Not(_) => "Not",
+        Expr::IsNotNull(_) => "IsNotNull",
+        Expr::IsNull(_) => "IsNull",
+        Expr::IsTrue(_) => "IsTrue",
+        Expr::IsFalse(_) => "IsFalse",
+        Expr::IsUnknown(_) => "IsUnknown",
+        Expr::IsNotTrue(_) => "IsNotTrue",
+        Expr::IsNotFalse(_) => "IsNotFalse",
+        Expr::IsNotUnknown(_) => "IsNotUnknown",
+        Expr::Negative(_) => "Negative",
+        Expr::Between(_) => "Between",
+        Expr::Case(_) => "Case",
+        Expr::Cast(_) => "Cast",
+        Expr::TryCast(_) => "TryCast",
+        Expr::ScalarFunction(_) => "ScalarFunction",
+        Expr::AggregateFunction(_) => "AggregateFunction",
+        Expr::WindowFunction(_) => "WindowFunction",
+        Expr::InList(_) => "InList",
+        Expr::Exists(_) => "Exists",
+        Expr::InSubquery(_) => "InSubquery",
+        Expr::ScalarSubquery(_) => "ScalarSubquery",
+        Expr::Wildcard { .. } => "Wildcard",
+        Expr::GroupingSet(_) => "GroupingSet",
+        Expr::Placeholder(_) => "Placeholder",
+        Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
+        Expr::Unnest(_) => "Unnest",
+    }
 }

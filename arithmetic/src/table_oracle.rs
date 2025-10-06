@@ -158,11 +158,13 @@ where
         self.cols(&(0..self.num_total_cols()).collect::<Vec<usize>>())
     }
 
-    /// Returns the number of columns in the table (including possibly activator)
+    /// Returns the number of columns in the table (including possibly
+    /// activator)
     pub fn num_total_cols(&self) -> usize {
         self.data_oracles.len()
     }
-    /// Returns the number of columns in the table (excluding possibly activator)
+    /// Returns the number of columns in the table (excluding possibly
+    /// activator)
     pub fn num_data_cols(&self) -> usize {
         self.data_oracles.len() - (self.actvtr_poly().is_some() as usize)
     }

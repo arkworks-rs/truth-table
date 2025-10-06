@@ -8,14 +8,18 @@ use crate::{
         },
     },
 };
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    piop::PIOP,
+    prover::Prover,
 };
 use datafusion::{
-    common::DFSchemaRef,
+    arrow::datatypes::SchemaRef,
+    common::{DFSchemaRef, Statistics},
     logical_expr::{
         self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder, expr_rewriter::normalize_cols,
     },
@@ -23,6 +27,7 @@ use datafusion::{
 };
 use datafusion_expr::{expr::WindowFunction, expr_fn::ExprFunctionExt};
 use datafusion_functions_window::expr_fn::row_number;
+use ra_toolbox::lp_piop::aggregate_check::{AggregatePIOP, AggregatePIOPProverInput};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::prover_trees::proof_tree::nodes::cost::ProvingCost;
@@ -46,6 +51,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
+    /// Build the logical plan that realizes the aggregate output, including the
+    /// windowed helper columns used during proof generation.
     pub fn build_output_plan(
         group_exprs: &[Expr],
         aggr_exprs: &[Expr],
@@ -53,11 +60,15 @@ where
         input_plan: LogicalPlan,
     ) -> LogicalPlan {
         let schema = input_plan.schema().clone();
+        // Preserve the activator type so that the flag can be re-created after the
+        // window projection.
         let activator_field = schema
             .field_with_unqualified_name("activator")
             .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
         let activator_dtype = activator_field.data_type().clone();
 
+        // Normalize every expression against the input so column references line up
+        // with the resolver that DataFusion expects.
         let normalized_groups =
             normalize_cols(group_exprs.to_vec(), &input_plan).expect("normalize group exprs");
         let normalized_aggrs =
@@ -69,6 +80,8 @@ where
         let mut window_exprs = Vec::new();
 
         for (idx, expr) in normalized_aggrs.iter().enumerate() {
+            // Each aggregate becomes a window expression partitioned by the
+            // grouping columns so we can later pick the first row per group.
             let temp_alias = format!("__agg_window_{}", idx);
             let window_expr =
                 aggregate_expr_to_window(expr.clone(), &partition_by).alias(temp_alias.clone());
@@ -77,6 +90,7 @@ where
         }
 
         let row_number_alias = "__row_number".to_string();
+        // Track the first tuple per partition; only that row keeps the activator.
         let row_number_expr = row_number()
             .partition_by(partition_by.clone())
             .build()
@@ -91,6 +105,7 @@ where
             .expect("window logical plan");
 
         let mut projection_exprs: Vec<Expr> = Vec::new();
+        // Re-emit group columns with their expected output names.
         for (expr, field) in partition_by.iter().zip(aggregate_schema.fields().iter()) {
             projection_exprs.push(expr.clone().alias(field.name().clone()));
         }
@@ -105,6 +120,8 @@ where
             projection_exprs.push(df::col(temp_alias).alias(field.name().clone()));
         }
 
+        // Only the first row per group keeps activator = 1 so downstream filters
+        // continue to work with a single representative tuple.
         let one = df::lit(1u64)
             .cast_to(&activator_dtype, schema.as_ref())
             .expect("cast activator one");
@@ -134,7 +151,7 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where
@@ -213,27 +230,35 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion::common::Statistics,
-        _schema: datafusion::arrow::datatypes::SchemaRef,
-    ) -> ProvingCost {
+    fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
     }
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let aggregate = match &self.node_id {
+            NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        }
+        .clone();
+    
+        let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
+            AggregatePIOPProverInput {
+                aggregate,
+                input_grouping_table: todo!(),
+                output_grouping_table: todo!(),
+            };
+        AggregatePIOP::prove(prover, aggregate_piop_prover_input)
     }
 
     fn from_expr(

@@ -13,7 +13,7 @@ async fn display_graphviz() {
     let ctx = SessionContext::new();
     let plan = test_df_plan(
         &ctx,
-        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "SELECT count(*) FROM lineitem GROUP BY l_quantity",
         "lineitem",
     )
     .await

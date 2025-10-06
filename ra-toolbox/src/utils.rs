@@ -1,6 +1,11 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
-use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS, prover::structs::polynomial::TrackedPoly, verifier::structs::oracle::TrackedOracle};
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+    prover::structs::polynomial::TrackedPoly,
+    verifier::structs::oracle::TrackedOracle,
+};
 
 pub fn fold_polys<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     cols: &[TrackedCol<F, MvPCS, UvPCS>],

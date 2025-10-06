@@ -126,8 +126,12 @@ where
 
         // Fold the grouping columns of the input and output tables
 
-        let input_folded_col_oracle = input.input_grouping_table_oracle.fold_all(&gpd_cols_fld_challs);
-        let output_folded_col_oracle = input.output_grouping_table_oracle.fold_all(&gpd_cols_fld_challs);
+        let input_folded_col_oracle = input
+            .input_grouping_table_oracle
+            .fold_all(&gpd_cols_fld_challs);
+        let output_folded_col_oracle = input
+            .output_grouping_table_oracle
+            .fold_all(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckVerifierInput {
@@ -135,7 +139,8 @@ where
             supp: output_folded_col_oracle.clone(),
         };
 
-        let supp_check_output = SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
+        let supp_check_output =
+            SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
         Ok(())
     }
 }
