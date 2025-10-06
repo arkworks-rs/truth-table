@@ -1,7 +1,7 @@
 use crate::id::NodeId;
 use std::sync::Arc;
 
-use arithmetic::table::TrackedTable;
+use arithmetic::{ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -9,7 +9,6 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
-    arrow::datatypes::FieldRef,
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
@@ -20,6 +19,7 @@ use crate::prover_trees::{piop_tree::ProverPIOPTree, proof_tree::nodes::ProverNo
 
 #[derive(Clone)]
 pub struct ColumnExprNode {
+    pub parent_logical_plan: LogicalPlan,
     pub node_id: NodeId,
 }
 
@@ -43,15 +43,16 @@ where
 
     fn from_expr(
         _ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        _parent_logical_plan: LogicalPlan,
+        parent_logical_plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
+            parent_logical_plan,
         }
     }
 
@@ -68,22 +69,30 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
+        // Fetch the columns expression
         let column_expr = match &self.node_id {
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        let relation = match column_expr.relation.as_ref() {
-            Some(relation) => relation,
-            None => todo!(),
+        // If the column has a table reference, then find the TableScan
+        // that loads that table and use the column there. Otherwise, if it
+        // doesn't have a table reference, it must be from the parent logical plan
+        let parent_node_id = match column_expr.relation.as_ref() {
+            Some(relation) => piop_tree
+                .tables()
+                .keys()
+                .find(|node_id| match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                        &scan_plan.table_name == relation
+                    },
+                    _ => false,
+                })
+                .unwrap(),
+            None => &NodeId::LP(self.parent_logical_plan.clone()),
         };
-        let matching_table_scan = piop_tree.tables().keys().find(|node_id| match node_id {
-            NodeId::LP(LogicalPlan::TableScan(scan_plan)) => &scan_plan.table_name == relation,
-            _ => false,
-        });
 
-        let table_scan_node_id = matching_table_scan.expect("matching table scan not found");
         let table = piop_tree
-            .table(table_scan_node_id, "output_plan")
+            .table(parent_node_id, "output_plan")
             .expect("table not found in PIOP tree");
         let col = table
             .col_by_name(&column_expr.name)

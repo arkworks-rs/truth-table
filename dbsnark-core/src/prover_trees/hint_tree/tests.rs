@@ -13,7 +13,7 @@ async fn display_graphviz() {
     let ctx = SessionContext::new();
     let plan = test_df_plan(
         &ctx,
-        "SELECT count(*) FROM lineitem GROUP BY l_quantity",
+        "SELECT count(l_partkey) FROM lineitem GROUP BY 2*l_quantity",
         "lineitem",
     )
     .await

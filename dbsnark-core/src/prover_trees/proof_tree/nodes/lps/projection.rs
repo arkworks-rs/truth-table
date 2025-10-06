@@ -23,6 +23,8 @@ use crate::prover_trees::{
         nodes::{ProverNode, output_logical_plan},
     },
 };
+use arithmetic::table::TrackedTable;
+use datafusion::arrow::datatypes::{Field, FieldRef};
 /// Projection operator that preserves the `activator` column.
 ///
 /// - `expr`: projection expressions from the original logical plan
@@ -90,67 +92,27 @@ where
             .unwrap_or_else(|| (*projection.input).clone());
 
         // Normalize the projection expressions against the child plan.
-        let mut normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
+        let normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
             .expect("failed to normalize projection expressions");
         let original_exprs = normalized_exprs.clone();
-
-        // Ensure the activator column is preserved in the output.
-        let activator_present = projection
-            .schema
-            .field_with_unqualified_name("activator")
-            .is_ok();
-        if !activator_present {
-            let mut activator_expr = normalize_cols(vec![col("activator")], &child_output_plan)
-                .expect("failed to normalize activator column");
-            normalized_exprs.push(activator_expr.pop().expect("missing activator expression"));
-        }
-
-        let output_plan = LogicalPlanBuilder::from(child_output_plan.clone())
-            .project(normalized_exprs.clone())
-            .expect("failed to apply projection")
-            .build()
-            .expect("failed to build projection logical plan");
 
         // Build expression proof plans for the projection expressions (excluding the
         // retained activator).
         let expr_proof_plans = original_exprs
             .into_iter()
             .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr,
-                    &output_plan,
-                )
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &plan)
             })
             .collect();
 
-        let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
+        // Projection does not have any materialized witness
+        let hint_generation_plans = HashMap::new();
 
         Self {
             expr_proof_plans,
             input_proof_plan,
             node_id: NodeId::LP(plan),
             hint_generation_plans,
-        }
-    }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
-
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
-        for child in self.children() {
-            child.append_sorted_descendants(out);
-            out.push(Arc::clone(child));
         }
     }
 
@@ -171,6 +133,56 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
+        let projection = match &self.node_id.to_lp().unwrap() {
+            Projection(p) => p,
+            _ => panic!("expected projection logical plan"),
+        };
+
+        let mut columns = Vec::with_capacity(self.expr_proof_plans.len());
+        let mut table_size: Option<usize> = None;
+
+        for (expr_plan, field) in self
+            .expr_proof_plans
+            .iter()
+            .zip(projection.schema.fields().iter())
+        {
+            let table = piop_tree
+                .table(&expr_plan.node_id(), "output_plan")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for projection expression {}",
+                        expr_plan.name()
+                    )
+                });
+
+            let size = table.size();
+            if let Some(expected) = table_size {
+                assert_eq!(
+                    expected, size,
+                    "projection expression tables must share the same size",
+                );
+            } else {
+                table_size = Some(size);
+            }
+
+            let col = table.col(0);
+            let field_ref = match col.data_type() {
+                Some(dt) => FieldRef::new(Field::new(field.name(), dt, true)),
+                None => field.clone(),
+            };
+            columns.push((field_ref, col.data_poly().clone()));
+        }
+
+        if columns.is_empty() {
+            return;
+        }
+
+        let output_table = TrackedTable::new(None, columns, table_size.unwrap_or(0));
+        piop_tree.add_table(
+            self.node_id.clone(),
+            "output_plan".to_string(),
+            output_table,
+        );
     }
     fn prove_piop(
         &self,

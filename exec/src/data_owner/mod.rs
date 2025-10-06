@@ -66,7 +66,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
             .into_unoptimized_plan();
 
         let (mut prover, mut verifier) =
-            bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
+            test_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
         let prover_ctx = SharedCtx::default();
         let proof_tree =
             ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     #[ignore = "Takes too long"]
     fn commit_parquet_serializes_oracle_round_trip() {
-        let parquet_path = bench_data_path("supplier.parquet");
+        let parquet_path = test_data_path("region.parquet");
         assert!(parquet_path.exists());
 
         commit_parquet_serializes_oracle(&parquet_path)

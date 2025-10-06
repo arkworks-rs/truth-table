@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{any::Any, sync::Arc};
 
-use arithmetic::ctx::SharedCtx;
+use arithmetic::{ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -91,7 +91,58 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        let mut collected_cols = Vec::new();
+        let mut table_size: Option<usize> = None;
+
+        for child in &self.inputs {
+            let table = piop_tree
+                .table(&child.node_id(), "output_plan")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for aggregate argument {}",
+                        child.name()
+                    )
+                });
+
+            let child_size = table.size();
+            if let Some(expected) = table_size {
+                assert_eq!(
+                    expected, child_size,
+                    "aggregate arguments must share the same table size",
+                );
+            } else {
+                table_size = Some(child_size);
+            }
+            let col = table.col(0);
+            let field = col
+                .data_type()
+                .map(|dt| {
+                    datafusion::arrow::datatypes::FieldRef::new(
+                        datafusion::arrow::datatypes::Field::new("arg", dt, true),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    datafusion::arrow::datatypes::FieldRef::new(
+                        datafusion::arrow::datatypes::Field::new(
+                            "arg",
+                            datafusion::arrow::datatypes::DataType::Null,
+                            true,
+                        ),
+                    )
+                });
+            collected_cols.push((field, col.data_poly().clone()));
+        }
+
+        if collected_cols.is_empty() {
+            return;
+        }
+
+        let output_table = TrackedTable::new(None, collected_cols, table_size.unwrap_or(0));
+        piop_tree.add_table(
+            self.node_id.clone(),
+            "output_plan".to_string(),
+            output_table,
+        );
     }
     fn prove_piop(
         &self,

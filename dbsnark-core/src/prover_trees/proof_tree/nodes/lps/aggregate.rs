@@ -51,8 +51,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    /// Build the logical plan that realizes the aggregate output, including the
-    /// windowed helper columns used during proof generation.
+    /// Build the logical plan that realizes the aggregate output
+    /// The output logical plan is not just the result of applying the
+    /// aggregate. It does not shrink the table size, but it toggles the
+    /// activator for grouping
     pub fn build_output_plan(
         group_exprs: &[Expr],
         aggr_exprs: &[Expr],
@@ -105,11 +107,6 @@ where
             .expect("window logical plan");
 
         let mut projection_exprs: Vec<Expr> = Vec::new();
-        // Re-emit group columns with their expected output names.
-        for (expr, field) in partition_by.iter().zip(aggregate_schema.fields().iter()) {
-            projection_exprs.push(expr.clone().alias(field.name().clone()));
-        }
-
         for (idx, field) in aggregate_schema
             .fields()
             .iter()
@@ -157,18 +154,22 @@ where
     where
         Self: Sized,
     {
+        // Get the aggregate logical plan
         let aggregate = match &plan {
             LogicalPlan::Aggregate(agg) => agg,
             _ => panic!("expected aggregate logical plan"),
         };
-
+        // Recursively build the input proof tree
         let input_tree =
             ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &aggregate.input);
         let input = input_tree.root();
-
+        // The input to the current aggregate node is the output logical plan of its
+        // input node
         let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input)
             .unwrap_or_else(|| (*aggregate.input).clone());
-
+        // Recursively build the children by first building a tree for the grouping
+        // expressions Note that their parent logical plan is unusually set to
+        // be the input logical plan of the aggregate
         let group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
             .group_expr
             .iter()
@@ -177,10 +178,20 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr.clone(),
-                    &plan,
+                    &aggregate.input,
                 )
             })
             .collect();
+
+        // Recursively build the children by first building a tree for the aggregate
+        // expressions Note that their parent logical plan is unusually set to
+        // Note that their parent logical plan is unusually set to be the input logical
+        // plan of the aggregate
+        for expr in &aggregate.aggr_expr {
+            if !matches!(expr, Expr::AggregateFunction(_)) {
+                panic!("expected aggregate expression to be AggregateFunction, got {expr}");
+            }
+        }
         let aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
             .aggr_expr
             .iter()
@@ -189,11 +200,12 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr.clone(),
-                    &plan,
+                    &aggregate.input,
                 )
             })
             .collect();
 
+        // Build the output logical plan of this aggregate node
         let output_plan = Self::build_output_plan(
             &aggregate.group_expr,
             &aggregate.aggr_expr,
@@ -201,6 +213,7 @@ where
             child_plan,
         );
 
+        // Build the list of input nodes (children) to this aggregate node
         let mut inputs = Vec::with_capacity(1 + group_expr.len() + aggr_expr.len());
         inputs.push(input);
         inputs.extend(group_expr.iter().cloned());
@@ -239,7 +252,7 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        // TODO
     }
     fn prove_piop(
         &self,
@@ -292,11 +305,30 @@ where
             TrackedTable::new(None, grouping_columns, grouping_table_size.unwrap_or(0))
         };
 
+        let output_table = piop_tree
+            .table(&self.node_id, "output_plan")
+            .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
+        let grouping_col_count = aggregate.group_expr.len();
+        let mut output_grouping_columns = Vec::with_capacity(grouping_col_count);
+        for (idx, (field, poly)) in output_table.columns().enumerate() {
+            if idx >= grouping_col_count {
+                break;
+            }
+            output_grouping_columns.push((field.clone(), poly.clone()));
+        }
+        assert_eq!(
+            output_grouping_columns.len(),
+            grouping_col_count,
+            "aggregate output table does not contain enough grouping columns",
+        );
+        let output_grouping_table =
+            TrackedTable::new(None, output_grouping_columns, output_table.size());
+
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,
                 input_grouping_table,
-                output_grouping_table: todo!(),
+                output_grouping_table,
             };
         AggregatePIOP::prove(prover, aggregate_piop_prover_input)
     }

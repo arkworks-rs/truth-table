@@ -27,6 +27,7 @@ use datafusion::{
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use tracing::info;
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -197,6 +198,8 @@ where
                 (mle_arc, commitment)
             })
             .collect();
+
+        info!("Prover committed to {} polynomials", new_commitments.len());
 
         for (mle_arc, commitment) in new_commitments {
             let entry = commitment_map

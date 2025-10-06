@@ -100,7 +100,7 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     //     tables: &["lineitem"],
     // },
     QuerySpec {
-        sql: "SELECT count(*) FROM lineitem GROUP BY l_quantity",
+        sql: "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
         tables: &["lineitem"],
     },
 ];

@@ -92,6 +92,10 @@ where
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
     /// the key `"output_plan"`.
+    ///
+    /// Note that if your column can be generated from other columns, It doesn't
+    /// need to be materialized and should be added to the 'add_virtual_witness'
+    /// function.
     fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
         HashMap::new()
     }
