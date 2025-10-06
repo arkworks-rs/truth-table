@@ -1,13 +1,21 @@
-use crate::id::NodeId;
+use crate::{
+    id::NodeId,
+    prover_trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
+};
 use std::sync::Arc;
 
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    prover::Prover,
 };
-use datafusion::logical_expr::Expr;
+use datafusion::{
+    arrow::datatypes::SchemaRef, common::Statistics, logical_expr::Expr, prelude::SessionContext,
+};
+use datafusion_expr::LogicalPlan;
 
 use crate::prover_trees::proof_tree::nodes::{ProverNode, cost::ProvingCost};
 
@@ -18,8 +26,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub relative_expr: Expr,
-    pub output_expr: Expr,
+    pub node_id: NodeId,
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
 }
 
@@ -34,7 +41,7 @@ where
     }
 
     fn node_id(&self) -> NodeId {
-        NodeId::Expr(self.relative_expr.clone())
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -42,36 +49,46 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_logical_plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        let alias = match expr.clone() {
+            Expr::Alias(alias) => alias,
+            _ => panic!("expected alias expression"),
+        };
+        let input_expr = (*alias.expr).clone();
+        let child = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            input_expr,
+            &parent_logical_plan,
+        );
+        Self {
+            node_id: NodeId::Expr(expr),
+            inputs: vec![child],
+        }
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion::common::Statistics,
-        _schema: datafusion::arrow::datatypes::SchemaRef,
-    ) -> ProvingCost {
+    fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
     }
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover_trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

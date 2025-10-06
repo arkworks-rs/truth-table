@@ -56,7 +56,7 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTable")
-            .field("num_cols", &self.num_cols())
+            .field("num_total_cols", &self.num_total_cols())
             .field("log_size", &self.log_size())
             .finish()
     }
@@ -155,12 +155,16 @@ where
     /// `TrackedColOracle` wrappers, which also contain the activator oracles
     /// (if any)
     pub fn all_cols(&self) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
-        self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
+        self.cols(&(0..self.num_total_cols()).collect::<Vec<usize>>())
     }
 
-    /// Returns the number of columns in the table
-    pub fn num_cols(&self) -> usize {
+    /// Returns the number of columns in the table (including possibly activator)
+    pub fn num_total_cols(&self) -> usize {
         self.data_oracles.len()
+    }
+    /// Returns the number of columns in the table (excluding possibly activator)
+    pub fn num_data_cols(&self) -> usize {
+        self.data_oracles.len() - (self.actvtr_poly().is_some() as usize)
     }
     /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking
     /// the column and activator polynomials using the provided verifier
@@ -173,7 +177,7 @@ where
         let schema = table.schema().clone();
         let log_size = table.log_size();
 
-        let mut data_map = HashMap::with_capacity(table.num_cols());
+        let mut data_map = HashMap::with_capacity(table.num_total_cols());
         for (field_ref, poly) in table.columns() {
             let id = poly.id_or_const().left().ok_or_else(|| {
                 VerifierError::VerifierCheckFailed(

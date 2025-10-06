@@ -1,4 +1,7 @@
-use crate::id::NodeId;
+use crate::{
+    id::NodeId,
+    prover_trees::proof_tree::nodes::{exprs::AggregateFunctionExprNode, lps::AggregateNode},
+};
 pub mod display;
 pub mod nodes;
 use std::{collections::HashMap, sync::Arc};
@@ -102,6 +105,9 @@ where
         map
     }
 
+    /// Build a `ProverNode` tree from a DataFusion `Expr`.
+    /// This is where dispatching happens based on the type of expression.
+    #[tracing::instrument(skip(ctx, prover_ctx, parent_logical_plan))]
     pub fn from_expr(
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
@@ -147,12 +153,23 @@ where
             >>::from_expr(
                 ctx, prover_ctx, expr, parent_logical_plan.clone()
             )),
+            Expr::AggregateFunction(_) => {
+                Arc::new(<AggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, prover_ctx, expr, parent_logical_plan.clone()
+                ))
+            },
             _ => todo!(),
         }
     }
 
     /// Build a `ProverNode` tree from a DataFusion `LogicalPlan`.
-    #[tracing::instrument(name = "from_lp", skip_all)]
+    /// This is where dispatching happens based on the type of logical plan
+    /// node.
+    #[tracing::instrument(skip(ctx, prover_ctx))]
     pub fn from_lp(
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
@@ -189,7 +206,16 @@ where
                 prover_ctx,
             ),
             df::LogicalPlan::Window(_w) => todo!(),
-            df::LogicalPlan::Aggregate(_aggr) => todo!(),
+            df::LogicalPlan::Aggregate(_aggr) => Self::new(
+                Arc::new(<AggregateNode<F, MvPCS, UvPCS> as ProverNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_lp(
+                    ctx, prover_ctx.clone(), plan.clone()
+                )),
+                prover_ctx,
+            ),
             df::LogicalPlan::Sort(_s) => todo!(),
             df::LogicalPlan::Repartition(_r) => todo!(),
             df::LogicalPlan::Analyze(_a) => todo!(),

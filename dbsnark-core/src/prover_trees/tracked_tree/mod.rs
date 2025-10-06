@@ -209,12 +209,12 @@ where
         for (node_id, tables) in node_arith_tables {
             let mut tracked_tables = HashMap::with_capacity(tables.len());
             for (label, arith_table) in tables {
-                let num_cols = arith_table.num_cols();
-                let table = if num_cols == 0 {
+                let num_total_cols = arith_table.num_total_cols();
+                let table = if num_total_cols == 0 {
                     TrackedTable::new(arith_table.schema(), Vec::new(), arith_table.size())
                 } else {
                     let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
-                        Vec::with_capacity(num_cols);
+                        Vec::with_capacity(num_total_cols);
 
                     for (field_ref, mle) in arith_table.data_polys() {
                         let commitment = commitment_map

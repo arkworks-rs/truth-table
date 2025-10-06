@@ -87,7 +87,7 @@ where
                 let mut lines = Vec::with_capacity(table_entries.len() + 1);
                 lines.push("tables:".to_string());
                 for (label, table) in table_entries {
-                    let num_cols = table.num_cols();
+                    let num_total_cols = table.num_total_cols();
                     let num_vars = if table.size() > 0 {
                         table.size().trailing_zeros() as usize
                     } else {
@@ -97,7 +97,7 @@ where
                         "{}: {} vars, {} data cols, {} rows",
                         label,
                         num_vars,
-                        num_cols,
+                        num_total_cols,
                         table.size()
                     ));
                 }

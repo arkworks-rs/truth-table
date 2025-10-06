@@ -94,12 +94,12 @@ where
         }
 
         let schema_ref = record_batches[0].schema();
-        let num_cols = schema_ref.fields().len();
+        let num_total_cols = schema_ref.fields().len();
         let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
         assert!(total_rows.is_power_of_two());
         let log_vars = total_rows.trailing_zeros() as usize;
 
-        let columns: Result<Vec<Vec<F>>, EncodeError> = cfg_into_iter!(0..num_cols)
+        let columns: Result<Vec<Vec<F>>, EncodeError> = cfg_into_iter!(0..num_total_cols)
             .map(|col_idx| {
                 let mut values = Vec::with_capacity(total_rows);
                 for batch in &record_batches {

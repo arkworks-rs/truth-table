@@ -4,7 +4,10 @@ use crate::test_utils::test_df_plan;
 
 use super::ProverProofTree;
 use arithmetic::ctx::SharedCtx;
-use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
+use ark_piop::{
+    pcs::{kzg10::KZG10, pst13::PST13},
+    test_utils::init_tracing_for_tests,
+};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
     error::Result as DFResult,
@@ -16,10 +19,11 @@ use tpch_data::test_data_path;
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
 async fn display_graphviz() {
+    init_tracing_for_tests();
     let ctx = SessionContext::new();
     let plan = test_df_plan(
         &ctx,
-        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "SELECT count(*) FROM lineitem GROUP BY l_quantity",
         "lineitem",
     )
     .await

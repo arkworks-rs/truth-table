@@ -1,3 +1,4 @@
+use crate::utils::fold_polys;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -8,9 +9,9 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
+use col_toolbox::supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput};
 use datafusion::logical_expr::Aggregate;
 use derivative::Derivative;
-
 #[derive(Derivative)]
 #[derivative(
     Clone(bound = "MvPCS: PCS<F>"),
@@ -76,16 +77,65 @@ where
     type VerifierInput = AggregatePIOPVerifierInput<F, MvPCS, UvPCS>;
 
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _input: Self::ProverInput,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+        let num_gpd_cols = input.input_grouping_table.num_data_cols();
+        // Generate one random field element for each column being grouped by
+        // This is used to fold these columns to a single random linearly
+        // combined column
+        let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
+            .map(|_| {
+                prover
+                    .get_and_append_challenge(b"Grouping columns folding challeng")
+                    .unwrap()
+            })
+            .collect();
+
+        // Fold the grouping columns of the input and output tables
+
+        let input_folded_col = input.input_grouping_table.fold_all(&gpd_cols_fld_challs);
+        let output_folded_col = input.output_grouping_table.fold_all(&gpd_cols_fld_challs);
+
+        // Invoke the support check PIOP to check
+        let supp_check_input = SuppCheckProverInput {
+            col: input_folded_col.clone(),
+            supp: output_folded_col.clone(),
+        };
+
+        let supp_check_output = SuppCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, supp_check_input)?;
+
         Ok(())
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _input: Self::VerifierInput,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
+        let num_gpd_cols = input.input_grouping_table_oracle.num_data_cols();
+        // Generate one random field element for each column being grouped by
+        // This is used to fold these columns to a single random linearly
+        // combined column
+        let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
+            .map(|_| {
+                verifier
+                    .get_and_append_challenge(b"Grouping columns folding challeng")
+                    .unwrap()
+            })
+            .collect();
+
+        // Fold the grouping columns of the input and output tables
+
+        let input_folded_col_oracle = input.input_grouping_table_oracle.fold_all(&gpd_cols_fld_challs);
+        let output_folded_col_oracle = input.output_grouping_table_oracle.fold_all(&gpd_cols_fld_challs);
+
+        // Invoke the support check PIOP to check
+        let supp_check_input = SuppCheckVerifierInput {
+            col: input_folded_col_oracle.clone(),
+            supp: output_folded_col_oracle.clone(),
+        };
+
+        let supp_check_output = SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
         Ok(())
     }
 }

@@ -197,7 +197,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             col: folded_sources.clone(),
         };
         NoDupPIOP::prove(prover, no_dup_prover_input)?;
-        let alpha_vec = (0..(input.right_table.num_cols() + 1))
+        let alpha_vec = (0..(input.right_table.num_total_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
@@ -218,8 +218,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
-            &(1..(input.right_table.num_cols()))
-                .map(|i| i + input.left_table.num_cols() - 1)
+            &(1..(input.right_table.num_total_cols()))
+                .map(|i| i + input.left_table.num_total_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col = input
@@ -242,7 +242,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
 
-        let beta_vec = (0..(input.left_table.num_cols() + 1))
+        let beta_vec = (0..(input.left_table.num_total_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
@@ -260,7 +260,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input_left_table_folded_col.actvtr_poly().cloned(),
         );
 
-        let output_left_indices = (0..(input.left_table.num_cols())).collect::<Vec<usize>>();
+        let output_left_indices = (0..(input.left_table.num_total_cols())).collect::<Vec<usize>>();
         let output_left_table_folded_col = input
             .out_table
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
@@ -365,7 +365,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
         NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
         // Folding of key_out and source_R
-        let alpha_vec = (0..(input.right_tracked_Table_oracle.num_cols() + 1))
+        let alpha_vec = (0..(input.right_tracked_Table_oracle.num_total_cols() + 1))
             .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
@@ -391,8 +391,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         );
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
-            &(1..(input.right_tracked_Table_oracle.num_cols()))
-                .map(|i| i + input.left_tracked_Table_oracle.num_cols() - 1)
+            &(1..(input.right_tracked_Table_oracle.num_total_cols()))
+                .map(|i| i + input.left_tracked_Table_oracle.num_total_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_tracked_col_oracle = input
@@ -415,7 +415,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
-        let beta_vec = (0..(input.left_tracked_Table_oracle.num_cols() + 1))
+        let beta_vec = (0..(input.left_tracked_Table_oracle.num_total_cols() + 1))
             .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
@@ -438,7 +438,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input_left_table_folded_tracked_col_oracle.actv,
             input_left_table_folded_tracked_col_oracle.num_vars,
         );
-        let output_left_indices = (0..(input.left_tracked_Table_oracle.num_cols())).collect::<Vec<usize>>();
+        let output_left_indices = (0..(input.left_tracked_Table_oracle.num_total_cols())).collect::<Vec<usize>>();
         let output_left_table_folded_tracked_col_oracle = input
             .out_tracked_Table_oracle
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);

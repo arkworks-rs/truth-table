@@ -48,7 +48,7 @@ async fn from_hint_tree_produces_serializable_tables() {
             if table.size() > 0 {
                 assert!(table.size().is_power_of_two());
             }
-            assert_eq!(table.num_cols(), table.data_polys().len());
+            assert_eq!(table.num_total_cols(), table.data_polys().len());
         }
     }
 }
@@ -58,7 +58,7 @@ fn arith_table_from_batches_empty() {
     let table =
         ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(Vec::new()).unwrap();
     assert_eq!(table.size(), 0);
-    assert_eq!(table.num_cols(), 0);
+    assert_eq!(table.num_total_cols(), 0);
     assert!(table.schema().is_none());
 }
 
@@ -72,7 +72,7 @@ fn arith_table_from_batches_basic() {
         ProverArithmetizedTree::<F, MvPCS, UvPCS>::arith_table_from_batches(vec![batch]).unwrap();
 
     assert_eq!(table.size(), 4);
-    assert_eq!(table.num_cols(), 1);
+    assert_eq!(table.num_total_cols(), 1);
     let (field_ref, mle) = &table.data_polys()[0];
     assert_eq!(field_ref.name(), "col");
     assert_eq!(mle.evaluations().len(), 4);

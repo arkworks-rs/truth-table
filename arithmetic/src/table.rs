@@ -13,16 +13,11 @@ use ark_serialize::{
     Write,
 };
 
-use datafusion::arrow::{
-    array::RecordBatch,
-    datatypes::{Field, FieldRef, Schema},
-};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 
-use crate::{
-    col::TrackedCol, ctx::SharedCtx, encoding::encode_arrow_array_to_field, errors::EncodeError,
-};
+use crate::col::TrackedCol;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -55,7 +50,7 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTable")
-            .field("num_cols", &self.num_cols())
+            .field("num_total_cols", &self.num_total_cols())
             .field("log_size", &self.log_size())
             .field("size", &self.size)
             .finish()
@@ -126,7 +121,7 @@ where
     }
 
     pub fn fold_all(&self, challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
-        self.fold(&(0..self.num_cols()).collect::<Vec<usize>>(), challs)
+        self.fold(&(0..self.num_total_cols()).collect::<Vec<usize>>(), challs)
     }
 
     pub fn col(&self, col_ind: usize) -> TrackedCol<F, MvPCS, UvPCS> {
@@ -169,11 +164,17 @@ where
     }
 
     pub fn all_cols(&self) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
-        self.cols(&(0..self.num_cols()).collect::<Vec<usize>>())
+        self.cols(&(0..self.num_total_cols()).collect::<Vec<usize>>())
     }
 
-    pub fn num_cols(&self) -> usize {
+    // Number of data columns (including possibly activator)
+    pub fn num_total_cols(&self) -> usize {
         self.data_polys.len()
+    }
+
+    // Number of data columns (excludin possibly activator)
+    pub fn num_data_cols(&self) -> usize {
+        self.data_polys.len() - (self.actvtr_poly().is_some() as usize)
     }
 
     pub fn schema(&self) -> Option<Schema> {
@@ -226,7 +227,7 @@ impl<F: PrimeField> ArithTable<F> {
         self.size
     }
 
-    pub fn num_cols(&self) -> usize {
+    pub fn num_total_cols(&self) -> usize {
         self.data_polys.len()
     }
 

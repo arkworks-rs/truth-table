@@ -80,11 +80,15 @@ where
                 let mut lines = Vec::with_capacity(table_entries.len() + 1);
                 lines.push("tables:".to_string());
                 for (label, table) in table_entries {
-                    let num_cols = table.num_cols();
-                    let log_size = if num_cols > 0 { table.log_size() } else { 0 };
+                    let num_total_cols = table.num_total_cols();
+                    let log_size = if num_total_cols > 0 {
+                        table.log_size()
+                    } else {
+                        0
+                    };
                     lines.push(format!(
                         "{}: {} log_size, {} data cols",
-                        label, log_size, num_cols
+                        label, log_size, num_total_cols
                     ));
                 }
                 lines.join("\n")
