@@ -1,23 +1,25 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
 use std::sync::Arc;
 
-use arithmetic::table::TrackedTable;
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::PCS,
+    pcs::PCS, verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
     arrow::datatypes::FieldRef,
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
+use indexmap::IndexMap;
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 
 #[derive(Clone)]
 pub struct ColumnExprNode {
+    pub parent_logical_plan: LogicalPlan,
     pub node_id: NodeId,
 }
 
@@ -50,6 +52,7 @@ where
     {
         Self {
             node_id: NodeId::Expr(expr),
+            parent_logical_plan: _parent_logical_plan,
         }
     }
 
@@ -58,58 +61,63 @@ where
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
-        // let column_expr = match &self.node_id {
-        //     NodeId::Expr(Expr::Column(column)) => column,
-        //     _ => todo!(),
-        // };
-        // let relation = match column_expr.relation.as_ref() {
-        //     Some(relation) => relation,
-        //     None => todo!(),
-        // };
-        // let matching_table_scan = piop_tree.tables().keys().find(|node_id|
-        // match node_id {
-        //     NodeId::LP(LogicalPlan::TableScan(scan_plan)) =>
-        // &scan_plan.table_name == relation,     _ => false,
-        // });
+        // Fetch the columns expression
+        let column_expr = match &self.node_id {
+            NodeId::Expr(Expr::Column(column)) => column,
+            _ => todo!(),
+        };
+        // If the column has a table reference, then find the TableScan
+        // that loads that table and use the column there. Otherwise, if it
+        // doesn't have a table reference, it must be from the parent logical plan
+        let parent_node_id = match column_expr.relation.as_ref() {
+            Some(relation) => piop_tree
+                .tracked_table_oracles()
+                .keys()
+                .find(|node_id| match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                        &scan_plan.table_name == relation
+                    },
+                    _ => false,
+                })
+                .unwrap(),
+            None => &NodeId::LP(self.parent_logical_plan.clone()),
+        };
 
-        // let table_scan_node_id = matching_table_scan.expect("matching table
-        // scan not found"); let table = piop_tree
-        //     .table(table_scan_node_id, "output_plan")
-        //     .expect("table not found in PIOP tree");
-        // let col = table
-        //     .col_by_name(&column_expr.name)
-        //     .expect("column not found in table");
-        // // TODO: Clean this up later
-        // let mut data_polys: Vec<(
-        //     Arc<datafusion::arrow::datatypes::Field>,
-        //     ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS,
-        // UvPCS>, )> = vec![(
-        //     Arc::new(datafusion::arrow::datatypes::Field::new(
-        //         column_expr.name.as_str(),
-        //         col.data_type()
-        //             .expect("Column data type should not be None")
-        //             .clone(),
-        //         true,
-        //     )),
-        //     col.data_poly().clone(),
-        // )]
-        // .into_iter()
-        // .collect();
-        // data_polys.push((
-        //     Arc::new(datafusion::arrow::datatypes::Field::new(
-        //         "activator",
-        //         datafusion::arrow::datatypes::DataType::UInt8,
-        //         true,
-        //     )),
-        //     col.actvtr_poly()
-        //         .expect("Column activator polynomial should not be None")
-        //         .clone(),
-        // ));
-        // let output_table = TrackedTable::new(None, data_polys, 0);
+        let table = piop_tree
+            .tracked_table_oracle(parent_node_id, "output_plan")
+            .expect("table not found in PIOP tree");
+        let col = table
+            .col_by_name(&column_expr.name)
+            .expect("column not found in table");
+        let mut data_polys: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> = IndexMap::new();
+        let data_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
+            column_expr.name.as_str(),
+            col.data_type()
+                .expect("Column data type should not be None")
+                .clone(),
+            true,
+        ));
+        data_polys.insert(data_field, col.data_oracle().clone());
 
-        // piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(),
-        // output_table);
+        let activator_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
+            "activator",
+            datafusion::arrow::datatypes::DataType::UInt8,
+            true,
+        ));
+        data_polys.insert(
+            activator_field,
+            col.actvtr_oracle()
+                .expect("Column activator polynomial should not be None")
+                .clone(),
+        );
+
+        let output_table = TrackedTableOracle::new(None, data_polys, 0);
+
+        piop_tree.add_tracked_table_oracle(
+            self.node_id.clone(),
+            "output_plan".to_owned(),
+            output_table,
+        );
     }
     fn verify_piop(
         &self,

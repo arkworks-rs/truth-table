@@ -63,6 +63,19 @@ where
         }
     }
 
+    pub fn into_parts(
+        self,
+    ) -> (
+        VerifierProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    ) {
+        let VerifierTrackedTree {
+            tables,
+            inner_proof_tree,
+        } = self;
+        (inner_proof_tree, tables)
+    }
+
     pub fn table_by_node_map(
         self,
     ) -> IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
@@ -103,18 +116,7 @@ where
         display::DisplayableVerifierTrackedTree::new(self)
     }
 
-    pub fn into_parts(
-        self,
-    ) -> (
-        VerifierProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
-    ) {
-        let VerifierTrackedTree {
-            tables,
-            inner_proof_tree,
-        } = self;
-        (inner_proof_tree, tables)
-    }
+
     #[instrument(level = "debug", skip_all)]
     pub fn from_proof_tree(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,

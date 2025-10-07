@@ -6,7 +6,9 @@ use crate::{
     },
 };
 use std::{collections::HashMap, sync::Arc};
+use indexmap::IndexMap;
 
+use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -132,7 +134,7 @@ where
             })
             .collect();
 
-        let hint_generation_plans = HashMap::from([("output".to_string(), output_plan.clone())]);
+        let hint_generation_plans = HashMap::new();
 
         Self {
             expr_proof_plans,
@@ -170,6 +172,59 @@ where
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
+        if self.expr_proof_plans.is_empty() {
+            return;
+        }
+
+        let expr_tables: Option<Vec<_>> = self
+            .expr_proof_plans
+            .iter()
+            .map(|plan| piop_tree.tracked_table_oracle(&plan.node_id(), "output_plan"))
+            .collect();
+
+        let expr_tables = match expr_tables {
+            Some(tables) => tables,
+            None => return,
+        };
+
+        let table_log_size = expr_tables[0].log_size();
+        if expr_tables.iter().any(|table| table.log_size() != table_log_size) {
+            panic!("projection expression tables must have matching sizes");
+        }
+
+        let mut data_columns = Vec::with_capacity(expr_tables.len() + 1);
+        for table in &expr_tables {
+            let (field, poly) = table
+                .columns()
+                .find(|(field, _)| field.name() != "activator")
+                .expect("expression output must contain data column");
+            data_columns.push((field.clone(), poly.clone()));
+        }
+
+        let activator_pair = expr_tables[0]
+            .columns()
+            .find(|(field, _)| field.name() == "activator")
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+            .or_else(|| {
+                piop_tree
+                    .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
+                    .and_then(|table| {
+                        table
+                            .columns()
+                            .find(|(field, _)| field.name() == "activator")
+                            .map(|(field, poly)| (field.clone(), poly.clone()))
+                    })
+            })
+            .expect("activator column not found for projection");
+        data_columns.push(activator_pair);
+
+        let tracked_oracles: IndexMap<_, _> = data_columns.into_iter().collect();
+        let output_table = TrackedTableOracle::new(None, tracked_oracles, table_log_size);
+        piop_tree.add_tracked_table_oracle(
+            self.node_id.clone(),
+            "output_plan".to_string(),
+            output_table,
+        );
     }
     fn verify_piop(
         &self,

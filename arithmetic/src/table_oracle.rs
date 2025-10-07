@@ -211,6 +211,24 @@ where
     pub fn columns(&self) -> impl Iterator<Item = (&FieldRef, &TrackedOracle<F, MvPCS, UvPCS>)> {
         self.tracked_oracles.iter()
     }
+
+
+    pub fn col_by_name(
+        &self,
+        name: &str,
+    ) -> Option<TrackedColOracle<F, MvPCS, UvPCS>> {
+        let schema = self.schema.as_ref()?;
+        let field = schema.field_with_name(name).ok()?.clone();
+        let oracle = self.tracked_oracles.get(&field)?;
+        Some(TrackedColOracle::new(
+            Some(field.data_type().clone()),
+            oracle.clone(),
+            self.actvtr_poly(),
+            self.log_size,
+        ))
+    }
+
+
 }
 
 /// The abstraction of an arithmetic table in a PIOP verifier. It contains the

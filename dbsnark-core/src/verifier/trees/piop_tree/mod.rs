@@ -14,7 +14,7 @@ use ark_piop::{
 };
 use indexmap::IndexMap;
 
-use crate::{id::NodeId, verifier::trees::proof_tree::VerifierProofTree};
+use crate::{id::NodeId, verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree}};
 
 /// Virtualized tables indexed by proof-plan node identifier.
 pub struct VerifierPIOPTree<F, MvPCS, UvPCS>
@@ -117,11 +117,21 @@ where
     }
 
     /// Build a virtualized plan from an arithmetized plan.
-    pub fn from_proof_plan(
-        arith_plan: VerifierProofTree<F, MvPCS, UvPCS>,
+    pub fn from_tracked_tree(
+        tracked_tree: VerifierTrackedTree<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> Self {
-        todo!()
+        let (proof_tree, tables_by_node) = tracked_tree.into_parts();
+        // TODO: See if we can avoid these clones, specially cloning the tables_by_node
+        let mut piop_tree = VerifierPIOPTree::new(proof_tree.clone(), tables_by_node.clone());
+        let flattened_proof_tree = proof_tree.flatten();
+        for (node_id, _) in tables_by_node.iter() {
+            let prover_node = flattened_proof_tree
+                .get(node_id)
+                .expect("missing node in proof tree");
+            prover_node.add_virtual_witness(&mut piop_tree, verifier);
+        }
+        piop_tree
     }
 
     pub fn into_parts(

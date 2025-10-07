@@ -5,7 +5,7 @@ use crate::{
 use std::{collections::HashMap, sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
-use arithmetic::{col::TrackedCol, table::TrackedTable};
+use arithmetic::{col::TrackedCol, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -19,6 +19,7 @@ use datafusion::{
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
+use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{BinaryExprPIOP, BinaryExprPIOPProverInput};
 #[derive(Clone)]
 pub struct BinaryExprNode<F, MvPCS, UvPCS>
@@ -157,51 +158,51 @@ where
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        // if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
-        //     if !Self::requires_materialized_witness(bin_expr.op) {
-        //         let size = piop_tree
-        //             .table(&self.left_proof_plan.node_id(), "output_plan")
-        //             .unwrap()
-        //             .size();
-        //         let left_col = piop_tree
-        //             .table(&self.left_proof_plan.node_id(), "output_plan")
-        //             .unwrap()
-        //             .col(0)
-        //             .clone();
-        //         let right_col = piop_tree
-        //             .table(&self.right_proof_plan.node_id(), "output_plan")
-        //             .unwrap()
-        //             .col(0)
-        //             .clone();
-        //         let output_data_poly = match bin_expr.op {
-        //             Operator::And => {
-        //                 let data_mult = left_col.data_poly() *
-        // right_col.data_poly();
+         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
+            if !Self::requires_materialized_witness(bin_expr.op) {
+                let log_size = piop_tree
+                    .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .log_size();
+                let left_col = piop_tree
+                    .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .col(0)
+                    .clone();
+                let right_col = piop_tree
+                    .tracked_table_oracle(&self.right_proof_plan.node_id(), "output_plan")
+                    .unwrap()
+                    .col(0)
+                    .clone();
+                let output_data_poly = match bin_expr.op {
+                    Operator::And => {
+                        let data_mult = left_col.data_oracle() * right_col.data_oracle();
 
-        //                 match (left_col.actvtr_poly(),
-        // right_col.actvtr_poly()) {                     (Some(l),
-        // Some(r)) => &(l * r) * &data_mult,
-        // (Some(l), None) => l * &data_mult,                     (None,
-        // Some(r)) => r * &data_mult,                     (None, None)
-        // => data_mult,                 }
-        //             },
-        //             _ => panic!("unsupported operator for virtual witness"),
-        //         };
-        //         let field_ref = FieldRef::new(Field::new(
-        //             "output",
-        //             datafusion::arrow::datatypes::DataType::BinaryView,
-        //             false,
-        //         ));
+                        match (left_col.actvtr_oracle(), right_col.actvtr_oracle()) {
+                            (Some(l), Some(r)) => &(l * r) * &data_mult,
+                            (Some(l), None) => l * &data_mult,
+                            (None, Some(r)) => r * &data_mult,
+                            (None, None) => data_mult,
+                        }
+                    },
+                    _ => panic!("unsupported operator for virtual witness"),
+                };
+                let field_ref = FieldRef::new(Field::new(
+                    "output",
+                    datafusion::arrow::datatypes::DataType::BinaryView,
+                    false,
+                ));
 
-        //         let output_table =
-        //             TrackedTable::new(None, vec![(field_ref,
-        // output_data_poly)], size);         piop_tree.add_table(
-        //             self.node_id.clone(),
-        //             "output_plan".to_string(),
-        //             output_table,
-        //         );
-        //     }
-        // }
+                let tracked_oracles = IndexMap::from_iter(vec![(field_ref.clone(), output_data_poly)]);
+                let output_table =
+                    TrackedTableOracle::new(None, tracked_oracles, log_size);
+                piop_tree.add_tracked_table_oracle(
+                    self.node_id.clone(),
+                    "output_plan".to_string(),
+                    output_table,
+                );
+            }
+        }
     }
     fn verify_piop(
         &self,

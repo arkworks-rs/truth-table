@@ -5,7 +5,7 @@ use crate::prover::{
     nodes::{ProverNode, cost::ProvingCost},
     trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
-use arithmetic::{col::TrackedCol, table::TrackedTable};
+use arithmetic::table::TrackedTable;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

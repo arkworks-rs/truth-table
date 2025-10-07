@@ -11,6 +11,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    piop::PIOP,
 };
 use datafusion::{
     arrow::datatypes::Field,
@@ -18,6 +19,7 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 use indexmap::IndexMap;
+use ra_toolbox::lp_piop::filter_check::{FilterPIOP, FilterPIOPVerifierInput};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
@@ -212,36 +214,34 @@ where
     }
     fn verify_piop(
         &self,
-        prover: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
-        // let filter = match self.node_id().to_lp().unwrap() {
-        //     LogicalPlan::Filter(f) => f.clone(),
-        //     _ => panic!("expected filter logical plan"),
-        // };
+        let filter = match self.node_id().to_lp().unwrap() {
+            LogicalPlan::Filter(f) => f.clone(),
+            _ => panic!("expected filter logical plan"),
+        };
 
-        // let predicate_col = piop_tree
-        //     .table(&NodeId::Expr(filter.predicate.clone()), "output_plan")
-        //     .unwrap()
-        //     .col(0);
-        // let input_tracked_Table = piop_tree
-        //     .table(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
-        //     .unwrap()
-        //     .clone();
-        // let output_tracked_Table = piop_tree
-        //     .table(&self.input_proof_plan.node_id(), "output_plan")
-        //     .unwrap()
-        //     .clone();
+        let predicate_oracle = piop_tree
+            .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), "output_plan")
+            .unwrap()
+            .col(0);
+        let input_tracked_Table_oracle = piop_tree
+            .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
+            .unwrap()
+            .clone();
+        let output_tracked_Table_oracle = piop_tree
+            .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .clone();
 
-        // let filter_piop_verifier_input = FilterPIOPProverInput {
-        //     filter,
-        //     predicate_col,
-        //     input_tracked_Table,
-        //     output_tracked_Table,
-        // };
+        let filter_piop_verifier_input = FilterPIOPVerifierInput {
+            filter,
+            predicate_oracle,
+            input_tracked_Table_oracle,
+            output_tracked_Table_oracle,
+        };
 
-        // FilterPIOP::<F, MvPCS, UvPCS>::prove(prover,
-        // filter_piop_verifier_input)
+        FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)
     }
 }

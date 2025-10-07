@@ -1,18 +1,22 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use arithmetic::{encoding::encode_arrow_array_to_field, table::TrackedTable};
+use arithmetic::{
+    encoding::encode_arrow_array_to_field, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
     prover::Prover,
+    verifier::structs::oracle::Oracle,
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema},
     logical_expr::Expr,
     scalar::ScalarValue,
 };
-use std::{collections::HashMap, sync::Arc};
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct LiteralExprNode {
@@ -54,51 +58,49 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
-        // let scalar = match &self.node_id {
-        //     NodeId::Expr(Expr::Literal(value)) => value.clone(),
-        //     _ => panic!("literal node expected literal expression"),
-        // };
+        let scalar = match &self.node_id {
+            NodeId::Expr(Expr::Literal(value)) => value.clone(),
+            _ => panic!("literal node expected literal expression"),
+        };
 
-        // let array = scalar
-        //     .to_array()
-        //     .expect("failed to convert scalar into arrow array");
+        let array = scalar
+            .to_array()
+            .expect("failed to convert scalar into arrow array");
 
-        // let mut column_values = encode_arrow_array_to_field::<F>(&array)
-        //     .expect("failed to encode literal into field elements")
-        //     .into_iter()
-        //     .next()
-        //     .unwrap_or_else(|| vec![F::zero()]);
+        let mut column_values = encode_arrow_array_to_field::<F>(&array)
+            .expect("failed to encode literal into field elements")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| vec![F::zero()]);
 
-        // if column_values.len() > 1 {
-        //     panic!("literal encoding resulted in multiple field elements");
-        // }
+        if column_values.len() > 1 {
+            panic!("literal encoding resulted in multiple field elements");
+        }
 
-        // let constant_value = column_values.pop().unwrap_or_else(F::zero);
+        let constant_value = column_values.pop().unwrap_or_else(F::zero);
 
-        // let tracked_poly = prover.track_mat_mv_cnst_poly(0, constant_value);
+        let tracked_poly =
+            verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| Ok(constant_value))));
 
-        // let data_type = scalar.data_type();
+        let data_type = scalar.data_type();
 
-        // let schema = Schema::new(vec![Field::new(
-        //     "literal",
-        //     data_type.clone(),
-        //     scalar.is_null(),
-        // )]);
+        let schema = Schema::new(vec![Field::new(
+            "literal",
+            data_type.clone(),
+            scalar.is_null(),
+        )]);
+        let table = TrackedTableOracle::new(
+            Some(schema),
+            IndexMap::from([(
+                Arc::new(Field::new("literal", data_type, scalar.is_null())),
+                tracked_poly,
+            )]),
+            1,
+        );
 
-        // let table = TrackedTable::new(
-        //     Some(schema),
-        //     Vec::from([(
-        //         Arc::new(Field::new("literal", data_type, scalar.is_null())),
-        //         tracked_poly,
-        //     )]),
-        //     1,
-        // );
-
-        // piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(),
-        // table);
+        piop_tree.add_tracked_table_oracle(self.node_id.clone(), "output_plan".to_owned(), table);
     }
     fn verify_piop(
         &self,

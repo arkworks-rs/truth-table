@@ -10,7 +10,7 @@ use ark_piop::{
     test_utils::bench_prelude,
     verifier::Verifier,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
+use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
     logical_expr::LogicalPlan,
@@ -62,15 +62,15 @@ const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
         sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
         tables: &["lineitem"],
     },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    l_extendedprice = 100.1",
-        tables: &["lineitem"],
-    },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
+    // l_extendedprice = 100.1",
+    //     tables: &["lineitem"],
+    // },
 ];
 
 struct CommonInputs {
