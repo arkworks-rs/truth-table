@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
-parallel = ["rayon"]
+default = ["std", "parallel"]
+std = []
+parallel = [
+    "rayon",
+    "ark-ff/parallel",
+    "ark-serialize/parallel",
+    "ark-piop/parallel",
+    "ark-std/parallel",
+]
 
 [dependencies]
 

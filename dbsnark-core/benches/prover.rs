@@ -31,26 +31,6 @@ type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 type ProofForBench = Proof<F, MvPCS, UvPCS>;
-
-static PROOF_CACHE: OnceLock<Mutex<HashMap<QuerySpec, ProofForBench>>> = OnceLock::new();
-
-fn proof_cache() -> &'static Mutex<HashMap<QuerySpec, ProofForBench>> {
-    PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn cached_proof(spec: QuerySpec) -> Option<ProofForBench> {
-    proof_cache()
-        .lock()
-        .expect("proof cache lock poisoned")
-        .get(&spec)
-        .cloned()
-}
-
-fn cache_proof(spec: QuerySpec, proof: &ProofForBench) {
-    let mut cache = proof_cache().lock().expect("proof cache lock poisoned");
-    cache.entry(spec).or_insert_with(|| proof.clone());
-}
-
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 struct QuerySpec {
     sql: &'static str,
@@ -86,23 +66,23 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     //     sql: "SELECT l_partkey FROM lineitem",
     //     tables: &["lineitem"],
     // },
-    // QuerySpec {
-    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    // l_extendedprice = 100.1",
-    //     tables: &["lineitem"],
-    // },
     QuerySpec {
-        sql: "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
+        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
         tables: &["lineitem"],
     },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
+    l_extendedprice = 100.1",
+        tables: &["lineitem"],
+    },
+    // QuerySpec {
+    //     sql: "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
+    //     tables: &["lineitem"],
+    // },
 ];
 
 struct CommonInputs {
@@ -187,37 +167,7 @@ fn build_proof(
     prover.build_proof().expect("build proof")
 }
 
-fn get_or_generate_proof(
-    spec: QuerySpec,
-    common: &CommonInputs,
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-) -> ProofForBench {
-    if let Some(proof) = cached_proof(spec) {
-        println!(
-            "\nReusing cached proof for {} ({} bytes)",
-            spec.short_label(),
-            proof.serialized_size(Compress::Yes)
-        );
-        return proof;
-    }
-
-    let proof = build_proof(
-        &common.runtime,
-        &common.ctx,
-        &common.logical_plan,
-        &common.prover_ctx,
-        prover,
-    );
-    cache_proof(spec, &proof);
-    println!(
-        "\nRecomputing proof for {} ({} bytes)",
-        spec.short_label(),
-        proof.serialized_size(ark_serialize::Compress::Yes)
-    );
-    proof
-}
-
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 1)]
+#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
@@ -244,38 +194,7 @@ fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 &common.prover_ctx,
                 &mut prover,
             );
-            cache_proof(spec, &proof);
             let _ = divan::black_box(proof);
-        });
-}
-
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
-fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
-    bencher
-        .with_inputs(move || {
-            let common = prepare_common_inputs(spec);
-            let (mut prover, verifier) = bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
-            let proof = get_or_generate_proof(spec, &common, &mut prover);
-
-            VerifierInputs {
-                spec,
-                common,
-                verifier,
-                proof,
-            }
-        })
-        .bench_local_values(|inputs| {
-            let VerifierInputs {
-                spec: _,
-                common: CommonInputs { .. },
-                mut verifier,
-                proof,
-            } = inputs;
-
-            verifier.set_proof(proof.clone());
-            verifier.verify().expect("verify proof");
-            divan::black_box(verifier);
-            divan::black_box(proof);
         });
 }
 

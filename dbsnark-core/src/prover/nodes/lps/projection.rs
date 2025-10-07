@@ -21,7 +21,6 @@ use crate::prover::{
     trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
 use arithmetic::table::TrackedTable;
-use datafusion::arrow::datatypes::{Field, FieldRef};
 /// Projection operator that preserves the `activator` column.
 ///
 /// - `expr`: projection expressions from the original logical plan
@@ -130,51 +129,54 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        let projection = match &self.node_id.to_lp().unwrap() {
-            Projection(p) => p,
-            _ => panic!("expected projection logical plan"),
-        };
-
-        let mut columns = Vec::with_capacity(self.expr_proof_plans.len());
-        let mut table_size: Option<usize> = None;
-
-        for (expr_plan, field) in self
-            .expr_proof_plans
-            .iter()
-            .zip(projection.schema.fields().iter())
-        {
-            let table = piop_tree
-                .tracked_table(&expr_plan.node_id(), "output_plan")
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing output_plan table for projection expression {}",
-                        expr_plan.name()
-                    )
-                });
-
-            let size = table.size();
-            if let Some(expected) = table_size {
-                assert_eq!(
-                    expected, size,
-                    "projection expression tables must share the same size",
-                );
-            } else {
-                table_size = Some(size);
-            }
-
-            let col = table.col(0);
-            let field_ref = match col.data_type() {
-                Some(dt) => FieldRef::new(Field::new(field.name(), dt, true)),
-                None => field.clone(),
-            };
-            columns.push((field_ref, col.data_poly().clone()));
-        }
-
-        if columns.is_empty() {
+        if self.expr_proof_plans.is_empty() {
             return;
         }
 
-        let output_table = TrackedTable::new(None, columns, table_size.unwrap_or(0));
+        let expr_tables: Option<Vec<_>> = self
+            .expr_proof_plans
+            .iter()
+            .map(|plan| piop_tree.tracked_table(&plan.node_id(), "output_plan"))
+            .collect();
+
+        let expr_tables = match expr_tables {
+            Some(tables) => tables,
+            None => return,
+        };
+
+        let table_size = expr_tables[0].size();
+        if expr_tables.iter().any(|table| table.size() != table_size) {
+            panic!("projection expression tables must have matching sizes");
+        }
+
+        let mut data_columns = Vec::with_capacity(expr_tables.len() + 1);
+        for table in &expr_tables {
+            let (field, poly) = table
+                .columns()
+                .find(|(field, _)| field.name() != "activator")
+                .expect("expression output must contain data column");
+            data_columns.push((field.clone(), poly.clone()));
+        }
+
+        let activator_pair = expr_tables[0]
+            .columns()
+            .find(|(field, _)| field.name() == "activator")
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+            .or_else(|| {
+                piop_tree
+                    .tracked_table(&self.input_proof_plan.node_id(), "output_plan")
+                    .and_then(|table| {
+                        table
+                            .columns()
+                            .find(|(field, _)| field.name() == "activator")
+                            .map(|(field, poly)| (field.clone(), poly.clone()))
+                    })
+            })
+            .expect("activator column not found for projection");
+
+        data_columns.push(activator_pair);
+
+        let output_table = TrackedTable::new(None, data_columns, table_size);
         piop_tree.add_table(
             self.node_id.clone(),
             "output_plan".to_string(),

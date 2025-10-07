@@ -36,6 +36,7 @@ parallel = [
     "std",
     "rayon",
     "ark-ff/parallel",
+    "ark-serialize/parallel",
     "ark-piop/parallel",
     "arithmetic/parallel",
     "ark-std/parallel",

@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use arithmetic::ctx::SharedCtx;
+use arithmetic::{ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -9,6 +9,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
+    arrow::datatypes::Field,
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
@@ -185,6 +186,38 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
+        let _ = prover; // activator derivation is purely from tracked tables
+        let input_table =
+            match piop_tree.tracked_table(&self.input_proof_plan.node_id(), "output_plan") {
+                Some(table) => table,
+                None => return,
+            };
+        let predicate_table =
+            match piop_tree.tracked_table(&self.predicate_proof_plan.node_id(), "output_plan") {
+                Some(table) => table,
+                None => return,
+            };
+        let (pred_field, pred_poly) = predicate_table
+            .columns()
+            .find(|(field, _)| field.name() == "activator")
+            .or_else(|| predicate_table.columns().next())
+            .expect("predicate output table must have a column");
+        let activator_field = Field::new("activator", pred_field.data_type().clone(), true);
+        let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
+        let mut columns = Vec::new();
+        for (field, poly) in input_table.columns() {
+            if field.name() == "activator" {
+                continue;
+            }
+            columns.push((field.clone(), poly.clone()));
+        }
+        columns.push((activator_field_ref, pred_poly.clone()));
+        let output_table = TrackedTable::new(None, columns, input_table.size());
+        piop_tree.add_table(
+            self.node_id.clone(),
+            "output_plan".to_string(),
+            output_table,
+        );
     }
     fn prove_piop(
         &self,
