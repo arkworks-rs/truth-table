@@ -15,6 +15,7 @@ use ark_serialize::{
 
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
+use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 
 use crate::col::TrackedCol;
@@ -37,7 +38,7 @@ where
     /// The schema of the table; i.e. the metadata about the table
     schema: Option<Schema>,
     /// The polynomials representing the data columns, stored in schema order
-    data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
+    tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
     size: usize,
 }
 
@@ -66,10 +67,10 @@ where
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         let data_polys = self
-            .data_polys
+            .tracked_polys
             .iter()
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
-            .collect();
+            .collect::<IndexMap<_, _>>();
         Self::new(self.schema.clone(), data_polys, self.size)
     }
 }
@@ -80,42 +81,61 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(
+    pub fn new<I>(
         schema: Option<Schema>,
-        data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
+        tracked_polys: I,
         // TODO: See if we can remove this
         size: usize,
-    ) -> Self {
+    ) -> Self
+    where
+        I: IntoIterator<Item = (FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
+    {
+        let tracked_polys = tracked_polys.into_iter().collect::<IndexMap<_, _>>();
         Self {
             schema,
-            data_polys,
+            tracked_polys,
             size,
         }
     }
     pub fn log_size(&self) -> usize {
-        self.data_polys
-            .first()
+        self.tracked_polys
+            .values()
+            .next()
             .expect("table should have columns")
-            .1
             .log_size()
     }
 
     pub fn prover(&self) -> Prover<F, MvPCS, UvPCS> {
         Prover::new_from_tracker_rc(
-            self.data_polys
-                .first()
+            self.tracked_polys
+                .values()
+                .next()
                 .expect("table should have columns")
-                .1
                 .tracker(),
         )
     }
 
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
         assert_eq!(col_inds.len(), challs.len());
-        let mut folded: TrackedPoly<F, MvPCS, UvPCS> =
-            &self.data_polys[col_inds[0]].1.clone() * challs[0];
-        for i in 1..col_inds.len() {
-            folded += &(&self.data_polys[col_inds[i]].1 * challs[i]);
+        let first_idx = *col_inds
+            .first()
+            .expect("fold requires at least one column index");
+        let first_chall = challs
+            .first()
+            .copied()
+            .expect("fold requires at least one challenge");
+        let (_, first_poly) = self
+            .tracked_polys
+            .get_index(first_idx)
+            .expect("column index out of bounds");
+        let mut folded: TrackedPoly<F, MvPCS, UvPCS> = first_poly * first_chall;
+        for (&col_idx, &chall) in col_inds.iter().zip(challs).skip(1) {
+            let (_, poly) = self
+                .tracked_polys
+                .get_index(col_idx)
+                .expect("column index out of bounds");
+            let term = poly * chall;
+            folded += &term;
         }
         TrackedCol::new(None, folded, self.actvtr_poly())
     }
@@ -135,7 +155,11 @@ where
                 }
                 schema.field(col_ind).clone().data_type().clone()
             }),
-            self.data_polys[col_ind].1.clone(),
+            self.tracked_polys
+                .get_index(col_ind)
+                .expect("column index out of bounds")
+                .1
+                .clone(),
             self.actvtr_poly(),
         )
     }
@@ -149,7 +173,7 @@ where
     }
 
     pub fn data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
-        self.data_polys
+        self.tracked_polys
             .iter()
             .map(|(_, poly)| poly.clone())
             .collect()
@@ -169,12 +193,12 @@ where
 
     // Number of data columns (including possibly activator)
     pub fn num_total_cols(&self) -> usize {
-        self.data_polys.len()
+        self.tracked_polys.len()
     }
 
     // Number of data columns (excludin possibly activator)
     pub fn num_data_cols(&self) -> usize {
-        self.data_polys.len() - (self.actvtr_poly().is_some() as usize)
+        self.tracked_polys.len() - (self.actvtr_poly().is_some() as usize)
     }
 
     pub fn schema(&self) -> Option<Schema> {
@@ -182,13 +206,13 @@ where
     }
 
     pub fn actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
-        self.data_polys
+        self.tracked_polys
             .iter()
             .find_map(|(field, poly)| (field.name() == "activator").then(|| poly.clone()))
     }
 
     pub fn columns(&self) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<F, MvPCS, UvPCS>)> {
-        self.data_polys.iter().map(|(field, poly)| (field, poly))
+        self.tracked_polys.iter()
     }
 }
 

@@ -1,4 +1,7 @@
-mod display;
+pub mod display;
+
+#[cfg(test)]
+mod tests;
 
 use std::{collections::HashMap, fmt};
 
@@ -20,7 +23,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    tracked_table_oracles: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -32,11 +35,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VerifierPIOPTree")
-            .field("num_nodes", &self.tables.len())
+            .field("num_nodes", &self.tracked_table_oracles.len())
             .field(
                 "nodes",
                 &VirtualNodesDebug {
-                    inner: &self.tables,
+                    inner: &self.tracked_table_oracles,
                 },
             )
             .finish()
@@ -51,33 +54,36 @@ where
 {
     pub fn new(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+        tracked_table_oracles: IndexMap<
+            NodeId,
+            HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+        >,
     ) -> Self {
         Self {
-            tables,
+            tracked_table_oracles,
             inner_proof_tree: proof_tree,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.tables.len()
+        self.tracked_table_oracles.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tables.is_empty()
+        self.tracked_table_oracles.is_empty()
     }
 
-    pub fn tables(
+    pub fn tracked_table_oracles(
         &self,
     ) -> &IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
-        &self.tables
+        &self.tracked_table_oracles
     }
 
-    pub fn tables_for(
+    pub fn tracked_table_oracles_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
-        self.tables.get(node_id)
+        self.tracked_table_oracles.get(node_id)
     }
 
     pub fn proof_tree(&self) -> &VerifierProofTree<F, MvPCS, UvPCS> {
@@ -88,21 +94,24 @@ where
         display::DisplayableVerifierPIOPTree::new(self)
     }
 
-    pub fn add_table(
+    pub fn add_tracked_table_oracle(
         &mut self,
         node_id: NodeId,
         label: String,
         table: TrackedTableOracle<F, MvPCS, UvPCS>,
     ) {
-        self.tables.entry(node_id).or_default().insert(label, table);
+        self.tracked_table_oracles
+            .entry(node_id)
+            .or_default()
+            .insert(label, table);
     }
 
-    pub fn table(
+    pub fn tracked_table_oracle(
         &self,
         node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTableOracle<F, MvPCS, UvPCS>> {
-        self.tables
+        self.tracked_table_oracles
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
@@ -122,10 +131,10 @@ where
         IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) {
         let VerifierPIOPTree {
-            tables,
+            tracked_table_oracles,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, tables)
+        (inner_proof_tree, tracked_table_oracles)
     }
 }
 
@@ -143,7 +152,7 @@ where
         indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tables.iter()
+        self.tracked_table_oracles.iter()
     }
 }
 
@@ -158,7 +167,7 @@ where
         indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tables.into_iter()
+        self.tracked_table_oracles.into_iter()
     }
 }
 

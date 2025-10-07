@@ -162,17 +162,6 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
-        for child in self.children() {
-            child.append_sorted_descendants(out);
-            out.push(Arc::clone(child));
-        }
-    }
-
-    fn name(&self) -> String {
-        self.node_id().to_string()
-    }
-
     fn cost(
         &self,
         _statistics: datafusion::common::Statistics,
@@ -184,9 +173,8 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
-        let _ = prover; // activator derivation is purely from tracked tables
         let input_table =
             match piop_tree.tracked_table(&self.input_proof_plan.node_id(), "output_plan") {
                 Some(table) => table,

@@ -56,7 +56,7 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         todo!()
         // let column_expr = match &self.node_id {

@@ -9,12 +9,7 @@ use ark_piop::{
     test_utils::init_tracing_for_tests,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    error::Result as DFResult,
-    logical_expr::LogicalPlan,
-    prelude::{ParquetReadOptions, SessionContext},
-};
-use tpch_data::test_data_path;
+use datafusion::prelude::SessionContext;
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]

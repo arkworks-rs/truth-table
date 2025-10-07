@@ -5,20 +5,19 @@ use crate::{
         trees::proof_tree::VerifierProofTree,
     },
 };
-use arithmetic::ctx::SharedCtx;
+use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    piop::PIOP,
-    prover::Prover,
 };
 use datafusion::{
+    arrow::datatypes::Field,
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
-use ra_toolbox::lp_piop::filter_check::{FilterPIOP, FilterPIOPProverInput};
+use indexmap::IndexMap;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
@@ -129,8 +128,7 @@ where
             VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
         // Fetching the output logical plan of the input logical plan
         let child_plan = output_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
-        // Build the
-        // output logical plan for this filter node on top of the child output
+        // Build the output logical plan for this filter node on top of the child output
         // logical plan
         let output_plan = Self::build_output_logical_plan(filter.predicate.clone(), child_plan);
         // The predicate is an expr and needs to be proved
@@ -141,13 +139,11 @@ where
             &output_plan,
         );
         // Building the witness generation plans map
-        let hint_generation_plans =
-            HashMap::from([("output_plan".to_string(), output_plan.clone())]);
         Self {
             predicate_proof_plan,
             input_proof_plan: input_proof_plan.root(),
             node_id: NodeId::LP(plan),
-            hint_generation_plans,
+            hint_generation_plans: HashMap::new(),
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -179,8 +175,40 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
+        let input_table =
+            match piop_tree.tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan") {
+                Some(table) => table,
+                None => return,
+            };
+        let predicate_table = match piop_tree
+            .tracked_table_oracle(&self.predicate_proof_plan.node_id(), "output_plan")
+        {
+            Some(table) => table,
+            None => return,
+        };
+        let (pred_field, pred_poly) = predicate_table
+            .columns()
+            .find(|(field, _)| field.name() == "activator")
+            .or_else(|| predicate_table.columns().next())
+            .expect("predicate output table must have a column");
+        let activator_field = Field::new("activator", pred_field.data_type().clone(), true);
+        let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
+        let mut columns = IndexMap::new();
+        for (field, poly) in input_table.columns() {
+            if field.name() == "activator" {
+                continue;
+            }
+            columns.insert(field.clone(), poly.clone());
+        }
+        columns.insert(activator_field_ref, pred_poly.clone());
+        let output_table = TrackedTableOracle::new(None, columns, input_table.log_size());
+        piop_tree.add_tracked_table_oracle(
+            self.node_id.clone(),
+            "output_plan".to_string(),
+            output_table,
+        );
     }
     fn verify_piop(
         &self,

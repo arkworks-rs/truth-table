@@ -1,6 +1,9 @@
 use crate::{
     id::NodeId,
-    verifier::{nodes::VerifierNode, trees::proof_tree::VerifierProofTree},
+    verifier::{
+        nodes::{VerifierNode, lps::TableScanNode},
+        trees::proof_tree::VerifierProofTree,
+    },
 };
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::PrimeField;
@@ -9,8 +12,13 @@ use ark_piop::{
     pcs::PCS,
     verifier::Verifier,
 };
+use datafusion::{
+    arrow::datatypes::{FieldRef, Schema},
+    common::DFSchemaRef,
+};
 use indexmap::IndexMap;
 use std::{collections::HashMap, fmt, sync::Arc};
+use tracing::instrument;
 
 mod display;
 #[cfg(test)]
@@ -107,166 +115,152 @@ where
         } = self;
         (inner_proof_tree, tables)
     }
-
+    #[instrument(level = "debug", skip_all)]
     pub fn from_proof_tree(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> VerifierTrackedTree<F, MvPCS, UvPCS> {
-        todo!()
-        //         let root = proof_tree.root();
+        fn collect<F, MvPCS, UvPCS>(
+            node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+            depth: usize,
+            depths: &mut HashMap<usize, usize>,
+            out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+        ) where
+            F: PrimeField,
+            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+        {
+            for child in node.children() {
+                collect(child, depth + 1, depths, out);
+            }
+            depths.insert(node_ptr_id(node), depth);
+            out.push(Arc::clone(node));
+        }
 
-        //         fn collect<F, MvPCS, UvPCS>(
-        //             node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-        //             out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-        //         ) where
-        //             F: PrimeField,
-        //             MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-        //             UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-        //         {
-        //             for child in node.children() {
-        //                 collect(child, out);
-        //             }
-        //             out.push(Arc::clone(node));
-        //         }
+        let root = proof_tree.root();
+        let mut nodes = Vec::new();
+        let mut depths = HashMap::new();
+        collect(&root, 0, &mut depths, &mut nodes);
 
-        //         let mut nodes = Vec::new();
-        //         collect(&root, &mut nodes);
+        let mut table_scan_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|node| node.as_any().downcast_ref::<TableScanNode>().is_some())
+            .cloned()
+            .collect();
+        let mut other_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|node| node.as_any().downcast_ref::<TableScanNode>().is_none())
+            .cloned()
+            .collect();
 
-        //         let mut by_id: HashMap<usize, HashMap<String, DFSchemaRef>> =
-        // HashMap::new();         for node in &nodes {
-        //             let plans = node.hint_generation_plans();
-        //             if plans.is_empty() {
-        //                 continue;
-        //             }
-        //             let entry = by_id.entry(node_ptr_id(node)).or_default();
-        //             for (label, plan) in plans {
-        //                 entry.insert(label, plan.schema().clone());
-        //             }
-        //         }
+        let cmp_nodes = |a: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+                         b: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>| {
+            let depth_a = depths.get(&node_ptr_id(a)).copied().unwrap_or(0);
+            let depth_b = depths.get(&node_ptr_id(b)).copied().unwrap_or(0);
+            depth_b
+                .cmp(&depth_a)
+                .then_with(|| a.node_id().to_string().cmp(&b.node_id().to_string()))
+        };
 
-        //         for node in &nodes {
-        //             by_id.entry(node_ptr_id(node)).or_default();
-        //         }
+        table_scan_nodes.sort_by(cmp_nodes);
+        other_nodes.sort_by(cmp_nodes);
 
-        //         let node_count = nodes.len();
-        //         let (mut table_scan_nodes, mut other_nodes): (Vec<_>, Vec<_>)
-        // =             nodes.into_iter().partition(|node| {
-        //                 node.as_any()
-        //                     .downcast_ref::<TableScanNode>()
-        //                     .is_some()
-        //             });
-        //         table_scan_nodes.extend(other_nodes);
+        let ordered_nodes = table_scan_nodes
+            .into_iter()
+            .chain(other_nodes)
+            .collect::<Vec<_>>();
 
-        //         let mut results_by_node_id: IndexMap<NodeId, HashMap<String,
-        // DFSchemaRef>> =
-        // IndexMap::with_capacity(node_count);         for node in
-        // table_scan_nodes {             let node_id = node.node_id();
-        //             let ptr_id = node_ptr_id(&node);
-        //             let entry = by_id.remove(&ptr_id).unwrap_or_default();
-        //             results_by_node_id.insert(node_id, entry);
-        //         }
+        let mut ordered_infos: Vec<(NodeId, bool, HashMap<String, DFSchemaRef>)> =
+            Vec::with_capacity(ordered_nodes.len());
 
-        //   let prover_ctx = proof_tree.ctx_mut();
-        //         let mut commitment_map: HashMap<Arc<MLE<F>>,
-        // Option<MvPCS::Commitment>> = HashMap::new();         // First
-        // initialize the commitment mapping for all polynomials in the
-        //         // arithmetized tree.
-        //         for (_, arith_tables) in &node_arith_tables {
-        //             for arith_table in arith_tables.values() {
-        //                 for (_, mle) in arith_table.data_polys() {
-        //                     commitment_map.insert(mle.clone(), None);
-        //                 }
-        //             }
-        //         }
+        for node in ordered_nodes {
+            let node_id = node.node_id();
+            let is_table_scan = node.as_any().downcast_ref::<TableScanNode>().is_some();
+            let schema_map: HashMap<String, DFSchemaRef> = node
+                .hint_generation_plans()
+                .into_iter()
+                .map(|(label, plan)| (label, Arc::clone(plan.schema())))
+                .collect();
+            ordered_infos.push((node_id, is_table_scan, schema_map));
+        }
 
-        //         // Now, if a node was a TableScan and we have a saved oracle
-        // for it, use the         // saved commitments to avoid
-        // recomputing them.         for (node_id, arith_tables) in
-        // &node_arith_tables {             let is_table_scan =
-        // matches!(node_id, NodeId::LP(LogicalPlan::TableScan(_)));
-        //             for arith_table in arith_tables.values() {
-        //                 if let Some(schema) = arith_table.schema() {
-        //                     if is_table_scan {
-        //                         for (field_ref, mle) in
-        // arith_table.data_polys() {                             let
-        // saved_commitment =                                 prover_ctx
-        //                                     .table_oracle(&schema)
-        //                                     .and_then(|saved_table_oracle| {
-        //
-        // saved_table_oracle.data_comitments().get(field_ref).cloned()
-        //                                     });
-        //                             commitment_map.insert(mle.clone(),
-        // saved_commitment);                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
+        let shared_ctx = proof_tree.ctx().clone();
 
-        //         // Now build a list of all polynomials that are still missing
-        // commitments         let missing_commitments: Vec<Arc<MLE<F>>>
-        // = commitment_map             .iter()
-        //             .filter_map(|(mle_arc, com_opt)| {
-        //                 if com_opt.is_none() {
-        //                     Some(mle_arc.clone())
-        //                 } else {
-        //                     None
-        //                 }
-        //             })
-        //             .collect();
+        let mut tables_by_node: IndexMap<
+            NodeId,
+            HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+        > = IndexMap::with_capacity(ordered_infos.len());
 
-        //         let pcs_param = prover.mv_pcs_prover_param().clone();
+        for (node_id, is_table_scan, schema_map) in ordered_infos {
+            let mut tables_for_node = HashMap::with_capacity(schema_map.len());
 
-        //         let new_commitments: Vec<_> =
-        // cfg_into_iter!(missing_commitments)
-        // .map(|mle_arc| {                 let commitment =
-        // MvPCS::commit(pcs_param.clone(), &mle_arc)
-        // .expect("failed to commit witness polynomial");
-        // (mle_arc, commitment)             })
-        //             .collect();
+            for (label, df_schema) in schema_map {
+                let arrow_schema_ref = Arc::clone(df_schema.inner());
+                let schema_owned = Some(arrow_schema_ref.as_ref().clone());
 
-        //         for (mle_arc, commitment) in new_commitments {
-        //             let entry = commitment_map
-        //                 .get_mut(&mle_arc)
-        //                 .expect("missing commitment for polynomial");
-        //             *entry = Some(commitment);
-        //         }
-        //         let mut tables_by_node: IndexMap<NodeId, HashMap<String,
-        // TrackedTable<F, MvPCS, UvPCS>>> =
-        // IndexMap::with_capacity(node_arith_tables.len());         for
-        // (node_id, tables) in node_arith_tables {             let mut
-        // tracked_tables = HashMap::with_capacity(tables.len());
-        //             for (label, arith_table) in tables {
-        //                 let num_total_cols = arith_table.num_total_cols();
-        //                 let table = if num_total_cols == 0 {
-        //                     TrackedTable::new(arith_table.schema(),
-        // Vec::new(), arith_table.size())                 } else {
-        //                     let mut data_polys: Vec<(FieldRef, TrackedPoly<F,
-        // MvPCS, UvPCS>)> =
-        // Vec::with_capacity(num_total_cols);
+                let mut columns: IndexMap<FieldRef, _> =
+                    IndexMap::with_capacity(arrow_schema_ref.fields().len());
+                let mut log_size: Option<usize> = None;
 
-        //                     for (field_ref, mle) in arith_table.data_polys()
-        // {                         let commitment = commitment_map
-        //                             .get(mle)
-        //                             .expect("missing commitment for
-        // polynomial")                             .clone()
-        //                             .expect("missing commitment for
-        // polynomial");                         let tracked = prover
-        //
-        // .track_mat_mv_poly_with_commitment(mle.as_ref(), commitment)
-        //                             .expect("failed to commit witness
-        // polynomial");
-        // data_polys.push((field_ref.clone(), tracked));
-        // }
+                if is_table_scan {
+                    let schema_ref = arrow_schema_ref.as_ref();
+                    let base_oracle = shared_ctx.table_oracle(schema_ref).unwrap_or_else(|| {
+                        panic!("missing table oracle for schema {schema_ref:?}")
+                    });
+                    log_size = Some(base_oracle.log_size());
+                    for field_ref in arrow_schema_ref.fields().iter() {
+                        let field_ref = field_ref.clone();
+                        let commitment = base_oracle
+                            .data_comitments()
+                            .get(&field_ref)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "missing commitment for field {} in table scan node {}",
+                                    field_ref.name(),
+                                    node_id
+                                )
+                            })
+                            .clone();
+                        let tracked = verifier
+                            .track_mat_mv_com(commitment)
+                            .expect("failed to track table scan commitment");
+                        columns.insert(field_ref, tracked);
+                    }
+                } else {
+                    for field_ref in arrow_schema_ref.fields().iter() {
+                        let field_ref = field_ref.clone();
+                        let expected_id = verifier.peek_next_id();
+                        let tracked = verifier
+                            .track_mv_com_by_id(expected_id)
+                            .expect("failed to track prover commitment by id");
+                        let num_vars = verifier
+                            .commitment_num_vars(expected_id)
+                            .expect("missing commitment arity");
+                        match log_size {
+                            Some(existing) => {
+                                assert_eq!(
+                                    existing, num_vars,
+                                    "inconsistent log size within table for node {}",
+                                    node_id
+                                );
+                            },
+                            None => {
+                                log_size = Some(num_vars);
+                            },
+                        }
+                        columns.insert(field_ref, tracked);
+                    }
+                }
 
-        //                     TrackedTable::new(arith_table.schema(),
-        // data_polys, arith_table.size())                 };
+                let table_log_size = log_size.unwrap_or(0);
+                let table_oracle = TrackedTableOracle::new(schema_owned, columns, table_log_size);
+                tables_for_node.insert(label, table_oracle);
+            }
 
-        //                 tracked_tables.insert(label, table);
-        //             }
-        //             tables_by_node.insert(node_id, tracked_tables);
-        //         }
+            tables_by_node.insert(node_id, tables_for_node);
+        }
 
-        //         Ok(Self::new(proof_tree, tables_by_node))
+        VerifierTrackedTree::new(proof_tree, tables_by_node)
     }
 }
 

@@ -11,6 +11,7 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
 };
+use indexmap::IndexMap;
 
 use crate::{
     col_oracle::TrackedColOracle,
@@ -43,7 +44,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     schema: Option<Schema>,
-    data_oracles: HashMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
+    tracked_oracles: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
     log_size: usize,
 }
 
@@ -72,12 +73,12 @@ where
     /// column oracles and the log size of the table
     pub fn new(
         schema: Option<Schema>,
-        data_oracles: HashMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
+        tracked_oracles: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
         log_size: usize,
     ) -> Self {
         Self {
             schema,
-            data_oracles,
+            tracked_oracles,
             log_size,
         }
     }
@@ -96,7 +97,7 @@ where
             .expect("schema required for indexed folding");
         let first_field = schema.field(col_inds[0]).clone();
         let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &self
-            .data_oracles
+            .tracked_oracles
             .get(&first_field)
             .expect("column oracle not found")
             .clone()
@@ -104,7 +105,7 @@ where
         for i in 1..col_inds.len() {
             let field_ref = schema.field(col_inds[i]).clone();
             let col_oracle = self
-                .data_oracles
+                .tracked_oracles
                 .get(&field_ref)
                 .expect("column oracle not found")
                 .clone();
@@ -136,7 +137,7 @@ where
         let field_ref = schema.field(col_ind).clone();
         let data_type = schema.field(col_ind).data_type().clone();
         let oracle = self
-            .data_oracles
+            .tracked_oracles
             .get(&field_ref)
             .expect("column oracle not found")
             .clone();
@@ -161,12 +162,12 @@ where
     /// Returns the number of columns in the table (including possibly
     /// activator)
     pub fn num_total_cols(&self) -> usize {
-        self.data_oracles.len()
+        self.tracked_oracles.len()
     }
     /// Returns the number of columns in the table (excluding possibly
     /// activator)
     pub fn num_data_cols(&self) -> usize {
-        self.data_oracles.len() - (self.actvtr_poly().is_some() as usize)
+        self.tracked_oracles.len() - (self.actvtr_poly().is_some() as usize)
     }
     /// Constructs an `TrackedTableOracle` from an `TrackedTable` by tracking
     /// the column and activator polynomials using the provided verifier
@@ -179,7 +180,7 @@ where
         let schema = table.schema().clone();
         let log_size = table.log_size();
 
-        let mut data_map = HashMap::with_capacity(table.num_total_cols());
+        let mut data_map = IndexMap::with_capacity(table.num_total_cols());
         for (field_ref, poly) in table.columns() {
             let id = poly.id_or_const().left().ok_or_else(|| {
                 VerifierError::VerifierCheckFailed(
@@ -194,8 +195,8 @@ where
     }
 
     /// Returns the vector of raw column oracles in the table
-    pub fn data_oracles(&self) -> HashMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> {
-        self.data_oracles.clone()
+    pub fn data_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> {
+        self.tracked_oracles.clone()
     }
     /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
@@ -203,9 +204,12 @@ where
     }
     /// Returns the optional activator oracle of the table
     pub fn actvtr_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
-        self.data_oracles
+        self.tracked_oracles
             .iter()
             .find_map(|(field, oracle)| (field.name() == "activator").then(|| oracle.clone()))
+    }
+    pub fn columns(&self) -> impl Iterator<Item = (&FieldRef, &TrackedOracle<F, MvPCS, UvPCS>)> {
+        self.tracked_oracles.iter()
     }
 }
 
@@ -267,6 +271,10 @@ where
             data_comitments,
             log_size: table_oracle.log_size(),
         }
+    }
+
+    pub fn log_size(&self) -> usize {
+        self.log_size
     }
 
     pub fn schema(&self) -> Option<Schema> {
