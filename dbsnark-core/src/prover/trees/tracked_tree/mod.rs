@@ -6,27 +6,19 @@ pub mod display;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use arithmetic::{
-    ctx::SharedCtx,
-    errors::EncodeError,
-    table::{ArithTable, TrackedTable},
-    table_oracle::ArithTableOracle,
-};
+use arithmetic::{errors::EncodeError, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     prover::{Prover, structs::polynomial::TrackedPoly},
 };
-use ark_std::{cfg_into_iter, cfg_iter};
-use datafusion::{
-    arrow::{array::RecordBatch, datatypes::FieldRef},
-    logical_expr::LogicalPlan,
-};
+use ark_std::cfg_into_iter;
+use datafusion::{arrow::datatypes::FieldRef, logical_expr::LogicalPlan};
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use tracing::info;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use tracing::{info, instrument};
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -140,10 +132,7 @@ where
         (inner_proof_tree, tracked_tables)
     }
 
-    #[tracing::instrument(
-        name = "tracked_tree::from_arithmetized_tree",
-        skip(arith_tree, prover)
-    )]
+    #[instrument(level = "debug", skip_all)]
     pub fn from_arithmetized_tree(
         arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,

@@ -5,7 +5,7 @@ use crate::{
         trees::proof_tree::VerifierProofTree,
     },
 };
-use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -118,6 +118,7 @@ where
     #[instrument(level = "debug", skip_all)]
     pub fn from_proof_tree(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
+        shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> VerifierTrackedTree<F, MvPCS, UvPCS> {
         fn collect<F, MvPCS, UvPCS>(
@@ -190,7 +191,7 @@ where
             NodeId,
             HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
         > = IndexMap::with_capacity(ordered_infos.len());
-
+        // At this point, we have the nodes in an order synced with the prover
         for (node_id, is_table_scan, schema_map) in ordered_infos {
             let mut tables_for_node = HashMap::with_capacity(schema_map.len());
 

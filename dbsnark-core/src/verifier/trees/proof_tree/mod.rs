@@ -20,6 +20,7 @@ use datafusion::{
     },
     prelude::{Expr, SessionContext},
 };
+use tracing::instrument;
 mod display;
 #[cfg(test)]
 pub mod tests;
@@ -100,6 +101,7 @@ where
         map
     }
 
+    #[instrument(level = "debug", skip_all)]
     pub fn from_expr(
         ctx: &SessionContext,
         verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
@@ -150,7 +152,7 @@ where
     }
 
     /// Build a `VerifierNode` tree from a DataFusion `LogicalPlan`.
-    #[tracing::instrument(name = "from_lp", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn from_lp(
         ctx: &SessionContext,
         verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,

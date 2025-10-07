@@ -20,6 +20,7 @@ use datafusion::arrow::{
 };
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::prover::trees::{hint_tree::ProverHintTree, proof_tree::ProverProofTree};
 
@@ -68,7 +69,7 @@ where
         }
     }
 
-    #[tracing::instrument(name = "arithmetized_tree::from_hint_tree", skip(hint_tree))]
+    #[instrument(level = "debug", skip_all)]
     pub fn from_hint_tree(hint_tree: ProverHintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();
         let mut tables_by_node = IndexMap::with_capacity(hint_map.len());

@@ -19,6 +19,7 @@ use ark_piop::{
     piop::PIOP,
     prover::Prover,
 };
+use tracing::instrument;
 
 /// Virtualized tables indexed by proof-plan node identifier.
 pub struct ProverPIOPTree<F, MvPCS, UvPCS>
@@ -118,6 +119,7 @@ where
     }
 
     /// Build a virtualized plan from an arithmetized plan.
+    #[instrument(level = "debug", skip_all)]
     pub fn from_tracked_plan(
         arith_plan: ProverTrackedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,

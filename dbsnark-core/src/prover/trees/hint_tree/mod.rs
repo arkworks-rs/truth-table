@@ -25,7 +25,7 @@ use futures::{
     FutureExt,
     future::{BoxFuture, try_join_all},
 };
-use tracing::{debug, trace};
+use tracing::{debug, instrument, trace};
 
 use crate::prover::{
     nodes::{ProverNode, lps::TableScanNode},
@@ -140,7 +140,7 @@ where
     /// Execute the proof tree and assemble a hint tree mirroring the
     /// proof-tree shape. All hint-generation logical plans are executed in
     /// parallel.
-    #[tracing::instrument(name = "hint_tree::from_proof_tree", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn from_proof_tree(
         ctx: &SessionContext,
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,

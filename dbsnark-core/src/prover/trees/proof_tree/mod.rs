@@ -21,6 +21,7 @@ use datafusion::{
     },
     prelude::{Expr, SessionContext},
 };
+use tracing::instrument;
 
 #[cfg(test)]
 pub mod tests;
@@ -104,7 +105,7 @@ where
 
     /// Build a `ProverNode` tree from a DataFusion `Expr`.
     /// This is where dispatching happens based on the type of expression.
-    #[tracing::instrument(skip(ctx, prover_ctx, parent_logical_plan))]
+    #[instrument(level = "debug", skip_all)]
     pub fn from_expr(
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
@@ -166,7 +167,7 @@ where
     /// Build a `ProverNode` tree from a DataFusion `LogicalPlan`.
     /// This is where dispatching happens based on the type of logical plan
     /// node.
-    #[tracing::instrument(skip(ctx, prover_ctx))]
+    #[instrument(level = "debug", skip_all)]
     pub fn from_lp(
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
