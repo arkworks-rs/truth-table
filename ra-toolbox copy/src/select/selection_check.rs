@@ -149,23 +149,23 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         output_col: &TrackedCol<F, MvPCS, UvPCS>,
         filter: F,
     ) -> (TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>) {
-        let selected_actv = input_col.actvtr_poly().unwrap() * (output_col.actvtr_poly().unwrap());
+        let selected_activator = input_col.activator_tracked_poly().unwrap() * (output_col.activator_tracked_poly().unwrap());
 
-        let complement = output_col.actvtr_poly().unwrap() * (-F::one());
+        let complement = output_col.activator_tracked_poly().unwrap() * (-F::one());
         let complement = &complement + F::one();
-        let non_selected_actv = input_col.actvtr_poly().unwrap() * &complement;
-        let shifted_inner = (input_col.data_poly()) - filter;
+        let non_selected_activator = input_col.activator_tracked_poly().unwrap() * &complement;
+        let shifted_inner = (input_col.data_tracked_poly()) - filter;
 
         (
             TrackedCol::new(
                 input_col.data_type().clone(),
                 shifted_inner.clone(),
-                Some(selected_actv),
+                Some(selected_activator),
             ),
             TrackedCol::new(
                 input_col.data_type().clone(),
                 shifted_inner,
-                Some(non_selected_actv),
+                Some(non_selected_activator),
             ),
         )
     }
@@ -175,11 +175,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         output_tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
         filter: F,
     ) -> (TrackedColOracle<F, MvPCS, UvPCS>, TrackedColOracle<F, MvPCS, UvPCS>) {
-        let selected_actv =
-            input_tracked_col_oracle.actv.as_ref().unwrap() * (output_tracked_col_oracle.actv.as_ref().unwrap());
+        let selected_activator =
+            input_tracked_col_oracle.activator.as_ref().unwrap() * (output_tracked_col_oracle.activator.as_ref().unwrap());
 
-        let non_selected_actv = input_tracked_col_oracle.actv.as_ref().unwrap()
-            * &(&(output_tracked_col_oracle.actv.as_ref().unwrap() * (-F::one())) + F::one());
+        let non_selected_activator = input_tracked_col_oracle.activator.as_ref().unwrap()
+            * &(&(output_tracked_col_oracle.activator.as_ref().unwrap() * (-F::one())) + F::one());
 
         let shifted_inner = &input_tracked_col_oracle.inner - filter;
 
@@ -187,13 +187,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             TrackedColOracle {
                 data_type: input_tracked_col_oracle.data_type.clone(),
                 inner: shifted_inner.clone(),
-                actv: Some(selected_actv),
+                activator: Some(selected_activator),
                 num_vars: input_tracked_col_oracle.num_vars,
             },
             TrackedColOracle {
                 data_type: input_tracked_col_oracle.data_type.clone(),
                 inner: shifted_inner,
-                actv: Some(non_selected_actv),
+                activator: Some(non_selected_activator),
                 num_vars: input_tracked_col_oracle.num_vars,
             },
         )
@@ -209,7 +209,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Self::build_selected_and_non_selected_cols(&input_col, &output_col, eq_filter);
         // check wether all of the selected rows equal to eq_filter
 
-        prover.add_mv_zerocheck_claim(selected_col.activated_data_poly().id())?;
+        prover.add_mv_zerocheck_claim(selected_col.activated_data_tracked_poly().id())?;
 
         // check all of the rows that were not selected are not equal eq_filter
         let no_zeros_check_prover_input = NoZerosCheckProverInput {
@@ -365,17 +365,17 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
 
-    fn broadcast_actv_col(
+    fn broadcast_activator_col(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input_col: TrackedCol<F, MvPCS, UvPCS>,
         output_col: TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
         // let mut selected_hash_set: HashSet<F> = HashSet::new();
-        let output_inner_evals = output_col.data_poly().evaluations();
-        let selected_hash_set: HashSet<F> = match output_col.actvtr_poly() {
-            Some(ref actv_tr_p) => {
-                let output_actv_evals = actv_tr_p.evaluations();
-                cfg_iter!(output_actv_evals)
+        let output_inner_evals = output_col.data_tracked_poly().evaluations();
+        let selected_hash_set: HashSet<F> = match output_col.activator_tracked_poly() {
+            Some(ref activator_tr_p) => {
+                let output_activator_evals = activator_tr_p.evaluations();
+                cfg_iter!(output_activator_evals)
                     .zip(cfg_iter!(output_inner_evals))
                     .filter(|(is_active, _inner_eval)| {
                         // Filter the evaluations where the activator is one and the inner
@@ -398,7 +398,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
         };
         let mut broadcasted_selector_evals = vec![F::zero(); 1 << input_col.num_vars()]; // Initialize with zeroes
-        let input_inner_evals = input_col.data_poly().evaluations(); // Get the inner evaluations of the input column
+        let input_inner_evals = input_col.data_tracked_poly().evaluations(); // Get the inner evaluations of the input column
         cfg_iter_mut!(broadcasted_selector_evals)
             .zip(cfg_iter!(input_inner_evals)) // Zip the broadcasted selector evaluations with the input inner evaluations
             .for_each(|(broadcast_eval, inner_eval)| {
@@ -410,24 +410,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let broadcasted_selector_mle =
             MLE::from_evaluations_vec(input_col.num_vars(), broadcasted_selector_evals.clone());
 
-        let broadcasted_actv = prover.track_and_commit_mat_mv_poly(&broadcasted_selector_mle)?;
+        let broadcasted_activator = prover.track_and_commit_mat_mv_poly(&broadcasted_selector_mle)?;
         Ok(TrackedCol::new(
             input_col.data_type(),
-            input_col.data_poly().clone(),
-            Some(broadcasted_actv),
+            input_col.data_tracked_poly().clone(),
+            Some(broadcasted_activator),
         ))
     }
 
-    fn broadcast_actv_tracked_col_oracle(
+    fn broadcast_activator_tracked_col_oracle(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
-        let broadcasted_actv_id = verifier.peek_next_id(); // Get the next ID for the broadcasted activator
-        let broadcasted_actv_tr_com = verifier.track_mv_com_by_id(broadcasted_actv_id)?;
+        let broadcasted_activator_id = verifier.peek_next_id(); // Get the next ID for the broadcasted activator
+        let broadcasted_activator_tr_com = verifier.track_mv_com_by_id(broadcasted_activator_id)?;
         Ok(TrackedColOracle {
             data_type: input_tracked_col_oracle.data_type.clone(),
             inner: input_tracked_col_oracle.inner.clone(),
-            actv: Some(broadcasted_actv_tr_com),
+            activator: Some(broadcasted_activator_tr_com),
             num_vars: input_tracked_col_oracle.num_vars,
         })
     }

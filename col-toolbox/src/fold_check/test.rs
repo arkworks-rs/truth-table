@@ -25,24 +25,24 @@ fn test_fold_check() -> SnarkResult<()> {
     let input_mles = (0..num)
         .map(|_| MLE::rand(nv, &mut rng))
         .collect::<Vec<_>>();
-    let actv_mle = MLE::from_evaluations_vec(nv, vec![Fr::ONE; 2_usize.pow(nv as u32)]);
-    let actv_tracked_mle = prover.track_and_commit_mat_mv_poly(&actv_mle).unwrap();
+    let activator_mle = MLE::from_evaluations_vec(nv, vec![Fr::ONE; 2_usize.pow(nv as u32)]);
+    let activator_tracked_mle = prover.track_and_commit_mat_mv_poly(&activator_mle).unwrap();
     let challs = vec![Fr::rand(&mut rng); num];
     let folded_poly = fold_mles(&input_mles, &challs);
 
     let folded_tracked_poly = TrackedCol::new(
-        None,
         prover.track_and_commit_mat_mv_poly(&folded_poly).unwrap(),
-        Some(actv_tracked_mle.clone()),
+        Some(activator_tracked_mle.clone()),
+        None,
     );
 
     let input_cols: Vec<TrackedCol<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_mles
         .iter()
         .map(|mle| {
             TrackedCol::new(
-                None,
                 prover.track_and_commit_mat_mv_poly(mle).unwrap(),
-                Some(actv_tracked_mle.clone()),
+                Some(activator_tracked_mle.clone()),
+                None,
             )
         })
         .collect();
@@ -59,27 +59,27 @@ fn test_fold_check() -> SnarkResult<()> {
     let proof = prover.build_proof().unwrap();
     verifier.set_proof(proof);
 
-    let actvm = verifier.track_mv_com_by_id(actv_tracked_mle.id())?;
+    let activatorm = verifier.track_mv_com_by_id(activator_tracked_mle.id())?;
     let folded_comm = TrackedColOracle::new(
+        verifier.track_mv_com_by_id(folded_tracked_poly.data_tracked_poly().id())?,
+        Some(activatorm.clone()),
         None,
-        verifier.track_mv_com_by_id(folded_tracked_poly.data_poly().id())?,
-        Some(actvm.clone()),
-        actv_tracked_mle.log_size(),
     );
     let input_comms: Vec<TrackedColOracle<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
         .iter()
         .map(|col| {
             TrackedColOracle::new(
+                verifier
+                    .track_mv_com_by_id(col.data_tracked_poly().id())
+                    .unwrap(),
+                Some(activatorm.clone()),
                 None,
-                verifier.track_mv_com_by_id(col.data_poly().id()).unwrap(),
-                Some(actvm.clone()),
-                actv_tracked_mle.log_size(),
             )
         })
         .collect();
 
     let fold_check_verifier_input = FoldCheckVerifierInput {
-        in_cms: input_comms.clone(), // The input column commitments to be folded
+        in_cms: input_comms.clone(), // The input column comitments to be folded
         folded_cm: folded_comm.clone(), /* The commitment of the column that is the result of
                                       * folding */
         challs: challs.clone(), // The challenges used for folding

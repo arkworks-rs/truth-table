@@ -55,7 +55,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<Self::ProverOutput> {
         // First check the output column activator is valid or not
         let binary_check_input = BinaryCheckProverInput {
-            activator: input.output_table.actvtr_poly().as_ref().unwrap().clone(),
+            activator: input.output_table.activator_tracked_poly().as_ref().unwrap().clone(),
         };
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_check_input)?;
         //////////// Check the selection was done correctly ////////////
@@ -79,7 +79,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let binary_check_input = BinaryCheckVerifierInput {
             activator_comm: input
                 .output_tracked_Table_oracle
-                .actvtr_poly()
+                .activator_tracked_poly()
                 .as_ref()
                 .unwrap()
                 .clone(),

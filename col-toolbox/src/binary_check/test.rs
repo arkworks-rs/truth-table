@@ -49,9 +49,9 @@ fn binary_check_test_soundness_helper<
     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
 >(
     nv: usize,
-    actv_values: Vec<Fr>,
+    activator_values: Vec<Fr>,
 ) -> SnarkResult<()> {
-    let err = binary_check_test_helper::<Fr, MvPCS, UvPCS>(nv, actv_values).unwrap_err();
+    let err = binary_check_test_helper::<Fr, MvPCS, UvPCS>(nv, activator_values).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -84,24 +84,24 @@ fn binary_check_test_helper<
     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
 >(
     nv: usize,
-    actv_values: Vec<Fr>,
+    activator_values: Vec<Fr>,
 ) -> SnarkResult<()> {
     // Ensure tracing subscriber is initialized once for test output
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
-    let actv =
-        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &actv_values))?;
-    let actv_clone = actv.clone();
+    let activator =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &activator_values))?;
+    let activator_clone = activator.clone();
     let binary_check_prover_input = BinaryCheckProverInput {
-        predicate: actv_clone,
+        predicate: activator_clone,
     };
     BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, binary_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let actv_id = verifier.peek_next_id();
-    let actv = verifier.track_mv_com_by_id(actv_id)?;
+    let activator_id = verifier.peek_next_id();
+    let activator = verifier.track_mv_com_by_id(activator_id)?;
     let binary_check_verifier_input = BinaryCheckVerifierInput {
-        predicate_oracle: actv,
+        predicate_oracle: activator,
     };
 
     BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, binary_check_verifier_input)?;

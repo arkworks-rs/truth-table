@@ -61,7 +61,7 @@ pub struct FoldCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    // The input column commitments to be folded
+    // The input column comitments to be folded
     pub in_cms: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     // The commitment of the column that is the result of folding the input columns
     pub folded_cm: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -87,11 +87,11 @@ where
             prover::errors::{HonestProverError, ProverError},
         };
 
-        let mut acc_poly = input.folded_col.activated_data_poly().clone();
+        let mut acc_poly = input.folded_col.activated_data_tracked_poly().clone();
         for (poly, chall) in input
             .in_cols
             .iter()
-            .map(|col| col.activated_data_poly())
+            .map(|col| col.activated_data_tracked_poly())
             .zip(input.challs.iter())
         {
             acc_poly = &acc_poly - &(&poly * *chall);
@@ -110,9 +110,9 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let mut zero_comm = input.folded_cm.effective_comm().clone();
+        let mut zero_comm = input.folded_cm.activated_data_tracked_oracle();
         for (poly_comm, chall) in input.in_cms.iter().zip(input.challs.iter()) {
-            zero_comm = &zero_comm - &(&poly_comm.effective_comm() * (*chall));
+            zero_comm = &zero_comm - &(&poly_comm.activated_data_tracked_oracle() * (*chall));
         }
         verifier.add_zerocheck_claim(zero_comm.id());
         Ok(())
@@ -122,9 +122,9 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let mut tartracked_poly = input.folded_col.activated_data_poly().clone();
+        let mut tartracked_poly = input.folded_col.activated_data_tracked_poly().clone();
         for (tracked_poly, chall) in input.in_cols.iter().zip(input.challs.iter()) {
-            tartracked_poly -= &(&tracked_poly.activated_data_poly() * *chall);
+            tartracked_poly -= &(&tracked_poly.activated_data_tracked_poly() * *chall);
         }
         prover.add_mv_zerocheck_claim(tartracked_poly.id())?;
         Ok(())

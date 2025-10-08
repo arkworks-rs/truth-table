@@ -91,8 +91,8 @@ where
     /// column 3).
     pub grouping_cols: Vec<usize>,
 
-    /// Commitments to the distinct values for each grouping column.
-    /// For `Genre` and `Year`, `support_cols` might include commitments to:
+    /// comitments to the distinct values for each grouping column.
+    /// For `Genre` and `Year`, `support_cols` might include comitments to:
     /// - `Genre`: {Sci-Fi, Action, Crime}
     /// - `Year`: {2010, 2008, 1972, 1994, 2014}
     pub support_cols: Vec<TrackedOracle<F, MvPCS, UvPCS>>,

@@ -87,7 +87,7 @@ where
                 let mut lines = Vec::with_capacity(table_entries.len() + 1);
                 lines.push("Tracked tables:".to_string());
                 for (label, table) in table_entries {
-                    let num_total_cols = table.num_total_cols();
+                    let num_total_cols = table.num_total_tracked_cols();
                     let log_size = if num_total_cols > 0 {
                         table.log_size()
                     } else {

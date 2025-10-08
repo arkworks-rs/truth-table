@@ -8,10 +8,7 @@ use ark_piop::{
     test_utils::test_prelude,
     to_field_vec,
 };
-use ark_std::{
-    rand::{RngCore, SeedableRng},
-    test_rng,
-};
+
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
 use super::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
@@ -87,18 +84,18 @@ fn permcheck_test_soundness_helper<
 >(
     left_nv: usize,
     left_evals: Vec<Fr>,
-    left_actv: Vec<Fr>,
+    left_activator: Vec<Fr>,
     right_nv: usize,
     right_evals: Vec<Fr>,
-    right_actv: Vec<Fr>,
+    right_activator: Vec<Fr>,
 ) -> SnarkResult<()> {
     let err = perm_check_test_helper::<Fr, MvPCS, UvPCS>(
         left_nv,
         left_evals,
-        left_actv,
+        left_activator,
         right_nv,
         right_evals,
-        right_actv,
+        right_activator,
     )
     .unwrap_err();
     #[cfg(feature = "honest-prover")]
@@ -133,27 +130,27 @@ fn perm_check_test_helper<
 >(
     left_nv: usize,
     left_evals: Vec<Fr>,
-    left_actv: Vec<Fr>,
+    left_activator: Vec<Fr>,
     right_nv: usize,
     right_evals: Vec<Fr>,
-    right_actv: Vec<Fr>,
+    right_activator: Vec<Fr>,
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
 
     /////////////////////////////////////////////////
     let left_mle = MLE::from_evaluations_vec(left_nv, left_evals);
     let left_tr_p = prover.track_and_commit_mat_mv_poly(&left_mle).unwrap();
-    let left_actv_p = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(left_nv, left_actv))
+    let left_activator_p = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(left_nv, left_activator))
         .unwrap();
-    let left_col = TrackedCol::new(None, left_tr_p.clone(), Some(left_actv_p.clone()));
+    let left_col = TrackedCol::new(left_tr_p.clone(), Some(left_activator_p.clone()), None);
     /////////////////////////////////////////////////////
     let right_mle = MLE::from_evaluations_vec(right_nv, right_evals);
     let right_tr_p = prover.track_and_commit_mat_mv_poly(&right_mle).unwrap();
-    let right_actv_p = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(right_nv, right_actv))
+    let right_activator_p = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(right_nv, right_activator))
         .unwrap();
-    let right_col = TrackedCol::new(None, right_tr_p.clone(), Some(right_actv_p.clone()));
+    let right_col = TrackedCol::new(right_tr_p.clone(), Some(right_activator_p.clone()), None);
 
     /////////////////////////////////////////////////////////
 
@@ -166,13 +163,13 @@ fn perm_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
-    let left_actvm = verifier.track_mv_com_by_id(left_actv_p.id())?;
-    let left_tracked_col_oracle = TrackedColOracle::new(None, left_comm, Some(left_actvm), left_nv);
+    let left_activatorm = verifier.track_mv_com_by_id(left_activator_p.id())?;
+    let left_tracked_col_oracle = TrackedColOracle::new(left_comm, Some(left_activatorm), None);
 
     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
-    let right_actvm = verifier.track_mv_com_by_id(right_actv_p.id())?;
+    let right_activatorm = verifier.track_mv_com_by_id(right_activator_p.id())?;
     let right_tracked_col_oracle =
-        TrackedColOracle::new(None, right_comm, Some(right_actvm), right_nv);
+        TrackedColOracle::new(right_comm, Some(right_activatorm), None);
     let perm_piop_verifier_input = PermPIOPVerifierInput {
         left_tracked_col_oracle,
         right_tracked_col_oracle,

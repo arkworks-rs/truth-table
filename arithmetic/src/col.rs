@@ -8,35 +8,34 @@ use ark_piop::{
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
 };
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
-/// An abstraction of an arithmetized column in dbSNARK
-/// an arithmetized column is represented by two polynomials: A data polynomial
-/// and an activator polynomial If the activator polynomial is None, all the
-/// rows are active
+/// An abstraction of tracked arithmetized column in dbSNARK
+/// a tracked arithmetized column is represented by two polynomials: A data
+/// tracked polynomial, an activator tracked polynomial If the activator
+/// tracked polynomial is None, all the rows are active, and an optional
+/// FieldRef
 pub struct TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    /// The polynomial representing the column. It is the
-    /// extension of the column values. Depending on the activator
-    /// polynomial, a value can be active or inactive
-    data_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    /// A tracked polynomial representing the column values
+    data_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 
-    /// The activator polynomial, It evaluates to one at the indices of the
-    /// active rows, and zero elsewhere. If it is None, all the rows are active
-    actvtr_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+    /// A tracked (supposedly) polynomial representing the activator of the
+    /// column If None, all the rows are active
+    /// If some, only the rows where the activator polynomial is one are active
+    activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
 
-    /// The data type of the column
-    data_type: Option<DataType>,
+    /// The field reference of the column in the original schema, if any
+    field_ref: Option<FieldRef>,
 }
 
-// Custom Debug impl that does not require `MvPCS`/`UvPCS` to implement Debug.
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -45,9 +44,9 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedCol")
-            .field("num_vars", &self.num_vars())
-            .field("has_actvtr", &self.actvtr_poly.is_some())
-            .field("data_type", &self.data_type)
+            .field("log_size", &self.log_size())
+            .field("has_activator", &self.activator_tracked_poly.is_some())
+            .field("field_ref", &self.field_ref)
             .finish()
     }
 }
@@ -58,79 +57,91 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    /// Creates a new arithmetized column given a polynomial
-    /// interpolating/extending the column and possibly an activator polynomial
+    /// Creates a new tracked column
     pub fn new(
-        data_type: Option<DataType>,
-        data_poly: TrackedPoly<F, MvPCS, UvPCS>,
-        actvtr_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        data_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+        activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        field_ref: Option<FieldRef>,
     ) -> Self {
         #[cfg(debug_assertions)]
         {
-            if actvtr_poly.is_some() {
-                let actvtr = actvtr_poly.as_ref().unwrap();
-                assert_eq!(data_poly.log_size(), actvtr.log_size());
-                assert!(data_poly.same_tracker(actvtr));
-            }
+            Self::check_new_args(&data_tracked_poly, &activator_tracked_poly, &field_ref);
         }
         Self {
-            data_type,
-            data_poly,
-            actvtr_poly,
+            data_tracked_poly,
+            activator_tracked_poly,
+            field_ref,
         }
     }
 
-    /// Returns the number of variables of the column polynomial
-    /// It is log_2 of the maximum capacity of the column
-    pub fn num_vars(&self) -> usize {
-        self.data_poly.log_size()
+    #[cfg(debug_assertions)]
+    fn check_new_args(
+        data_tracked_poly: &TrackedPoly<F, MvPCS, UvPCS>,
+        activator_tracked_poly: &Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        _field_ref: &Option<FieldRef>,
+    ) {
+        if activator_tracked_poly.is_some() {
+            let activator = activator_tracked_poly.as_ref().unwrap();
+            debug_assert_eq!(data_tracked_poly.log_size(), activator.log_size());
+            debug_assert!(data_tracked_poly.same_tracker(activator));
+        }
     }
 
-    /// Returns the data polynomial of the column
-    pub fn data_poly(&self) -> &TrackedPoly<F, MvPCS, UvPCS> {
-        &self.data_poly
+    /// Returns the log size of the tracked polynomials
+    pub fn log_size(&self) -> usize {
+        self.data_tracked_poly.log_size()
     }
 
-    /// Returns the activator polynomial of the column
-    pub fn actvtr_poly(&self) -> Option<&TrackedPoly<F, MvPCS, UvPCS>> {
-        self.actvtr_poly.as_ref()
+    /// Returns the data tracked polynomial of the column
+    pub fn data_tracked_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
+        self.data_tracked_poly.clone()
     }
 
-    pub fn data_type(&self) -> Option<DataType> {
-        self.data_type.clone()
+    /// Returns the activator tracked polynomial of the column
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
+        self.activator_tracked_poly.clone()
+    }
+    /// Returns the field reference of the tracked column in the original
+    /// schema, if any
+    pub fn field_ref(&self) -> Option<FieldRef> {
+        self.field_ref.clone()
     }
 
-    /// Returns a reference to the tracker of the column
+    /// Returns a reference to the tracker of the tracked column
     pub fn tracker_ref(&self) -> Prover<F, MvPCS, UvPCS> {
-        Prover::new_from_tracker_rc(self.data_poly.tracker())
+        // We have the guarantee at construction that activator tracked also agrees
+        Prover::new_from_tracker_rc(self.data_tracked_poly.tracker())
     }
 
-    /// Returns the effective polynomial of the column, which is the product of
-    /// the activator and the column polynomial
+    /// Returns the effective tracked polynomial of the column, which is the
+    /// product of the activator and the column polynomial
     /// Note that the non-activated elements are zeroed out, hence
     /// indistinguishable from the actual zero elements
-    pub fn activated_data_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
-        match &self.actvtr_poly {
-            Some(actv) => &self.data_poly * actv,
-            None => self.data_poly.clone(),
+    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
+        match &self.activator_tracked_poly {
+            Some(activator) => &self.data_tracked_poly * activator,
+            None => self.data_tracked_poly.clone(),
         }
     }
 
-    /// Returns an iterator over the activate data elements
+    /// Returns an iterator over the activated data elements
+    /// Useful for testing and debugging
     pub fn effective_iter(&self) -> impl IntoIterator<Item = F> {
-        match &self.actvtr_poly {
-            Some(actv) => self
-                .data_poly
+        match &self.activator_tracked_poly {
+            Some(activator) => self
+                .data_tracked_poly
                 .evaluations()
                 .into_iter()
-                .zip(actv.evaluations())
-                .filter(|(_, actv)| *actv != F::zero())
+                .zip(activator.evaluations())
+                .filter(|(_, activator)| *activator != F::zero())
                 .map(|(data, _)| data)
                 .collect::<Vec<F>>(),
-            None => self.data_poly.evaluations(),
+            None => self.data_tracked_poly.evaluations(),
         }
     }
 
+    /// Returns a hashset of the activated data elements
+    /// Useful for testing and debugging
     pub fn effective_hashset(&self) -> HashSet<F> {
         self.effective_iter()
             .into_iter()
@@ -146,12 +157,12 @@ where
 {
     fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            data_poly: self.data_poly.deep_clone(new_prover.clone()),
-            actvtr_poly: self
-                .actvtr_poly
+            data_tracked_poly: self.data_tracked_poly.deep_clone(new_prover.clone()),
+            activator_tracked_poly: self
+                .activator_tracked_poly
                 .as_ref()
-                .map(|actv| actv.deep_clone(new_prover)),
-            data_type: self.data_type.clone(),
+                .map(|activator| activator.deep_clone(new_prover)),
+            field_ref: self.field_ref.clone(),
         }
     }
 }

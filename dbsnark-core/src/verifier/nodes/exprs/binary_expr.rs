@@ -167,21 +167,21 @@ where
                 let left_col = piop_tree
                     .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
                     .unwrap()
-                    .col(0)
+                    .tracked_col_oracle_by_ind(0)
                     .clone();
                 let right_col = piop_tree
                     .tracked_table_oracle(&self.right_proof_plan.node_id(), "output_plan")
                     .unwrap()
-                    .col(0)
+                    .tracked_col_oracle_by_ind(0)
                     .clone();
-                let output_data_poly = match bin_expr.op {
+                let output_data_tracked_poly = match bin_expr.op {
                     Operator::And => {
-                        let data_mult = left_col.data_oracle() * right_col.data_oracle();
+                        let data_mult = &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
 
-                        match (left_col.actvtr_oracle(), right_col.actvtr_oracle()) {
-                            (Some(l), Some(r)) => &(l * r) * &data_mult,
-                            (Some(l), None) => l * &data_mult,
-                            (None, Some(r)) => r * &data_mult,
+                        match (left_col.activator_tracked_oracle(), right_col.activator_tracked_oracle()) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_mult,
+                            (Some(l), None) => &l * &data_mult,
+                            (None, Some(r)) => &r * &data_mult,
                             (None, None) => data_mult,
                         }
                     },
@@ -193,7 +193,7 @@ where
                     false,
                 ));
 
-                let tracked_oracles = IndexMap::from_iter(vec![(field_ref.clone(), output_data_poly)]);
+                let tracked_oracles = IndexMap::from_iter(vec![(field_ref.clone(), output_data_tracked_poly)]);
                 let output_table =
                     TrackedTableOracle::new(None, tracked_oracles, log_size);
                 piop_tree.add_tracked_table_oracle(

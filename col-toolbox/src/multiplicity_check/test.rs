@@ -18,7 +18,7 @@ use std::str::FromStr;
 // multiplicative columns are None, meaning that everything is activated and the
 // multiplicities are all one
 #[test]
-fn multiplicity_check_with_actv_and_mul_none_is_complete() -> SnarkResult<()> {
+fn multiplicity_check_with_activator_and_mul_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![3],
         vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr)],
@@ -69,7 +69,7 @@ fn multiplicity_check_with_actv_and_mul_none_is_complete() -> SnarkResult<()> {
 // multiplicative columns are None, meaning that everything is activated and the
 // multiplicities are all one
 #[test]
-fn multiplicity_check_with_actv_and_mul_none_is_sound() -> SnarkResult<()> {
+fn multiplicity_check_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![3],
         vec![to_field_vec!([4, 1, 1, 20, 18, 2, 12, 3], Fr)],
@@ -120,7 +120,7 @@ fn multiplicity_check_with_actv_and_mul_none_is_sound() -> SnarkResult<()> {
 // Test cases for multiplicity check completeness, where the active
 // columns are None, meaning that everything is activated
 #[test]
-fn multiplicity_check_with_actv_none_is_complete() -> SnarkResult<()> {
+fn multiplicity_check_with_activator_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -220,7 +220,7 @@ fn multiplicity_check_with_actv_none_is_complete() -> SnarkResult<()> {
 // Test cases for multiplicity check soundness, where the active
 // columns are None, meaning that everything is activated
 #[test]
-fn multiplicity_check_with_actv_none_is_sound() -> SnarkResult<()> {
+fn multiplicity_check_with_activator_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -496,21 +496,21 @@ fn multiplicity_test_soundness_helper<
 >(
     f_nvs: Vec<usize>,
     f_vals: Vec<Vec<Fr>>,
-    f_actv_vals: Vec<Option<Vec<Fr>>>,
+    f_activator_vals: Vec<Option<Vec<Fr>>>,
     f_mul_vals: Vec<Option<Vec<Fr>>>,
     g_nvs: Vec<usize>,
     g_vals: Vec<Vec<Fr>>,
-    g_actv_vals: Vec<Option<Vec<Fr>>>,
+    g_activator_vals: Vec<Option<Vec<Fr>>>,
     g_mul_vals: Vec<Option<Vec<Fr>>>,
 ) -> SnarkResult<()> {
     let err = multiplicity_test_helper::<Fr, MvPCS, UvPCS>(
         f_nvs,
         f_vals,
-        f_actv_vals,
+        f_activator_vals,
         f_mul_vals,
         g_nvs,
         g_vals,
-        g_actv_vals,
+        g_activator_vals,
         g_mul_vals,
     )
     .unwrap_err();
@@ -548,18 +548,18 @@ fn multiplicity_test_helper<
 >(
     f_nvs: Vec<usize>,
     f_vals: Vec<Vec<Fr>>,
-    f_actv_vals: Vec<Option<Vec<Fr>>>,
+    f_activator_vals: Vec<Option<Vec<Fr>>>,
     f_mul_vals: Vec<Option<Vec<Fr>>>,
     g_nvs: Vec<usize>,
     g_vals: Vec<Vec<Fr>>,
-    g_actv_vals: Vec<Option<Vec<Fr>>>,
+    g_activator_vals: Vec<Option<Vec<Fr>>>,
     g_mul_vals: Vec<Option<Vec<Fr>>>,
 ) -> SnarkResult<()> {
     assert_eq!(f_nvs.len(), f_vals.len());
-    assert_eq!(f_nvs.len(), f_actv_vals.len());
+    assert_eq!(f_nvs.len(), f_activator_vals.len());
     assert_eq!(f_nvs.len(), f_mul_vals.len());
     assert_eq!(g_nvs.len(), g_vals.len());
-    assert_eq!(g_nvs.len(), g_actv_vals.len());
+    assert_eq!(g_nvs.len(), g_activator_vals.len());
     assert_eq!(g_nvs.len(), g_mul_vals.len());
 
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
@@ -569,7 +569,7 @@ fn multiplicity_test_helper<
         .zip(f_nvs.iter())
         .map(|(vals, nv)| MLE::from_evaluations_vec(*nv, vals.to_vec()))
         .collect::<Vec<_>>();
-    let f_actv_mles: Vec<Option<MLE<Fr>>> = f_actv_vals
+    let f_activator_mles: Vec<Option<MLE<Fr>>> = f_activator_vals
         .iter()
         .zip(f_nvs.iter())
         .map(|(vals, nv)| {
@@ -591,7 +591,7 @@ fn multiplicity_test_helper<
         .zip(g_nvs.iter())
         .map(|(vals, nv)| MLE::from_evaluations_vec(*nv, vals.clone()))
         .collect::<Vec<_>>();
-    let g_actv_mles: Vec<Option<MLE<Fr>>> = g_actv_vals
+    let g_activator_mles: Vec<Option<MLE<Fr>>> = g_activator_vals
         .iter()
         .zip(g_nvs.iter())
         .map(|(vals, nv)| {
@@ -612,7 +612,7 @@ fn multiplicity_test_helper<
         .iter()
         .map(|mle| prover.track_and_commit_mat_mv_poly(mle).unwrap())
         .collect::<Vec<_>>();
-    let f_actv_tr: Vec<Option<TrackedPoly<Fr, MvPCS, UvPCS>>> = f_actv_mles
+    let f_activator_tr: Vec<Option<TrackedPoly<Fr, MvPCS, UvPCS>>> = f_activator_mles
         .iter()
         .map(|mle| {
             mle.as_ref()
@@ -630,7 +630,7 @@ fn multiplicity_test_helper<
         .iter()
         .map(|mle| prover.track_and_commit_mat_mv_poly(mle).unwrap())
         .collect::<Vec<_>>();
-    let g_actv_tr: Vec<Option<TrackedPoly<Fr, MvPCS, UvPCS>>> = g_actv_mles
+    let g_activator_tr: Vec<Option<TrackedPoly<Fr, MvPCS, UvPCS>>> = g_activator_mles
         .iter()
         .map(|mle| {
             mle.as_ref()
@@ -647,13 +647,13 @@ fn multiplicity_test_helper<
     /////////////////////////////////////////////////////////////////
     let f_cols = f_tr
         .iter()
-        .zip(f_actv_tr.iter())
-        .map(|(tr, actv)| TrackedCol::new(None, tr.clone(), actv.clone()))
+        .zip(f_activator_tr.iter())
+        .map(|(tr, activator)| TrackedCol::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
     let g_cols = g_tr
         .iter()
-        .zip(g_actv_tr.iter())
-        .map(|(tr, actv)| TrackedCol::new(None, tr.clone(), actv.clone()))
+        .zip(g_activator_tr.iter())
+        .map(|(tr, activator)| TrackedCol::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
     let multiplicity_check_prover_input = MultiplicityCheckProverInput {
         fxs: f_cols,
@@ -669,7 +669,7 @@ fn multiplicity_test_helper<
         .iter()
         .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         .collect::<Vec<_>>();
-    let f_actv_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = f_actv_tr
+    let f_activator_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = f_activator_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
@@ -688,7 +688,7 @@ fn multiplicity_test_helper<
         .iter()
         .map(|tr| verifier.track_mv_com_by_id(tr.id()).unwrap())
         .collect::<Vec<_>>();
-    let g_actv_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = g_actv_tr
+    let g_activator_comms: Vec<Option<TrackedOracle<Fr, MvPCS, UvPCS>>> = g_activator_tr
         .iter()
         .map(|tr| {
             tr.as_ref()
@@ -705,15 +705,17 @@ fn multiplicity_test_helper<
     //////////////////////////////////////////////////////////////////////
     let f_tracked_col_oracles = f_tr_comms
         .iter()
-        .zip(f_actv_comms.iter())
-        .zip(f_nvs.iter())
-        .map(|((tr, actv), nv)| TrackedColOracle::new(None, tr.clone(), actv.clone(), *nv))
+        .zip(f_activator_comms.iter())
+        .map(|(tr, activator)| {
+            TrackedColOracle::new(tr.clone(), activator.clone(), None)
+        })
         .collect::<Vec<_>>();
     let g_tracked_col_oracles = g_tr_comms
         .iter()
-        .zip(g_actv_comms.iter())
-        .zip(g_nvs.iter())
-        .map(|((tr, actv), nv)| TrackedColOracle::new(None, tr.clone(), actv.clone(), *nv))
+        .zip(g_activator_comms.iter())
+        .map(|(tr, activator) | {
+            TrackedColOracle::new(tr.clone(), activator.clone(), None)
+        })
         .collect::<Vec<_>>();
 
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {

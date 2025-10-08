@@ -36,11 +36,11 @@ where
         tracker: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
-        if col.actvtr_poly().is_none() {
+        if col.activator_tracked_poly().is_none() {
             return Ok(col.clone());
         }
         let new_col_size_f: F = col
-            .actvtr_poly()
+            .activator_tracked_poly()
             .as_ref()
             .unwrap()
             .evaluations()
@@ -53,22 +53,21 @@ where
         //     return Ok(col.clone());
         // }
 
-        let mut new_actv_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
+        let mut new_activator_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
         let mut new_inner_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
-        col.data_poly()
+        col.data_tracked_poly()
             .evaluations()
             .iter()
-            .zip(col.actvtr_poly().as_ref().unwrap().evaluations().iter())
-            .for_each(|(val, actv)| {
-                if actv.is_one() {
-                    new_actv_evals.push(F::one());
+            .zip(col.activator_tracked_poly().as_ref().unwrap().evaluations().iter())
+            .for_each(|(val, activator)| {
+                if activator.is_one() {
+                    new_activator_evals.push(F::one());
                     new_inner_evals.push(*val);
                 }
             });
-        new_actv_evals.resize(1 << new_nv, F::zero());
+        new_activator_evals.resize(1 << new_nv, F::zero());
         new_inner_evals.resize(1 << new_nv, F::zero());
         let new_col = TrackedCol::new(
-            col.data_type(),
             tracker.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
                 new_nv,
                 new_inner_evals,
@@ -76,9 +75,10 @@ where
             Some(
                 tracker.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
                     new_nv,
-                    new_actv_evals,
+                    new_activator_evals,
                 ))?,
             ),
+            col.field_ref(),
         );
 
         let perm_piop_prover_input = PermPIOPProverInput {
@@ -94,20 +94,19 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
-        if tracked_col_oracle.actv.is_none() {
+        if tracked_col_oracle.activator_tracked_oracle().is_none() {
             return Ok(tracked_col_oracle.clone());
         }
 
         let new_col_inner_id = verifier.peek_next_id();
         let new_col_inner_tr = verifier.track_mv_com_by_id(new_col_inner_id)?;
-        let new_col_actv_id = verifier.peek_next_id();
-        let new_col_actv_tr = verifier.track_mv_com_by_id(new_col_actv_id)?;
+        let new_col_activator_id = verifier.peek_next_id();
+        let new_col_activator_tr = verifier.track_mv_com_by_id(new_col_activator_id)?;
 
         let new_tracked_col_oracle = TrackedColOracle::new(
-            tracked_col_oracle.data_type.clone(),
             new_col_inner_tr.clone(),
-            Some(new_col_actv_tr),
-            verifier.commitment_num_vars(new_col_inner_id)?,
+            Some(new_col_activator_tr),
+            tracked_col_oracle.field_ref().clone(),
         );
 
         let perm_piop_verifier_input = PermPIOPVerifierInput {

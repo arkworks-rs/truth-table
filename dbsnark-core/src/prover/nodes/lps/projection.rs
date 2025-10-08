@@ -13,6 +13,7 @@ use datafusion::{
     },
     prelude::{SessionContext, col},
 };
+use indexmap::IndexMap;
 
 use crate::prover::nodes::cost::ProvingCost;
 
@@ -20,7 +21,7 @@ use crate::prover::{
     nodes::{ProverNode, output_logical_plan},
     trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
-use arithmetic::table::TrackedTable;
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 /// Projection operator that preserves the `activator` column.
 ///
 /// - `expr`: projection expressions from the original logical plan
@@ -145,38 +146,42 @@ where
         };
 
         let table_size = expr_tables[0].size();
+        let table_log_size = expr_tables[0].log_size();
         if expr_tables.iter().any(|table| table.size() != table_size) {
             panic!("projection expression tables must have matching sizes");
         }
 
-        let mut data_columns = Vec::with_capacity(expr_tables.len() + 1);
+        let mut data_columns = IndexMap::with_capacity(expr_tables.len() + 1);
         for table in &expr_tables {
-            let (field, poly) = table
-                .columns()
-                .find(|(field, _)| field.name() != "activator")
+            let tracked_polys = table.tracked_polys();
+            let (field, poly) = tracked_polys
+                .iter()
+                .find(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
                 .expect("expression output must contain data column");
-            data_columns.push((field.clone(), poly.clone()));
+            data_columns.insert(field.clone(), poly.clone());
         }
 
         let activator_pair = expr_tables[0]
-            .columns()
-            .find(|(field, _)| field.name() == "activator")
+            .tracked_polys()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
                     .tracked_table(&self.input_proof_plan.node_id(), "output_plan")
                     .and_then(|table| {
                         table
-                            .columns()
-                            .find(|(field, _)| field.name() == "activator")
+                            .tracked_polys()
+                            .iter()
+                            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
                             .map(|(field, poly)| (field.clone(), poly.clone()))
                     })
             })
             .expect("activator column not found for projection");
 
-        data_columns.push(activator_pair);
+        data_columns.insert(activator_pair.0, activator_pair.1);
 
-        let output_table = TrackedTable::new(None, data_columns, table_size);
+        let output_table = TrackedTable::new(None, data_columns, table_log_size);
         piop_tree.add_table(
             self.node_id.clone(),
             "output_plan".to_string(),

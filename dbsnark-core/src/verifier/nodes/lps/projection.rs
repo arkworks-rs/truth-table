@@ -8,7 +8,7 @@ use crate::{
 use std::{collections::HashMap, sync::Arc};
 use indexmap::IndexMap;
 
-use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -103,10 +103,10 @@ where
         // // Ensure the activator column is preserved in the output.
         let activator_present = projection
             .schema
-            .field_with_unqualified_name("activator")
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .is_ok();
         if !activator_present {
-            let mut activator_expr = normalize_cols(vec![col("activator")], &child_output_plan)
+            let mut activator_expr = normalize_cols(vec![col(ACTIVATOR_COL_NAME)], &child_output_plan)
                 .expect(
                     "failed to normalize
         activator column",
@@ -194,24 +194,27 @@ where
 
         let mut data_columns = Vec::with_capacity(expr_tables.len() + 1);
         for table in &expr_tables {
-            let (field, poly) = table
-                .columns()
-                .find(|(field, _)| field.name() != "activator")
+        let tracked_oracles = table.tracked_oracles();
+            let (field, poly) = tracked_oracles
+                .iter()
+                .find(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
                 .expect("expression output must contain data column");
             data_columns.push((field.clone(), poly.clone()));
         }
 
         let activator_pair = expr_tables[0]
-            .columns()
-            .find(|(field, _)| field.name() == "activator")
+            .tracked_oracles()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
                     .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
                     .and_then(|table| {
                         table
-                            .columns()
-                            .find(|(field, _)| field.name() == "activator")
+                            .tracked_oracles()
+                            .iter()
+                            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
                             .map(|(field, poly)| (field.clone(), poly.clone()))
                     })
             })

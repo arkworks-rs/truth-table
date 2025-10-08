@@ -144,25 +144,25 @@ where
         // arithmetized tree.
         for (_, arith_tables) in &node_arith_tables {
             for arith_table in arith_tables.values() {
-                for (_, mle) in arith_table.data_polys() {
+                for (_, mle) in arith_table.polynomials() {
                     commitment_map.insert(mle.clone(), None);
                 }
             }
         }
 
         // Now, if a node was a TableScan and we have a saved oracle for it, use the
-        // saved commitments to avoid recomputing them.
+        // saved comitments to avoid recomputing them.
         for (node_id, arith_tables) in &node_arith_tables {
             let is_table_scan = matches!(node_id, NodeId::LP(LogicalPlan::TableScan(_)));
             for arith_table in arith_tables.values() {
                 if let Some(schema) = arith_table.schema() {
                     if is_table_scan {
-                        for (field_ref, mle) in arith_table.data_polys() {
+                        for (field_ref, mle) in arith_table.polynomials() {
                             let saved_commitment =
                                 prover_ctx
                                     .table_oracle(&schema)
                                     .and_then(|saved_table_oracle| {
-                                        saved_table_oracle.data_comitments().get(field_ref).cloned()
+                                        saved_table_oracle.comitments().get(field_ref).cloned()
                                     });
                             commitment_map.insert(mle.clone(), saved_commitment);
                         }
@@ -171,8 +171,8 @@ where
             }
         }
 
-        // Now build a list of all polynomials that are still missing commitments
-        let missing_commitments: Vec<Arc<MLE<F>>> = commitment_map
+        // Now build a list of all polynomials that are still missing comitments
+        let missing_comitments: Vec<Arc<MLE<F>>> = commitment_map
             .iter()
             .filter_map(|(mle_arc, com_opt)| {
                 if com_opt.is_none() {
@@ -185,7 +185,7 @@ where
 
         let pcs_param = prover.mv_pcs_prover_param().clone();
 
-        let new_commitments: Vec<_> = cfg_into_iter!(missing_commitments)
+        let new_comitments: Vec<_> = cfg_into_iter!(missing_comitments)
             .map(|mle_arc| {
                 let commitment = MvPCS::commit(pcs_param.clone(), &mle_arc)
                     .expect("failed to commit witness polynomial");
@@ -193,9 +193,9 @@ where
             })
             .collect();
 
-        info!("Prover committed to {} polynomials", new_commitments.len());
+        info!("Prover committed to {} polynomials", new_comitments.len());
 
-        for (mle_arc, commitment) in new_commitments {
+        for (mle_arc, commitment) in new_comitments {
             let entry = commitment_map
                 .get_mut(&mle_arc)
                 .expect("missing commitment for polynomial");
@@ -209,12 +209,12 @@ where
             for (label, arith_table) in tables {
                 let num_total_cols = arith_table.num_total_cols();
                 let table = if num_total_cols == 0 {
-                    TrackedTable::new(arith_table.schema(), Vec::new(), arith_table.size())
+                    TrackedTable::new(arith_table.schema(), IndexMap::new(), arith_table.log_size())
                 } else {
-                    let mut data_polys: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
-                        Vec::with_capacity(num_total_cols);
+                    let mut tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
+                        IndexMap::with_capacity(num_total_cols);
 
-                    for (field_ref, mle) in arith_table.data_polys() {
+                    for (field_ref, mle) in arith_table.polynomials() {
                         let commitment = commitment_map
                             .get(mle)
                             .expect("missing commitment for polynomial")
@@ -223,11 +223,11 @@ where
                         let tracked = prover
                             .track_mat_mv_poly_with_commitment(mle.as_ref(), commitment)
                             .expect("failed to commit witness polynomial");
-                        data_polys.push((field_ref.clone(), tracked));
+                        tracked_polys.insert(field_ref.clone(), tracked);
                         tracked_count += 1;
                     }
 
-                    TrackedTable::new(arith_table.schema(), data_polys, arith_table.size())
+                    TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
                 };
 
                 tracked_tables.insert(label, table);

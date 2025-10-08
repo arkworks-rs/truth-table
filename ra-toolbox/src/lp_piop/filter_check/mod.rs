@@ -89,17 +89,17 @@ where
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         // Create the selected and non-selected activator columns
         let zero_poly = match (
-            input.input_tracked_Table.actvtr_poly(),
-            input.output_tracked_Table.actvtr_poly(),
+            input.input_tracked_Table.activator_tracked_poly(),
+            input.output_tracked_Table.activator_tracked_poly(),
         ) {
-            (Some(in_actv), Some(out_actv)) => {
-                &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
+            (Some(in_activator), Some(out_activator)) => {
+                &out_activator - &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
             },
-            (Some(in_actv), None) => {
-                &(&in_actv * &input.predicate_col.activated_data_poly()) + F::one().neg()
+            (Some(in_activator), None) => {
+                &(&in_activator * &input.predicate_col.activated_data_tracked_poly()) + F::one().neg()
             },
-            (None, Some(out_actv)) => &out_actv - &input.predicate_col.activated_data_poly(),
-            (None, None) => &input.predicate_col.activated_data_poly() + F::one().neg(),
+            (None, Some(out_activator)) => &out_activator - &input.predicate_col.activated_data_tracked_poly(),
+            (None, None) => &input.predicate_col.activated_data_tracked_poly() + F::one().neg(),
         };
         // Check if the zero polynomial is indeed zero on the domain
         for val in zero_poly.evaluations().iter() {
@@ -116,17 +116,17 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let zero_poly = match (
-            input.input_tracked_Table.actvtr_poly(),
-            input.output_tracked_Table.actvtr_poly(),
+            input.input_tracked_Table.activator_tracked_poly(),
+            input.output_tracked_Table.activator_tracked_poly(),
         ) {
-            (Some(in_actv), Some(out_actv)) => {
-                &out_actv - &(&in_actv * &input.predicate_col.activated_data_poly())
+            (Some(in_activator), Some(out_activator)) => {
+                &out_activator - &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
             },
-            (Some(in_actv), None) => {
-                &(&in_actv * &input.predicate_col.activated_data_poly()) + F::one().neg()
+            (Some(in_activator), None) => {
+                &(&in_activator * &input.predicate_col.activated_data_tracked_poly()) + F::one().neg()
             },
-            (None, Some(out_actv)) => &out_actv - &input.predicate_col.activated_data_poly(),
-            (None, None) => &input.predicate_col.activated_data_poly() + F::one().neg(),
+            (None, Some(out_activator)) => &out_activator - &input.predicate_col.activated_data_tracked_poly(),
+            (None, None) => &input.predicate_col.activated_data_tracked_poly() + F::one().neg(),
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
@@ -138,17 +138,17 @@ where
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let zero_oracle = match (
-            input.input_tracked_Table_oracle.actvtr_poly(),
-            input.output_tracked_Table_oracle.actvtr_poly(),
+            input.input_tracked_Table_oracle.activator_tracked_poly(),
+            input.output_tracked_Table_oracle.activator_tracked_poly(),
         ) {
-            (Some(in_actv), Some(out_actv)) => {
-                &out_actv - &(&in_actv * &input.predicate_oracle.activated_data_oracle())
+            (Some(in_activator), Some(out_activator)) => {
+                &out_activator - &(&in_activator * &input.predicate_oracle.activated_data_tracked_oracle())
             },
-            (Some(in_actv), None) => {
-                &(&in_actv * &input.predicate_oracle.activated_data_oracle()) + F::one().neg()
+            (Some(in_activator), None) => {
+                &(&in_activator * &input.predicate_oracle.activated_data_tracked_oracle()) + F::one().neg()
             },
-            (None, Some(out_actv)) => &out_actv - &input.predicate_oracle.activated_data_oracle(),
-            (None, None) => &input.predicate_oracle.activated_data_oracle() + F::one().neg(),
+            (None, Some(out_activator)) => &out_activator - &input.predicate_oracle.activated_data_tracked_oracle(),
+            (None, None) => &input.predicate_oracle.activated_data_tracked_oracle() + F::one().neg(),
         };
         verifier.add_zerocheck_claim(zero_oracle.id());
 

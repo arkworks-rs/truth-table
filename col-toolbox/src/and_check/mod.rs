@@ -27,21 +27,21 @@ pub struct AndCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub in_activator_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
-    pub res_activator_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    pub in_activator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    pub res_activator_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for AndCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
-        let mut in_activator_polys_cloned = Vec::new();
-        for activator_oply in &self.in_activator_polys {
-            in_activator_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
+        let mut in_activator_tracked_polys_cloned = Vec::new();
+        for activator_oply in &self.in_activator_tracked_polys {
+            in_activator_tracked_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
         }
         Self {
-            in_activator_polys: in_activator_polys_cloned,
-            res_activator_poly: self.res_activator_poly.deep_clone(prover),
+            in_activator_tracked_polys: in_activator_tracked_polys_cloned,
+            res_activator_tracked_poly: self.res_activator_tracked_poly.deep_clone(prover),
         }
     }
 }
@@ -68,11 +68,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        let mut prod_poly = input.in_activator_polys[0].clone();
-        for in_poly in &input.in_activator_polys {
+        let mut prod_poly = input.in_activator_tracked_polys[0].clone();
+        for in_poly in &input.in_activator_tracked_polys {
             prod_poly *= in_poly;
         }
-        let check_poly = &prod_poly - &input.res_activator_poly;
+        let check_poly = &prod_poly - &input.res_activator_tracked_poly;
         if check_poly.evaluations().iter().all(|&elem| elem.is_zero()) {
             return Ok(());
         }
@@ -87,11 +87,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::ProverInput,
     ) -> SnarkResult<()> {
         // Rust Ownership and borrow rules
-        let mut prod_poly = input.in_activator_polys[0].clone();
-        for in_poly in &input.in_activator_polys {
+        let mut prod_poly = input.in_activator_tracked_polys[0].clone();
+        for in_poly in &input.in_activator_tracked_polys {
             prod_poly *= in_poly;
         }
-        let check_poly = &input.res_activator_poly - &prod_poly;
+        let check_poly = &input.res_activator_tracked_poly - &prod_poly;
         prover.add_mv_zerocheck_claim(check_poly.id())?;
         Ok(())
     }

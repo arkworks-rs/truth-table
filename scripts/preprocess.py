@@ -5,7 +5,7 @@ sanitize_and_pad_parquet.py
 This script processes a Parquet file in three steps:
 
 1. Removes any rows that contain NULL values in any column.
-2. Adds a boolean column called "activator":
+2. Adds a boolean column called ACTIVATOR_COL_NAME:
    - Sets activator=True for all remaining (original) rows.
 3. Pads the table so that the total number of rows is a power of two:
    - Duplicates the last row as many times as needed.
@@ -24,7 +24,7 @@ USAGE:
 
 OPTIONS:
     --activator-name NAME
-        Change the name of the activator column (default: "activator")
+        Change the name of the activator column (default: ACTIVATOR_COL_NAME)
 
 ----------------------------------------------------------------------
 VIRTUAL ENVIRONMENT SETUP:
@@ -124,7 +124,7 @@ def main():
     )
     parser.add_argument(
         "--activator-name",
-        default="activator",
+        default=ACTIVATOR_COL_NAME,
         help="Name of the activator column (default: activator)",
     )
     args = parser.parse_args()

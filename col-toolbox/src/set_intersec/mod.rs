@@ -180,7 +180,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         // The union and the intersections should be of the same size, bcause of how
         // this protocol works
-        assert_eq!(input.col_inter.num_vars(), input.col_union.num_vars());
+        assert_eq!(input.col_inter.log_size(), input.col_union.log_size());
         // The union should not have any duplicates
 
         let no_dup_prover_input = no_dup_check::NoDupCheckProverInput {
@@ -188,13 +188,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
         NoDupPIOP::prove(prover, no_dup_prover_input)?;
 
-        let mgx = match (input.col_inter.actvtr_poly(), input.col_union.actvtr_poly()) {
-            (Some(mgx), Some(ugx)) => Some(mgx + ugx),
-            (Some(mgx), None) => Some(mgx + F::one()),
-            (None, Some(ugx)) => Some(ugx + F::one()),
+        let mgx = match (
+            input.col_inter.activator_tracked_poly(),
+            input.col_union.activator_tracked_poly(),
+        ) {
+            (Some(mgx), Some(ugx)) => Some(&mgx + &ugx),
+            (Some(mgx), None) => Some(&mgx + F::one()),
+            (None, Some(ugx)) => Some(&ugx + F::one()),
             (None, None) => Some(prover.track_mat_mv_poly(MLE::from_evaluations_vec(
-                input.col_union.num_vars(),
-                vec![F::from(2); 1 << input.col_union.num_vars()],
+                input.col_union.log_size(),
+                vec![F::from(2); 1 << input.col_union.log_size()],
             ))),
         };
 
@@ -207,9 +210,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
 
-        let diff_poly = input.col_union.data_poly() - input.col_inter.data_poly();
-        let zero_poly = match input.col_inter.actvtr_poly() {
-            Some(p) => p * &diff_poly,
+        let diff_poly = &input.col_union.data_tracked_poly() - &input.col_inter.data_tracked_poly();
+        let zero_poly = match input.col_inter.activator_tracked_poly() {
+            Some(p) => &p * &diff_poly,
             None => diff_poly,
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
@@ -221,18 +224,22 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<()> {
-        assert_eq!(input.col_inter.num_vars, input.col_union.num_vars);
+        assert_eq!(input.col_inter.log_size(), input.col_union.log_size());
         let no_dup_verifier_input = no_dup_check::NoDupCheckVerifierInput {
             tracked_col_oracle: input.col_union.clone(),
         };
         NoDupPIOP::verify(verifier, no_dup_verifier_input)?;
-        let mgx = match (&input.col_inter.actv, &input.col_union.actv) {
+        let mgx = match (
+            &input.col_inter.activator_tracked_oracle(),
+            &input.col_union.activator_tracked_oracle(),
+        ) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
             (Some(mgx), None) => Some(mgx + F::one()),
             (None, Some(ugx)) => Some(ugx + F::one()),
-            (None, None) => {
-                Some(verifier.track_oracle(Oracle::Multivariate(Arc::new(move |_| Ok(F::from(2))))))
-            },
+            (None, None) => Some(verifier.track_oracle(Oracle::new_multivariate(
+                input.col_left.log_size() + input.col_right.log_size(),
+                move |_| Ok(F::from(2)),
+            ))),
         };
 
         let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
@@ -243,11 +250,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
         MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
 
-        let diff_poly = &input.col_union.inner - &input.col_inter.inner;
-        let zero_poly: TrackedOracle<F, MvPCS, UvPCS> = match input.col_inter.actv {
-            Some(p) => &p * &diff_poly,
-            None => diff_poly,
-        };
+        let diff_poly =
+            &input.col_union.data_tracked_oracle() - &input.col_inter.data_tracked_oracle();
+        let zero_poly: TrackedOracle<F, MvPCS, UvPCS> =
+            match input.col_inter.activator_tracked_oracle() {
+                Some(p) => &p * &diff_poly,
+                None => diff_poly,
+            };
         verifier.add_zerocheck_claim(zero_poly.id());
 
         Ok(())

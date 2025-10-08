@@ -68,9 +68,9 @@ fn binary_check_test_soundness_helper<
 >(
     nv: usize,
     in_evals: Vec<Fr>,
-    in_actv: Vec<Fr>,
+    in_activator: Vec<Fr>,
 ) -> SnarkResult<()> {
-    let err = no_dup_test_helper::<Fr, MvPCS, UvPCS>(nv, in_evals, in_actv).unwrap_err();
+    let err = no_dup_test_helper::<Fr, MvPCS, UvPCS>(nv, in_evals, in_activator).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -104,22 +104,22 @@ fn no_dup_test_helper<
 >(
     nv: usize,
     in_evals: Vec<Fr>,
-    in_actv: Vec<Fr>,
+    in_activator: Vec<Fr>,
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
     let in_mle = MLE::from_evaluations_vec(nv, in_evals);
     let in_tr_p = prover.track_and_commit_mat_mv_poly(&in_mle).unwrap();
-    let in_actv_p = prover
-        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, in_actv))
+    let in_activator_p = prover
+        .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, in_activator))
         .unwrap();
-    let col = TrackedCol::new(None, in_tr_p.clone(), Some(in_actv_p.clone()));
+    let col = TrackedCol::new(in_tr_p.clone(), Some(in_activator_p.clone()), None);
     let no_dup_prover_input = NoDupCheckProverInput { col };
     NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_dup_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
-    let actvm = verifier.track_mv_com_by_id(in_actv_p.id())?;
-    let tracked_col_oracle = TrackedColOracle::new(None, in_comm, Some(actvm), nv);
+    let activatorm = verifier.track_mv_com_by_id(in_activator_p.id())?;
+    let tracked_col_oracle = TrackedColOracle::new(in_comm, Some(activatorm), None);
     let no_dup_verifier_input = NoDupCheckVerifierInput { tracked_col_oracle };
     NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_dup_verifier_input)?;
     verifier.verify()?;

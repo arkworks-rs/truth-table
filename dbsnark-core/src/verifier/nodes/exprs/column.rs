@@ -1,12 +1,13 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
 use std::sync::Arc;
 
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::PCS, verifier::structs::oracle::TrackedOracle,
+    pcs::PCS,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
     arrow::datatypes::FieldRef,
@@ -87,31 +88,25 @@ where
             .tracked_table_oracle(parent_node_id, "output_plan")
             .expect("table not found in PIOP tree");
         let col = table
-            .col_by_name(&column_expr.name)
+            .tracked_col_oracle_by_name(&column_expr.name)
             .expect("column not found in table");
-        let mut data_polys: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> = IndexMap::new();
-        let data_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
-            column_expr.name.as_str(),
-            col.data_type()
-                .expect("Column data type should not be None")
-                .clone(),
-            true,
-        ));
-        data_polys.insert(data_field, col.data_oracle().clone());
+        let mut tracked_polys: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> = IndexMap::new();
+        let data_field = col.field_ref().clone().unwrap();
+        tracked_polys.insert(data_field, col.data_tracked_oracle().clone());
 
         let activator_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
-            "activator",
+            ACTIVATOR_COL_NAME,
             datafusion::arrow::datatypes::DataType::UInt8,
             true,
         ));
-        data_polys.insert(
+        tracked_polys.insert(
             activator_field,
-            col.actvtr_oracle()
+            col.activator_tracked_oracle()
                 .expect("Column activator polynomial should not be None")
                 .clone(),
         );
 
-        let output_table = TrackedTableOracle::new(None, data_polys, 0);
+        let output_table = TrackedTableOracle::new(None, tracked_polys, 0);
 
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),

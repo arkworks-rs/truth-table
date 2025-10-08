@@ -9,7 +9,6 @@ use ark_piop::{
     to_field_vec,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::physical_plan::values;
 
 use crate::set_intersec::{
     SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput,
@@ -184,26 +183,26 @@ fn set_inter_union_test_soundness_helper<
     nv_right: usize,
     nv_union_inter: usize,
     values_left: Vec<Fr>,
-    actv_left: Option<Vec<Fr>>,
+    activator_left: Option<Vec<Fr>>,
     values_right: Vec<Fr>,
-    actv_right: Option<Vec<Fr>>,
+    activator_right: Option<Vec<Fr>>,
     values_union: Vec<Fr>,
-    actv_union: Option<Vec<Fr>>,
+    activator_union: Option<Vec<Fr>>,
     values_inter: Vec<Fr>,
-    actv_inter: Option<Vec<Fr>>,
+    activator_inter: Option<Vec<Fr>>,
 ) -> SnarkResult<()> {
     let err = set_inter_union_test_helper::<Fr, MvPCS, UvPCS>(
         nv_left,
         nv_right,
         nv_union_inter,
         values_left,
-        actv_left,
+        activator_left,
         values_right,
-        actv_right,
+        activator_right,
         values_union,
-        actv_union,
+        activator_union,
         values_inter,
-        actv_inter,
+        activator_inter,
     )
     .unwrap_err();
 
@@ -241,43 +240,41 @@ fn set_inter_union_test_helper<
     nv_right: usize,
     nv_union_inter: usize,
     values_left: Vec<Fr>,
-    actv_left: Option<Vec<Fr>>,
+    activator_left: Option<Vec<Fr>>,
     values_right: Vec<Fr>,
-    actv_right: Option<Vec<Fr>>,
+    activator_right: Option<Vec<Fr>>,
     values_union: Vec<Fr>,
-    actv_union: Option<Vec<Fr>>,
+    activator_union: Option<Vec<Fr>>,
     values_inter: Vec<Fr>,
-    actv_inter: Option<Vec<Fr>>,
+    activator_inter: Option<Vec<Fr>>,
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
     // Left column preparation
     let values_left =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv_left, &values_left))?;
-    let actv_left =
-        match actv_left {
-            Some(actv_values) => Some(prover.track_and_commit_mat_mv_poly(
-                &MLE::from_evaluations_slice(nv_left, &actv_values),
-            )?),
-            None => None,
-        };
+    let activator_left = match activator_left {
+        Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
+            &MLE::from_evaluations_slice(nv_left, &activator_values),
+        )?),
+        None => None,
+    };
     // Right column preparation
     let values_right = prover
         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv_right, &values_right))?;
-    let actv_right =
-        match actv_right {
-            Some(actv_values) => Some(prover.track_and_commit_mat_mv_poly(
-                &MLE::from_evaluations_slice(nv_right, &actv_values),
-            )?),
-            None => None,
-        };
+    let activator_right = match activator_right {
+        Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
+            &MLE::from_evaluations_slice(nv_right, &activator_values),
+        )?),
+        None => None,
+    };
     // Intersection column preparation
     let values_inter = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
         nv_union_inter,
         &values_inter,
     ))?;
-    let actv_inter = match actv_inter {
-        Some(actv_values) => Some(prover.track_and_commit_mat_mv_poly(
-            &MLE::from_evaluations_slice(nv_union_inter, &actv_values),
+    let activator_inter = match activator_inter {
+        Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
+            &MLE::from_evaluations_slice(nv_union_inter, &activator_values),
         )?),
         None => None,
     };
@@ -286,17 +283,17 @@ fn set_inter_union_test_helper<
         nv_union_inter,
         &values_union,
     ))?;
-    let actv_union = match actv_union {
-        Some(actv_values) => Some(prover.track_and_commit_mat_mv_poly(
-            &MLE::from_evaluations_slice(nv_union_inter, &actv_values),
+    let activator_union = match activator_union {
+        Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
+            &MLE::from_evaluations_slice(nv_union_inter, &activator_values),
         )?),
         None => None,
     };
     let set_inter_union_check_prover_input = SetInterUnionProverInput {
-        col_left: TrackedCol::new(None, values_left, actv_left.clone()),
-        col_right: TrackedCol::new(None, values_right, actv_right.clone()),
-        col_inter: TrackedCol::new(None, values_inter, actv_inter.clone()),
-        col_union: TrackedCol::new(None, values_union, actv_union.clone()),
+        col_left: TrackedCol::new(values_left, activator_left.clone(), None),
+        col_right: TrackedCol::new(values_right, activator_right.clone(), None),
+        col_inter: TrackedCol::new(values_inter, activator_inter.clone(), None),
+        col_union: TrackedCol::new(values_union, activator_union.clone(), None),
     };
     SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::prove(
         &mut prover,
@@ -308,68 +305,56 @@ fn set_inter_union_test_helper<
     let left_id = verifier.peek_next_id();
     let left_com = verifier.track_mv_com_by_id(left_id)?;
 
-    let left_actv_com = match &actv_left {
+    let left_activator_com = match &activator_left {
         Some(_) => {
-            let actv_id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(actv_id)?)
+            let activator_id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(activator_id)?)
         },
         None => None,
     };
     let right_id = verifier.peek_next_id();
     let right_com = verifier.track_mv_com_by_id(right_id)?;
 
-    let right_actv_com = match &actv_right {
+    let right_activator_com = match &activator_right {
         Some(_) => {
-            let actv_id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(actv_id)?)
+            let activator_id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(activator_id)?)
         },
         None => None,
     };
     let inter_id = verifier.peek_next_id();
     let inter_com = verifier.track_mv_com_by_id(inter_id)?;
-    let inter_actv_com = match &actv_inter {
+    let inter_activator_com = match &activator_inter {
         Some(_) => {
-            let actv_id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(actv_id)?)
+            let activator_id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(activator_id)?)
         },
         None => None,
     };
     let union_id = verifier.peek_next_id();
     let union_com = verifier.track_mv_com_by_id(union_id)?;
-    let union_actv_com = match &actv_union {
+    let union_activator_com = match &activator_union {
         Some(_) => {
-            let actv_id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(actv_id)?)
+            let activator_id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(activator_id)?)
         },
         None => None,
     };
     //////////////////////////////////////////////////////////////////////
 
     let set_inter_union_check_verifier_input = SetInterUnionVerifierInput {
-        col_left: TrackedColOracle {
-            inner: left_com,
-            actv: left_actv_com,
-            data_type: None,
-            num_vars: nv_left,
-        },
-        col_right: TrackedColOracle {
-            inner: right_com,
-            actv: right_actv_com,
-            data_type: None,
-            num_vars: nv_right,
-        },
-        col_inter: TrackedColOracle {
-            inner: inter_com,
-            actv: inter_actv_com,
-            data_type: None,
-            num_vars: nv_union_inter,
-        },
-        col_union: TrackedColOracle {
-            inner: union_com,
-            actv: union_actv_com,
-            data_type: None,
-            num_vars: nv_union_inter,
-        },
+        col_left: TrackedColOracle::new(
+            left_com, left_activator_com, None
+        ),
+        col_right: TrackedColOracle::new(
+            right_com, right_activator_com, None
+        ),
+        col_inter: TrackedColOracle::new(
+            inter_com, inter_activator_com, None
+        ),
+        col_union: TrackedColOracle::new(
+            union_com, union_activator_com, None
+        ),
     };
 
     SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::verify(

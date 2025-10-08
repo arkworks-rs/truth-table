@@ -15,6 +15,7 @@ use datafusion::{
     logical_expr::Expr,
     scalar::ScalarValue,
 };
+use indexmap::IndexMap;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
@@ -100,7 +101,7 @@ where
 
         let table = TrackedTable::new(
             Some(schema),
-            Vec::from([(
+            IndexMap::from([(
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),

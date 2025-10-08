@@ -159,7 +159,7 @@ where
         super_col: &TrackedCol<F, MvPCS, UvPCS>,
         super_col_m: &TrackedPoly<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let nv = included_col.num_vars();
+        let nv = included_col.log_size();
 
         // initialize multiplicity vector
         let one_const_mle = MLE::from_evaluations_vec(nv, vec![F::one(); 2_usize.pow(nv as u32)]);
@@ -184,7 +184,10 @@ where
         super_col_m: &TrackedOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };
-        let one_comm = tracker.track_oracle(Oracle::Multivariate(Arc::new(one_closure)));
+        let one_comm = tracker.track_oracle(Oracle::new_multivariate(
+            included_col.log_size(),
+            one_closure,
+        ));
 
         let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
             fxs: vec![included_col.clone()],

@@ -30,7 +30,6 @@ use ark_piop::{
     },
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use ark_std::{end_timer, start_timer};
 use derivative::Derivative;
 use std::marker::PhantomData;
 
@@ -196,9 +195,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // return something without zeros by default Note: can resuse the
         // supp.selector as the supp_m.selector
         let supp_no_dups_checker = TrackedCol::new(
-            None,
             common_mset_supp_m.clone(),
-            supp.actvtr_poly().cloned(),
+            supp.activator_tracked_poly(),
+            None,
         );
         let no_zeros_check_prover_input = NoZerosCheckProverInput {
             col: supp_no_dups_checker,
@@ -226,10 +225,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // col and supp are subsets of each other by showing multiplicity polys have no
         // zeros
         let supp_no_dups_checker = TrackedColOracle::new(
-            None,
             common_mset_supp_m.clone(),
-            supp.actv.clone(),
-            supp.num_vars(),
+            supp.activator_tracked_oracle(),
+            None,
         );
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
             tracked_col_oracle: supp_no_dups_checker,

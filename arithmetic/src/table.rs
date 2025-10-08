@@ -4,6 +4,7 @@ use ark_ff::PrimeField;
 
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, Prover},
@@ -12,37 +13,38 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
 };
-
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 
-use crate::col::TrackedCol;
-
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
-/// An abstraction of an arithmetized table in dbSNARK
-/// An arithmetized table is represented by a set of polynomials representing
-/// the data columns and a single activator polynomial If the activator
-/// polynomial is None, all the rows are active
+/// An abstraction of a tracked arithmetized table in dbSNARK
+/// A tracked arithmetized table is represented by a set of tracked polynomials
+/// representing the columns
 pub struct TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    /// The schema of the table; i.e. the metadata about the table
+    /// The schema of the table, if any
     schema: Option<Schema>,
-    /// The polynomials representing the data columns, stored in schema order
+    /// The polynomials representing the columns, stored in schema order
     tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
-    size: usize,
+    /// The log size of the table
+    log_size: usize,
 }
 
-// Custom Debug impl to avoid requiring `MvPCS`/`UvPCS` to be Debug.
+
+
+
+
+
+
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -51,9 +53,9 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTable")
-            .field("num_total_cols", &self.num_total_cols())
+            .field("num_total_cols", &self.num_total_tracked_cols())
+            .field("num_data_cols", &self.num_data_tracked_cols())
             .field("log_size", &self.log_size())
-            .field("size", &self.size)
             .finish()
     }
 }
@@ -66,12 +68,12 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
-        let data_polys = self
+        let tracked_polys = self
             .tracked_polys
             .iter()
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
             .collect::<IndexMap<_, _>>();
-        Self::new(self.schema.clone(), data_polys, self.size)
+        Self::new(self.schema.clone(), tracked_polys, self.log_size)
     }
 }
 
@@ -81,42 +83,95 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new<I>(
+    /// Constructs a new `TrackedTable` from the provided schema (if any),
+    /// tracked polynomials, and log size of the table
+    pub fn new(
         schema: Option<Schema>,
-        tracked_polys: I,
-        // TODO: See if we can remove this
-        size: usize,
-    ) -> Self
-    where
-        I: IntoIterator<Item = (FieldRef, TrackedPoly<F, MvPCS, UvPCS>)>,
-    {
-        let tracked_polys = tracked_polys.into_iter().collect::<IndexMap<_, _>>();
+        tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
+        log_size: usize,
+    ) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            Self::check_new_args(&schema, &tracked_polys, log_size).unwrap();
+        }
+
         Self {
             schema,
             tracked_polys,
-            size,
+            log_size,
         }
     }
-    pub fn log_size(&self) -> usize {
-        self.tracked_polys
+
+    #[cfg(debug_assertions)]
+    fn check_new_args(
+        schema: &Option<Schema>,
+        tracked_polys: &IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
+        log_size: usize,
+    ) -> SnarkResult<()> {
+        // All columns have the same tracker
+        let first_poly = tracked_polys
             .values()
             .next()
-            .expect("table should have columns")
-            .log_size()
+            .expect("table should have at least one column");
+        tracked_polys.values().for_each(|poly| {
+            assert!(
+                first_poly.same_tracker(poly),
+                "All columns must share the same tracker"
+            );
+        });
+
+        // All columns must have the same log size as the table
+        tracked_polys.values().for_each(|poly| {
+            assert_eq!(
+                poly.log_size(),
+                log_size,
+                "All columns must have the same log size as the table"
+            );
+        });
+
+        // If schema is provided, it must match the fields of the tracked polynomials
+        if let Some(schema) = &schema {
+            schema
+                .fields()
+                .iter()
+                .zip(tracked_polys.keys())
+                .for_each(|(f1, f2)| {
+                    assert_eq!(
+                        f1, f2,
+                        "Schema fields must match the tracked polynomial fields"
+                    );
+                });
+        }
+
+        Ok(())
     }
 
-    pub fn prover(&self) -> Prover<F, MvPCS, UvPCS> {
-        Prover::new_from_tracker_rc(
-            self.tracked_polys
-                .values()
-                .next()
-                .expect("table should have columns")
-                .tracker(),
-        )
+    /// Returns the tracked polynomials representing the columns of the table
+    pub fn tracked_polys(&self) -> IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> {
+        self.tracked_polys.clone()
     }
 
+    /// Returns the optional schema of the table
+    pub fn schema(&self) -> Option<Schema> {
+        self.schema.clone()
+    }
+
+    /// Returns the log size of the table
+    pub fn log_size(&self) -> usize {
+        self.log_size
+    }
+
+    /// Returns the size of the table
+    pub fn size(&self) -> usize {
+        1 << self.log_size()
+    }
+
+    /// Folds the specified columns of the tracked table using the provided
+    /// challenges and returns the resulting folded tracked column. The
+    /// output tracked column will have the same activator polynomial as the
+    /// original table (if any) and does not have any datatype
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
-        assert_eq!(col_inds.len(), challs.len());
+        debug_assert_eq!(col_inds.len(), challs.len());
         let first_idx = *col_inds
             .first()
             .expect("fold requires at least one column index");
@@ -137,140 +192,181 @@ where
             let term = poly * chall;
             folded += &term;
         }
-        TrackedCol::new(None, folded, self.actvtr_poly())
+        TrackedCol::new(folded, self.activator_tracked_poly(), None)
     }
-
-    pub fn fold_all(&self, challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
-        self.fold(&(0..self.num_total_cols()).collect::<Vec<usize>>(), challs)
-    }
-
-    pub fn col(&self, col_ind: usize) -> TrackedCol<F, MvPCS, UvPCS> {
-        TrackedCol::new(
-            self.schema.as_ref().map(|schema| {
-                if col_ind >= schema.fields().len() {
-                    panic!(
-                        "Column index {} out of bounds (schema: {:?})",
-                        col_ind, schema
-                    );
-                }
-                schema.field(col_ind).clone().data_type().clone()
-            }),
-            self.tracked_polys
-                .get_index(col_ind)
-                .expect("column index out of bounds")
-                .1
-                .clone(),
-            self.actvtr_poly(),
+    /// Folds all the data (i.e. excluding the activator column) tracked column
+    /// polynomials
+    pub fn fold_all_data_columns(&self, challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
+        self.fold(
+            &(0..self.num_data_tracked_cols()).collect::<Vec<usize>>(),
+            challs,
         )
     }
 
-    pub fn col_by_name(&self, name: &str) -> Option<TrackedCol<F, MvPCS, UvPCS>> {
+    /// Returns the tracked column at the specified index
+    pub fn tracked_col_by_ind(&self, ind: usize) -> TrackedCol<F, MvPCS, UvPCS> {
+        let (field_ref, data_tracked_poly) = self
+            .tracked_polys
+            .get_index(ind)
+            .expect("column index out of bounds");
+        TrackedCol::new(
+            data_tracked_poly.clone(),
+            self.activator_tracked_poly(),
+            Some(field_ref.clone()),
+        )
+    }
+    /// Returns the tracked column with the specified name
+    pub fn tracked_col_by_name(&self, name: &str) -> Option<TrackedCol<F, MvPCS, UvPCS>> {
         let idx = self
             .schema
             .as_ref()
             .and_then(|schema| schema.index_of(name).ok())?;
-        Some(self.col(idx))
+        Some(self.tracked_col_by_ind(idx))
     }
 
-    pub fn data_polys(&self) -> Vec<TrackedPoly<F, MvPCS, UvPCS>> {
-        self.tracked_polys
+    /// Returns the tracked columns at the specified indices
+    pub fn tracked_col_by_indices(&self, indices: &[usize]) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
+        indices
             .iter()
-            .map(|(_, poly)| poly.clone())
+            .map(|&i| self.tracked_col_by_ind(i))
             .collect()
     }
 
-    pub fn size(&self) -> usize {
-        self.size
+    /// Returns all the tracked column polynomials in the table, including the
+    /// activator column (if any)
+    pub fn all_tracked_cols(&self) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
+        self.tracked_col_by_indices(&(0..self.num_total_tracked_cols()).collect::<Vec<usize>>())
     }
 
-    pub fn cols(&self, indice: &[usize]) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
-        indice.iter().map(|&i| self.col(i)).collect()
-    }
-
-    pub fn all_cols(&self) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
-        self.cols(&(0..self.num_total_cols()).collect::<Vec<usize>>())
-    }
-
-    // Number of data columns (including possibly activator)
-    pub fn num_total_cols(&self) -> usize {
+    // Number of data columns including  activator (if any)
+    pub fn num_total_tracked_cols(&self) -> usize {
         self.tracked_polys.len()
     }
 
-    // Number of data columns (excludin possibly activator)
-    pub fn num_data_cols(&self) -> usize {
-        self.tracked_polys.len() - (self.actvtr_poly().is_some() as usize)
+    // Number of data columns excluding possibly activator (if any)
+    pub fn num_data_tracked_cols(&self) -> usize {
+        self.tracked_polys.len() - (self.activator_tracked_poly().is_some() as usize)
     }
 
-    pub fn schema(&self) -> Option<Schema> {
-        self.schema.clone()
-    }
-
-    pub fn actvtr_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
+    /// Returns the tracked polynomial of the activator column, if any
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
         self.tracked_polys
             .iter()
-            .find_map(|(field, poly)| (field.name() == "activator").then(|| poly.clone()))
-    }
-
-    pub fn columns(&self) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<F, MvPCS, UvPCS>)> {
-        self.tracked_polys.iter()
+            .find_map(|(field, poly)| (field.name() == ACTIVATOR_COL_NAME).then(|| poly.clone()))
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// A serializable representation of an [`TrackedTable`], where the tracked
-/// polynomials are materialized so the table can be persisted or transmitted
-/// without the original prover tracker state.
+/// An abstraction of an arithmetized table in dbSNARK
+/// An arithmetic table might not be tracked and can be serialized and
+/// deserialized
 pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
-    data_polys: Vec<(FieldRef, Arc<MLE<F>>)>,
-    size: usize,
+    polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
+    log_size: usize,
 }
 
 impl<F: PrimeField> ArithTable<F> {
+    /// Constructs a new `ArithTable`
     pub fn new(
         schema: Option<Schema>,
-        data_polys: Vec<(FieldRef, Arc<MLE<F>>)>,
-        size: usize,
+        polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
+        log_size: usize,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            Self::check_new_args(&schema, &polynomials, log_size).unwrap();
+        }
+
         Self {
             schema,
-            data_polys,
-            size,
+            polynomials,
+            log_size,
         }
     }
 
+    #[cfg(debug_assertions)]
+    fn check_new_args(
+        schema: &Option<Schema>,
+        polys: &IndexMap<FieldRef, Arc<MLE<F>>>,
+        log_size: usize,
+    ) -> SnarkResult<()> {
+        // All columns must have the same log size as the table
+        polys.values().for_each(|poly| {
+            assert_eq!(
+                poly.num_vars(),
+                log_size,
+                "All columns must have the same log size as the table"
+            );
+        });
+
+        // If schema is provided, it must match the fields of the tracked polynomials
+        if let Some(schema) = &schema {
+            schema
+                .fields()
+                .iter()
+                .zip(polys.keys())
+                .for_each(|(f1, f2)| {
+                    assert_eq!(
+                        f1, f2,
+                        "Schema fields must match the tracked polynomial fields"
+                    );
+                });
+        }
+
+        Ok(())
+    }
+
+    /// Returns the polynomials representing the columns of the table
+    pub fn polynomials(&self) -> &IndexMap<FieldRef, Arc<MLE<F>>> {
+        &self.polynomials
+    }
+
+    /// Returns the log size of the table
+    pub fn log_size(&self) -> usize {
+        self.log_size
+    }
+
+    /// Returns the size of the table
+    pub fn size(&self) -> usize {
+        1 << self.log_size()
+    }
+
+    /// Number of columns in the table including activator (if any)
+    pub fn num_total_cols(&self) -> usize {
+        self.polynomials.len()
+    }
+
+    /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
 
-    pub fn data_polys(&self) -> &[(FieldRef, Arc<MLE<F>>)] {
-        &self.data_polys
-    }
-
-    pub fn size(&self) -> usize {
-        self.size
-    }
-
-    pub fn num_total_cols(&self) -> usize {
-        self.data_polys.len()
-    }
-
-    pub fn from_tracked_Table<MvPCS, UvPCS>(table: &TrackedTable<F, MvPCS, UvPCS>) -> Self
+    /// Constructs an `ArithTable` from a `TrackedTable` by extracting
+    pub fn from_tracked_table<MvPCS, UvPCS>(table: &TrackedTable<F, MvPCS, UvPCS>) -> Self
     where
         MvPCS: PCS<F, Poly = MLE<F>>,
         UvPCS: PCS<F, Poly = LDE<F>>,
     {
         let schema = table.schema();
         let size = table.size();
-        let data_polys = table
-            .columns()
+        let tracked_polys = table
+            .tracked_polys
+            .iter()
             .map(|(field, poly)| {
                 let evals = poly.evaluations();
                 let mle = Arc::new(MLE::from_evaluations_slice(poly.log_size(), &evals));
                 (field.clone(), mle)
             })
             .collect();
-        Self::new(schema, data_polys, size)
+        Self::new(schema, tracked_polys, size)
+    }
+
+    /// Returns the polynomial of the activator polynomial, if any
+    pub fn activator_polynomial(&self) -> Option<&Arc<MLE<F>>> {
+        self.polynomials
+            .iter()
+            .find_map(|(field, poly)| (field.name() == ACTIVATOR_COL_NAME).then_some(poly))
     }
 }
 
@@ -280,7 +376,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn from(table: TrackedTable<F, MvPCS, UvPCS>) -> Self {
-        Self::from_tracked_Table(&table)
+        Self::from_tracked_table(&table)
     }
 }
 
@@ -299,9 +395,9 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             schema_bytes.serialize_with_mode(&mut writer, compress)?;
         }
 
-        (self.data_polys.len() as u64).serialize_with_mode(&mut writer, compress)?;
+        (self.polynomials.len() as u64).serialize_with_mode(&mut writer, compress)?;
 
-        for (field_ref, mle) in &self.data_polys {
+        for (field_ref, mle) in &self.polynomials {
             let field_bytes = serde_json::to_vec(field_ref.as_ref())
                 .map_err(|_| SerializationError::InvalidData)?;
             field_bytes.serialize_with_mode(&mut writer, compress)?;
@@ -315,7 +411,7 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             }
         }
 
-        (self.size as u64).serialize_with_mode(&mut writer, compress)?;
+        (self.size() as u64).serialize_with_mode(&mut writer, compress)?;
         Ok(())
     }
 
@@ -327,8 +423,8 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             size += schema_bytes.serialized_size(compress);
         }
 
-        size += (self.data_polys.len() as u64).serialized_size(compress);
-        for (field_ref, mle) in &self.data_polys {
+        size += (self.polynomials.len() as u64).serialized_size(compress);
+        for (field_ref, mle) in &self.polynomials {
             let field_bytes =
                 serde_json::to_vec(field_ref.as_ref()).expect("field serialization should succeed");
             size += field_bytes.serialized_size(compress);
@@ -340,7 +436,7 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             }
         }
 
-        size + (self.size as u64).serialized_size(compress)
+        size + (self.size() as u64).serialized_size(compress)
     }
 }
 
@@ -365,7 +461,7 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
         let column_count =
             usize::try_from(column_count).map_err(|_| SerializationError::InvalidData)?;
 
-        let mut data_polys = Vec::with_capacity(column_count);
+        let mut polynomials = IndexMap::with_capacity(column_count);
         for _ in 0..column_count {
             let field_bytes = Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
             let field: Field = serde_json::from_slice(&field_bytes)
@@ -387,13 +483,13 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
                 evaluations.push(value);
             }
             let mle = Arc::new(MLE::from_evaluations_vec(nv, evaluations));
-            data_polys.push((field_ref, mle));
+            polynomials.insert(field_ref, mle);
         }
 
         let size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let size = usize::try_from(size_raw).map_err(|_| SerializationError::InvalidData)?;
 
-        let table = Self::new(schema, data_polys, size);
+        let table = Self::new(schema, polynomials, size);
         table.check()?;
         Ok(table)
     }
@@ -402,13 +498,13 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
 impl<F: PrimeField> Valid for ArithTable<F> {
     fn check(&self) -> Result<(), SerializationError> {
         if let Some(schema) = &self.schema {
-            if schema.fields().len() != self.data_polys.len() {
+            if schema.fields().len() != self.polynomials.len() {
                 return Err(SerializationError::InvalidData);
             }
         }
 
-        for (_, mle) in &self.data_polys {
-            if self.size != 0 && (1usize << mle.num_vars()) != self.size {
+        for (_, mle) in &self.polynomials {
+            if self.size() != 0 && (1usize << mle.num_vars()) != self.size() {
                 return Err(SerializationError::InvalidData);
             }
         }

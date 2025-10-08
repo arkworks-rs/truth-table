@@ -91,7 +91,7 @@ where
         record_batches: Vec<RecordBatch>,
     ) -> Result<ArithTable<F>, EncodeError> {
         if record_batches.is_empty() {
-            return Ok(ArithTable::new(None, Vec::new(), 0));
+            return Ok(ArithTable::new(None, IndexMap::new(), 0));
         }
 
         let schema_ref = record_batches[0].schema();
@@ -114,7 +114,7 @@ where
             .collect();
         let columns = columns?;
 
-        let data_polys: Vec<(FieldRef, Arc<MLE<F>>)> = cfg_into_iter!(columns)
+        let tracked_polys_entries: Vec<(FieldRef, Arc<MLE<F>>)> = cfg_into_iter!(columns)
             .enumerate()
             .map(|(idx, values)| {
                 let mle = Arc::new(MLE::from_evaluations_slice(log_vars, &values));
@@ -122,10 +122,11 @@ where
                 (field_ref, mle)
             })
             .collect();
-
+        let tracked_polys: IndexMap<FieldRef, Arc<MLE<F>>> =
+            tracked_polys_entries.into_iter().collect();
         let schema = Some(schema_ref.as_ref().clone());
 
-        Ok(ArithTable::new(schema, data_polys, total_rows))
+        Ok(ArithTable::new(schema, tracked_polys, total_rows))
     }
 
     pub fn len(&self) -> usize {

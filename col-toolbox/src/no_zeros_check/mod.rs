@@ -80,18 +80,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let col_poly = prover_input.col.data_poly().clone();
-        let col_sel = prover_input.col.actvtr_poly();
-        let col_poly_evals = prover_input.col.data_poly().evaluations();
+        let col_poly = prover_input.col.data_tracked_poly().clone();
+        let col_sel = prover_input.col.activator_tracked_poly();
+        let col_poly_evals = prover_input.col.data_tracked_poly().evaluations();
         let mut eval_inverses: Vec<F> = col_poly_evals.clone();
 
         batch_inversion(&mut eval_inverses);
-        let inverses_mle = MLE::from_evaluations_vec(prover_input.col.num_vars(), eval_inverses);
+        let inverses_mle = MLE::from_evaluations_vec(prover_input.col.log_size(), eval_inverses);
 
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
         let no_dups_check_poly = match col_sel {
-            Some(col_sel) => &(&(&col_poly * col_sel) * &inverses_poly) - col_sel,
+            Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,
             None => &(&col_poly * &inverses_poly) - F::one(),
         };
 
@@ -102,8 +102,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let col_poly = verifier_input.tracked_col_oracle.inner.clone();
-        let col_sel = verifier_input.tracked_col_oracle.actv.clone();
+        let col_poly = verifier_input.tracked_col_oracle.data_tracked_oracle().clone();
+        let col_sel = verifier_input.tracked_col_oracle.activator_tracked_oracle().clone();
         let inverses_poly_id = verifier.peek_next_id();
         let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
         let no_dups_check_poly = match col_sel {

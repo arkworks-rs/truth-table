@@ -50,9 +50,9 @@ fn nozero_test_soundness_helper<
 >(
     nv: usize,
     values: Vec<Fr>,
-    actv_values: Option<Vec<Fr>>,
+    activator_values: Option<Vec<Fr>>,
 ) -> SnarkResult<()> {
-    let err = nozero_test_helper::<Fr, MvPCS, UvPCS>(nv, values, actv_values).unwrap_err();
+    let err = nozero_test_helper::<Fr, MvPCS, UvPCS>(nv, values, activator_values).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -86,21 +86,22 @@ fn nozero_test_helper<
 >(
     nv: usize,
     values: Vec<Fr>,
-    actv_values: Option<Vec<Fr>>,
+    activator_values: Option<Vec<Fr>>,
 ) -> SnarkResult<()> {
     // Ensure tracing subscriber is initialized once for test output
 
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
     let inner = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
-    let actv = match actv_values {
-        Some(actv_values) => Some(
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &actv_values))?,
-        ),
-        None => None,
-    };
-    let actv_clone = actv.clone();
+    let activator =
+        match activator_values {
+            Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
+                &MLE::from_evaluations_slice(nv, &activator_values),
+            )?),
+            None => None,
+        };
+    let activator_clone = activator.clone();
     let no_zero_check_prover_input = NoZerosCheckProverInput {
-        col: TrackedCol::new(None, inner, actv_clone),
+        col: TrackedCol::new(inner, activator_clone, None),
     };
     NoZerosCheck::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_zero_check_prover_input)?;
     let proof = prover.build_proof()?;
@@ -108,20 +109,15 @@ fn nozero_test_helper<
     //////////////////////////////////////////////////////////////////////
     let inner_id = verifier.peek_next_id();
     let inner_com = verifier.track_mv_com_by_id(inner_id)?;
-    let actv_com = match &actv {
+    let activator_com = match &activator {
         Some(_) => {
-            let actv_id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(actv_id)?)
+            let activator_id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(activator_id)?)
         },
         None => None,
     };
     let no_zero_check_verifier_input = NoZerosCheckVerifierInput {
-        tracked_col_oracle: TrackedColOracle {
-            inner: inner_com,
-            actv: actv_com,
-            data_type: None,
-            num_vars: nv,
-        },
+        tracked_col_oracle: TrackedColOracle::new(inner_com, activator_com, None),
     };
 
     NoZerosCheck::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_zero_check_verifier_input)?;

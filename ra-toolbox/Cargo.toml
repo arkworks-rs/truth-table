@@ -18,6 +18,7 @@ derivative = { workspace = true }
 rayon = { workspace = true, optional = true }
 datafusion = { workspace = true }
 tokio = { version = "1", features = ["full"] }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 ark-ec = { workspace = true }

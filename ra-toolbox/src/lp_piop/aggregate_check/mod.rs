@@ -80,7 +80,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let num_gpd_cols = input.input_grouping_table.num_data_cols();
+        let num_gpd_cols = input.input_grouping_table.num_data_tracked_cols();
         // Generate one random field element for each column being grouped by
         // This is used to fold these columns to a single random linearly
         // combined column
@@ -94,8 +94,8 @@ where
 
         // Fold the grouping columns of the input and output tables
 
-        let input_folded_col = input.input_grouping_table.fold_all(&gpd_cols_fld_challs);
-        let output_folded_col = input.output_grouping_table.fold_all(&gpd_cols_fld_challs);
+        let input_folded_col = input.input_grouping_table.fold_all_data_columns(&gpd_cols_fld_challs);
+        let output_folded_col = input.output_grouping_table.fold_all_data_columns(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckProverInput {
@@ -112,7 +112,7 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let num_gpd_cols = input.input_grouping_table_oracle.num_data_cols();
+        let num_gpd_cols = input.input_grouping_table_oracle.num_data_tracked_col_oracles();
         // Generate one random field element for each column being grouped by
         // This is used to fold these columns to a single random linearly
         // combined column
@@ -128,10 +128,10 @@ where
 
         let input_folded_col_oracle = input
             .input_grouping_table_oracle
-            .fold_all(&gpd_cols_fld_challs);
+            .fold_all_data_columns(&gpd_cols_fld_challs);
         let output_folded_col_oracle = input
             .output_grouping_table_oracle
-            .fold_all(&gpd_cols_fld_challs);
+            .fold_all_data_columns(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckVerifierInput {

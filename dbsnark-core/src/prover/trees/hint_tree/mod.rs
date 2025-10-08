@@ -5,6 +5,7 @@ pub mod tests;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
 
 use ark_ff::PrimeField;
@@ -397,11 +398,11 @@ fn rows_cols_activated(batches: &[RecordBatch]) -> (usize, usize, Option<usize>)
     // find activator index
     let activator_idx = batches
         .iter()
-        .find_map(|b| b.schema().index_of("activator").ok());
+        .find_map(|b| b.schema().index_of(ACTIVATOR_COL_NAME).ok());
     if let Some(_idx) = activator_idx {
         let mut count_true = 0usize;
         for b in batches {
-            if let Ok(i) = b.schema().index_of("activator") {
+            if let Ok(i) = b.schema().index_of(ACTIVATOR_COL_NAME) {
                 let mask = b
                     .column(i)
                     .as_any()

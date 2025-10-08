@@ -3,7 +3,7 @@
 //! 1. On input column C of size $N=2^\mu$, the prover commits to a column C'
 //!    that contains the same active elements as C but random unique elements
 //!    for the non-active elements. NoDup for C' implies NoDup for C.
-//! 3. The prover and the verifier run a zerocheck on $actv(x)(c'(x)-c(x))=0$
+//! 3. The prover and the verifier run a zerocheck on $activator(x)(c'(x)-c(x))=0$
 //!    for all $x\in \mathcal{H}_\mu$
 //! 4. The prover computes the univariate polynomial
 //!    $z(x)=\prod_{i=0}^{N-1}(x-c'_i)$
@@ -114,7 +114,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let defraged_in_col = Defragmenter::defrag_col(prover, &prover_input.col)?;
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_col.data_poly().log_size();
+        let num_vars = defraged_in_col.data_tracked_poly().log_size();
         // The size of all the polynomials in this protocol, i.e. 2^num_vars
         let poly_size = 2_i32.pow(num_vars as u32) as usize;
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
@@ -125,19 +125,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ///////////////////// Compute the deduplicated polynomial /////////////////////
         // TODO: Make sure the randomness is provided safely
 
-        let dedup_mle = if let Some(actvtr_poly) = defraged_in_col.actvtr_poly() {
+        let dedup_mle = if let Some(activator_tracked_poly) = defraged_in_col.activator_tracked_poly() {
             let mut rng = ark_std::test_rng();
             let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
             let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
                 prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
             let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                &(&dedup_tr_p - defraged_in_col.data_poly()) * actvtr_poly;
+                &(&dedup_tr_p - &defraged_in_col.data_tracked_poly()) * &activator_tracked_poly;
             prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
             dedup_mle
         } else {
             MLE::from_evaluations_vec(
-                defraged_in_col.num_vars(),
-                defraged_in_col.data_poly().evaluations(),
+                defraged_in_col.log_size(),
+                defraged_in_col.data_tracked_poly().evaluations(),
             )
         };
 
@@ -215,18 +215,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
-        let num_vars = defraged_in_tracked_col_oracle.num_vars();
+        let num_vars = defraged_in_tracked_col_oracle.log_size();
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
         let f_query_point: Vec<F> = std::iter::once(F::zero())
             .chain((0..num_vars - 1).map(|_| F::one()))
             .collect();
 
         ///////////////////// Deduplication check /////////////////////
-        if let Some(defraged_actv_tracked_col_oracle) = defraged_in_tracked_col_oracle.actv {
+        if let Some(defraged_activator_tracked_col_oracle) = defraged_in_tracked_col_oracle.activator_tracked_oracle() {
             let dedup_cm_id = verifier.peek_next_id();
             let dedup_tr_cm = verifier.track_mv_com_by_id(dedup_cm_id)?;
-            let dedup_wit_tr_cm = &(&dedup_tr_cm - &defraged_in_tracked_col_oracle.inner)
-                * &defraged_actv_tracked_col_oracle;
+            let dedup_wit_tr_cm = &(&dedup_tr_cm - &defraged_in_tracked_col_oracle.data_tracked_oracle())
+                * &defraged_activator_tracked_col_oracle;
             verifier.add_zerocheck_claim(dedup_wit_tr_cm.id());
         }
 
@@ -268,18 +268,18 @@ fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<
     in_col: &TrackedCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<MLE<F>> {
     // TODO: Fix this
-    let mut evals = in_col.data_poly().evaluations();
+    let mut evals = in_col.data_tracked_poly().evaluations();
     let random_values: Vec<F> = (0..evals.len()).map(|_| F::rand(rng)).collect();
 
-    if let Some(actvtr_poly) = in_col.actvtr_poly() {
+    if let Some(activator_tracked_poly) = in_col.activator_tracked_poly() {
         evals = in_col
-            .data_poly()
+            .data_tracked_poly()
             .evaluations()
             .par_iter()
-            .zip(actvtr_poly.evaluations().par_iter())
+            .zip(activator_tracked_poly.evaluations().par_iter())
             .enumerate()
-            .map(|(i, (eval, is_actv))| {
-                if is_actv.is_zero() {
+            .map(|(i, (eval, is_activator))| {
+                if is_activator.is_zero() {
                     random_values[i]
                 } else {
                     *eval
@@ -289,7 +289,7 @@ fn p_prep<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<
     }
 
     Ok(MLE::from_evaluations_vec(
-        in_col.data_poly().log_size(),
+        in_col.data_tracked_poly().log_size(),
         evals,
     ))
 }

@@ -16,6 +16,7 @@ use datafusion::{
     arrow::datatypes::SchemaRef, common::Statistics, logical_expr::Expr, prelude::SessionContext,
 };
 use datafusion_expr::LogicalPlan;
+use indexmap::IndexMap;
 
 use crate::prover::nodes::{ProverNode, cost::ProvingCost};
 
@@ -91,8 +92,8 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
-        let mut collected_cols = Vec::new();
-        let mut table_size: Option<usize> = None;
+        let mut collected_cols = IndexMap::new();
+        let mut table_log_size: Option<usize> = None;
 
         for child in &self.inputs {
             let table = piop_tree
@@ -104,40 +105,25 @@ where
                     )
                 });
 
-            let child_size = table.size();
-            if let Some(expected) = table_size {
+            let child_log_size = table.log_size();
+            if let Some(expected) = table_log_size {
                 assert_eq!(
-                    expected, child_size,
-                    "aggregate arguments must share the same table size",
+                    expected, child_log_size,
+                    "aggregate arguments must share the same table log size",
                 );
             } else {
-                table_size = Some(child_size);
+                table_log_size = Some(child_log_size);
             }
-            let col = table.col(0);
-            let field = col
-                .data_type()
-                .map(|dt| {
-                    datafusion::arrow::datatypes::FieldRef::new(
-                        datafusion::arrow::datatypes::Field::new("arg", dt, true),
-                    )
-                })
-                .unwrap_or_else(|| {
-                    datafusion::arrow::datatypes::FieldRef::new(
-                        datafusion::arrow::datatypes::Field::new(
-                            "arg",
-                            datafusion::arrow::datatypes::DataType::Null,
-                            true,
-                        ),
-                    )
-                });
-            collected_cols.push((field, col.data_poly().clone()));
+            let col = table.tracked_col_by_ind(0);
+            let field = col.field_ref().unwrap();
+            collected_cols.insert(field, col.data_tracked_poly().clone());
         }
 
         if collected_cols.is_empty() {
             return;
         }
 
-        let output_table = TrackedTable::new(None, collected_cols, table_size.unwrap_or(0));
+        let output_table = TrackedTable::new(None, collected_cols, table_log_size.unwrap_or(0));
         piop_tree.add_table(
             self.node_id.clone(),
             "output_plan".to_string(),

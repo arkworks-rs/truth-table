@@ -208,7 +208,7 @@ fn prove_count_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, P
     super_set_multiplicity_tr_p: TrackedPoly<F, MvPCS, UvPCS>,
     stat_col: TrackedCol<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
-    let witness_tr_poly = &super_set_multiplicity_tr_p - &stat_col.activated_data_poly();
+    let witness_tr_poly = &super_set_multiplicity_tr_p - &stat_col.activated_data_tracked_poly();
     prover.add_mv_zerocheck_claim(witness_tr_poly.id())?;
     Ok(())
 }
@@ -233,8 +233,8 @@ fn prove_sum_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Pol
     let multiplicity_check_prover_input = MultiplicityCheckProverInput {
         fxs: vec![input_table_folded_col.clone()],
         gxs: vec![output_table_folded_col.clone()],
-        mfxs: vec![Some(input_table_tarcol.data_poly().clone())],
-        mgxs: vec![Some(output_table_tarcol.data_poly().clone())],
+        mfxs: vec![Some(input_table_tarcol.data_tracked_poly().clone())],
+        mgxs: vec![Some(output_table_tarcol.data_tracked_poly().clone())],
     };
 
     MultiplicityCheck::<F, MvPCS, UvPCS>::prove(prover, multiplicity_check_prover_input)
@@ -279,7 +279,7 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     let broadcast_col = TrackedCol::new(
         input_table_tarcol.data_type().clone(),
         broadcasted_stat_tr_poly.clone(),
-        input_table_tarcol.actvtr_poly().cloned(),
+        input_table_tarcol.activator_tracked_poly().cloned(),
     );
     // Prove that the broadcasted column is computed correctly
     // First check that the output statistics foded with the output categories is
@@ -308,12 +308,12 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
 
     // Second check that the maximum value does actually appear in the input data
     let chall = prover.get_and_append_challenge(b"max_min").unwrap();
-    let data_poly = input_table_folded_col.data_poly()
-        + &(&(&broadcasted_stat_tr_poly - input_table_tarcol.data_poly()) * (chall));
+    let data_tracked_poly = input_table_folded_col.data_tracked_poly()
+        + &(&(&broadcasted_stat_tr_poly - input_table_tarcol.data_tracked_poly()) * (chall));
     let super_col = TrackedCol::new(
         None,
-        data_poly,
-        input_table_folded_col.actvtr_poly().cloned(),
+        data_tracked_poly,
+        input_table_folded_col.activator_tracked_poly().cloned(),
     );
     let inclusion_check_prover_input = InclusionCheckProverInput {
         included_col: output_table_folded_col,
@@ -326,12 +326,12 @@ fn prove_max_min_stat<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
     // target column is non-negative; i.e. the input table target column is less
     // than or equal to the broadcasted stats
 
-    let non_negative_tr_poly = &broadcasted_stat_tr_poly - input_table_tarcol.data_poly();
+    let non_negative_tr_poly = &broadcasted_stat_tr_poly - input_table_tarcol.data_tracked_poly();
     let sign_check_piop_prover_input = SignCheckProverInput {
         col: TrackedCol::new(
             input_table_tarcol.data_type().clone(),
             non_negative_tr_poly,
-            input_table_tarcol.actvtr_poly().cloned(),
+            input_table_tarcol.activator_tracked_poly().cloned(),
         ),
         sign: match stat_type {
             AggregationType::Max => col_toolbox::sign_check::Sign::NoneNegative,
@@ -362,7 +362,7 @@ fn verify_max_min_stat<
     let broadcast_tracked_col_oracle = TrackedColOracle {
         data_type: input_table_tartracked_col_oracle.data_type.clone(),
         inner: broadcasted_stat_tr_comm.clone(),
-        actv: input_table_tartracked_col_oracle.actv.clone(),
+        activator: input_table_tartracked_col_oracle.activator.clone(),
         num_vars: input_table_tartracked_col_oracle.num_vars,
     };
     // Prove that the broadcasted column is computed correctly
@@ -398,12 +398,12 @@ fn verify_max_min_stat<
 
     // Second check that the maximum value does actually appear in the input data
     let chall = verifier.get_and_append_challenge(b"max_min").unwrap();
-    let data_poly = &input_table_folded_tracked_col_oracle.inner
+    let data_tracked_poly = &input_table_folded_tracked_col_oracle.inner
         + &(&(&broadcasted_stat_tr_comm - &input_table_tartracked_col_oracle.inner) * (chall));
     let super_tracked_col_oracle = TrackedColOracle::new(
         None,
-        data_poly,
-        input_table_folded_tracked_col_oracle.actv,
+        data_tracked_poly,
+        input_table_folded_tracked_col_oracle.activator,
         input_table_folded_tracked_col_oracle.num_vars,
     );
     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
@@ -421,7 +421,7 @@ fn verify_max_min_stat<
         tracked_col_oracle: TrackedColOracle {
             data_type: input_table_tartracked_col_oracle.data_type.clone(),
             inner: non_negative_comm,
-            actv: input_table_tartracked_col_oracle.actv.clone(),
+            activator: input_table_tartracked_col_oracle.activator.clone(),
             num_vars: input_table_tartracked_col_oracle.num_vars,
         },
         sign: match stat_type {
@@ -443,17 +443,17 @@ fn build_output_category_stat_map<
     output_table_folded_col: &TrackedCol<F, MvPCS, UvPCS>,
 ) -> BTreeMap<F, F> {
     let mut output_category_stat_map = BTreeMap::new();
-    let output_table_tareval = output_table_tarcol.data_poly().evaluations();
-    let output_table_folded_evals = output_table_folded_col.data_poly().evaluations();
-    match output_table_folded_col.actvtr_poly() {
-        Some(actv) => {
-            let actv_evals = actv.evaluations();
+    let output_table_tareval = output_table_tarcol.data_tracked_poly().evaluations();
+    let output_table_folded_evals = output_table_folded_col.data_tracked_poly().evaluations();
+    match output_table_folded_col.activator_tracked_poly() {
+        Some(activator) => {
+            let activator_evals = activator.evaluations();
             // Only consider the active categories
             output_table_folded_evals
                 .iter()
                 .enumerate()
                 .for_each(|(i, category)| {
-                    if actv_evals[i].is_one() {
+                    if activator_evals[i].is_one() {
                         output_category_stat_map.insert(*category, output_table_tareval[i]);
                     }
                 });
@@ -482,17 +482,17 @@ fn broadcast_stat_evals<
 
     let output_category_stat_map =
         build_output_category_stat_map(output_table_tarcol, output_table_folded_col);
-    let mut broadcasted_stat_evals = input_table_tarcol.data_poly().evaluations().clone();
-    let evals = input_table_folded_col.data_poly().evaluations();
-    match input_table_folded_col.actvtr_poly() {
-        Some(actv) => {
+    let mut broadcasted_stat_evals = input_table_tarcol.data_tracked_poly().evaluations().clone();
+    let evals = input_table_folded_col.data_tracked_poly().evaluations();
+    match input_table_folded_col.activator_tracked_poly() {
+        Some(activator) => {
             // Only consider the active categories
-            let actv_evals = actv.evaluations();
+            let activator_evals = activator.evaluations();
             cfg_iter_mut!(broadcasted_stat_evals)
                 .zip(cfg_iter!(evals))
-                .zip(cfg_iter!(actv_evals))
-                .for_each(|((stat, category), &actv)| {
-                    if actv.is_one() {
+                .zip(cfg_iter!(activator_evals))
+                .for_each(|((stat, category), &activator)| {
+                    if activator.is_one() {
                         // Only broadcast the stats for the active categories
                         *stat = match output_category_stat_map.get(category) {
                             Some(stat) => *stat,

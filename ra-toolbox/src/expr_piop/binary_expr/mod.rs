@@ -83,18 +83,20 @@ where
     type VerifierInput = BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS>;
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        if input.left_col.data_poly().log_size() != input.right_col.data_poly().log_size()
-            || input.left_col.data_poly().log_size() != input.output_col.data_poly().log_size()
+        if input.left_col.data_tracked_poly().log_size()
+            != input.right_col.data_tracked_poly().log_size()
+            || input.left_col.data_tracked_poly().log_size()
+                != input.output_col.data_tracked_poly().log_size()
         {
             return Err(ProverError(HonestProverError(FalseClaim)));
         }
 
-        let left_act = input.left_col.actvtr_poly();
-        let right_act = input.right_col.actvtr_poly();
-        let output_act = input.output_col.actvtr_poly();
-        if !activators_match::<F, MvPCS, UvPCS>(left_act, right_act)
-            || !activators_match::<F, MvPCS, UvPCS>(left_act, output_act)
-            || !activators_match::<F, MvPCS, UvPCS>(right_act, output_act)
+        let left_act = input.left_col.activator_tracked_poly();
+        let right_act = input.right_col.activator_tracked_poly();
+        let output_act = input.output_col.activator_tracked_poly();
+        if !activators_match::<F, MvPCS, UvPCS>(left_act.clone(), right_act.clone())
+            || !activators_match::<F, MvPCS, UvPCS>(left_act.clone(), output_act.clone())
+            || !activators_match::<F, MvPCS, UvPCS>(right_act.clone(), output_act.clone())
         {
             return Err(ProverError(HonestProverError(FalseClaim)));
         }
@@ -109,62 +111,73 @@ where
             Operator::And => {},
             Operator::Or => {
                 let binary_check_prover_input = BinaryCheckProverInput {
-                    predicate: input.output_col.activated_data_poly().clone(),
+                    predicate: input.output_col.activated_data_tracked_poly().clone(),
                 };
                 BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
 
-                let col_left_right_sum = input.left_col.data_poly() + input.right_col.data_poly();
+                let col_left_right_sum =
+                    &input.left_col.data_tracked_poly() + &input.right_col.data_tracked_poly();
                 let mut p_evals = col_left_right_sum.evaluations().to_vec();
                 invert_or_one_in_place(&mut p_evals);
                 let p_poly = MLE::from_evaluations_vec(col_left_right_sum.log_size(), p_evals);
                 let p_tracked = prover.track_and_commit_mat_mv_poly(&p_poly)?;
-                let zero_poly = match (input.left_col.actvtr_poly(), input.output_col.actvtr_poly())
-                {
-                    (Some(in_actv_poly), Some(out_actv_poly)) => {
-                        &(&(in_actv_poly * &p_tracked)
-                            * &(input.left_col.data_poly() + input.right_col.data_poly()))
-                            - &(input.output_col.data_poly() * out_actv_poly)
+                let zero_poly = match (
+                    input.left_col.activator_tracked_poly(),
+                    input.output_col.activator_tracked_poly(),
+                ) {
+                    (Some(in_activator_tracked_poly), Some(out_activator_tracked_poly)) => {
+                        &(&(&in_activator_tracked_poly * &p_tracked)
+                            * &(&input.left_col.data_tracked_poly()
+                                + &input.right_col.data_tracked_poly()))
+                            - &(&input.output_col.data_tracked_poly() * &out_activator_tracked_poly)
                     },
-                    (Some(in_actv_poly), None) => {
-                        &(&(in_actv_poly * &p_tracked)
-                            * &(input.left_col.data_poly() + input.right_col.data_poly()))
-                            - input.output_col.data_poly()
+                    (Some(in_activator_tracked_poly), None) => {
+                        &(&(&in_activator_tracked_poly * &p_tracked)
+                            * &(&input.left_col.data_tracked_poly()
+                                + &input.right_col.data_tracked_poly()))
+                            - &input.output_col.data_tracked_poly()
                     },
-                    (None, Some(out_actv_poly)) => {
-                        &(&p_tracked * &(input.left_col.data_poly() + input.right_col.data_poly()))
-                            - &(input.output_col.data_poly() * out_actv_poly)
+                    (None, Some(out_activator_tracked_poly)) => {
+                        &(&p_tracked
+                            * &(&input.left_col.data_tracked_poly()
+                                + &input.right_col.data_tracked_poly()))
+                            - &(&input.output_col.data_tracked_poly() * &out_activator_tracked_poly)
                     },
                     (None, None) => {
-                        &(&p_tracked * &(input.left_col.data_poly() + input.right_col.data_poly()))
-                            - input.output_col.data_poly()
+                        &(&p_tracked
+                            * &(&input.left_col.data_tracked_poly()
+                                + &input.right_col.data_tracked_poly()))
+                            - &input.output_col.data_tracked_poly()
                     },
                 };
                 prover.add_mv_zerocheck_claim(zero_poly.id())?;
             },
             Operator::Eq => {
                 let binary_check_prover_input = BinaryCheckProverInput {
-                    predicate: input.output_col.activated_data_poly().clone(),
+                    predicate: input.output_col.activated_data_tracked_poly().clone(),
                 };
                 BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
 
-                let actv = input.left_col.actvtr_poly();
-                let zero_poly = match actv {
-                    Some(actv_poly) => {
-                        &(input.left_col.data_poly() - input.right_col.data_poly())
-                            * &(input.output_col.data_poly() * actv_poly)
+                let activator = input.left_col.activator_tracked_poly();
+                let zero_poly = match &activator {
+                    Some(activator_tracked_poly) => {
+                        &(&input.left_col.data_tracked_poly()
+                            - &input.right_col.data_tracked_poly())
+                            * &(&input.output_col.data_tracked_poly() * activator_tracked_poly)
                     },
                     None => {
-                        &(input.left_col.data_poly() - input.right_col.data_poly())
-                            * input.output_col.data_poly()
+                        &(&input.left_col.data_tracked_poly()
+                            - &input.right_col.data_tracked_poly())
+                            * &input.output_col.data_tracked_poly()
                     },
                 };
                 prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
                 let no_zero_col = TrackedCol::new(
+                    &(&input.left_col.data_tracked_poly() - &input.right_col.data_tracked_poly())
+                        * &(&input.output_col.data_tracked_poly() - F::one()),
+                    activator.clone(),
                     None,
-                    &(input.left_col.data_poly() - input.right_col.data_poly())
-                        * &(input.output_col.data_poly() - F::one()),
-                    actv.cloned(),
                 );
                 NoZerosCheck::<F, MvPCS, UvPCS>::prove(
                     prover,
@@ -189,69 +202,78 @@ where
             Operator::And => todo!(),
             Operator::Or => {
                 let binary_check_verifier_input = BinaryCheckVerifierInput {
-                    predicate_oracle: input.output_col_oracle.activated_data_oracle().clone(),
+                    predicate_oracle: input
+                        .output_col_oracle
+                        .activated_data_tracked_oracle()
+                        .clone(),
                 };
                 BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
                 let p_id = verifier.peek_next_id();
                 let p_tracked = verifier.track_mv_com_by_id(p_id)?;
                 let zero_oracle = match (
-                    input.left_col_oracle.actvtr_oracle(),
-                    input.output_col_oracle.actvtr_oracle(),
+                    input.left_col_oracle.activator_tracked_oracle(),
+                    input.output_col_oracle.activator_tracked_oracle(),
                 ) {
-                    (Some(in_actv_poly), Some(out_actv_poly)) => {
-                        &(&(in_actv_poly * &p_tracked)
-                            * &(input.left_col_oracle.data_oracle()
-                                + input.right_col_oracle.data_oracle()))
-                            - &(input.output_col_oracle.data_oracle() * out_actv_poly)
+                    (Some(in_activator_tracked_poly), Some(out_activator_tracked_poly)) => {
+                        &(&(&in_activator_tracked_poly * &p_tracked)
+                            * &(&input.left_col_oracle.data_tracked_oracle()
+                                + &input.right_col_oracle.data_tracked_oracle()))
+                            - &(&input.output_col_oracle.data_tracked_oracle()
+                                * &out_activator_tracked_poly)
                     },
-                    (Some(in_actv_poly), None) => {
-                        &(&(in_actv_poly * &p_tracked)
-                            * &(input.left_col_oracle.data_oracle()
-                                + input.right_col_oracle.data_oracle()))
-                            - input.output_col_oracle.data_oracle()
+                    (Some(in_activator_tracked_poly), None) => {
+                        &(&(&in_activator_tracked_poly * &p_tracked)
+                            * &(&input.left_col_oracle.data_tracked_oracle()
+                                + &input.right_col_oracle.data_tracked_oracle()))
+                            - &input.output_col_oracle.data_tracked_oracle()
                     },
-                    (None, Some(out_actv_poly)) => {
+                    (None, Some(out_activator_tracked_poly)) => {
                         &(&p_tracked
-                            * &(input.left_col_oracle.data_oracle()
-                                + input.right_col_oracle.data_oracle()))
-                            - &(input.output_col_oracle.data_oracle() * out_actv_poly)
+                            * &(&input.left_col_oracle.data_tracked_oracle()
+                                + &input.right_col_oracle.data_tracked_oracle()))
+                            - &(&input.output_col_oracle.data_tracked_oracle()
+                                * &out_activator_tracked_poly)
                     },
                     (None, None) => {
                         &(&p_tracked
-                            * &(input.left_col_oracle.data_oracle()
-                                + input.right_col_oracle.data_oracle()))
-                            - input.output_col_oracle.data_oracle()
+                            * &(&input.left_col_oracle.data_tracked_oracle()
+                                + &input.right_col_oracle.data_tracked_oracle()))
+                            - &input.output_col_oracle.data_tracked_oracle()
                     },
                 };
                 verifier.add_zerocheck_claim(zero_oracle.id());
             },
             Operator::Eq => {
                 let binary_check_verifier_input = BinaryCheckVerifierInput {
-                    predicate_oracle: input.output_col_oracle.activated_data_oracle().clone(),
+                    predicate_oracle: input
+                        .output_col_oracle
+                        .activated_data_tracked_oracle()
+                        .clone(),
                 };
                 BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
 
-                let actv = input.left_col_oracle.actvtr_oracle();
-                let zero_oracle = match actv {
-                    Some(actv_poly) => {
-                        &(input.left_col_oracle.data_oracle()
-                            - input.right_col_oracle.data_oracle())
-                            * &(input.output_col_oracle.data_oracle() * actv_poly)
+                let activator = input.left_col_oracle.activator_tracked_oracle();
+                let zero_oracle = match &activator {
+                    Some(activator_tracked_poly) => {
+                        &(&input.left_col_oracle.data_tracked_oracle()
+                            - &input.right_col_oracle.data_tracked_oracle())
+                            * &(&input.output_col_oracle.data_tracked_oracle()
+                                * activator_tracked_poly)
                     },
                     None => {
-                        &(input.left_col_oracle.data_oracle()
-                            - input.right_col_oracle.data_oracle())
-                            * input.output_col_oracle.data_oracle()
+                        &(&input.left_col_oracle.data_tracked_oracle()
+                            - &input.right_col_oracle.data_tracked_oracle())
+                            * &input.output_col_oracle.data_tracked_oracle()
                     },
                 };
                 verifier.add_zerocheck_claim(zero_oracle.id());
 
                 let no_zero_oracle = TrackedColOracle::new(
+                    &(&input.left_col_oracle.data_tracked_oracle()
+                        - &input.right_col_oracle.data_tracked_oracle())
+                        * &(&input.output_col_oracle.data_tracked_oracle() - F::one()),
+                    activator.clone(),
                     None,
-                    &(input.left_col_oracle.data_oracle() - input.right_col_oracle.data_oracle())
-                        * &(input.output_col_oracle.data_oracle() - F::one()),
-                    actv.cloned(),
-                    input.left_col_oracle.num_vars(),
                 );
                 NoZerosCheck::<F, MvPCS, UvPCS>::verify(
                     verifier,
@@ -273,12 +295,12 @@ where
 
 #[cfg(feature = "honest-prover")]
 fn activators_match<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    lhs: Option<&TrackedPoly<F, MvPCS, UvPCS>>,
-    rhs: Option<&TrackedPoly<F, MvPCS, UvPCS>>,
+    lhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+    rhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
 ) -> bool {
     match (lhs, rhs) {
         (None, None) => true,
-        (Some(poly), None) | (None, Some(poly)) => activator_is_all_ones(poly),
+        (Some(poly), None) | (None, Some(poly)) => activator_is_all_ones(&poly),
         (Some(lhs_poly), Some(rhs_poly)) => {
             lhs_poly.log_size() == rhs_poly.log_size()
                 && lhs_poly.evaluations() == rhs_poly.evaluations()

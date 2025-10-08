@@ -98,43 +98,43 @@ where
 
         let mut bookkeeping_map: BTreeMap<F, F> = BTreeMap::new();
         for (fx, mfx) in input.fxs.iter().zip(&input.mfxs) {
-            match (mfx, fx.actvtr_poly()) {
-                (Some(mfx), Some(actv)) => {
+            match (mfx, fx.activator_tracked_poly()) {
+                (Some(mfx), Some(activator)) => {
                     let mfx_evals = mfx.evaluations();
-                    let actv_evals = actv.evaluations();
-                    for ((elem, mf_elem), actv_elem) in fx
-                        .data_poly()
+                    let activator_evals = activator.evaluations();
+                    for ((elem, mf_elem), activator_elem) in fx
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
                         .zip(mfx_evals.iter())
-                        .zip(actv_evals.iter())
+                        .zip(activator_evals.iter())
                     {
-                        if *actv_elem == F::one() {
+                        if *activator_elem == F::one() {
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) += *mf_elem;
                         }
                     }
                 },
-                (None, Some(actv)) => {
-                    let actv_evals = actv.evaluations();
-                    for (elem, actv_elem) in fx
-                        .data_poly()
+                (None, Some(activator)) => {
+                    let activator_evals = activator.evaluations();
+                    for (elem, activator_elem) in fx
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
-                        .zip(actv_evals.iter())
+                        .zip(activator_evals.iter())
                     {
-                        if *actv_elem == F::one() {
+                        if *activator_elem == F::one() {
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
                         }
                     }
                 },
                 (None, None) => {
-                    for elem in fx.data_poly().evaluations() {
+                    for elem in fx.data_tracked_poly().evaluations() {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
                     }
                 },
                 (Some(mfx), None) => {
                     for (elem, mf_elem) in fx
-                        .data_poly()
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
                         .zip(mfx.evaluations().iter())
@@ -146,43 +146,43 @@ where
         }
 
         for (gx, mgx) in input.gxs.iter().zip(&input.mgxs) {
-            match (mgx, gx.actvtr_poly()) {
-                (Some(mgx), Some(actv)) => {
+            match (mgx, gx.activator_tracked_poly()) {
+                (Some(mgx), Some(activator)) => {
                     let mgx_evals = mgx.evaluations();
-                    let actv_evals = actv.evaluations();
-                    for ((elem, mg_elem), actv_elem) in gx
-                        .data_poly()
+                    let activator_evals = activator.evaluations();
+                    for ((elem, mg_elem), activator_elem) in gx
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
                         .zip(mgx_evals.iter())
-                        .zip(actv_evals.iter())
+                        .zip(activator_evals.iter())
                     {
-                        if *actv_elem == F::one() {
+                        if *activator_elem == F::one() {
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) -= *mg_elem;
                         }
                     }
                 },
-                (None, Some(actv)) => {
-                    let actv_evals = actv.evaluations();
-                    for (elem, actv_elem) in gx
-                        .data_poly()
+                (None, Some(activator)) => {
+                    let activator_evals = activator.evaluations();
+                    for (elem, activator_elem) in gx
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
-                        .zip(actv_evals.iter())
+                        .zip(activator_evals.iter())
                     {
-                        if *actv_elem == F::one() {
+                        if *activator_elem == F::one() {
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
                         }
                     }
                 },
                 (None, None) => {
-                    for elem in gx.data_poly().evaluations() {
+                    for elem in gx.data_tracked_poly().evaluations() {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
                     }
                 },
                 (Some(mgx), None) => {
                     for (elem, mg_elem) in gx
-                        .data_poly()
+                        .data_tracked_poly()
                         .evaluations()
                         .into_iter()
                         .zip(mgx.evaluations().iter())

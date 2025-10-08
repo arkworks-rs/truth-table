@@ -82,7 +82,7 @@ where
         let constant_value = column_values.pop().unwrap_or_else(F::zero);
 
         let tracked_poly =
-            verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| Ok(constant_value))));
+            verifier.track_oracle(Oracle::new_multivariate(0, move |x| Ok(constant_value)));
 
         let data_type = scalar.data_type();
 

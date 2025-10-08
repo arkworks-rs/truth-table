@@ -12,11 +12,12 @@ use datafusion::{
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
+use indexmap::IndexMap;
 
 use crate::prover::nodes::cost::ProvingCost;
 
 use crate::prover::{nodes::ProverNode, trees::piop_tree::ProverPIOPTree};
-
+use arithmetic::ACTIVATOR_COL_NAME;
 #[derive(Clone)]
 pub struct ColumnExprNode {
     pub parent_logical_plan: LogicalPlan,
@@ -95,35 +96,29 @@ where
             .tracked_table(parent_node_id, "output_plan")
             .expect("table not found in PIOP tree");
         let col = table
-            .col_by_name(&column_expr.name)
+            .tracked_col_by_name(&column_expr.name)
             .expect("column not found in table");
         // TODO: Clean this up later
-        let mut data_polys: Vec<(
+        let mut tracked_polys: IndexMap<
             Arc<datafusion::arrow::datatypes::Field>,
             ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-        )> = vec![(
+        > = IndexMap::from([(
+            col.field_ref()
+                .expect("Column data type should not be None")
+                .clone(),
+            col.data_tracked_poly().clone(),
+        )]);
+        tracked_polys.insert(
             Arc::new(datafusion::arrow::datatypes::Field::new(
-                column_expr.name.as_str(),
-                col.data_type()
-                    .expect("Column data type should not be None")
-                    .clone(),
-                true,
-            )),
-            col.data_poly().clone(),
-        )]
-        .into_iter()
-        .collect();
-        data_polys.push((
-            Arc::new(datafusion::arrow::datatypes::Field::new(
-                "activator",
+                ACTIVATOR_COL_NAME,
                 datafusion::arrow::datatypes::DataType::UInt8,
                 true,
             )),
-            col.actvtr_poly()
+            col.activator_tracked_poly()
                 .expect("Column activator polynomial should not be None")
                 .clone(),
-        ));
-        let output_table = TrackedTable::new(None, data_polys, 0);
+        );
+        let output_table = TrackedTable::new(None, tracked_polys, 0);
 
         piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
     }

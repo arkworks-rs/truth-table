@@ -22,13 +22,13 @@ async fn prepare_table(query: &str, prover: &mut Prover<F, P, K>) -> TrackedTabl
 async fn exec_custom_query(
     query: &str,
     prover: &mut Prover<F, P, K>,
-    compute_actvtr: bool,
+    compute_activator: bool,
 ) -> TrackedTable<F, P, K> {
     let ctx = SessionContext::new().enable_url_table();
 
     let df = ctx.sql(query).await.unwrap();
 
-    df_to_table(prover, df, MAX_LOG_VAR, compute_actvtr)
+    df_to_table(prover, df, MAX_LOG_VAR, compute_activator)
         .await
         .unwrap()
 }

@@ -33,8 +33,8 @@ impl TableScanNode {
         plan
     }
 }
-// TODO: Add the table scan output commitments (the root ones) in the prover
-// initial state as a mapping from table names to commitments
+// TODO: Add the table scan output comitments (the root ones) in the prover
+// initial state as a mapping from table names to comitments
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for TableScanNode
 where
     F: PrimeField,

@@ -3,8 +3,7 @@ use super::*;
 use std::sync::Arc;
 
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::{self, TrackedTableOracle}, ACTIVATOR_COL_NAME
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -20,6 +19,7 @@ use datafusion::{
     logical_expr::{Expr, Filter, LogicalPlanBuilder},
     scalar::ScalarValue,
 };
+use indexmap::IndexMap;
 
 #[test]
 fn filter_check_is_complete_with_both_activators_none() -> SnarkResult<()> {
@@ -156,40 +156,49 @@ fn filter_check_test_helper<
 
     let predicate_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &predicate_values))?;
-    let predicate_col = TrackedCol::new(Some(DataType::Boolean), predicate_poly.clone(), None);
+    let predicate_field = Field::new("predicate", DataType::Boolean, false);
+    let predicate_col = TrackedCol::new(
+        predicate_poly.clone(),
+        None,
+        Some(Arc::new(predicate_field)),
+    );
 
     let table_len = predicate_values.len();
+    let table_log_size = (table_len as f64).log2() as usize;
     let data_values = predicate_values.clone();
 
-    let input_data_poly =
+    let input_data_tracked_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
     let input_data_field: FieldRef = Arc::new(Field::new("col0", DataType::UInt64, false));
 
-    let mut input_columns = vec![(input_data_field.clone(), input_data_poly.clone())];
+    let mut input_columns =
+        IndexMap::from([(input_data_field.clone(), input_data_tracked_poly.clone())]);
     if let Some(values) = input_activator_values {
-        let activator_poly =
+        let activator_tracked_poly =
             prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
-        input_columns.push((
-            Arc::new(Field::new("activator", DataType::Boolean, false)),
-            activator_poly,
-        ));
+        input_columns.insert(
+            Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)),
+            activator_tracked_poly,
+        );
     }
-    let input_table = TrackedTable::new(None, input_columns, table_len);
+    let input_table = TrackedTable::new(None, input_columns, table_log_size);
 
-    let output_data_poly =
+    let output_data_tracked_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &data_values))?;
     let output_data_field: FieldRef = Arc::new(Field::new("col0", DataType::UInt64, false));
 
-    let mut output_columns = vec![(output_data_field.clone(), output_data_poly.clone())];
+    let mut output_columns =
+        IndexMap::from([(output_data_field.clone(), output_data_tracked_poly.clone())]);
     if let Some(values) = output_activator_values {
-        let activator_poly =
+        let activator_tracked_poly =
             prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
-        output_columns.push((
-            Arc::new(Field::new("activator", DataType::Boolean, false)),
-            activator_poly,
-        ));
+        output_columns.insert(
+            Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)),
+            activator_tracked_poly,
+        );
     }
-    let output_tracked_Table = TrackedTable::new(None, output_columns, table_len);
+    let table_log_size = (table_len as f64).log2() as usize;
+    let output_tracked_Table = TrackedTable::new(None, output_columns, table_log_size);
 
     let filter = dummy_filter();
     let prover_input = FilterPIOPProverInput {
@@ -203,13 +212,17 @@ fn filter_check_test_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
-    let predicate_data_oracle = verifier.track_mv_com_by_id(predicate_poly.id())?;
-    let predicate_oracle =
-        TrackedColOracle::new(predicate_col.data_type(), predicate_data_oracle, None, nv);
+    let predicate_data_tracked_oracle = verifier.track_mv_com_by_id(predicate_poly.id())?;
+    let predicate_oracle = TrackedColOracle::new(
+        predicate_data_tracked_oracle,
+        None,
+        predicate_col.field_ref(),
+    );
 
-    let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
+    let input_tracked_Table_oracle =
+        TrackedTableOracle::from_tracked_table(input_table, &mut verifier)?;
     let output_tracked_Table_oracle =
-        TrackedTableOracle::from(output_tracked_Table, &mut verifier)?;
+        TrackedTableOracle::from_tracked_table(output_tracked_Table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,

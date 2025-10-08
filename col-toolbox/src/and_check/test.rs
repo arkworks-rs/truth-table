@@ -103,9 +103,9 @@ fn and_check_test_helper<
     res_values: Vec<Fr>,
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
-    let res_activator_poly =
+    let res_activator_tracked_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &res_values))?;
-    let in_activator_polys: Vec<TrackedPoly<Fr, MvPCS, UvPCS>> = in_values
+    let in_activator_tracked_polys: Vec<TrackedPoly<Fr, MvPCS, UvPCS>> = in_values
         .iter()
         .map(|in_evals| {
             prover
@@ -114,18 +114,18 @@ fn and_check_test_helper<
         })
         .collect();
     let and_check_prover_input = AndCheckProverInput {
-        in_activator_polys: in_activator_polys.clone(),
-        res_activator_poly,
+        in_activator_tracked_polys: in_activator_tracked_polys.clone(),
+        res_activator_tracked_poly,
     };
     AndCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, and_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
-    let actv_id = verifier.peek_next_id();
-    let res_activator_orcl = verifier.track_mv_com_by_id(actv_id)?;
-    let in_activator_orcls = in_activator_polys
+    let activator_id = verifier.peek_next_id();
+    let res_activator_orcl = verifier.track_mv_com_by_id(activator_id)?;
+    let in_activator_orcls = in_activator_tracked_polys
         .iter()
-        .map(|activator_poly| verifier.track_mv_com_by_id(activator_poly.id()).unwrap())
+        .map(|activator_tracked_poly| verifier.track_mv_com_by_id(activator_tracked_poly.id()).unwrap())
         .collect();
     let and_check_verifier_input = AndCheckVerifierInput {
         in_activator_orcls,

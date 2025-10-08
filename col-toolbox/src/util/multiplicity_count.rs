@@ -36,8 +36,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    let poly_evals = col.data_poly().evaluations();
-    match col.actvtr_poly() {
+    let poly_evals = col.data_tracked_poly().evaluations();
+    match col.activator_tracked_poly() {
         Some(ref sel) => vec_multiplicity_count::<F>(&poly_evals, Some(&sel.evaluations())),
         None => vec_multiplicity_count::<F>(&poly_evals, None),
     }

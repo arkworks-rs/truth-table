@@ -242,9 +242,9 @@ fn groupby_test_soundness_helper<
     in_gp_values_1: Vec<Fr>,
     in_gp_values_2: Vec<Fr>,
     in_tarvalues: Vec<Fr>,
-    in_actv: Vec<Fr>,
+    in_activator: Vec<Fr>,
     out_tarvalues: Vec<Fr>,
-    out_actv: Vec<Fr>,
+    out_activator: Vec<Fr>,
     aggregation_type: AggregationType,
 ) -> SnarkResult<()> {
     let err = groupby_test_helper::<Fr, MvPCS, UvPCS>(
@@ -252,9 +252,9 @@ fn groupby_test_soundness_helper<
         in_gp_values_1,
         in_gp_values_2,
         in_tarvalues,
-        in_actv,
+        in_activator,
         out_tarvalues,
-        out_actv,
+        out_activator,
         aggregation_type,
     )
     .unwrap_err();
@@ -294,9 +294,9 @@ fn groupby_test_helper<
     in_gp_values_1: Vec<Fr>,
     in_gp_values_2: Vec<Fr>,
     in_tarvalues: Vec<Fr>,
-    in_actv: Vec<Fr>,
+    in_activator: Vec<Fr>,
     out_tarvalues: Vec<Fr>,
-    out_actv: Vec<Fr>,
+    out_activator: Vec<Fr>,
     aggregation_type: AggregationType,
 ) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
@@ -308,13 +308,13 @@ fn groupby_test_helper<
     let gp_mle_2 = MLE::from_evaluations_vec(nv, in_gp_values_2);
     let gp_tr_p_2 = prover.track_and_commit_mat_mv_poly(&gp_mle_2).unwrap();
     // Input activation column, all rows are activated
-    let in_actv_mle = MLE::from_evaluations_vec(nv, in_actv);
-    let in_actv_tr_p = prover.track_and_commit_mat_mv_poly(&in_actv_mle).unwrap();
+    let in_activator_mle = MLE::from_evaluations_vec(nv, in_activator);
+    let in_activator_tr_p = prover.track_and_commit_mat_mv_poly(&in_activator_mle).unwrap();
 
     // Output activation column, Last two rows are grouped with others and not
     // activated
-    let out_actv_mle = MLE::from_evaluations_vec(nv, out_actv);
-    let out_actv_tr_p = prover.track_and_commit_mat_mv_poly(&out_actv_mle).unwrap();
+    let out_activator_mle = MLE::from_evaluations_vec(nv, out_activator);
+    let out_activator_tr_p = prover.track_and_commit_mat_mv_poly(&out_activator_mle).unwrap();
 
     let input_tarmle = MLE::from_evaluations_vec(nv, in_tarvalues);
     let input_tartr_poly = prover.track_and_commit_mat_mv_poly(&input_tarmle).unwrap();
@@ -334,8 +334,8 @@ fn groupby_test_helper<
     let in_table = TrackedTable::new(
         Some(in_schema.clone()),
         in_tr_ps.clone(),
-        Some(in_actv_tr_p.clone()),
-        8,
+        Some(in_activator_tr_p.clone()),
+        3,
     );
 
     // Output table from the group by query
@@ -352,8 +352,8 @@ fn groupby_test_helper<
     let out_table = TrackedTable::new(
         Some(out_schema.clone()),
         out_tr_ps,
-        Some(out_actv_tr_p.clone()),
-        6,
+        Some(out_activator_tr_p.clone()),
+        3,
     );
 
     let group_by_instr = GroupByConfig {
@@ -372,19 +372,19 @@ fn groupby_test_helper<
     verifier.set_proof(proof);
     let gp_tr_comm_1 = verifier.track_mv_com_by_id(gp_tr_p_1.id())?;
     let gp_tr_comm_2 = verifier.track_mv_com_by_id(gp_tr_p_2.id())?;
-    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.id())?;
-    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
+    let in_activator_tr_comm = verifier.track_mv_com_by_id(in_activator_tr_p.id())?;
+    let out_activator_tr_comm = verifier.track_mv_com_by_id(out_activator_tr_p.id())?;
     let input_tartr_comm = verifier.track_mv_com_by_id(input_tartr_poly.id())?;
     let in_tr_comms = vec![gp_tr_comm_1.clone(), gp_tr_comm_2.clone(), input_tartr_comm];
     let in_tracked_Table_oracle = TrackedTableOracle::new(
         Some(in_schema),
         in_tr_comms.clone(),
-        Some(in_actv_tr_comm),
+        Some(in_activator_tr_comm),
         nv,
     );
     let out_tartr_comm = verifier.track_mv_com_by_id(out_tartr_p.id())?;
     let out_tr_comms = vec![gp_tr_comm_1, gp_tr_comm_2, out_tartr_comm];
-    let out_tracked_Table_oracle = TrackedTableOracle::new(Some(out_schema), out_tr_comms, Some(out_actv_tr_comm), nv);
+    let out_tracked_Table_oracle = TrackedTableOracle::new(Some(out_schema), out_tr_comms, Some(out_activator_tr_comm), nv);
 
     let group_by_check_verifier_input = GroupByVerifierInput {
         input_tracked_Table_oracle: in_tracked_Table_oracle,

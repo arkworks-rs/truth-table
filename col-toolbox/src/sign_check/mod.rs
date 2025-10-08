@@ -185,9 +185,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let negated_col = TrackedCol::new(
-            col.data_type().clone(),
-            &col.data_poly().clone() * (-F::one()),
-            col.actvtr_poly().cloned(),
+            &col.data_tracked_poly().clone() * (-F::one()),
+            col.activator_tracked_poly(),
+            col.field_ref().clone(),
         );
         Self::prove_non_neg(prover, &negated_col)?;
         Ok(())
@@ -198,10 +198,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let negated_comm = TrackedColOracle::new(
-            tracked_col_oracle.data_type.clone(),
-            &tracked_col_oracle.inner.clone() * (-F::one()),
-            tracked_col_oracle.actv.clone(),
-            tracked_col_oracle.num_vars,
+            &tracked_col_oracle.data_tracked_oracle().clone() * (-F::one()),
+            tracked_col_oracle.activator_tracked_oracle().clone(),
+            tracked_col_oracle.field_ref().clone(),
         );
         Self::verify_non_neg(verifier, &negated_comm)?;
         Ok(())
@@ -210,13 +209,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        match col.data_type().as_ref().unwrap() {
+        let field_ref = col.field_ref().unwrap();
+        let data_type = field_ref.data_type();
+        match data_type {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(8).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -226,8 +227,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(7).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -237,8 +238,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -248,8 +249,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -260,8 +261,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let high_inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: high_col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -272,8 +273,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let low_inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: low_col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -287,8 +288,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let high_inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: high_col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -299,8 +300,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let low_inclusion_check_prover_input = InclusionCheckProverInput {
                     included_col: low_col.clone(),
                     super_col: TrackedCol::new(
-                        None,
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
                         None,
                     ),
                 };
@@ -321,17 +322,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        match tracked_col_oracle.data_type.as_ref().unwrap() {
+        let field_ref = tracked_col_oracle.field_ref().unwrap();
+        let data_type = field_ref.data_type();
+        match *data_type {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(8, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(8)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        8,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -344,12 +346,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(7, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(7)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        7,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -362,12 +363,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        16,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -381,12 +381,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: high_tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        16,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -396,12 +395,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: low_tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        16,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -416,12 +414,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: high_tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        15,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -431,12 +428,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracle: low_tracked_col_oracle.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        None,
-                        verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        }))),
+                        })),
                         None,
-                        16,
+                        None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
@@ -457,7 +453,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.data_poly().evaluations();
+        let col_inner_evals = col.data_tracked_poly().evaluations();
         let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
             .map(|eval| {
                 let big = eval.into_bigint(); // Returns BigInteger representation
@@ -468,30 +464,31 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .unzip();
 
         let high_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), high_vals))?;
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), high_vals))?;
         let low_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), low_vals))?;
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), low_vals))?;
 
-        let zero_tr_p = match &col.actvtr_poly() {
-            Some(actv) => {
-                let combined = col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
-                &combined * *actv
+        let zero_tr_p = match &col.activator_tracked_poly() {
+            Some(activator) => {
+                let combined =
+                    &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                &combined * activator
             },
-            None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+            None => &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             TrackedCol::new(
-                col.data_type().clone(),
                 high_tr_p,
-                col.actvtr_poly().cloned(),
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
             TrackedCol::new(
-                col.data_type().clone(),
                 low_tr_p,
-                col.actvtr_poly().cloned(),
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
         ))
     }
@@ -504,33 +501,33 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         TrackedColOracle<F, MvPCS, UvPCS>,
         TrackedColOracle<F, MvPCS, UvPCS>,
     )> {
-        let col_inner = tracked_col_oracle.inner.clone();
-        let col_actv = tracked_col_oracle.actv.clone();
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
         let high_tr_id = verifier.peek_next_id();
         let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
         let low_tr_id = verifier.peek_next_id();
         let low_tr_c = verifier.track_mv_com_by_id(low_tr_id)?;
 
-        let zero_tr_p = match &col_actv {
-            Some(actv) => &(&col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c)) * actv,
+        let zero_tr_p = match &col_activator {
+            Some(activator) => {
+                &(&col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c)) * activator
+            },
             None => &col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c),
         };
 
         verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
-            TrackedColOracle {
-                data_type: tracked_col_oracle.data_type.clone(),
-                inner: high_tr_c,
-                actv: col_actv.clone(),
-                num_vars: tracked_col_oracle.num_vars,
-            },
-            TrackedColOracle {
-                data_type: tracked_col_oracle.data_type.clone(),
-                inner: low_tr_c,
-                actv: col_actv.clone(),
-                num_vars: tracked_col_oracle.num_vars,
-            },
+            TrackedColOracle::new(
+                high_tr_c,
+                col_activator.clone(),
+                tracked_col_oracle.field_ref().clone(),
+            ),
+            TrackedColOracle::new(
+                low_tr_c,
+                col_activator,
+                tracked_col_oracle.field_ref().clone(),
+            ),
         ))
     }
 
@@ -539,7 +536,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.data_poly().evaluations();
+        let col_inner_evals = col.data_tracked_poly().evaluations();
         let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
             .map(|eval| {
                 let big = eval.into_bigint(); // Returns BigInteger representation
@@ -550,30 +547,31 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .unzip();
 
         let high_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), high_vals))?;
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), high_vals))?;
         let low_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.num_vars(), low_vals))?;
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), low_vals))?;
 
-        let zero_tr_p = match &col.actvtr_poly() {
-            Some(actv) => {
-                let combined = col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
-                &combined * *actv
+        let zero_tr_p = match &col.activator_tracked_poly() {
+            Some(activator) => {
+                let combined =
+                    &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
+                &combined * activator
             },
-            None => col.data_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+            None => &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
         };
 
         prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
 
         Ok((
             TrackedCol::new(
-                col.data_type().clone(),
                 high_tr_p,
-                col.actvtr_poly().cloned(),
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
             TrackedCol::new(
-                col.data_type().clone(),
                 low_tr_p,
-                col.actvtr_poly().cloned(),
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
         ))
     }
@@ -586,33 +584,33 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         TrackedColOracle<F, MvPCS, UvPCS>,
         TrackedColOracle<F, MvPCS, UvPCS>,
     )> {
-        let col_inner = tracked_col_oracle.inner.clone();
-        let col_actv = tracked_col_oracle.actv.clone();
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
         let high_tr_id = verifier.peek_next_id();
         let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
         let low_tr_id = verifier.peek_next_id();
         let low_tr_c = verifier.track_mv_com_by_id(low_tr_id)?;
 
-        let zero_tr_p = match &col_actv {
-            Some(actv) => &(&col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c)) * actv,
+        let zero_tr_p = match &col_activator {
+            Some(activator) => {
+                &(&col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c)) * activator
+            },
             None => &col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c),
         };
 
         verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
 
         Ok((
-            TrackedColOracle {
-                data_type: tracked_col_oracle.data_type.clone(),
-                inner: high_tr_c,
-                actv: col_actv.clone(),
-                num_vars: tracked_col_oracle.num_vars,
-            },
-            TrackedColOracle {
-                data_type: tracked_col_oracle.data_type.clone(),
-                inner: low_tr_c,
-                actv: col_actv.clone(),
-                num_vars: tracked_col_oracle.num_vars,
-            },
+            TrackedColOracle::new(
+                high_tr_c,
+                col_activator.clone(),
+                tracked_col_oracle.field_ref().clone(),
+            ),
+            TrackedColOracle::new(
+                low_tr_c,
+                col_activator,
+                tracked_col_oracle.field_ref().clone(),
+            ),
         ))
     }
 

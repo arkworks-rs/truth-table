@@ -94,7 +94,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
                 if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
                     if let Some(table) = tables.get("output_plan") {
                         tracked_Table_oracle =
-                            Some(TrackedTableOracle::from(table.clone(), &mut verifier)?);
+                            Some(TrackedTableOracle::from_tracked_table(table.clone(), &mut verifier)?);
                         break;
                     }
                 }

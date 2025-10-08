@@ -155,8 +155,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         SetInterUnionCheckPIOP::prove(prover, set_inter_union_prover_input)?;
 
         // Zero Check on act(out_keys)(left_key - out_keys)
-        let left_minus_out = input.left_key_support.data_poly() - input.out_key_support.data_poly();
-        let zero_poly = match input.out_key_support.actvtr_poly() {
+        let left_minus_out = input.left_key_support.data_tracked_poly() - input.out_key_support.data_tracked_poly();
+        let zero_poly = match input.out_key_support.activator_tracked_poly() {
             Some(act) => act * &left_minus_out,
             None => left_minus_out,
         };
@@ -164,8 +164,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // Zero Check on act(out_keys)(right_key - out_keys)
         let right_minus_out =
-            input.right_key_support.data_poly() - input.out_key_support.data_poly();
-        let zero_poly = match input.out_key_support.actvtr_poly() {
+            input.right_key_support.data_tracked_poly() - input.out_key_support.data_tracked_poly();
+        let zero_poly = match input.out_key_support.activator_tracked_poly() {
             Some(act) => act * &right_minus_out,
             None => right_minus_out,
         };
@@ -174,7 +174,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_p
             * (&right_supp_check_output.super_set_multiplicity_tr_p))
             - (&out_supp_check_output.super_set_multiplicity_tr_p);
-        let zero_poly = match input.out_key_support.actvtr_poly() {
+        let zero_poly = match input.out_key_support.activator_tracked_poly() {
             Some(act) => act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
@@ -187,10 +187,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             prover.get_and_append_challenge(b"r1")?,
             prover.get_and_append_challenge(b"r2")?,
         ];
-        let folded = &(input.join_left_source.data_poly() * r_vec[0])
-            + &(input.join_right_source.data_poly() * r_vec[1]);
+        let folded = &(input.join_left_source.data_tracked_poly() * r_vec[0])
+            + &(input.join_right_source.data_tracked_poly() * r_vec[1]);
         let folded_sources =
-            TrackedCol::new(None, folded, input.join_left_source.actvtr_poly().cloned());
+            TrackedCol::new(None, folded, input.join_left_source.activator_tracked_poly().cloned());
 
         // NoDupCheck on source_L + r(source_R)
         let no_dup_prover_input = NoDupCheckProverInput {
@@ -203,7 +203,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_right_table_folded_col = input
             .right_table
-            .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+            .fold_all_data_columns(&alpha_vec[0..&alpha_vec.len() - 1]);
         let right_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
             input.right_table.num_vars(),
             (0..(1 << input.right_table.num_vars()))
@@ -212,8 +212,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_right_folded_col = TrackedCol::new(
             None,
-            &input_right_table_folded_col.data_poly().clone() + &right_ind_poly,
-            input_right_table_folded_col.actvtr_poly().cloned(),
+            &input_right_table_folded_col.data_tracked_poly().clone() + &right_ind_poly,
+            input_right_table_folded_col.activator_tracked_poly().cloned(),
         );
 
         let mut output_right_indices = vec![0];
@@ -228,9 +228,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_right_folded_col = TrackedCol::new(
             None,
-            &output_right_table_folded_col.data_poly().clone()
-                + input.join_right_source.data_poly(),
-            output_right_table_folded_col.actvtr_poly().cloned(),
+            &output_right_table_folded_col.data_tracked_poly().clone()
+                + input.join_right_source.data_tracked_poly(),
+            output_right_table_folded_col.activator_tracked_poly().cloned(),
         );
         // Right multiplicity check
         let right_multiplicity_prover_input = MultiplicityCheckProverInput {
@@ -247,7 +247,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .collect::<Vec<F>>();
 
         let input_left_table_folded_col =
-            input.left_table.fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+            input.left_table.fold_all_data_columns(&beta_vec[0..&beta_vec.len() - 1]);
         let left_ind_poly = prover.track_mat_mv_poly(MLE::from_evaluations_vec(
             input.left_table.num_vars(),
             (0..(1 << input.left_table.num_vars()))
@@ -256,8 +256,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ));
         let input_left_folded_col = TrackedCol::new(
             None,
-            &input_left_table_folded_col.data_poly().clone() + &left_ind_poly,
-            input_left_table_folded_col.actvtr_poly().cloned(),
+            &input_left_table_folded_col.data_tracked_poly().clone() + &left_ind_poly,
+            input_left_table_folded_col.activator_tracked_poly().cloned(),
         );
 
         let output_left_indices = (0..(input.left_table.num_total_cols())).collect::<Vec<usize>>();
@@ -267,8 +267,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let output_left_folded_col = TrackedCol::new(
             None,
-            &output_left_table_folded_col.data_poly().clone() + input.join_left_source.data_poly(),
-            output_left_table_folded_col.actvtr_poly().cloned(),
+            &output_left_table_folded_col.data_tracked_poly().clone() + input.join_left_source.data_tracked_poly(),
+            output_left_table_folded_col.activator_tracked_poly().cloned(),
         );
         // Right multiplicity check
         let left_multiplicity_prover_input = MultiplicityCheckProverInput {
@@ -321,7 +321,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // Zero Check on act(out_keys)(left_key - out_keys)
         let left_minus_out = &input.left_key_support_comm.inner - &input.out_key_support_comm.inner;
-        let zero_poly = match &input.out_key_support_comm.actv {
+        let zero_poly = match &input.out_key_support_comm.activator {
             Some(act) => act * &left_minus_out,
             None => left_minus_out,
         };
@@ -330,7 +330,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Zero Check on act(out_keys)(right_key - out_keys)
         let right_minus_out =
             &input.right_key_support_comm.inner - &input.out_key_support_comm.inner;
-        let zero_poly = match &input.out_key_support_comm.actv {
+        let zero_poly = match &input.out_key_support_comm.activator {
             Some(act) => act * &right_minus_out,
             None => right_minus_out,
         };
@@ -340,7 +340,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_com
             * (&right_supp_check_output.super_set_multiplicity_tr_com))
             - (&out_supp_check_output.super_set_multiplicity_tr_com);
-        let zero_poly = match &input.out_key_support_comm.actv {
+        let zero_poly = match &input.out_key_support_comm.activator {
             Some(act) => act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
@@ -357,7 +357,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let folded_sources_cm = TrackedColOracle::new(
             None,
             folded,
-            input.join_left_source_comm.actv.clone(),
+            input.join_left_source_comm.activator.clone(),
             input.join_left_source_comm.num_vars,
         );
         let no_dup_verifier_input = NoDupCheckVerifierInput {
@@ -371,7 +371,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_right_table_folded_tracked_col_oracle = input
             .right_tracked_Table_oracle
-            .fold_all(&alpha_vec[0..&alpha_vec.len() - 1]);
+            .fold_all_data_columns(&alpha_vec[0..&alpha_vec.len() - 1]);
         let nv = input.right_tracked_Table_oracle.num_vars();
         let right_ind_closure = Arc::new(move |point: Vec<F>| {
             let mut eval = F::zero();
@@ -386,7 +386,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let input_right_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
             &input_right_table_folded_tracked_col_oracle.inner.clone() + &(right_ind_oracle),
-            input_right_table_folded_tracked_col_oracle.actv,
+            input_right_table_folded_tracked_col_oracle.activator,
             input_right_table_folded_tracked_col_oracle.num_vars,
         );
         let mut output_right_indices = vec![0];
@@ -403,7 +403,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None,
             &output_right_table_folded_tracked_col_oracle.inner.clone()
                 + &(input.join_right_source_comm.inner),
-            output_right_table_folded_tracked_col_oracle.actv,
+            output_right_table_folded_tracked_col_oracle.activator,
             output_right_table_folded_tracked_col_oracle.num_vars,
         );
         // Right multiplicity check
@@ -421,7 +421,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_left_table_folded_tracked_col_oracle = input
             .left_tracked_Table_oracle
-            .fold_all(&beta_vec[0..&beta_vec.len() - 1]);
+            .fold_all_data_columns(&beta_vec[0..&beta_vec.len() - 1]);
         let nv = input.left_tracked_Table_oracle.num_vars();
         let left_ind_closure = Arc::new(move |point: Vec<F>| {
             let mut eval = F::zero();
@@ -435,7 +435,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let input_left_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
             &input_left_table_folded_tracked_col_oracle.inner.clone() + &(left_ind_oracle),
-            input_left_table_folded_tracked_col_oracle.actv,
+            input_left_table_folded_tracked_col_oracle.activator,
             input_left_table_folded_tracked_col_oracle.num_vars,
         );
         let output_left_indices = (0..(input.left_tracked_Table_oracle.num_total_cols())).collect::<Vec<usize>>();
@@ -446,7 +446,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let output_left_folded_tracked_col_oracle = TrackedColOracle::new(
             None,
             &output_left_table_folded_tracked_col_oracle.inner.clone() + &(input.join_left_source_comm.inner),
-            output_left_table_folded_tracked_col_oracle.actv,
+            output_left_table_folded_tracked_col_oracle.activator,
             output_left_table_folded_tracked_col_oracle.num_vars,
         );
         // Right multiplicity check

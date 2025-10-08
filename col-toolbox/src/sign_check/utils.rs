@@ -32,16 +32,16 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         data_type: &DataType,
     ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
-        let sparse_poly = match data_type {
-            DataType::UInt8 => Self::sparse_range_poly_by_nv(8)?,
-            DataType::UInt16 => Self::sparse_range_poly_by_nv(16)?,
-            DataType::UInt32 => Self::sparse_range_poly_by_nv(32)?,
-            DataType::UInt64 => Self::sparse_range_poly_by_nv(64)?,
+        let (nv, sparse_poly) = match data_type {
+            DataType::UInt8 => (8, Self::sparse_range_poly_by_nv(8)?),
+            DataType::UInt16 => (16, Self::sparse_range_poly_by_nv(16)?),
+            DataType::UInt32 => (32, Self::sparse_range_poly_by_nv(32)?),
+            DataType::UInt64 => (64, Self::sparse_range_poly_by_nv(64)?),
             _ => return Err(SnarkError::DummyError),
         };
-        let tracked_poly = verifier.track_oracle(Oracle::Multivariate(Arc::new(move |x| {
+        let tracked_poly = verifier.track_oracle(Oracle::new_multivariate(nv, move |x| {
             Ok(sparse_poly.evaluate(&x))
-        })));
+        }));
         Ok(tracked_poly)
     }
 

@@ -34,17 +34,17 @@ fn prepare_prover_inputs() -> (
             .columns()
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .collect();
-        if let Some(actv_poly) = aux_table.data_polys().first() {
+        if let Some(activator_tracked_poly) = aux_table.tracked_polys().first() {
             output_cols.push((
                 Arc::new(datafusion::arrow::datatypes::Field::new(
-                    "activator",
+                    ACTIVATOR_COL_NAME,
                     datafusion::arrow::datatypes::DataType::Boolean,
                     true,
                 )),
-                actv_poly.clone(),
+                activator_tracked_poly.clone(),
             ));
         }
-        let output_table = TrackedTable::new(table.schema(), output_cols, table.size());
+        let output_table = TrackedTable::new(table.schema(), output_cols, table.log_size());
         let prover_input = SelectProverInput {
             input_table: table.clone(),
             output_table: output_table.clone(),
@@ -72,12 +72,12 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
 
         // Commit tables
         let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
-        let output_actv = output_table
-            .actvtr_poly()
-            .map(|actv| verifier.track_mv_com_by_id(actv.id()).unwrap());
+        let output_activator = output_table
+            .activator_tracked_poly()
+            .map(|activator| verifier.track_mv_com_by_id(activator.id()).unwrap());
 
-        let mut output_oracles = input_tracked_Table_oracle.data_oracles();
-        if let Some(activator_oracle) = output_actv {
+        let mut output_oracles = input_tracked_Table_oracle.data_tracked_oracles();
+        if let Some(activator_tracked_oracle) = output_activator {
             let activator_field = input_tracked_Table_oracle
                 .schema()
                 .as_ref()
@@ -85,17 +85,17 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
                     schema
                         .fields()
                         .iter()
-                        .find(|field| field.name() == "activator")
+                        .find(|field| field.name() == ACTIVATOR_COL_NAME)
                         .cloned()
                 })
                 .unwrap_or_else(|| {
                     Arc::new(datafusion::arrow::datatypes::Field::new(
-                        "activator",
+                        ACTIVATOR_COL_NAME,
                         datafusion::arrow::datatypes::DataType::Boolean,
                         true,
                     ))
                 });
-            output_oracles.insert(activator_field, activator_oracle);
+            output_oracles.insert(activator_field, activator_tracked_oracle);
         }
 
         let output_tracked_Table_oracle = TrackedTableOracle::new(

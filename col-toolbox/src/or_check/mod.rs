@@ -10,10 +10,9 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, errors::ProverError::HonestProverError, structs::polynomial::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use datafusion::{arrow::ipc::Binary, functions_aggregate::sum};
 use derivative::Derivative;
 use std::marker::PhantomData;
 
@@ -35,21 +34,21 @@ pub struct OrCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub in_activator_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
-    pub res_activator_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    pub in_activator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    pub res_activator_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for OrCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
-        let mut in_activator_polys_cloned = Vec::new();
-        for activator_oply in &self.in_activator_polys {
-            in_activator_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
+        let mut in_activator_tracked_polys_cloned = Vec::new();
+        for activator_oply in &self.in_activator_tracked_polys {
+            in_activator_tracked_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
         }
         Self {
-            in_activator_polys: in_activator_polys_cloned,
-            res_activator_poly: self.res_activator_poly.deep_clone(prover),
+            in_activator_tracked_polys: in_activator_tracked_polys_cloned,
+            res_activator_tracked_poly: self.res_activator_tracked_poly.deep_clone(prover),
         }
     }
 }
@@ -76,13 +75,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        let mut sum_poly = input.in_activator_polys[0].clone();
-        for in_poly in &input.in_activator_polys {
+        let mut sum_poly = input.in_activator_tracked_polys[0].clone();
+        for in_poly in &input.in_activator_tracked_polys {
             sum_poly += in_poly;
         }
 
         let sum_evals = sum_poly.evaluations();
-        let res_evals = input.res_activator_poly.evaluations();
+        let res_evals = input.res_activator_tracked_poly.evaluations();
 
         for (sum_eval, res_eval) in sum_evals.iter().zip(res_evals.iter()) {
             if *sum_eval == F::zero() && *res_eval != F::zero() {
@@ -102,8 +101,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         return Ok(());
 
-        // let legit_activator_poly = MLE
-        // let check_poly = sum_poly.sub_poly(&input.res_activator_poly);
+        // let legit_activator_tracked_poly = MLE
+        // let check_poly =
+        // sum_poly.sub_poly(&input.res_activator_tracked_poly);
         // if (check_poly.evaluations().iter().all(|&elem| elem.is_zero())) {
         //     return Ok(());
         // } else {
@@ -118,8 +118,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         input: Self::ProverInput,
     ) -> SnarkResult<()> {
         // Rust Ownership and borrow rules
-        let mut sum_poly = input.in_activator_polys[0].clone();
-        for in_poly in &input.in_activator_polys {
+        let mut sum_poly = input.in_activator_tracked_polys[0].clone();
+        for in_poly in &input.in_activator_tracked_polys {
             sum_poly += in_poly;
         }
 
@@ -136,7 +136,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(
             prover,
             NoZerosCheckProverInput {
-                col: TrackedCol::new(None, p.clone(), None),
+                col: TrackedCol::new(p.clone(), None, None),
             },
         )?;
 
@@ -148,7 +148,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         )?;
 
         let zero_check_poly: TrackedPoly<F, MvPCS, UvPCS> = &(&p * &sum_poly) - &q;
-        let zero_check_poly_2 = &q - &input.res_activator_poly;
+        let zero_check_poly_2 = &q - &input.res_activator_tracked_poly;
 
         prover.add_mv_zerocheck_claim(zero_check_poly.id())?;
         prover.add_mv_zerocheck_claim(zero_check_poly_2.id())?;
@@ -172,7 +172,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         NoZerosCheck::<F, MvPCS, UvPCS>::verify(
             verifier,
             NoZerosCheckVerifierInput {
-                tracked_col_oracle: TrackedColOracle::new(None, p_orcl.clone(), None, 0),
+                tracked_col_oracle: TrackedColOracle::new(p_orcl.clone(), None, None),
             },
         )?;
 

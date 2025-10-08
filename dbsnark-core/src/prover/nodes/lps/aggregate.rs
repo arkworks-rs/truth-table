@@ -5,7 +5,7 @@ use crate::{
         trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     },
 };
-use arithmetic::{ctx::SharedCtx, table::TrackedTable};
+use arithmetic::{ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -24,6 +24,7 @@ use datafusion::{
 };
 use datafusion_expr::{expr::WindowFunction, expr_fn::ExprFunctionExt};
 use datafusion_functions_window::expr_fn::row_number;
+use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{AggregatePIOP, AggregatePIOPProverInput};
 use std::{collections::HashMap, sync::Arc};
 
@@ -62,7 +63,7 @@ where
         // Preserve the activator type so that the flag can be re-created after the
         // window projection.
         let activator_field = schema
-            .field_with_unqualified_name("activator")
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
         let activator_dtype = activator_field.data_type().clone();
 
@@ -125,7 +126,7 @@ where
         let new_activator = df::when(df::col(&row_number_alias).eq(df::lit(1u64)), one)
             .otherwise(zero)
             .expect("build activator expression")
-            .alias("activator".to_string());
+            .alias(ACTIVATOR_COL_NAME.to_string());
 
         projection_exprs.push(new_activator);
 
@@ -262,11 +263,11 @@ where
         }
         .clone();
 
-        let mut grouping_columns: Vec<(
+        let mut grouping_columns: IndexMap<
             datafusion::arrow::datatypes::FieldRef,
             ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-        )> = Vec::new();
-        let mut grouping_table_size: Option<usize> = None;
+        > = IndexMap::new();
+        let mut grouping_table_log_size: Option<usize> = None;
 
         for group_node in &self.group_expr {
             let table = piop_tree
@@ -278,40 +279,40 @@ where
                     )
                 });
 
-            let table_size = table.size();
-            if let Some(expected) = grouping_table_size {
+            let table_log_size = table.log_size();
+            if let Some(expected) = grouping_table_log_size {
                 assert_eq!(
-                    expected, table_size,
-                    "grouping expression tables must have matching sizes",
+                    expected, table_log_size,
+                    "grouping expression tables must have matching log sizes",
                 );
             } else {
-                grouping_table_size = Some(table_size);
+                grouping_table_log_size = Some(table_log_size);
             }
 
-            for (field, poly) in table.columns() {
-                if field.name() == "activator" {
+            for (field, poly) in table.tracked_polys() {
+                if field.name() == ACTIVATOR_COL_NAME {
                     continue;
                 }
-                grouping_columns.push((field.clone(), poly.clone()));
+                grouping_columns.insert(field.clone(), poly.clone());
             }
         }
 
         let input_grouping_table = if grouping_columns.is_empty() {
             panic!("aggregate PIOP requires at least one grouping column");
         } else {
-            TrackedTable::new(None, grouping_columns, grouping_table_size.unwrap_or(0))
+            TrackedTable::new(None, grouping_columns, grouping_table_log_size.unwrap_or(0))
         };
 
         let output_table = piop_tree
             .tracked_table(&self.node_id, "output_plan")
             .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
         let grouping_col_count = aggregate.group_expr.len();
-        let mut output_grouping_columns = Vec::with_capacity(grouping_col_count);
-        for (idx, (field, poly)) in output_table.columns().enumerate() {
+        let mut output_grouping_columns = IndexMap::with_capacity(grouping_col_count);
+        for (idx, (field, poly)) in output_table.tracked_polys().iter().enumerate() {
             if idx >= grouping_col_count {
                 break;
             }
-            output_grouping_columns.push((field.clone(), poly.clone()));
+            output_grouping_columns.insert(field.clone(), poly.clone());
         }
         assert_eq!(
             output_grouping_columns.len(),
@@ -319,7 +320,7 @@ where
             "aggregate output table does not contain enough grouping columns",
         );
         let output_grouping_table =
-            TrackedTable::new(None, output_grouping_columns, output_table.size());
+            TrackedTable::new(None, output_grouping_columns, output_table.log_size());
 
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {

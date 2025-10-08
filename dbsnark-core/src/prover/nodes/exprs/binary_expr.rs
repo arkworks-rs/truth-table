@@ -19,6 +19,7 @@ use datafusion::{
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::case,
 };
+use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{BinaryExprPIOP, BinaryExprPIOPProverInput};
 #[derive(Clone)]
 pub struct BinaryExprNode<F, MvPCS, UvPCS>
@@ -167,28 +168,28 @@ where
     ) {
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
-                let size = piop_tree
+                let log_size = piop_tree
                     .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
                     .unwrap()
-                    .size();
+                    .log_size();
                 let left_col = piop_tree
                     .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
                     .unwrap()
-                    .col(0)
+                    .tracked_col_by_ind(0)
                     .clone();
                 let right_col = piop_tree
                     .tracked_table(&self.right_proof_plan.node_id(), "output_plan")
                     .unwrap()
-                    .col(0)
+                    .tracked_col_by_ind(0)
                     .clone();
-                let output_data_poly = match bin_expr.op {
+                let output_data_tracked_poly = match bin_expr.op {
                     Operator::And => {
-                        let data_mult = left_col.data_poly() * right_col.data_poly();
+                        let data_mult = &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
 
-                        match (left_col.actvtr_poly(), right_col.actvtr_poly()) {
-                            (Some(l), Some(r)) => &(l * r) * &data_mult,
-                            (Some(l), None) => l * &data_mult,
-                            (None, Some(r)) => r * &data_mult,
+                        match (left_col.activator_tracked_poly(), right_col.activator_tracked_poly()) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_mult,
+                            (Some(l), None) => &l * &data_mult,
+                            (None, Some(r)) => &r * &data_mult,
                             (None, None) => data_mult,
                         }
                     },
@@ -201,7 +202,7 @@ where
                 ));
 
                 let output_table =
-                    TrackedTable::new(None, vec![(field_ref, output_data_poly)], size);
+                    TrackedTable::new(None, IndexMap::from([(field_ref, output_data_tracked_poly)]), log_size);
                 piop_tree.add_table(
                     self.node_id.clone(),
                     "output_plan".to_string(),
@@ -222,18 +223,18 @@ where
         let left_col = piop_tree
             .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
             .unwrap()
-            .col(0)
+            .tracked_col_by_ind(0)
             .clone();
         let right_col = piop_tree
             .tracked_table(&self.right_proof_plan.node_id(), "output_plan")
             .unwrap()
-            .col(0)
+            .tracked_col_by_ind(0)
             .clone();
 
         let output_col = piop_tree
             .tracked_table(&self.node_id, "output_plan")
             .unwrap()
-            .col(0)
+            .tracked_col_by_ind(0)
             .clone();
         let binary_expr_piop_prover_input: BinaryExprPIOPProverInput<F, MvPCS, UvPCS> =
             BinaryExprPIOPProverInput {

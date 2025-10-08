@@ -144,14 +144,14 @@ fn select_check_soundness_helper<
 >(
     where_clause: WhereClause<Fr>,
     input_values: Vec<Fr>,
-    input_actv_values: Vec<Fr>,
-    out_actv_values: Vec<Fr>,
+    input_activator_values: Vec<Fr>,
+    out_activator_values: Vec<Fr>,
 ) -> SnarkResult<()> {
     let err = select_check_helper::<Fr, MvPCS, UvPCS>(
         where_clause,
         input_values,
-        input_actv_values,
-        out_actv_values,
+        input_activator_values,
+        out_activator_values,
     )
     .unwrap_err();
 
@@ -187,8 +187,8 @@ fn select_check_helper<
 >(
     where_clause: WhereClause<Fr>,
     input_values: Vec<Fr>,
-    input_actv_values: Vec<Fr>,
-    out_actv_values: Vec<Fr>,
+    input_activator_values: Vec<Fr>,
+    out_activator_values: Vec<Fr>,
 ) -> SnarkResult<()> {
     let nv = 3;
     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
@@ -205,12 +205,12 @@ fn select_check_helper<
     let tr_p_3 = prover.track_and_commit_mat_mv_poly(&mle_3).unwrap();
 
     // Input activation column, all rows are activated
-    let in_actv_mle = MLE::from_evaluations_vec(nv, input_actv_values);
-    let in_actv_tr_p = prover.track_and_commit_mat_mv_poly(&in_actv_mle).unwrap();
+    let in_activator_mle = MLE::from_evaluations_vec(nv, input_activator_values);
+    let in_activator_tr_p = prover.track_and_commit_mat_mv_poly(&in_activator_mle).unwrap();
 
     // Output activation column
-    let out_actv_mle = MLE::from_evaluations_vec(nv, out_actv_values);
-    let out_actv_tr_p = prover.track_and_commit_mat_mv_poly(&out_actv_mle).unwrap();
+    let out_activator_mle = MLE::from_evaluations_vec(nv, out_activator_values);
+    let out_activator_tr_p = prover.track_and_commit_mat_mv_poly(&out_activator_mle).unwrap();
 
     let schema = Schema::new(vec![
         Field::new("col1", DataType::UInt8, false),
@@ -222,16 +222,16 @@ fn select_check_helper<
     let in_table = TrackedTable::new(
         Some(schema.clone()),
         vec![tr_p_1.clone(), tr_p_2.clone(), tr_p_3.clone()],
-        Some(in_actv_tr_p.clone()),
-        8,
+        Some(in_activator_tr_p.clone()),
+        3,
     );
 
     // Output table
     let out_table = TrackedTable::new(
         Some(schema.clone()),
         vec![tr_p_1.clone(), tr_p_2.clone(), tr_p_3.clone()],
-        Some(out_actv_tr_p.clone()),
-        6,
+        Some(out_activator_tr_p.clone()),
+        3,
     );
 
     let select_instr = SelectConfig { where_clause };
@@ -247,24 +247,24 @@ fn select_check_helper<
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
-    // Transfer commitments
+    // Transfer comitments
     let tr_comm_1 = verifier.track_mv_com_by_id(tr_p_1.id())?;
     let tr_comm_2 = verifier.track_mv_com_by_id(tr_p_2.id())?;
     let tr_comm_3 = verifier.track_mv_com_by_id(tr_p_3.id())?;
-    let in_actv_tr_comm = verifier.track_mv_com_by_id(in_actv_tr_p.id())?;
-    let out_actv_tr_comm = verifier.track_mv_com_by_id(out_actv_tr_p.id())?;
+    let in_activator_tr_comm = verifier.track_mv_com_by_id(in_activator_tr_p.id())?;
+    let out_activator_tr_comm = verifier.track_mv_com_by_id(out_activator_tr_p.id())?;
 
-    // Input and Output table commitments
+    // Input and Output table comitments
     let in_tracked_Table_oracle = TrackedTableOracle::new(
         Some(schema.clone()),
         vec![tr_comm_1.clone(), tr_comm_2.clone(), tr_comm_3.clone()],
-        Some(in_actv_tr_comm),
+        Some(in_activator_tr_comm),
         nv,
     );
     let out_tracked_Table_oracle = TrackedTableOracle::new(
         Some(schema),
         vec![tr_comm_1, tr_comm_2, tr_comm_3],
-        Some(out_actv_tr_comm),
+        Some(out_activator_tr_comm),
         nv,
     );
 

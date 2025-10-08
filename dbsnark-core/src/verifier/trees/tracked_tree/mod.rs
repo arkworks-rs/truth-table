@@ -214,7 +214,7 @@ where
                     for field_ref in arrow_schema_ref.fields().iter() {
                         let field_ref = field_ref.clone();
                         let commitment = base_oracle
-                            .data_comitments()
+                            .comitments()
                             .get(&field_ref)
                             .unwrap_or_else(|| {
                                 panic!(

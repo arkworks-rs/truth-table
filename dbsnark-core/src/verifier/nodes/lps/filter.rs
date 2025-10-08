@@ -5,7 +5,7 @@ use crate::{
         trees::proof_tree::VerifierProofTree,
     },
 };
-use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle};
+use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -52,14 +52,14 @@ where
         // Determine activator's datatype from input schema
         let schema = input_plan.schema().clone();
         let activator_field = schema
-            .field_with_unqualified_name("activator")
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
         let activator_dtype = activator_field.data_type().clone();
 
         // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-        let try_bool_and = df::and(df::col("activator"), predicate_expr.clone());
+        let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
         let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
-            try_bool_and.alias("activator")
+            try_bool_and.alias(ACTIVATOR_COL_NAME)
         } else {
             // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
             // if bitwise not supported)
@@ -75,22 +75,22 @@ where
 
             // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
             // replacement
-            let try_bit_and = df::bitwise_and(df::col("activator"), mask.clone());
+            let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
             if try_bit_and.get_type(schema.as_ref()).is_ok() {
-                try_bit_and.alias("activator")
+                try_bit_and.alias(ACTIVATOR_COL_NAME)
             } else {
                 // CASE WHEN predicate THEN activator ELSE 0
-                df::when(predicate_expr.clone(), df::col("activator"))
+                df::when(predicate_expr.clone(), df::col(ACTIVATOR_COL_NAME))
                     .otherwise(zero)
                     .unwrap()
-                    .alias("activator")
+                    .alias(ACTIVATOR_COL_NAME)
             }
         };
 
         // Pass through all other columns unchanged
         let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
         for f in schema.fields() {
-            if f.name() == "activator" {
+            if f.name() == ACTIVATOR_COL_NAME {
                 proj_exprs.push(new_activator.clone());
             } else {
                 proj_exprs.push(df::col(f.name()));
@@ -190,16 +190,18 @@ where
             Some(table) => table,
             None => return,
         };
-        let (pred_field, pred_poly) = predicate_table
-            .columns()
-            .find(|(field, _)| field.name() == "activator")
-            .or_else(|| predicate_table.columns().next())
+        let tracked_oracles = predicate_table
+            .tracked_oracles();
+        let (pred_field, pred_poly) = tracked_oracles
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .or_else(|| tracked_oracles.iter().next())
             .expect("predicate output table must have a column");
-        let activator_field = Field::new("activator", pred_field.data_type().clone(), true);
+        let activator_field = Field::new(ACTIVATOR_COL_NAME, pred_field.data_type().clone(), true);
         let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
         let mut columns = IndexMap::new();
-        for (field, poly) in input_table.columns() {
-            if field.name() == "activator" {
+        for (field, poly) in input_table.tracked_oracles().iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
             columns.insert(field.clone(), poly.clone());
@@ -225,7 +227,7 @@ where
         let predicate_oracle = piop_tree
             .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), "output_plan")
             .unwrap()
-            .col(0);
+            .tracked_col_oracle_by_ind(0);
         let input_tracked_Table_oracle = piop_tree
             .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
             .unwrap()
