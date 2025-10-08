@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::BufReader, time::Instant};
+use std::{fs::File, io::BufReader, time::Instant};
 
 use crate::{
     prover::trees::{
@@ -16,6 +16,7 @@ use ark_piop::{
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
+use indexmap::IndexMap;
 use tpch_data::test_data_path;
 
 type F = Fr;
@@ -49,7 +50,7 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let table_serializable =
         ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
             .expect("deserialize table oracle");
-    let mut table_oracles = HashMap::new();
+    let mut table_oracles = IndexMap::new();
     if let Some(schema) = table_serializable.schema() {
         table_oracles.insert(schema, table_serializable);
     }

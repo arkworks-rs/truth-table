@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::prover::{
     nodes::{ProverNode, cost::ProvingCost},
@@ -31,7 +31,7 @@ where
     pub node_id: NodeId,
     pub left_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub right_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> BinaryExprNode<F, MvPCS, UvPCS>
@@ -63,7 +63,7 @@ where
     fn build_witness_plans(
         bin_expr: BinaryExpr,
         input_plan: LogicalPlan,
-    ) -> HashMap<String, LogicalPlan> {
+    ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
             let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
@@ -89,9 +89,9 @@ where
                 .build()
                 .unwrap();
 
-            HashMap::from([(String::from("output_plan"), plan)])
+            IndexMap::from([(String::from("output_plan"), plan)])
         } else {
-            HashMap::new()
+            IndexMap::new()
         }
     }
 }
@@ -113,7 +113,7 @@ where
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.left_proof_plan, &self.right_proof_plan]
     }
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

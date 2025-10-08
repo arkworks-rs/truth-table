@@ -3,7 +3,7 @@ pub mod display;
 #[cfg(test)]
 pub mod tests;
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{ fmt, sync::Arc};
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
@@ -45,7 +45,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    hint_map: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
+    hint_map: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -76,7 +76,7 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        hint_map: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
+        hint_map: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     ) -> Self {
         Self {
             hint_map,
@@ -108,7 +108,7 @@ where
             .or_else(|| self.hint_map.get(node_id).and_then(|m| m.values().next()))
     }
 
-    pub fn results_for(&self, node_id: &NodeId) -> Option<&HashMap<String, Vec<RecordBatch>>> {
+    pub fn results_for(&self, node_id: &NodeId) -> Option<&IndexMap<String, Vec<RecordBatch>>> {
         self.hint_map.get(node_id)
     }
 
@@ -120,7 +120,7 @@ where
         display::DisplayableProverHintTree::new(self)
     }
 
-    pub fn hint_map(&self) -> &IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>> {
+    pub fn hint_map(&self) -> &IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> {
         &self.hint_map
     }
 
@@ -129,7 +129,7 @@ where
         self,
     ) -> (
         ProverProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
+        IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     ) {
         let ProverHintTree {
             hint_map,
@@ -155,7 +155,7 @@ where
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
             depth: usize,
-            depths: &mut HashMap<usize, usize>,
+            depths: &mut IndexMap<usize, usize>,
             out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
@@ -169,7 +169,7 @@ where
             out.push(Arc::clone(node));
         }
         let mut nodes = Vec::new();
-        let mut depths = HashMap::new();
+        let mut depths = IndexMap::new();
         collect(&root, 0, &mut depths, &mut nodes);
 
         #[allow(clippy::type_complexity)]
@@ -222,7 +222,7 @@ where
         // Wait for all hint plans to finish and bucket the batches by node id.
         let results = try_join_all(futures).await?;
 
-        let mut by_id: HashMap<usize, HashMap<String, Vec<RecordBatch>>> = HashMap::new();
+        let mut by_id: IndexMap<usize, IndexMap<String, Vec<RecordBatch>>> = IndexMap::new();
         for (id, label, batches) in results {
             by_id.entry(id).or_default().insert(label, batches);
         }
@@ -262,7 +262,7 @@ where
         // Stitch table scans (already sorted deepest-to-shallow) before the rest.
         let ordered_nodes = table_scan_nodes.into_iter().chain(other_nodes.into_iter());
 
-        let mut results_by_node_id: IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>> =
+        let mut results_by_node_id: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> =
             IndexMap::with_capacity(node_count);
         // Finally, emit entries following the deterministic order we just
         // computed.
@@ -283,8 +283,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (&'a NodeId, &'a HashMap<String, Vec<RecordBatch>>);
-    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, Vec<RecordBatch>>>;
+    type Item = (&'a NodeId, &'a IndexMap<String, Vec<RecordBatch>>);
+    type IntoIter = indexmap::map::Iter<'a, NodeId, IndexMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.hint_map.iter()
@@ -297,8 +297,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, HashMap<String, Vec<RecordBatch>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, Vec<RecordBatch>>>;
+    type Item = (NodeId, IndexMap<String, Vec<RecordBatch>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         let ProverHintTree { hint_map, .. } = self;
@@ -307,7 +307,7 @@ where
 }
 
 struct HintNodesDebug<'a> {
-    inner: &'a IndexMap<NodeId, HashMap<String, Vec<RecordBatch>>>,
+    inner: &'a IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
 }
 
 impl<'a> fmt::Debug for HintNodesDebug<'a> {
@@ -326,7 +326,7 @@ impl<'a> fmt::Debug for HintNodesDebug<'a> {
 }
 
 struct HintLabelsDebug<'a> {
-    inner: &'a HashMap<String, Vec<RecordBatch>>,
+    inner: &'a IndexMap<String, Vec<RecordBatch>>,
 }
 
 impl<'a> fmt::Debug for HintLabelsDebug<'a> {

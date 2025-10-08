@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -11,7 +11,7 @@ use datafusion::{
     logical_expr::{self as df, Join},
     prelude::SessionContext,
 };
-
+use indexmap::IndexMap;
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 
 pub struct JoinNode<F, MvPCS, UvPCS>
@@ -45,7 +45,7 @@ where
         vec![&self.left, &self.right]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         todo!()
     }
 

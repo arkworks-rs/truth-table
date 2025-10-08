@@ -3,7 +3,7 @@ pub mod display;
 #[cfg(test)]
 pub mod tests;
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{ fmt, sync::Arc};
 
 use ark_std::cfg_into_iter;
 use indexmap::IndexMap;
@@ -30,7 +30,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    arithmetized_tables: IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
+    arithmetized_tables: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -61,7 +61,7 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        arithmetized_tables: IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
+        arithmetized_tables: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     ) -> Self {
         Self {
             arithmetized_tables,
@@ -75,7 +75,7 @@ where
         let mut tables_by_node = IndexMap::with_capacity(hint_map.len());
 
         for (node_id, batches_by_label) in hint_map {
-            let mut tables = HashMap::with_capacity(batches_by_label.len());
+            let mut tables = IndexMap::with_capacity(batches_by_label.len());
             for (label, batches) in batches_by_label {
                 let serial_table = Self::arith_table_from_batches(batches)?;
                 tables.insert(label, serial_table);
@@ -140,11 +140,11 @@ where
     pub fn arithmetized_tables_for(
         &self,
         node_id: &NodeId,
-    ) -> Option<&HashMap<String, ArithTable<F>>> {
+    ) -> Option<&IndexMap<String, ArithTable<F>>> {
         self.arithmetized_tables.get(node_id)
     }
 
-    pub fn arithmetized_tables(&self) -> &IndexMap<NodeId, HashMap<String, ArithTable<F>>> {
+    pub fn arithmetized_tables(&self) -> &IndexMap<NodeId, IndexMap<String, ArithTable<F>>> {
         &self.arithmetized_tables
     }
 
@@ -168,7 +168,7 @@ where
         self,
     ) -> (
         ProverProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
+        IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     ) {
         let ProverArithmetizedTree {
             arithmetized_tables,
@@ -184,8 +184,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, HashMap<String, ArithTable<F>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, ArithTable<F>>>;
+    type Item = (NodeId, IndexMap<String, ArithTable<F>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, ArithTable<F>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.arithmetized_tables.into_iter()
@@ -196,7 +196,7 @@ struct ArithNodesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a IndexMap<NodeId, HashMap<String, ArithTable<F>>>,
+    inner: &'a IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
 }
 
 impl<'a, F> fmt::Debug for ArithNodesDebug<'a, F>
@@ -229,7 +229,7 @@ struct TrackedTablesDebug<'a, F>
 where
     F: PrimeField,
 {
-    inner: &'a HashMap<String, ArithTable<F>>,
+    inner: &'a IndexMap<String, ArithTable<F>>,
 }
 
 impl<'a, F> fmt::Debug for TrackedTablesDebug<'a, F>

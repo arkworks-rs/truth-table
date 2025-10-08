@@ -199,7 +199,7 @@ where
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         match input.op {
-            Operator::And => todo!(),
+            Operator::And => {},
             Operator::Or => {
                 let binary_check_verifier_input = BinaryCheckVerifierInput {
                     predicate_oracle: input
@@ -208,9 +208,12 @@ where
                         .clone(),
                 };
                 BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
+
+                let col_left_right_sum = &input.left_col_oracle.data_tracked_oracle()
+                    + &input.right_col_oracle.data_tracked_oracle();
                 let p_id = verifier.peek_next_id();
                 let p_tracked = verifier.track_mv_com_by_id(p_id)?;
-                let zero_oracle = match (
+                let zero_poly = match (
                     input.left_col_oracle.activator_tracked_oracle(),
                     input.output_col_oracle.activator_tracked_oracle(),
                 ) {
@@ -241,7 +244,7 @@ where
                             - &input.output_col_oracle.data_tracked_oracle()
                     },
                 };
-                verifier.add_zerocheck_claim(zero_oracle.id());
+                verifier.add_zerocheck_claim(zero_poly.id());
             },
             Operator::Eq => {
                 let binary_check_verifier_input = BinaryCheckVerifierInput {
@@ -253,7 +256,7 @@ where
                 BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
 
                 let activator = input.left_col_oracle.activator_tracked_oracle();
-                let zero_oracle = match &activator {
+                let zero_poly = match &activator {
                     Some(activator_tracked_poly) => {
                         &(&input.left_col_oracle.data_tracked_oracle()
                             - &input.right_col_oracle.data_tracked_oracle())
@@ -266,9 +269,9 @@ where
                             * &input.output_col_oracle.data_tracked_oracle()
                     },
                 };
-                verifier.add_zerocheck_claim(zero_oracle.id());
+                verifier.add_zerocheck_claim(zero_poly.id());
 
-                let no_zero_oracle = TrackedColOracle::new(
+                let no_zero_col = TrackedColOracle::new(
                     &(&input.left_col_oracle.data_tracked_oracle()
                         - &input.right_col_oracle.data_tracked_oracle())
                         * &(&input.output_col_oracle.data_tracked_oracle() - F::one()),
@@ -278,7 +281,7 @@ where
                 NoZerosCheck::<F, MvPCS, UvPCS>::verify(
                     verifier,
                     NoZerosCheckVerifierInput {
-                        tracked_col_oracle: no_zero_oracle,
+                        tracked_col_oracle: no_zero_col,
                     },
                 )?;
             },

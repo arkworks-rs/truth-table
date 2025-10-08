@@ -26,7 +26,7 @@ use datafusion_expr::{expr::WindowFunction, expr_fn::ExprFunctionExt};
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{AggregatePIOP, AggregatePIOPProverInput};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::prover::nodes::cost::ProvingCost;
 
@@ -40,7 +40,7 @@ where
     pub aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> AggregateNode<F, MvPCS, UvPCS>
@@ -222,7 +222,7 @@ where
             aggr_expr,
             inputs,
             node_id: NodeId::LP(plan),
-            hint_generation_plans: HashMap::from([("output_plan".to_string(), output_plan)]),
+            hint_generation_plans: IndexMap::from([("output_plan".to_string(), output_plan)]),
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -237,7 +237,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

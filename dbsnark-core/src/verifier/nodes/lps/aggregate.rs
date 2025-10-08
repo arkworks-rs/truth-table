@@ -2,7 +2,7 @@ use crate::{
     id::NodeId,
     verifier::{nodes::VerifierNode, trees::piop_tree::VerifierPIOPTree},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -11,6 +11,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
+use indexmap::IndexMap;
 
 pub struct AggregateNode<F, MvPCS, UvPCS>
 where
@@ -22,7 +23,7 @@ where
     pub aggr_expr: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> AggregateNode<F, MvPCS, UvPCS>
@@ -68,7 +69,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

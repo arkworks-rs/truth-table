@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hint};
+use std::{ hint};
 
 use super::ProverHintTree;
 use crate::{prover::trees::proof_tree::ProverProofTree, test_utils::test_df_plan};

@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -8,7 +8,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
-
+use indexmap::IndexMap;
 pub struct SortNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -34,7 +34,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         todo!()
     }
 

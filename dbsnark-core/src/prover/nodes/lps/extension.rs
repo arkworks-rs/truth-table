@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -13,7 +13,7 @@ use crate::prover::{
     nodes::{ProverNode, cost::ProvingCost},
     trees::piop_tree::ProverPIOPTree,
 };
-
+use indexmap::IndexMap;
 pub struct ExtensionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -47,7 +47,7 @@ where
         self.inputs.iter().collect()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         todo!()
     }
 

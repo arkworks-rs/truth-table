@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -13,7 +13,7 @@ use crate::prover::{
     nodes::{ProverNode, cost::ProvingCost},
     trees::piop_tree::ProverPIOPTree,
 };
-
+use indexmap::IndexMap;
 pub struct WindowNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -38,7 +38,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         todo!()
     }
 

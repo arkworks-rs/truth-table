@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{sync::Arc};
 
 use crate::{
     id::NodeId,
@@ -20,6 +20,7 @@ use datafusion::{
     },
     prelude::{Expr, SessionContext},
 };
+use indexmap::IndexMap;
 use tracing::instrument;
 mod display;
 #[cfg(test)]
@@ -76,7 +77,7 @@ where
     }
 
     /// Returns a map from node identifier to the corresponding verifier node.
-    pub fn flatten(&self) -> HashMap<NodeId, Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>
+    pub fn flatten(&self) -> IndexMap<NodeId, Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -84,7 +85,7 @@ where
     {
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-            out: &mut HashMap<NodeId, Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+            out: &mut IndexMap<NodeId, Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
             MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -96,7 +97,7 @@ where
             }
         }
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         collect(&self.root, &mut map);
         map
     }

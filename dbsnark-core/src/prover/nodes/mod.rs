@@ -8,8 +8,8 @@ pub mod cost;
 pub mod display;
 pub mod exprs;
 pub mod lps;
-use std::{any::Any, collections::HashMap, sync::Arc};
-
+use std::{any::Any,  sync::Arc};
+use indexmap::IndexMap;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -96,8 +96,8 @@ where
     /// Note that if your column can be generated from other columns, It doesn't
     /// need to be materialized and should be added to the 'add_virtual_witness'
     /// function.
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        HashMap::new()
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+        IndexMap::new()
     }
 
     /// Complete the piop plan

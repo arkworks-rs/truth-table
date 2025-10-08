@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
+use std::{ fs::File, hash::Hash, io::BufReader};
 
 use super::ProverTrackedTree;
 use crate::{
@@ -21,6 +21,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
+use indexmap::IndexMap;
 use tpch_data::test_data_path;
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
@@ -46,7 +47,7 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let table_serializable =
         ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
             .expect("deserialize table oracle");
-    let mut table_oracles = HashMap::new();
+    let mut table_oracles = IndexMap::new();
     if let Some(schema) = table_serializable.schema() {
         table_oracles.insert(schema, table_serializable);
     }

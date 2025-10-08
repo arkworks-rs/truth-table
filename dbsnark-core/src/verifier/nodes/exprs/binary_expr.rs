@@ -2,7 +2,7 @@ use crate::{
     id::NodeId,
     verifier::{nodes::VerifierNode, trees::proof_tree::VerifierProofTree},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 use arithmetic::{col::TrackedCol, table::TrackedTable, table_oracle::TrackedTableOracle};
@@ -20,7 +20,9 @@ use datafusion::{
     prelude::case,
 };
 use indexmap::IndexMap;
-use ra_toolbox::expr_piop::binary_expr::{BinaryExprPIOP, BinaryExprPIOPProverInput};
+use ra_toolbox::expr_piop::binary_expr::{
+    BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput,
+};
 #[derive(Clone)]
 pub struct BinaryExprNode<F, MvPCS, UvPCS>
 where
@@ -31,7 +33,7 @@ where
     pub node_id: NodeId,
     pub left_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub right_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> BinaryExprNode<F, MvPCS, UvPCS>
@@ -63,7 +65,7 @@ where
     fn build_witness_plans(
         bin_expr: BinaryExpr,
         input_plan: LogicalPlan,
-    ) -> HashMap<String, LogicalPlan> {
+    ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
             let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
@@ -89,9 +91,9 @@ where
                 .build()
                 .unwrap();
 
-            HashMap::from([(String::from("output_plan"), plan)])
+            IndexMap::from([(String::from("output_plan"), plan)])
         } else {
-            HashMap::new()
+            IndexMap::new()
         }
     }
 }
@@ -113,7 +115,7 @@ where
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         vec![&self.left_proof_plan, &self.right_proof_plan]
     }
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 
@@ -158,7 +160,7 @@ where
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
+        if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
                 let log_size = piop_tree
                     .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
@@ -176,9 +178,13 @@ where
                     .clone();
                 let output_data_tracked_poly = match bin_expr.op {
                     Operator::And => {
-                        let data_mult = &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
+                        let data_mult =
+                            &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
 
-                        match (left_col.activator_tracked_oracle(), right_col.activator_tracked_oracle()) {
+                        match (
+                            left_col.activator_tracked_oracle(),
+                            right_col.activator_tracked_oracle(),
+                        ) {
                             (Some(l), Some(r)) => &(&l * &r) * &data_mult,
                             (Some(l), None) => &l * &data_mult,
                             (None, Some(r)) => &r * &data_mult,
@@ -193,9 +199,9 @@ where
                     false,
                 ));
 
-                let tracked_oracles = IndexMap::from_iter(vec![(field_ref.clone(), output_data_tracked_poly)]);
-                let output_table =
-                    TrackedTableOracle::new(None, tracked_oracles, log_size);
+                let tracked_oracles =
+                    IndexMap::from_iter(vec![(field_ref.clone(), output_data_tracked_poly)]);
+                let output_table = TrackedTableOracle::new(None, tracked_oracles, log_size);
                 piop_tree.add_tracked_table_oracle(
                     self.node_id.clone(),
                     "output_plan".to_string(),
@@ -206,38 +212,36 @@ where
     }
     fn verify_piop(
         &self,
-        prover: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
-        // let op = match self.node_id.to_expr().unwrap() {
-        //     Expr::BinaryExpr(b) => b.op,
-        //     _ => panic!("expected binary expression"),
-        // };
-        // let left_col = piop_tree
-        //     .table(&self.left_proof_plan.node_id(), "output_plan")
-        //     .unwrap()
-        //     .col(0)
-        //     .clone();
-        // let right_col = piop_tree
-        //     .table(&self.right_proof_plan.node_id(), "output_plan")
-        //     .unwrap()
-        //     .col(0)
-        //     .clone();
+        let op = match self.node_id.to_expr().unwrap() {
+            Expr::BinaryExpr(b) => b.op,
+            _ => panic!("expected binary expression"),
+        };
+        let left_col = piop_tree
+            .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .tracked_col_oracle_by_ind(0)
+            .clone();
+        let right_col = piop_tree
+            .tracked_table_oracle(&self.right_proof_plan.node_id(), "output_plan")
+            .unwrap()
+            .tracked_col_oracle_by_ind(0)
+            .clone();
 
-        // let output_col = piop_tree
-        //     .table(&self.node_id, "output_plan")
-        //     .unwrap()
-        //     .col(0)
-        //     .clone();
-        // let binary_expr_piop_verifier_input: BinaryExprPIOPProverInput<F,
-        // MvPCS, UvPCS> =     BinaryExprPIOPProverInput {
-        //         op,
-        //         left_col,
-        //         right_col,
-        //         output_col,
-        //     };
-        // BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover,
-        // binary_expr_piop_verifier_input)
+        let output_col = piop_tree
+            .tracked_table_oracle(&self.node_id, "output_plan")
+            .unwrap()
+            .tracked_col_oracle_by_ind(0)
+            .clone();
+        let binary_expr_piop_verifier_input: BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS> =
+            BinaryExprPIOPVerifierInput {
+                op,
+                left_col_oracle: left_col,
+                right_col_oracle: right_col,
+                output_col_oracle: output_col,
+            };
+        BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)
     }
 }

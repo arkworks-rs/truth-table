@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -8,6 +8,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
+use indexmap::IndexMap;
 
 use crate::prover::{
     nodes::{ProverNode, cost::ProvingCost},
@@ -47,7 +48,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         todo!()
     }
 

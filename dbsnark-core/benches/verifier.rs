@@ -1,7 +1,8 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
 use ark_piop::prover::structs::proof::Proof;
-use std::{collections::HashMap, fs::File, hash::Hash, io::BufReader};
+use indexmap::IndexMap;
+use std::{fs::File, hash::Hash, io::BufReader};
 
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
@@ -16,9 +17,15 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
-use dbsnark_core::prover::trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+use dbsnark_core::{
+    prover::trees::{
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+    },
+    verifier::trees::{
+        piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree,
+        tracked_tree::VerifierTrackedTree,
+    },
 };
 use tokio::runtime::Runtime;
 
@@ -84,6 +91,9 @@ struct VerifierInputs {
     spec: QuerySpec,
     proof: ProofForBench,
     verifier_template: Verifier<F, MvPCS, UvPCS>,
+    ctx: SessionContext,
+    logical_plan: LogicalPlan,
+    shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
 }
 
 fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
@@ -109,7 +119,7 @@ fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
     let table_serializable =
         ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
             .expect("deserialize table oracle");
-    let mut table_oracles = HashMap::new();
+    let mut table_oracles = IndexMap::new();
     if let Some(schema) = table_serializable.schema() {
         table_oracles.insert(schema, table_serializable);
     }
@@ -152,22 +162,25 @@ fn build_proof(
 fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {
-            let common = prepare_common_inputs(spec);
+            let CommonInputs {
+                runtime,
+                ctx,
+                logical_plan,
+                prover_ctx,
+            } = prepare_common_inputs(spec);
             let (mut prover, verifier_template) =
                 bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
 
-            let proof = build_proof(
-                &common.runtime,
-                &common.ctx,
-                &common.logical_plan,
-                &common.prover_ctx,
-                &mut prover,
-            );
+            let proof = build_proof(&runtime, &ctx, &logical_plan, &prover_ctx, &mut prover);
+            drop(runtime);
 
             VerifierInputs {
                 spec,
                 proof,
                 verifier_template,
+                ctx,
+                logical_plan,
+                shared_ctx: prover_ctx,
             }
         })
         .bench_local_values(|inputs| {
@@ -175,9 +188,26 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 spec: _,
                 proof,
                 verifier_template,
+                ctx,
+                logical_plan,
+                shared_ctx,
             } = inputs;
             let mut verifier = verifier_template.clone();
             verifier.set_proof(proof);
+            let verifier_proof_tree =
+                VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan);
+            let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
+                verifier_proof_tree.clone(),
+                shared_ctx,
+                &mut verifier,
+            );
+            let mut verifier_piop_tree =
+                VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
+            let flattened = verifier_piop_tree.proof_tree().clone().flatten();
+            for node in flattened.values() {
+                node.verify_piop(&mut verifier, &mut verifier_piop_tree)
+                    .expect("verify piop");
+            }
             verifier.verify().expect("verify proof");
         });
 }

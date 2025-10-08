@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{

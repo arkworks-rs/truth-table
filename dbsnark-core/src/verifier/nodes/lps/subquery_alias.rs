@@ -6,10 +6,10 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
-
+use indexmap::IndexMap;
 pub struct SubqueryAliasNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -33,7 +33,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         todo!()
     }
 

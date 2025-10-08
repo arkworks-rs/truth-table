@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -11,7 +11,7 @@ use datafusion::{
     logical_expr::{self as df, LogicalPlan, LogicalPlanBuilder},
     prelude::SessionContext,
 };
-
+use indexmap::IndexMap;
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 
 pub struct LimitNode<F, MvPCS, UvPCS>
@@ -24,7 +24,7 @@ where
     pub fetch: Option<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: HashMap<String, df::LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, df::LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for LimitNode<F, MvPCS, UvPCS>
@@ -45,7 +45,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

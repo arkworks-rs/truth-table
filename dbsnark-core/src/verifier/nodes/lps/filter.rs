@@ -20,7 +20,7 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::filter_check::{FilterPIOP, FilterPIOPVerifierInput};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 
@@ -39,7 +39,7 @@ where
     pub predicate_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub input_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl<F, MvPCS, UvPCS> FilterNode<F, MvPCS, UvPCS>
@@ -145,7 +145,7 @@ where
             predicate_proof_plan,
             input_proof_plan: input_proof_plan.root(),
             node_id: NodeId::LP(plan),
-            hint_generation_plans: HashMap::new(),
+            hint_generation_plans: IndexMap::new(),
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -159,7 +159,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

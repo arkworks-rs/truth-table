@@ -1,4 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -6,6 +5,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::arrow::datatypes::Schema;
+use indexmap::IndexMap;
 
 use crate::table_oracle::ArithTableOracle;
 #[derive(Clone)]
@@ -15,7 +15,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    table_oracles: HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
+    table_oracles: IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
 }
 
 impl<F, MvPCS, UvPCS> SharedCtx<F, MvPCS, UvPCS>
@@ -24,7 +24,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub fn new(table_oracles: HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>) -> Self {
+    pub fn new(table_oracles: IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>) -> Self {
         Self { table_oracles }
     }
 
@@ -32,7 +32,7 @@ where
         self.table_oracles.get(schema)
     }
 
-    pub fn table_oracles(&self) -> &HashMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>> {
+    pub fn table_oracles(&self) -> &IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>> {
         &self.table_oracles
     }
 }
@@ -45,7 +45,7 @@ where
 {
     fn default() -> Self {
         Self {
-            table_oracles: HashMap::new(),
+            table_oracles: IndexMap::new(),
         }
     }
 }

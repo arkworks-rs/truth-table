@@ -3,7 +3,8 @@ pub mod display;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, fmt};
+
+use core::fmt;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
@@ -23,7 +24,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_table_oracles: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    tracked_table_oracles: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -56,7 +57,7 @@ where
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
         tracked_table_oracles: IndexMap<
             NodeId,
-            HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+            IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
         >,
     ) -> Self {
         Self {
@@ -75,14 +76,14 @@ where
 
     pub fn tracked_table_oracles(
         &self,
-    ) -> &IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
+    ) -> &IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         &self.tracked_table_oracles
     }
 
     pub fn tracked_table_oracles_for(
         &self,
         node_id: &NodeId,
-    ) -> Option<&HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
+    ) -> Option<&IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         self.tracked_table_oracles.get(node_id)
     }
 
@@ -138,7 +139,7 @@ where
         self,
     ) -> (
         VerifierProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+        IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) {
         let VerifierPIOPTree {
             tracked_table_oracles,
@@ -156,10 +157,10 @@ where
 {
     type Item = (
         &'a NodeId,
-        &'a HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+        &'a IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
     );
     type IntoIter =
-        indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
+        indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_table_oracles.iter()
@@ -172,9 +173,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>);
+    type Item = (NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>);
     type IntoIter =
-        indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
+        indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_table_oracles.into_iter()
@@ -187,7 +188,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
@@ -224,7 +225,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+    inner: &'a IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualTablesDebug<'a, F, MvPCS, UvPCS>

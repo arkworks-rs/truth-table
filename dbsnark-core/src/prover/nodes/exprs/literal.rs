@@ -16,7 +16,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use indexmap::IndexMap;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 #[derive(Clone)]
 pub struct LiteralExprNode {

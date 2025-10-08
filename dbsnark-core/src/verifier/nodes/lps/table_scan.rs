@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -11,7 +11,7 @@ use datafusion::{
     logical_expr::{self as df, LogicalPlan},
     prelude::SessionContext,
 };
-
+use indexmap::IndexMap;
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 
 /// Proof node representing a base table scan.
@@ -22,7 +22,7 @@ use crate::verifier::trees::piop_tree::VerifierPIOPTree;
 pub struct TableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: HashMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
 
 impl TableScanNode {
@@ -50,7 +50,7 @@ where
         Self: Sized,
     {
         let output_plan = Self::build_output_plan(plan.clone());
-        let mut hint_generation_plans = HashMap::new();
+        let mut hint_generation_plans = IndexMap::new();
 
         hint_generation_plans.insert("output_plan".to_string(), output_plan.clone());
         Self {
@@ -72,7 +72,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
         self.hint_generation_plans.clone()
     }
 

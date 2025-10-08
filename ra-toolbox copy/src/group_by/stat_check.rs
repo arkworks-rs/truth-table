@@ -34,7 +34,7 @@ use rayon::iter::{
 };
 use std::{
     clone,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, IndexMap},
     marker::PhantomData,
 };
 pub struct StatCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(

@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -10,7 +10,7 @@ use ark_piop::{
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
-
+use indexmap::IndexMap;
 pub struct ExplainNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -45,7 +45,7 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
         todo!()
     }
 

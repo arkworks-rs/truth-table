@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::BufReader, time::Instant};
+use std::{fs::File, io::BufReader};
 
 use crate::{
     prover::trees::{
@@ -12,11 +12,11 @@ use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     test_utils::{init_tracing_for_tests, test_prelude},
-    verifier,
 };
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
+use indexmap::IndexMap;
 use tpch_data::test_data_path;
 
 type F = Fr;
@@ -50,7 +50,7 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let table_serializable =
         ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
             .expect("deserialize table oracle");
-    let mut table_oracles = HashMap::new();
+    let mut table_oracles = IndexMap::new();
     if let Some(schema) = table_serializable.schema() {
         table_oracles.insert(schema, table_serializable);
     }
@@ -77,7 +77,10 @@ async fn display_graphviz_for(table: &str, query: &str) {
 
     verifier.set_proof(proof);
     let verifier_proof_tree = VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan);
-    let verifier_tracked_tree =
-        VerifierTrackedTree::from_proof_tree(verifier_proof_tree.clone(),shared_ctx, &mut verifier);
+    let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
+        verifier_proof_tree.clone(),
+        shared_ctx,
+        &mut verifier,
+    );
     println!("{}", verifier_tracked_tree.display_graphviz());
 }

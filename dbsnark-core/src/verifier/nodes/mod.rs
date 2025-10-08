@@ -1,5 +1,5 @@
 //! Verifier-side proof tree nodes and trait definitions.
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any,  sync::Arc};
 
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -18,7 +18,7 @@ use crate::{id::NodeId, prover::nodes::ProverNode, verifier::trees::piop_tree::V
 
 pub mod exprs;
 pub mod lps;
-
+use indexmap::IndexMap;
 /// Common interface for a verifier proof tree node.
 pub trait VerifierNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
@@ -66,8 +66,8 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_generation_plans(&self) -> HashMap<String, LogicalPlan> {
-        HashMap::new()
+    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+        IndexMap::new()
     }
 
     fn add_virtual_witness(

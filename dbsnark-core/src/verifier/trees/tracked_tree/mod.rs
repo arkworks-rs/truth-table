@@ -17,7 +17,7 @@ use datafusion::{
     common::DFSchemaRef,
 };
 use indexmap::IndexMap;
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 use tracing::instrument;
 
 mod display;
@@ -30,7 +30,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    tables: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -55,7 +55,7 @@ where
 {
     pub fn new(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+        tables: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tables,
@@ -67,7 +67,7 @@ where
         self,
     ) -> (
         VerifierProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+        IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) {
         let VerifierTrackedTree {
             tables,
@@ -78,7 +78,7 @@ where
 
     pub fn table_by_node_map(
         self,
-    ) -> IndexMap<NodeId, HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
+    ) -> IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         let (_, tables) = self.into_parts();
         tables
     }
@@ -94,7 +94,7 @@ where
     pub fn tables_for(
         &self,
         node_id: &NodeId,
-    ) -> Option<&HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
+    ) -> Option<&IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         self.tables.get(node_id)
     }
 
@@ -116,7 +116,6 @@ where
         display::DisplayableVerifierTrackedTree::new(self)
     }
 
-
     #[instrument(level = "debug", skip_all)]
     pub fn from_proof_tree(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
@@ -126,7 +125,7 @@ where
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
             depth: usize,
-            depths: &mut HashMap<usize, usize>,
+            depths: &mut IndexMap<usize, usize>,
             out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
@@ -142,7 +141,7 @@ where
 
         let root = proof_tree.root();
         let mut nodes = Vec::new();
-        let mut depths = HashMap::new();
+        let mut depths = IndexMap::new();
         collect(&root, 0, &mut depths, &mut nodes);
 
         let mut table_scan_nodes: Vec<_> = nodes
@@ -173,13 +172,13 @@ where
             .chain(other_nodes)
             .collect::<Vec<_>>();
 
-        let mut ordered_infos: Vec<(NodeId, bool, HashMap<String, DFSchemaRef>)> =
+        let mut ordered_infos: Vec<(NodeId, bool, IndexMap<String, DFSchemaRef>)> =
             Vec::with_capacity(ordered_nodes.len());
 
         for node in ordered_nodes {
             let node_id = node.node_id();
             let is_table_scan = node.as_any().downcast_ref::<TableScanNode>().is_some();
-            let schema_map: HashMap<String, DFSchemaRef> = node
+            let schema_map: IndexMap<String, DFSchemaRef> = node
                 .hint_generation_plans()
                 .into_iter()
                 .map(|(label, plan)| (label, Arc::clone(plan.schema())))
@@ -191,11 +190,11 @@ where
 
         let mut tables_by_node: IndexMap<
             NodeId,
-            HashMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+            IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
         > = IndexMap::with_capacity(ordered_infos.len());
         // At this point, we have the nodes in an order synced with the prover
         for (node_id, is_table_scan, schema_map) in ordered_infos {
-            let mut tables_for_node = HashMap::with_capacity(schema_map.len());
+            let mut tables_for_node = IndexMap::with_capacity(schema_map.len());
 
             for (label, df_schema) in schema_map {
                 let arrow_schema_ref = Arc::clone(df_schema.inner());

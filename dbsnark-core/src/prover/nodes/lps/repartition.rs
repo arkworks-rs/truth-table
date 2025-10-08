@@ -1,5 +1,5 @@
 use crate::id::NodeId;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -10,7 +10,7 @@ use ark_piop::{
 use datafusion::prelude::SessionContext;
 
 use crate::prover::nodes::{ProverNode, cost::ProvingCost};
-
+use indexmap::IndexMap;
 pub struct RepartitionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -34,7 +34,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
         todo!()
     }
 

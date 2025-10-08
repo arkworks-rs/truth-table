@@ -4,7 +4,7 @@ use crate::{
 };
 pub mod display;
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{ fmt, sync::Arc};
 
 use arithmetic::{errors::EncodeError, table::TrackedTable};
 use ark_ff::PrimeField;
@@ -34,7 +34,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -65,7 +65,7 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        tracked_tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tracked_tables,
@@ -75,7 +75,7 @@ where
 
     pub fn table_by_node_map(
         self,
-    ) -> IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         let (_, tables) = self.into_parts();
         tables
     }
@@ -91,7 +91,7 @@ where
     pub fn tracked_tables_for(
         &self,
         node_id: &NodeId,
-    ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> Option<&IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tracked_tables.get(node_id)
     }
 
@@ -107,7 +107,7 @@ where
 
     pub fn tracked_tables(
         &self,
-    ) -> &IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.tracked_tables
     }
 
@@ -123,7 +123,7 @@ where
         self,
     ) -> (
         ProverProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let ProverTrackedTree {
             tracked_tables,
@@ -139,7 +139,7 @@ where
     ) -> Result<Self, EncodeError> {
         let (mut proof_tree, node_arith_tables) = arith_tree.into_parts();
         let prover_ctx = proof_tree.ctx_mut();
-        let mut commitment_map: HashMap<Arc<MLE<F>>, Option<MvPCS::Commitment>> = HashMap::new();
+        let mut commitment_map: IndexMap<Arc<MLE<F>>, Option<MvPCS::Commitment>> = IndexMap::new();
         // First initialize the commitment mapping for all polynomials in the
         // arithmetized tree.
         for (_, arith_tables) in &node_arith_tables {
@@ -201,11 +201,11 @@ where
                 .expect("missing commitment for polynomial");
             *entry = Some(commitment);
         }
-        let mut tables_by_node: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> =
+        let mut tables_by_node: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> =
             IndexMap::with_capacity(node_arith_tables.len());
         let mut tracked_count = 0;
         for (node_id, tables) in node_arith_tables {
-            let mut tracked_tables = HashMap::with_capacity(tables.len());
+            let mut tracked_tables = IndexMap::with_capacity(tables.len());
             for (label, arith_table) in tables {
                 let num_total_cols = arith_table.num_total_cols();
                 let table = if num_total_cols == 0 {
@@ -247,9 +247,9 @@ where
 {
     type Item = (
         &'a NodeId,
-        &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
+        &'a IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter = indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.iter()
@@ -262,8 +262,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type Item = (NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.into_iter()
@@ -276,7 +276,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for ArithNodesDebug<'a, F, MvPCS, UvPCS>
@@ -312,7 +312,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
+    inner: &'a IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for TrackedTablesDebug<'a, F, MvPCS, UvPCS>

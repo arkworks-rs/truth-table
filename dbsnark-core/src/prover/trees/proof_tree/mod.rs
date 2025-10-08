@@ -1,6 +1,6 @@
 use crate::id::NodeId;
 pub mod display;
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use crate::prover::nodes::{
     ProverNode,
@@ -21,6 +21,7 @@ use datafusion::{
     },
     prelude::{Expr, SessionContext},
 };
+use indexmap::IndexMap;
 use tracing::instrument;
 
 #[cfg(test)]
@@ -78,7 +79,7 @@ where
     }
 
     /// Returns a map from node identifier to the corresponding prover node.
-    pub fn flatten(&self) -> HashMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>
+    pub fn flatten(&self) -> IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -86,7 +87,7 @@ where
     {
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-            out: &mut HashMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+            out: &mut IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
             MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -98,7 +99,7 @@ where
             }
         }
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         collect(&self.root, &mut map);
         map
     }

@@ -7,7 +7,7 @@ pub mod display;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, fmt};
+use std::{ fmt};
 
 use indexmap::IndexMap;
 
@@ -28,7 +28,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -59,7 +59,7 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        tracked_tables: IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
             tracked_tables,
@@ -77,14 +77,14 @@ where
 
     pub fn tracked_tables(
         &self,
-    ) -> &IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.tracked_tables
     }
 
     pub fn tables_for(
         &self,
         node_id: &NodeId,
-    ) -> Option<&HashMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    ) -> Option<&IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         self.tracked_tables.get(node_id)
     }
 
@@ -141,7 +141,7 @@ where
         self,
     ) -> (
         ProverProofTree<F, MvPCS, UvPCS>,
-        IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let ProverPIOPTree {
             tracked_tables,
@@ -159,9 +159,9 @@ where
 {
     type Item = (
         &'a NodeId,
-        &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
+        &'a IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = indexmap::map::Iter<'a, NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter = indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.iter()
@@ -174,8 +174,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type Item = (NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>);
+    type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.into_iter()
@@ -188,7 +188,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a IndexMap<NodeId, HashMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    inner: &'a IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualNodesDebug<'a, F, MvPCS, UvPCS>
@@ -225,7 +225,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    inner: &'a HashMap<String, TrackedTable<F, MvPCS, UvPCS>>,
+    inner: &'a IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> fmt::Debug for VirtualTablesDebug<'a, F, MvPCS, UvPCS>

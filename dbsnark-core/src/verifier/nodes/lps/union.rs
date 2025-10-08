@@ -1,5 +1,5 @@
 use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{collections::HashMap, sync::Arc};
+use std::{ sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -10,7 +10,7 @@ use ark_piop::{
 use datafusion::prelude::SessionContext;
 
 use crate::verifier::trees::piop_tree::VerifierPIOPTree;
-
+use indexmap::IndexMap;
 pub struct UnionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -34,7 +34,7 @@ where
         self.inputs.iter().collect()
     }
 
-    fn hint_generation_plans(&self) -> HashMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
         todo!()
     }
 

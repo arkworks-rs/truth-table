@@ -1,8 +1,9 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
 use ark_piop::prover::structs::proof::Proof;
+use indexmap::IndexMap;
 use std::{
-    collections::HashMap,
+    
     fs::File,
     hash::Hash,
     io::BufReader,
@@ -128,7 +129,7 @@ fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
     let table_serializable =
         ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
             .expect("deserialize table oracle");
-    let mut table_oracles = HashMap::new();
+    let mut table_oracles = IndexMap::new();
     if let Some(schema) = table_serializable.schema() {
         table_oracles.insert(schema, table_serializable);
     }
