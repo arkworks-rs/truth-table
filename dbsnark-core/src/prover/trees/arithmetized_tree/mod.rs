@@ -126,7 +126,7 @@ where
             tracked_polys_entries.into_iter().collect();
         let schema = Some(schema_ref.as_ref().clone());
 
-        Ok(ArithTable::new(schema, tracked_polys, total_rows))
+        Ok(ArithTable::new(schema, tracked_polys, log_vars))
     }
 
     pub fn len(&self) -> usize {
