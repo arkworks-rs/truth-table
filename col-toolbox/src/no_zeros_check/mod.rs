@@ -90,7 +90,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
-        dbg!(&inverses_poly.id());
         let no_dups_check_poly = match col_sel {
             Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,
             None => &(&col_poly * &inverses_poly) - F::one(),
@@ -106,7 +105,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let col_poly = verifier_input.tracked_col_oracle.data_tracked_oracle().clone();
         let col_sel = verifier_input.tracked_col_oracle.activator_tracked_oracle().clone();
         let inverses_poly_id = verifier.peek_next_id();
-        dbg!(&inverses_poly_id);
         let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
         let no_dups_check_poly = match col_sel {
             Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,

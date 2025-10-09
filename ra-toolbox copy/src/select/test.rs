@@ -270,7 +270,7 @@ fn select_check_helper<
 
     let select_check_verifier_input = SelectVerifierInput {
         input_tracked_Table_oracle: in_tracked_Table_oracle,
-        output_tracked_Table_oracle: out_tracked_Table_oracle,
+        output_tracked_table_oracle: out_tracked_Table_oracle,
         select_conf: select_instr.clone(),
     };
 

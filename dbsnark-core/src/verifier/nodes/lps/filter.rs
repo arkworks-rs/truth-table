@@ -232,7 +232,7 @@ where
             .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
             .unwrap()
             .clone();
-        let output_tracked_Table_oracle = piop_tree
+        let output_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
             .unwrap()
             .clone();
@@ -241,7 +241,7 @@ where
             filter,
             predicate_oracle,
             input_tracked_Table_oracle,
-            output_tracked_Table_oracle,
+            output_tracked_table_oracle,
         };
 
         FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)

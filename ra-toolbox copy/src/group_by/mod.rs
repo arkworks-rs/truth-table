@@ -81,7 +81,7 @@ pub struct GroupByVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub instr: GroupByConfig,
 }
 
@@ -138,7 +138,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let grouping_check_input = grouping_check::GroupingCheckVerifierInput {
             input_grouping_column_comms: input.input_tracked_Table_oracle.cols(&input.instr.gpd_col_indices),
             output_grouping_column_comms: input
-                .output_tracked_Table_oracle
+                .output_tracked_table_oracle
                 .cols(&input.instr.gpd_col_indices),
         };
 
@@ -150,7 +150,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             super_set_multiplicity_tr_com: grouping_check_output.super_set_multiplicity_tr_com,
             input_folded_tracked_col_oracle: grouping_check_output.input_folded_tracked_col_oracle,
             output_folded_tracked_col_oracle: grouping_check_output.output_folded_tracked_col_oracle,
-            query_output_tracked_Table_oracle: input.output_tracked_Table_oracle,
+            query_output_tracked_table_oracle: input.output_tracked_table_oracle,
             query_input_tracked_Table_oracle: input.input_tracked_Table_oracle,
             instr: input.instr,
         };

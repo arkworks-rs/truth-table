@@ -388,7 +388,7 @@ fn groupby_test_helper<
 
     let group_by_check_verifier_input = GroupByVerifierInput {
         input_tracked_Table_oracle: in_tracked_Table_oracle,
-        output_tracked_Table_oracle: out_tracked_Table_oracle,
+        output_tracked_table_oracle: out_tracked_Table_oracle,
         instr: group_by_instr,
     };
     GroupByPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, group_by_check_verifier_input)?;

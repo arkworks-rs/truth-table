@@ -77,7 +77,7 @@ pub struct StatCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub query_output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub query_output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub query_input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub input_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -167,14 +167,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     AggregationType::Count => verify_count_stat(
                         verifier,
                         input.super_set_multiplicity_tr_com.clone(),
-                        input.query_output_tracked_Table_oracle.col(*col_ind),
+                        input.query_output_tracked_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Sum => verify_sum_stat(
                         verifier,
                         input.input_folded_tracked_col_oracle.clone(),
                         input.query_input_tracked_Table_oracle.col(*col_ind),
                         input.output_folded_tracked_col_oracle.clone(),
-                        input.query_output_tracked_Table_oracle.col(*col_ind),
+                        input.query_output_tracked_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Max => verify_max_min_stat(
                         verifier,
@@ -183,7 +183,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         input.input_folded_tracked_col_oracle.clone(),
                         input.query_input_tracked_Table_oracle.col(*col_ind),
                         input.output_folded_tracked_col_oracle.clone(),
-                        input.query_output_tracked_Table_oracle.col(*col_ind),
+                        input.query_output_tracked_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Min => verify_max_min_stat(
                         verifier,
@@ -192,7 +192,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         input.input_folded_tracked_col_oracle.clone(),
                         input.query_input_tracked_Table_oracle.col(*col_ind),
                         input.output_folded_tracked_col_oracle.clone(),
-                        input.query_output_tracked_Table_oracle.col(*col_ind),
+                        input.query_output_tracked_table_oracle.col(*col_ind),
                     )?,
                     AggregationType::Avg => todo!(),
                     _ => unimplemented!(),

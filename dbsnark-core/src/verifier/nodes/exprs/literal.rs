@@ -81,8 +81,8 @@ where
 
         let constant_value = column_values.pop().unwrap_or_else(F::zero);
 
-        let tracked_poly =
-            verifier.track_oracle(Oracle::new_multivariate(0, move |x| Ok(constant_value)));
+        // TODO: Make the log size correct
+        let tracked_poly = verifier.track_mat_mv_cnst_oracle(0, constant_value);
 
         let data_type = scalar.data_type();
 

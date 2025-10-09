@@ -152,6 +152,7 @@ fn build_proof(
         ProverTrackedTree::from_arithmetized_tree(arith_tree, prover).expect("tracked tree");
     let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, prover);
     let flattened = piop_tree.proof_tree().clone().flatten();
+
     for node in flattened.values() {
         node.prove_piop(prover, &mut piop_tree).expect("prove piop");
     }

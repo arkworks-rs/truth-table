@@ -98,7 +98,7 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
             output_oracles.insert(activator_field, activator_tracked_oracle);
         }
 
-        let output_tracked_Table_oracle = TrackedTableOracle::new(
+        let output_tracked_table_oracle = TrackedTableOracle::new(
             input_tracked_Table_oracle.schema(),
             output_oracles,
             None,
@@ -107,7 +107,7 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
 
         let verifier_input = SelectVerifierInput {
             input_tracked_Table_oracle,
-            output_tracked_Table_oracle,
+            output_tracked_table_oracle,
             select_conf: prover_input.select_conf,
         };
 

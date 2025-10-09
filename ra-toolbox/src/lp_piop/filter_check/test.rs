@@ -221,14 +221,14 @@ fn filter_check_test_helper<
 
     let input_tracked_Table_oracle =
         TrackedTableOracle::from_tracked_table(input_table, &mut verifier)?;
-    let output_tracked_Table_oracle =
+    let output_tracked_table_oracle =
         TrackedTableOracle::from_tracked_table(output_tracked_Table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,
         predicate_oracle,
         input_tracked_Table_oracle,
-        output_tracked_Table_oracle,
+        output_tracked_table_oracle,
     };
 
     FilterPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;

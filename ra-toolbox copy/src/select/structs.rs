@@ -65,6 +65,6 @@ pub struct SelectVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }

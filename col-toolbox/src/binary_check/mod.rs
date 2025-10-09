@@ -96,7 +96,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<()> {
-        let one_minus_sel = &(&input.predicate_oracle * (F::one().neg())) + (F::one());
+        let one_minus_sel = &(&input.predicate_oracle * F::one().neg()) + F::one();
         let check_poly = &(input.predicate_oracle) * &one_minus_sel;
         verifier.add_zerocheck_claim(check_poly.id());
         Ok(())

@@ -62,7 +62,7 @@
 
 //         let verifier_input = GroupByVerifierInput {
 //             input_tracked_Table_oracle: input_comm,
-//             output_tracked_Table_oracle: output_comm,
+//             output_tracked_table_oracle: output_comm,
 //             instr: prover_input.instr,
 //         };
 

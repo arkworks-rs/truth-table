@@ -65,7 +65,7 @@ pub struct FilterPIOPVerifierInput<
     pub filter: Filter,
     pub predicate_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub output_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct FilterPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -139,7 +139,7 @@ where
     ) -> SnarkResult<Self::VerifierOutput> {
         let zero_oracle = match (
             input.input_tracked_Table_oracle.activator_tracked_poly(),
-            input.output_tracked_Table_oracle.activator_tracked_poly(),
+            input.output_tracked_table_oracle.activator_tracked_poly(),
         ) {
             (Some(in_activator), Some(out_activator)) => {
                 &out_activator - &(&in_activator * &input.predicate_oracle.activated_data_tracked_oracle())
@@ -151,7 +151,6 @@ where
             (None, None) => &input.predicate_oracle.activated_data_tracked_oracle() + F::one().neg(),
         };
         verifier.add_zerocheck_claim(zero_oracle.id());
-
         Ok(())
     }
 }
