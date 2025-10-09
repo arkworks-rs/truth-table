@@ -87,12 +87,12 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 
         let (_, tables_by_node) = piop_tree.into_parts();
 
-        let mut tracked_Table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
+        let mut tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
         for (node_id, tables) in &tables_by_node {
             if let NodeId::LP(plan) = node_id {
                 if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
                     if let Some(table) = tables.get("output_plan") {
-                        tracked_Table_oracle = Some(TrackedTableOracle::from_tracked_table(
+                        tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
                             table.clone(),
                             &mut verifier,
                         )?);
@@ -102,9 +102,9 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
             }
         }
 
-        let tracked_Table_oracle = tracked_Table_oracle.context("table scan result not found")?;
+        let tracked_table_oracle = tracked_table_oracle.context("table scan result not found")?;
 
-        let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_Table_oracle);
+        let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_table_oracle);
 
         let output_path = parquet_path.with_extension("oracle");
         let file = File::create(&output_path).with_context(|| {

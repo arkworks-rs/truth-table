@@ -723,7 +723,7 @@ fn inner_join_test_helper<
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////
 
-    let activator_left_tracked_Table_oracle = match &input.activator_left_table {
+    let activator_left_tracked_table_oracle = match &input.activator_left_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
@@ -731,7 +731,7 @@ fn inner_join_test_helper<
 
         None => None,
     };
-    let data_left_tracked_Table_oracles = input
+    let data_left_tracked_table_oracles = input
         .data_left_table
         .iter()
         .map(|_| {
@@ -739,14 +739,14 @@ fn inner_join_test_helper<
             verifier.track_mv_com_by_id(id).unwrap()
         })
         .collect::<Vec<_>>();
-    let activator_right_tracked_Table_oracle = match &input.activator_right_table {
+    let activator_right_tracked_table_oracle = match &input.activator_right_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_right_tracked_Table_oracles = input
+    let data_right_tracked_table_oracles = input
         .data_right_table
         .iter()
         .map(|_| {
@@ -754,14 +754,14 @@ fn inner_join_test_helper<
             verifier.track_mv_com_by_id(id).unwrap()
         })
         .collect::<Vec<_>>();
-    let activator_out_tracked_Table_oracle = match &input.activator_out_table {
+    let activator_out_tracked_table_oracle = match &input.activator_out_table {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_out_tracked_Table_oracles = input
+    let data_out_tracked_table_oracles = input
         .data_out_table
         .iter()
         .map(|_| {
@@ -819,22 +819,22 @@ fn inner_join_test_helper<
 
     let inner_join_verifier_input: InnerJoinVerifierInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinVerifierInput {
-            left_tracked_Table_oracle: TrackedTableOracle::new(
+            left_tracked_table_oracle: TrackedTableOracle::new(
                 None,
-                data_left_tracked_Table_oracles,
-                activator_left_tracked_Table_oracle.clone(),
+                data_left_tracked_table_oracles,
+                activator_left_tracked_table_oracle.clone(),
                 input.nv_left_table,
             ),
-            right_tracked_Table_oracle: TrackedTableOracle::new(
+            right_tracked_table_oracle: TrackedTableOracle::new(
                 None,
-                data_right_tracked_Table_oracles,
-                activator_right_tracked_Table_oracle.clone(),
+                data_right_tracked_table_oracles,
+                activator_right_tracked_table_oracle.clone(),
                 input.nv_right_table,
             ),
-            out_tracked_Table_oracle: TrackedTableOracle::new(
+            out_tracked_table_oracle: TrackedTableOracle::new(
                 None,
-                data_out_tracked_Table_oracles,
-                activator_out_tracked_Table_oracle,
+                data_out_tracked_table_oracles,
+                activator_out_tracked_table_oracle,
                 input.nv_out_table,
             ),
             left_key_support_comm: TrackedColOracle::new(
@@ -864,13 +864,13 @@ fn inner_join_test_helper<
             join_left_source_comm: TrackedColOracle::new(
                 None,
                 join_left_source_comm,
-                activator_left_tracked_Table_oracle.clone(),
+                activator_left_tracked_table_oracle.clone(),
                 input.nv_out_table,
             ),
             join_right_source_comm: TrackedColOracle::new(
                 None,
                 join_right_source_comm,
-                activator_right_tracked_Table_oracle.clone(),
+                activator_right_tracked_table_oracle.clone(),
                 input.nv_out_table,
             ),
             right_table_multiplicity: right_table_multiplicity_comm,

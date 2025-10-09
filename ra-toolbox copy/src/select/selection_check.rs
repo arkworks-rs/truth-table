@@ -62,7 +62,7 @@ pub struct SelectionCheckVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub query_output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub query_input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub query_input_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub select_conf: SelectConfig<F>,
 }
 
@@ -119,19 +119,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match input.select_conf.where_clause {
             WhereClause::Eq(col_ind, filter) => Self::verify_eq_selection(
                 verifier,
-                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_input_tracked_table_oracle.col(col_ind),
                 input.query_output_tracked_table_oracle.col(col_ind),
                 filter,
             )?,
             WhereClause::Geq(col_ind, filter) => Self::verify_geq_selection(
                 verifier,
-                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_input_tracked_table_oracle.col(col_ind),
                 input.query_output_tracked_table_oracle.col(col_ind).clone(),
                 filter,
             )?,
             WhereClause::Leq(col_ind, filter) => Self::verify_leq_selection(
                 verifier,
-                input.query_input_tracked_Table_oracle.col(col_ind),
+                input.query_input_tracked_table_oracle.col(col_ind),
                 input.query_output_tracked_table_oracle.col(col_ind).clone(),
                 filter,
             )?,

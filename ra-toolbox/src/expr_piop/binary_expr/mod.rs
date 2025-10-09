@@ -159,26 +159,27 @@ where
                 BinaryCheckPIOP::prove(prover, binary_check_prover_input)?;
 
                 let activator = input.left_col.activator_tracked_poly();
-                let zero_poly = match &activator {
+                let left_data = input.left_col.data_tracked_poly();
+                let right_data = input.right_col.data_tracked_poly();
+                let output_data = input.output_col.data_tracked_poly();
+                let diff = &left_data - &right_data;
+
+                let zero_poly = match activator.as_ref() {
                     Some(activator_tracked_poly) => {
-                        &(&input.left_col.data_tracked_poly()
-                            - &input.right_col.data_tracked_poly())
-                            * &(&input.output_col.data_tracked_poly() * activator_tracked_poly)
+                        &diff * &(&output_data * activator_tracked_poly)
                     },
-                    None => {
-                        &(&input.left_col.data_tracked_poly()
-                            - &input.right_col.data_tracked_poly())
-                            * &input.output_col.data_tracked_poly()
-                    },
+                    None => &diff * &output_data,
                 };
                 prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
-                let no_zero_col = TrackedCol::new(
-                    &(&input.left_col.data_tracked_poly() - &input.right_col.data_tracked_poly())
-                        * &(&input.output_col.data_tracked_poly() - F::one()),
-                    activator.clone(),
-                    None,
-                );
+                let output_minus_one = &output_data - F::one();
+                let one_minus_output = &output_minus_one * F::one().neg();
+                let gated_activator = match activator.clone() {
+                    Some(act) => Some(&act * &one_minus_output),
+                    None => Some(one_minus_output.clone()),
+                };
+
+                let no_zero_col = TrackedCol::new(diff, gated_activator, None);
                 NoZerosCheck::<F, MvPCS, UvPCS>::prove(
                     prover,
                     NoZerosCheckProverInput { col: no_zero_col },
@@ -256,28 +257,27 @@ where
                 BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
 
                 let activator = input.left_col_oracle.activator_tracked_oracle();
-                let zero_poly = match &activator {
+                let left_data = input.left_col_oracle.data_tracked_oracle();
+                let right_data = input.right_col_oracle.data_tracked_oracle();
+                let output_data = input.output_col_oracle.data_tracked_oracle();
+                let diff = &left_data - &right_data;
+
+                let zero_poly = match activator.as_ref() {
                     Some(activator_tracked_poly) => {
-                        &(&input.left_col_oracle.data_tracked_oracle()
-                            - &input.right_col_oracle.data_tracked_oracle())
-                            * &(&input.output_col_oracle.data_tracked_oracle()
-                                * activator_tracked_poly)
+                        &diff * &(&output_data * activator_tracked_poly)
                     },
-                    None => {
-                        &(&input.left_col_oracle.data_tracked_oracle()
-                            - &input.right_col_oracle.data_tracked_oracle())
-                            * &input.output_col_oracle.data_tracked_oracle()
-                    },
+                    None => &diff * &output_data,
                 };
                 verifier.add_zerocheck_claim(zero_poly.id());
 
-                let no_zero_col = TrackedColOracle::new(
-                    &(&input.left_col_oracle.data_tracked_oracle()
-                        - &input.right_col_oracle.data_tracked_oracle())
-                        * &(&input.output_col_oracle.data_tracked_oracle() - F::one()),
-                    activator.clone(),
-                    None,
-                );
+                let output_minus_one = &output_data - F::one();
+                let one_minus_output = &output_minus_one * F::one().neg();
+                let gated_activator = match activator.clone() {
+                    Some(act) => Some(&act * &one_minus_output),
+                    None => Some(one_minus_output.clone()),
+                };
+
+                let no_zero_col = TrackedColOracle::new(diff, gated_activator, None);
                 NoZerosCheck::<F, MvPCS, UvPCS>::verify(
                     verifier,
                     NoZerosCheckVerifierInput {

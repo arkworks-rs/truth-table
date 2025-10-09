@@ -89,7 +89,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         //////////// Check the selection was done correctly ////////////
         let selection_check_verifier_input = SelectionCheckVerifierInput {
-            query_input_tracked_Table_oracle: input.input_tracked_Table_oracle.clone(),
+            query_input_tracked_table_oracle: input.input_tracked_table_oracle.clone(),
             query_output_tracked_table_oracle: input.output_tracked_table_oracle.clone(),
             select_conf: input.select_conf.clone(),
         };

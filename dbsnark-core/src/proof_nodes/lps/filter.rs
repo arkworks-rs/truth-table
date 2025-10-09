@@ -232,20 +232,20 @@ where
             .tracked_table(&NodeId::Expr(filter.predicate.clone()), "output_plan")
             .unwrap()
             .tracked_col_by_ind(0);
-        let input_tracked_Table = piop_tree
+        let input_tracked_table = piop_tree
             .tracked_table(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
             .unwrap()
             .clone();
-        let output_tracked_Table = piop_tree
-            .tracked_table(&self.input_proof_plan.node_id(), "output_plan")
+        let output_tracked_table = piop_tree
+            .tracked_table(&self.node_id, "output_plan")
             .unwrap()
             .clone();
 
         let filter_piop_prover_input = FilterPIOPProverInput {
             filter,
             predicate_col,
-            input_tracked_Table,
-            output_tracked_Table,
+            input_tracked_table,
+            output_tracked_table,
         };
 
         FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)
@@ -456,19 +456,19 @@ where
             .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), "output_plan")
             .unwrap()
             .tracked_col_oracle_by_ind(0);
-        let input_tracked_Table_oracle = piop_tree
+        let input_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
             .unwrap()
             .clone();
         let output_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
+            .tracked_table_oracle(&self.node_id, "output_plan")
             .unwrap()
             .clone();
 
         let filter_piop_verifier_input = FilterPIOPVerifierInput {
             filter,
             predicate_oracle,
-            input_tracked_Table_oracle,
+            input_tracked_table_oracle,
             output_tracked_table_oracle,
         };
 

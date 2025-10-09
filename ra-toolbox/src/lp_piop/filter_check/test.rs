@@ -198,14 +198,14 @@ fn filter_check_test_helper<
         );
     }
     let table_log_size = (table_len as f64).log2() as usize;
-    let output_tracked_Table = TrackedTable::new(None, output_columns, table_log_size);
+    let output_tracked_table = TrackedTable::new(None, output_columns, table_log_size);
 
     let filter = dummy_filter();
     let prover_input = FilterPIOPProverInput {
         filter: filter.clone(),
         predicate_col: predicate_col.clone(),
-        input_tracked_Table: input_table.clone(),
-        output_tracked_Table: output_tracked_Table.clone(),
+        input_tracked_table: input_table.clone(),
+        output_tracked_table: output_tracked_table.clone(),
     };
 
     FilterPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
@@ -219,15 +219,15 @@ fn filter_check_test_helper<
         predicate_col.field_ref(),
     );
 
-    let input_tracked_Table_oracle =
+    let input_tracked_table_oracle =
         TrackedTableOracle::from_tracked_table(input_table, &mut verifier)?;
     let output_tracked_table_oracle =
-        TrackedTableOracle::from_tracked_table(output_tracked_Table, &mut verifier)?;
+        TrackedTableOracle::from_tracked_table(output_tracked_table, &mut verifier)?;
 
     let verifier_input = FilterPIOPVerifierInput {
         filter,
         predicate_oracle,
-        input_tracked_Table_oracle,
+        input_tracked_table_oracle,
         output_tracked_table_oracle,
     };
 

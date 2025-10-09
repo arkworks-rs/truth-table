@@ -80,7 +80,7 @@ pub struct GroupByVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub input_tracked_Table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub input_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub instr: GroupByConfig,
 }
@@ -136,7 +136,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // The first phase of GroupByPIOP is a PIOP to check if the output categories
         // are created correctly Prepare the input for the grouping check
         let grouping_check_input = grouping_check::GroupingCheckVerifierInput {
-            input_grouping_column_comms: input.input_tracked_Table_oracle.cols(&input.instr.gpd_col_indices),
+            input_grouping_column_comms: input.input_tracked_table_oracle.cols(&input.instr.gpd_col_indices),
             output_grouping_column_comms: input
                 .output_tracked_table_oracle
                 .cols(&input.instr.gpd_col_indices),
@@ -151,7 +151,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             input_folded_tracked_col_oracle: grouping_check_output.input_folded_tracked_col_oracle,
             output_folded_tracked_col_oracle: grouping_check_output.output_folded_tracked_col_oracle,
             query_output_tracked_table_oracle: input.output_tracked_table_oracle,
-            query_input_tracked_Table_oracle: input.input_tracked_Table_oracle,
+            query_input_tracked_table_oracle: input.input_tracked_table_oracle,
             instr: input.instr,
         };
         StatCheckPIOP::verify(verifier, stat_check_input)?;

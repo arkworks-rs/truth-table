@@ -255,13 +255,13 @@ fn select_check_helper<
     let out_activator_tr_comm = verifier.track_mv_com_by_id(out_activator_tr_p.id())?;
 
     // Input and Output table comitments
-    let in_tracked_Table_oracle = TrackedTableOracle::new(
+    let in_tracked_table_oracle = TrackedTableOracle::new(
         Some(schema.clone()),
         vec![tr_comm_1.clone(), tr_comm_2.clone(), tr_comm_3.clone()],
         Some(in_activator_tr_comm),
         nv,
     );
-    let out_tracked_Table_oracle = TrackedTableOracle::new(
+    let out_tracked_table_oracle = TrackedTableOracle::new(
         Some(schema),
         vec![tr_comm_1, tr_comm_2, tr_comm_3],
         Some(out_activator_tr_comm),
@@ -269,8 +269,8 @@ fn select_check_helper<
     );
 
     let select_check_verifier_input = SelectVerifierInput {
-        input_tracked_Table_oracle: in_tracked_Table_oracle,
-        output_tracked_table_oracle: out_tracked_Table_oracle,
+        input_tracked_table_oracle: in_tracked_table_oracle,
+        output_tracked_table_oracle: out_tracked_table_oracle,
         select_conf: select_instr.clone(),
     };
 

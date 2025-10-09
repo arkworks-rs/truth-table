@@ -78,14 +78,14 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         verifier.set_proof(proof);
 
         // Commit tables
-        let input_tracked_Table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
+        let input_tracked_table_oracle = TrackedTableOracle::from(input_table, &mut verifier)?;
         let output_activator = output_table
             .activator_tracked_poly()
             .map(|activator| verifier.track_mv_com_by_id(activator.id()).unwrap());
 
-        let mut output_oracles = input_tracked_Table_oracle.data_tracked_oracles();
+        let mut output_oracles = input_tracked_table_oracle.data_tracked_oracles();
         if let Some(activator_tracked_oracle) = output_activator {
-            let activator_field = input_tracked_Table_oracle
+            let activator_field = input_tracked_table_oracle
                 .schema()
                 .as_ref()
                 .and_then(|schema| {
@@ -106,14 +106,14 @@ fn prepare_verifier_inputs() -> (Verifier<F, P, K>, SelectVerifierInput<F, P, K>
         }
 
         let output_tracked_table_oracle = TrackedTableOracle::new(
-            input_tracked_Table_oracle.schema(),
+            input_tracked_table_oracle.schema(),
             output_oracles,
             None,
-            input_tracked_Table_oracle.log_size(),
+            input_tracked_table_oracle.log_size(),
         );
 
         let verifier_input = SelectVerifierInput {
-            input_tracked_Table_oracle,
+            input_tracked_table_oracle,
             output_tracked_table_oracle,
             select_conf: prover_input.select_conf,
         };
