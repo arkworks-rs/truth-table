@@ -1,9 +1,8 @@
 use crate::{
-    id::NodeId,
     prover::trees::{arithmetized_tree::ProverArithmetizedTree, proof_tree::ProverProofTree},
 };
 pub mod display;
-
+use crate::proof_nodes::id::NodeId;
 use std::{ fmt, sync::Arc};
 
 use arithmetic::{errors::EncodeError, table::TrackedTable};

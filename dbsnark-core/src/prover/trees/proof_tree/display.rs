@@ -1,11 +1,10 @@
+use crate::proof_nodes::{id::NodeId, prover::ProverNode};
+use datafusion::logical_expr::Expr;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
-
-use crate::id::NodeId;
-use datafusion::logical_expr::Expr;
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -14,7 +13,7 @@ use ark_piop::{
 };
 
 pub struct ProverProofTreeGraphviz<'a, F, MvPCS, UvPCS> {
-    root: &'a Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>,
+    root: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
 impl<'a, F, MvPCS, UvPCS> ProverProofTreeGraphviz<'a, F, MvPCS, UvPCS>
@@ -23,7 +22,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub fn new(root: &'a Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>) -> Self {
+    pub fn new(root: &'a Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> Self {
         Self { root }
     }
 
@@ -77,11 +76,8 @@ where
     }
 }
 
-fn node_ptr_id<F, MvPCS, UvPCS>(
-    node: &Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>,
-) -> usize {
-    node.as_ref() as *const dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS> as *const ()
-        as usize
+fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    node.as_ref() as *const dyn ProverNode<F, MvPCS, UvPCS> as *const () as usize
 }
 
 fn escape_label(raw: &str) -> String {

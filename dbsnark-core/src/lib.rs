@@ -1,4 +1,4 @@
-pub mod id;
+pub mod proof_nodes;
 pub mod prover;
 pub mod verifier;
 

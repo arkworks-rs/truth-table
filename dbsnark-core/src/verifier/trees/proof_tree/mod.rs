@@ -1,12 +1,13 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
-use crate::{
-    id::NodeId,
-    verifier::nodes::{
-        VerifierNode,
-        exprs::{AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode},
-        lps::{FilterNode, ProjectionNode, TableScanNode},
+use crate::proof_nodes::{
+    exprs::verifier::{
+        VerifierAliasExprNode, VerifierBinaryExprNode, VerifierColumnExprNode,
+        VerifierLiteralExprNode,
     },
+    id::NodeId,
+    lps::verifier::{VerifierFilterNode, VerifierProjectionNode, VerifierTableScanNode},
+    verifier::VerifierNode,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -115,7 +116,7 @@ where
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         match expr.clone() {
-            Expr::Alias(_) => Arc::new(<AliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
+            Expr::Alias(_) => Arc::new(<VerifierAliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
                 F,
                 MvPCS,
                 UvPCS,
@@ -125,29 +126,35 @@ where
                 expr,
                 parent_logical_plan.clone(),
             )),
-            Expr::Column(_) => Arc::new(
-                <ColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr,
-                    parent_logical_plan.clone(),
-                ),
-            ),
-            Expr::Literal(_) => Arc::new(
-                <LiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr,
-                    parent_logical_plan.clone(),
-                ),
-            ),
-            Expr::BinaryExpr(_) => Arc::new(<BinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, verifier_ctx, expr, parent_logical_plan.clone()
-            )),
+            Expr::Column(_) => {
+                Arc::new(
+                    <VerifierColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_logical_plan.clone(),
+                    ),
+                )
+            },
+            Expr::Literal(_) => {
+                Arc::new(
+                    <VerifierLiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_logical_plan.clone(),
+                    ),
+                )
+            },
+            Expr::BinaryExpr(_) => {
+                Arc::new(<VerifierBinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx, expr, parent_logical_plan.clone()
+                ))
+            },
             _ => todo!(),
         }
     }
@@ -161,16 +168,18 @@ where
     ) -> Self {
         match plan {
             df::LogicalPlan::TableScan(_ts) => Self::new(
-                Arc::new(<TableScanNode as VerifierNode<F, MvPCS, UvPCS>>::from_lp(
-                    ctx,
-                    verifier_ctx.clone(),
-                    plan.clone(),
-                )),
+                Arc::new(
+                    <VerifierTableScanNode as VerifierNode<F, MvPCS, UvPCS>>::from_lp(
+                        ctx,
+                        verifier_ctx.clone(),
+                        plan.clone(),
+                    ),
+                ),
                 verifier_ctx,
             ),
             df::LogicalPlan::Values(_vals) => todo!(),
             df::LogicalPlan::Projection(_) => Self::new(
-                Arc::new(<ProjectionNode<F, MvPCS, UvPCS> as VerifierNode<
+                Arc::new(<VerifierProjectionNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -180,7 +189,7 @@ where
                 verifier_ctx,
             ),
             df::LogicalPlan::Filter(_) => Self::new(
-                Arc::new(<FilterNode<F, MvPCS, UvPCS> as VerifierNode<
+                Arc::new(<VerifierFilterNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
                     UvPCS,

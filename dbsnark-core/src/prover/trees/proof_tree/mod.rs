@@ -1,13 +1,14 @@
-use crate::id::NodeId;
+use crate::proof_nodes::prover::ProverNode;
 pub mod display;
-use std::{ sync::Arc};
-
-use crate::prover::nodes::{
-    ProverNode,
-    exprs::{
-        AggregateFunctionExprNode, AliasExprNode, BinaryExprNode, ColumnExprNode, LiteralExprNode,
+use crate::proof_nodes::{
+    exprs::prover::{
+        ProverAggregateFunctionExprNode, ProverAliasExprNode, ProverBinaryExprNode,
+        ProverColumnExprNode, ProverLiteralExprNode,
     },
-    lps::{AggregateNode, FilterNode, ProjectionNode, TableScanNode},
+    id::NodeId,
+    lps::prover::{
+        ProverAggregateNode, ProverFilterNode, ProverProjectionNode, ProverTableScanNode,
+    },
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -22,8 +23,8 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 use indexmap::IndexMap;
+use std::sync::Arc;
 use tracing::instrument;
-
 #[cfg(test)]
 pub mod tests;
 
@@ -119,7 +120,7 @@ where
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         match expr.clone() {
-            Expr::Alias(_) => Arc::new(<AliasExprNode<F, MvPCS, UvPCS> as ProverNode<
+            Expr::Alias(_) => Arc::new(<ProverAliasExprNode<F, MvPCS, UvPCS> as ProverNode<
                 F,
                 MvPCS,
                 UvPCS,
@@ -129,31 +130,24 @@ where
                 expr,
                 parent_logical_plan.clone(),
             )),
-            Expr::Column(_) => {
-                Arc::new(<ColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+            Expr::Column(_) => Arc::new(
+                <ProverColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
                     ctx,
                     prover_ctx.clone(),
                     expr,
                     parent_logical_plan.clone(),
-                ))
-            },
-            Expr::Literal(_) => {
-                Arc::new(<LiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                ),
+            ),
+            Expr::Literal(_) => Arc::new(
+                <ProverLiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
                     ctx,
                     prover_ctx.clone(),
                     expr,
                     parent_logical_plan.clone(),
-                ))
-            },
-            Expr::BinaryExpr(_) => Arc::new(<BinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, prover_ctx, expr, parent_logical_plan.clone()
-            )),
-            Expr::AggregateFunction(_) => {
-                Arc::new(<AggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                ),
+            ),
+            Expr::BinaryExpr(_) => {
+                Arc::new(<ProverBinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -161,6 +155,16 @@ where
                     ctx, prover_ctx, expr, parent_logical_plan.clone()
                 ))
             },
+            Expr::AggregateFunction(_) => Arc::new(<ProverAggregateFunctionExprNode<
+                F,
+                MvPCS,
+                UvPCS,
+            > as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                ctx,
+                prover_ctx,
+                expr,
+                parent_logical_plan.clone(),
+            )),
             _ => todo!(),
         }
     }
@@ -176,16 +180,18 @@ where
     ) -> Self {
         match plan {
             df::LogicalPlan::TableScan(_ts) => Self::new(
-                Arc::new(<TableScanNode as ProverNode<F, MvPCS, UvPCS>>::from_lp(
-                    ctx,
-                    prover_ctx.clone(),
-                    plan.clone(),
-                )),
+                Arc::new(
+                    <ProverTableScanNode as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                        ctx,
+                        prover_ctx.clone(),
+                        plan.clone(),
+                    ),
+                ),
                 prover_ctx,
             ),
             df::LogicalPlan::Values(_vals) => todo!(),
             df::LogicalPlan::Projection(_) => Self::new(
-                Arc::new(<ProjectionNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverProjectionNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -195,7 +201,7 @@ where
                 prover_ctx,
             ),
             df::LogicalPlan::Filter(_) => Self::new(
-                Arc::new(<FilterNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverFilterNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -206,7 +212,7 @@ where
             ),
             df::LogicalPlan::Window(_w) => todo!(),
             df::LogicalPlan::Aggregate(_aggr) => Self::new(
-                Arc::new(<AggregateNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverAggregateNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,

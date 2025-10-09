@@ -1,12 +1,11 @@
-use crate::id::NodeId;
+use crate::{ proof_nodes::prover::ProverNode};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
 
-use crate::prover::nodes::ProverNode;
-
+use crate::proof_nodes::id::NodeId;
 use super::ProverArithmetizedTree;
 use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
@@ -17,14 +16,14 @@ use ark_piop::{
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
 fn node_ptr_id<F, MvPCS, UvPCS>(
-    node: &Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>,
+    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 ) -> usize
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    node.as_ref() as *const dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS> as *const ()
+    node.as_ref() as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ()
         as usize
 }
 
@@ -61,7 +60,7 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>> =
+        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> =
             VecDeque::new();
         q.push_back(self.plan.proof_tree().root());
 

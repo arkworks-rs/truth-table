@@ -3,9 +3,12 @@ pub mod display;
 #[cfg(test)]
 mod tests;
 
-
 use core::fmt;
 
+use crate::{
+    proof_nodes::id::NodeId,
+    verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree},
+};
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -14,8 +17,6 @@ use ark_piop::{
     verifier::Verifier,
 };
 use indexmap::IndexMap;
-
-use crate::{id::NodeId, verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree}};
 
 /// Virtualized tables indexed by proof-plan node identifier.
 pub struct VerifierPIOPTree<F, MvPCS, UvPCS>
@@ -173,7 +174,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    type Item = (NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>);
+    type Item = (
+        NodeId,
+        IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
+    );
     type IntoIter =
         indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 

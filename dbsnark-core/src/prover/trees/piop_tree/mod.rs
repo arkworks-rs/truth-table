@@ -1,5 +1,4 @@
 use crate::{
-    id::NodeId,
     prover::trees::{proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree},
 };
 pub mod display;
@@ -8,7 +7,7 @@ pub mod display;
 mod tests;
 
 use std::{ fmt};
-
+use crate::proof_nodes::id::NodeId;
 use indexmap::IndexMap;
 
 use arithmetic::table::TrackedTable;

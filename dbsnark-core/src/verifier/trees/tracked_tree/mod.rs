@@ -1,9 +1,6 @@
 use crate::{
-    id::NodeId,
-    verifier::{
-        nodes::{VerifierNode, lps::TableScanNode},
-        trees::proof_tree::VerifierProofTree,
-    },
+    proof_nodes::{id::NodeId, lps::verifier::VerifierTableScanNode, verifier::VerifierNode},
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
@@ -146,12 +143,20 @@ where
 
         let mut table_scan_nodes: Vec<_> = nodes
             .iter()
-            .filter(|node| node.as_any().downcast_ref::<TableScanNode>().is_some())
+            .filter(|node| {
+                node.as_any()
+                    .downcast_ref::<VerifierTableScanNode>()
+                    .is_some()
+            })
             .cloned()
             .collect();
         let mut other_nodes: Vec<_> = nodes
             .iter()
-            .filter(|node| node.as_any().downcast_ref::<TableScanNode>().is_none())
+            .filter(|node| {
+                node.as_any()
+                    .downcast_ref::<VerifierTableScanNode>()
+                    .is_none()
+            })
             .cloned()
             .collect();
 
@@ -177,7 +182,10 @@ where
 
         for node in ordered_nodes {
             let node_id = node.node_id();
-            let is_table_scan = node.as_any().downcast_ref::<TableScanNode>().is_some();
+            let is_table_scan = node
+                .as_any()
+                .downcast_ref::<VerifierTableScanNode>()
+                .is_some();
             let schema_map: IndexMap<String, DFSchemaRef> = node
                 .hint_generation_plans()
                 .into_iter()

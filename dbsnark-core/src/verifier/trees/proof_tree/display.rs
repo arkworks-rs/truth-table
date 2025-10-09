@@ -4,16 +4,13 @@ use std::{
     sync::Arc,
 };
 
-use crate::id::NodeId;
-use datafusion::logical_expr::Expr;
-
+use crate::proof_nodes::{id::NodeId, verifier::VerifierNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-
-use crate::verifier::nodes::VerifierNode;
+use datafusion::logical_expr::Expr;
 
 pub struct VerifierProofTreeGraphviz<'a, F, MvPCS, UvPCS> {
     root: &'a Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,

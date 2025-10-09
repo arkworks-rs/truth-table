@@ -1,11 +1,10 @@
-use crate::id::NodeId;
+use crate::{ proof_nodes::verifier::VerifierNode};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
-
-use crate::verifier::nodes::VerifierNode;
+use crate::proof_nodes::id::NodeId;
 
 use super::VerifierTrackedTree;
 use arithmetic::table_oracle::TrackedTableOracle;

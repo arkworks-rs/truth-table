@@ -1,10 +1,10 @@
-use crate::id::NodeId;
+use crate::proof_nodes::prover::ProverNode;
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
     sync::Arc,
 };
-
+use crate::proof_nodes::id::NodeId;
 use super::{ProverHintTree, rows_cols_activated};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -13,11 +13,8 @@ use ark_piop::{
 };
 use datafusion::{arrow::record_batch::RecordBatch, logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_ptr_id<F, MvPCS, UvPCS>(
-    p: &Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>,
-) -> usize {
-    let data_ptr =
-        &**p as *const dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS> as *const ();
+fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
+    let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
     data_ptr as usize
 }
 
@@ -62,8 +59,7 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn crate::prover::nodes::ProverNode<F, MvPCS, UvPCS>>> =
-            VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         q.push_back(self.tree.proof_tree().root());
 
         while let Some(node) = q.pop_front() {

@@ -1,12 +1,11 @@
-use crate::id::NodeId;
+use crate::proof_nodes::prover::ProverNode;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
-
-use std::{ fmt, sync::Arc};
-
+use crate::proof_nodes::{id::NodeId, lps::prover::ProverTableScanNode};
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
+use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -28,10 +27,7 @@ use futures::{
 };
 use tracing::{debug, instrument, trace};
 
-use crate::prover::{
-    nodes::{ProverNode, lps::TableScanNode},
-    trees::proof_tree::ProverProofTree,
-};
+use crate::prover::trees::proof_tree::ProverProofTree;
 
 /// A data structure holding the hint tables needed to prove a given proof-tree.
 ///
@@ -192,7 +188,7 @@ where
                         let batches = df.collect().await?;
 
                         if label == "output_tree"
-                            && node.as_any().downcast_ref::<TableScanNode>().is_some()
+                            && node.as_any().downcast_ref::<ProverTableScanNode>().is_some()
                         {
                             let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
                             assert!(
@@ -238,12 +234,20 @@ where
         // "table scans first" constraint.
         let mut table_scan_nodes: Vec<_> = nodes
             .iter()
-            .filter(|&node| node.as_any().downcast_ref::<TableScanNode>().is_some())
+            .filter(|&node| {
+                node.as_any()
+                    .downcast_ref::<ProverTableScanNode>()
+                    .is_some()
+            })
             .cloned()
             .collect();
         let mut other_nodes: Vec<_> = nodes
             .iter()
-            .filter(|&node| node.as_any().downcast_ref::<TableScanNode>().is_none())
+            .filter(|&node| {
+                node.as_any()
+                    .downcast_ref::<ProverTableScanNode>()
+                    .is_none()
+            })
             .cloned()
             .collect();
 

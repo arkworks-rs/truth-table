@@ -1,23 +1,22 @@
-use crate::id::NodeId;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
 
-use std::{ fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
-use ark_std::cfg_into_iter;
-use indexmap::IndexMap;
-
+use crate::proof_nodes::id::NodeId;
 use arithmetic::{encoding::encode_arrow_array_to_field, errors::EncodeError, table::ArithTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+use ark_std::cfg_into_iter;
 use datafusion::arrow::{
     datatypes::{FieldRef, Schema},
     record_batch::RecordBatch,
 };
+use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use tracing::instrument;

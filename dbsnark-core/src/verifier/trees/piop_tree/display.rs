@@ -1,11 +1,5 @@
-use crate::{id::NodeId, verifier::nodes::VerifierNode};
-use std::{
-    collections::{HashSet, VecDeque},
-    fmt,
-    sync::Arc,
-};
-
 use super::VerifierPIOPTree;
+use crate::proof_nodes::{id::NodeId, verifier::VerifierNode};
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -13,6 +7,11 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt,
+    sync::Arc,
+};
 
 fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>) -> usize {
     node.as_ref() as *const dyn VerifierNode<F, MvPCS, UvPCS> as *const () as usize
