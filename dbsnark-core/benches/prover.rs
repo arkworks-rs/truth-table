@@ -83,6 +83,10 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
         sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
         tables: &["lineitem"],
     },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
+        tables: &["lineitem"],
+    },
     // QuerySpec {
     //     sql: "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
     //     tables: &["lineitem"],

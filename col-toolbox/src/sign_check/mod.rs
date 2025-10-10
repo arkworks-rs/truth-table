@@ -257,36 +257,26 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
             },
             DataType::UInt32 => {
-                let (high_col, low_col) = Self::prove_non_neg_uint32(prover, col)?;
-                let high_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: high_col.clone(),
-                    super_col: TrackedCol::new(
-                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                        None,
-                        None,
-                    ),
-                };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                    prover,
-                    high_inclusion_check_prover_input,
-                )?;
-                let low_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: low_col.clone(),
-                    super_col: TrackedCol::new(
-                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                        None,
-                        None,
-                    ),
-                };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                    prover,
-                    low_inclusion_check_prover_input,
-                )?;
+                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
+                for segment in [chunk3, chunk2, chunk1, chunk0] {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_col: segment,
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
             },
             DataType::Int32 => {
-                let (high_col, low_col) = Self::prove_non_neg_uint32(prover, col)?;
-                let high_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: high_col.clone(),
+                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
+                let top_inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_col: chunk3.clone(),
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
@@ -295,20 +285,68 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
                     prover,
-                    high_inclusion_check_prover_input,
+                    top_inclusion_check_prover_input,
                 )?;
-                let low_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: low_col.clone(),
+                for segment in [chunk2, chunk1, chunk0] {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_col: segment,
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
+            },
+            DataType::UInt64 => {
+                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
+                for segment in [chunk3, chunk2, chunk1, chunk0] {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_col: segment,
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
+            },
+            DataType::Int64 => {
+                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
+                let top_inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_col: chunk3.clone(),
                     super_col: TrackedCol::new(
-                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
                         None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
                     prover,
-                    low_inclusion_check_prover_input,
+                    top_inclusion_check_prover_input,
                 )?;
+                for segment in [chunk2, chunk1, chunk0] {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_col: segment,
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
             },
 
             _ => {
@@ -377,43 +415,31 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
             },
             DataType::UInt32 => {
-                let (high_tracked_col_oracle, low_tracked_col_oracle) =
+                let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
-                let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: high_tracked_col_oracle.clone(),
-                    super_tracked_col_oracle: TrackedColOracle::new(
-                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        })),
-                        None,
-                        None,
-                    ),
-                };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    high_inclusion_check_verifier_input,
-                )?;
-                let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: low_tracked_col_oracle.clone(),
-                    super_tracked_col_oracle: TrackedColOracle::new(
-                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                        })),
-                        None,
-                        None,
-                    ),
-                };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    low_inclusion_check_verifier_input,
-                )?;
+                for segment in [chunk3, chunk2, chunk1, chunk0] {
+                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                        included_tracked_col_oracle: segment,
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        inclusion_check_verifier_input,
+                    )?;
+                }
             },
 
             DataType::Int32 => {
-                let (high_tracked_col_oracle, low_tracked_col_oracle) =
-                    Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
-                let high_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: high_tracked_col_oracle.clone(),
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_int32(verifier, tracked_col_oracle)?;
+                let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracle: chunk3.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
@@ -424,13 +450,55 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
                     verifier,
-                    high_inclusion_check_verifier_input,
+                    top_inclusion_check_verifier_input,
                 )?;
-                let low_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: low_tracked_col_oracle.clone(),
+                for segment in [chunk2, chunk1, chunk0] {
+                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                        included_tracked_col_oracle: segment,
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        inclusion_check_verifier_input,
+                    )?;
+                }
+            },
+
+            DataType::UInt64 => {
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_uint64(verifier, tracked_col_oracle)?;
+                for segment in [chunk3, chunk2, chunk1, chunk0] {
+                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                        included_tracked_col_oracle: segment,
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        inclusion_check_verifier_input,
+                    )?;
+                }
+            },
+
+            DataType::Int64 => {
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_int64(verifier, tracked_col_oracle)?;
+                let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracle: chunk3.clone(),
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                        verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
                         })),
                         None,
                         None,
@@ -438,8 +506,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
                     verifier,
-                    low_inclusion_check_verifier_input,
+                    top_inclusion_check_verifier_input,
                 )?;
+                for segment in [chunk2, chunk1, chunk0] {
+                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                        included_tracked_col_oracle: segment,
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        inclusion_check_verifier_input,
+                    )?;
+                }
             },
 
             _ => {
@@ -453,41 +537,68 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     pub fn prove_non_neg_uint32(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.data_tracked_poly().evaluations();
-        let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
-            .map(|eval| {
-                let big = eval.into_bigint(); // Returns BigInteger representation
-                let n = big.as_ref()[0] as u32;
-                let (high, low) = Self::split_u32_into_u16s(n);
-                (F::from(high as u64), F::from(low as u64))
-            })
-            .unzip();
+    ) -> SnarkResult<(
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+    )> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk3_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk2_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk1_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        let high_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), high_vals))?;
-        let low_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), low_vals))?;
+        for eval in evaluations.iter() {
+            let big = eval.into_bigint();
+            let n = big.as_ref()[0] as u32;
+            let (chunk3, chunk2, chunk1, chunk0) = Self::split_u32_into_u16s(n);
+            chunk3_vals.push(F::from(chunk3 as u64));
+            chunk2_vals.push(F::from(chunk2 as u64));
+            chunk1_vals.push(F::from(chunk1 as u64));
+            chunk0_vals.push(F::from(chunk0 as u64));
+        }
 
-        let zero_tr_p = match &col.activator_tracked_poly() {
-            Some(activator) => {
-                let combined =
-                    &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
-                &combined * activator
-            },
-            None => &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+        let chunk3_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
+        let chunk2_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk2_vals))?;
+        let chunk1_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk1_vals))?;
+        let chunk0_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
         };
-
-        prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         Ok((
             TrackedCol::new(
-                high_tr_p,
+                chunk3_poly,
                 col.activator_tracked_poly(),
                 col.field_ref().clone(),
             ),
             TrackedCol::new(
-                low_tr_p,
+                chunk2_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk1_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk0_poly,
                 col.activator_tracked_poly(),
                 col.field_ref().clone(),
             ),
@@ -501,76 +612,123 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
         TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
-        let high_tr_id = verifier.peek_next_id();
-        let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
-        let low_tr_id = verifier.peek_next_id();
-        let low_tr_c = verifier.track_mv_com_by_id(low_tr_id)?;
 
-        let zero_tr_p = match &col_activator {
-            Some(activator) => {
-                &(&col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c)) * activator
-            },
-            None => &col_inner - &(&(&high_tr_c * (F::from(1 << 16))) + &low_tr_c),
+        let chunk3_id = verifier.peek_next_id();
+        let chunk3_poly = verifier.track_mv_com_by_id(chunk3_id)?;
+        let chunk2_id = verifier.peek_next_id();
+        let chunk2_poly = verifier.track_mv_com_by_id(chunk2_id)?;
+        let chunk1_id = verifier.peek_next_id();
+        let chunk1_poly = verifier.track_mv_com_by_id(chunk1_id)?;
+        let chunk0_id = verifier.peek_next_id();
+        let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
         };
+        verifier.add_zerocheck_claim(zero_poly.id());
 
-        verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
+        let chunk3_oracle = TrackedColOracle::new(
+            chunk3_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk2_oracle = TrackedColOracle::new(
+            chunk2_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk1_oracle = TrackedColOracle::new(
+            chunk1_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk0_oracle = TrackedColOracle::new(
+            chunk0_poly,
+            col_activator,
+            tracked_col_oracle.field_ref().clone(),
+        );
 
-        Ok((
-            TrackedColOracle::new(
-                high_tr_c,
-                col_activator.clone(),
-                tracked_col_oracle.field_ref().clone(),
-            ),
-            TrackedColOracle::new(
-                low_tr_c,
-                col_activator,
-                tracked_col_oracle.field_ref().clone(),
-            ),
-        ))
+        Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
     }
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int32(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(TrackedCol<F, MvPCS, UvPCS>, TrackedCol<F, MvPCS, UvPCS>)> {
-        let col_inner_evals = col.data_tracked_poly().evaluations();
-        let (high_vals, low_vals): (Vec<F>, Vec<F>) = cfg_iter!(col_inner_evals)
-            .map(|eval| {
-                let big = eval.into_bigint(); // Returns BigInteger representation
-                let n = big.as_ref()[0] as i32;
-                let (high, low) = Self::split_i32_into_i16s(n);
-                (F::from(high as u64), F::from(low as u64))
-            })
-            .unzip();
+    ) -> SnarkResult<(
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+    )> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk3_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk2_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk1_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        let high_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), high_vals))?;
-        let low_tr_p = prover
-            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(col.log_size(), low_vals))?;
+        for eval in evaluations.iter() {
+            let big = eval.into_bigint();
+            let n = big.as_ref()[0] as i32;
+            let (chunk3, chunk2, chunk1, chunk0) = Self::split_i32_into_i16s(n);
+            chunk3_vals.push(F::from(chunk3 as u64));
+            chunk2_vals.push(F::from(chunk2 as u64));
+            chunk1_vals.push(F::from(chunk1 as u64));
+            chunk0_vals.push(F::from(chunk0 as u64));
+        }
 
-        let zero_tr_p = match &col.activator_tracked_poly() {
-            Some(activator) => {
-                let combined =
-                    &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p);
-                &combined * activator
-            },
-            None => &col.data_tracked_poly() - &(&(&high_tr_p * F::from(1 << 16)) + &low_tr_p),
+        let chunk3_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
+        let chunk2_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk2_vals))?;
+        let chunk1_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk1_vals))?;
+        let chunk0_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
         };
-
-        prover.add_mv_zerocheck_claim(zero_tr_p.id())?; // Add a zero check claim for the combined polynomial        
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         Ok((
             TrackedCol::new(
-                high_tr_p,
+                chunk3_poly,
                 col.activator_tracked_poly(),
                 col.field_ref().clone(),
             ),
             TrackedCol::new(
-                low_tr_p,
+                chunk2_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk1_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk0_poly,
                 col.activator_tracked_poly(),
                 col.field_ref().clone(),
             ),
@@ -584,46 +742,346 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
         TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
-        let high_tr_id = verifier.peek_next_id();
-        let high_tr_c = verifier.track_mv_com_by_id(high_tr_id)?;
-        let low_tr_id = verifier.peek_next_id();
-        let low_tr_c = verifier.track_mv_com_by_id(low_tr_id)?;
 
-        let zero_tr_p = match &col_activator {
-            Some(activator) => {
-                &(&col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c)) * activator
-            },
-            None => &col_inner - &(&(&high_tr_c * F::from(1 << 16)) + &low_tr_c),
+        let chunk3_id = verifier.peek_next_id();
+        let chunk3_poly = verifier.track_mv_com_by_id(chunk3_id)?;
+        let chunk2_id = verifier.peek_next_id();
+        let chunk2_poly = verifier.track_mv_com_by_id(chunk2_id)?;
+        let chunk1_id = verifier.peek_next_id();
+        let chunk1_poly = verifier.track_mv_com_by_id(chunk1_id)?;
+        let chunk0_id = verifier.peek_next_id();
+        let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
         };
+        verifier.add_zerocheck_claim(zero_poly.id());
 
-        verifier.add_zerocheck_claim(zero_tr_p.id()); // Add a zero check claim for the combined polynomial        
+        let chunk3_oracle = TrackedColOracle::new(
+            chunk3_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk2_oracle = TrackedColOracle::new(
+            chunk2_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk1_oracle = TrackedColOracle::new(
+            chunk1_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk0_oracle = TrackedColOracle::new(
+            chunk0_poly,
+            col_activator,
+            tracked_col_oracle.field_ref().clone(),
+        );
+
+        Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn prove_non_neg_uint64(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+    )> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk3_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk2_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk1_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk0_vals = Vec::with_capacity(evaluations.len());
+
+        for eval in evaluations.iter() {
+            let big = eval.into_bigint();
+            let n = big.as_ref()[0] as u64;
+            let (chunk3, chunk2, chunk1, chunk0) = Self::split_u64_into_u16s(n);
+            chunk3_vals.push(F::from(chunk3 as u64));
+            chunk2_vals.push(F::from(chunk2 as u64));
+            chunk1_vals.push(F::from(chunk1 as u64));
+            chunk0_vals.push(F::from(chunk0 as u64));
+        }
+
+        let chunk3_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
+        let chunk2_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk2_vals))?;
+        let chunk1_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk1_vals))?;
+        let chunk0_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         Ok((
-            TrackedColOracle::new(
-                high_tr_c,
-                col_activator.clone(),
-                tracked_col_oracle.field_ref().clone(),
+            TrackedCol::new(
+                chunk3_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
-            TrackedColOracle::new(
-                low_tr_c,
-                col_activator,
-                tracked_col_oracle.field_ref().clone(),
+            TrackedCol::new(
+                chunk2_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk1_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk0_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
             ),
         ))
     }
 
-    fn split_u32_into_u16s(n: u32) -> (u16, u16) {
-        let high = (n >> 16) as u16;
-        let low = (n & 0xFFFF) as u16;
-        (high, low)
+    #[allow(clippy::complexity)]
+    pub fn verify_non_neg_uint64(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+    )> {
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
+
+        let chunk3_id = verifier.peek_next_id();
+        let chunk3_poly = verifier.track_mv_com_by_id(chunk3_id)?;
+        let chunk2_id = verifier.peek_next_id();
+        let chunk2_poly = verifier.track_mv_com_by_id(chunk2_id)?;
+        let chunk1_id = verifier.peek_next_id();
+        let chunk1_poly = verifier.track_mv_com_by_id(chunk1_id)?;
+        let chunk0_id = verifier.peek_next_id();
+        let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        verifier.add_zerocheck_claim(zero_poly.id());
+
+        let chunk3_oracle = TrackedColOracle::new(
+            chunk3_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk2_oracle = TrackedColOracle::new(
+            chunk2_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk1_oracle = TrackedColOracle::new(
+            chunk1_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk0_oracle = TrackedColOracle::new(
+            chunk0_poly,
+            col_activator,
+            tracked_col_oracle.field_ref().clone(),
+        );
+
+        Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
     }
 
-    fn split_i32_into_i16s(n: i32) -> (i16, i16) {
-        let high = (n >> 16) as i16;
-        let low = (n & 0xFFFF) as i16;
-        (high, low)
+    #[allow(clippy::complexity)]
+    pub fn prove_non_neg_int64(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+        TrackedCol<F, MvPCS, UvPCS>,
+    )> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk3_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk2_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk1_vals = Vec::with_capacity(evaluations.len());
+        let mut chunk0_vals = Vec::with_capacity(evaluations.len());
+
+        for eval in evaluations.iter() {
+            let big = eval.into_bigint();
+            let n = big.as_ref()[0] as i64;
+            let (chunk3, chunk2, chunk1, chunk0) = Self::split_i64_into_i16s(n);
+            chunk3_vals.push(F::from(chunk3 as u64));
+            chunk2_vals.push(F::from(chunk2 as u64));
+            chunk1_vals.push(F::from(chunk1 as u64));
+            chunk0_vals.push(F::from(chunk0 as u64));
+        }
+
+        let chunk3_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
+        let chunk2_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk2_vals))?;
+        let chunk1_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk1_vals))?;
+        let chunk0_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+
+        Ok((
+            TrackedCol::new(
+                chunk3_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk2_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk1_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+            TrackedCol::new(
+                chunk0_poly,
+                col.activator_tracked_poly(),
+                col.field_ref().clone(),
+            ),
+        ))
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn verify_non_neg_int64(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<F, MvPCS, UvPCS>,
+    )> {
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
+
+        let chunk3_id = verifier.peek_next_id();
+        let chunk3_poly = verifier.track_mv_com_by_id(chunk3_id)?;
+        let chunk2_id = verifier.peek_next_id();
+        let chunk2_poly = verifier.track_mv_com_by_id(chunk2_id)?;
+        let chunk1_id = verifier.peek_next_id();
+        let chunk1_poly = verifier.track_mv_com_by_id(chunk1_id)?;
+        let chunk0_id = verifier.peek_next_id();
+        let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
+
+        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
+            + &(&chunk2_poly * F::from(1u64 << 32)))
+            + &(&chunk1_poly * F::from(1u64 << 16)))
+            + &chunk0_poly;
+
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        verifier.add_zerocheck_claim(zero_poly.id());
+
+        let chunk3_oracle = TrackedColOracle::new(
+            chunk3_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk2_oracle = TrackedColOracle::new(
+            chunk2_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk1_oracle = TrackedColOracle::new(
+            chunk1_poly,
+            col_activator.clone(),
+            tracked_col_oracle.field_ref().clone(),
+        );
+        let chunk0_oracle = TrackedColOracle::new(
+            chunk0_poly,
+            col_activator,
+            tracked_col_oracle.field_ref().clone(),
+        );
+
+        Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
+    }
+
+    fn split_u32_into_u16s(n: u32) -> (u16, u16, u16, u16) {
+        let chunk3 = 0u16;
+        let chunk2 = 0u16;
+        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
+        let chunk0 = (n & 0xFFFF) as u16;
+        (chunk3, chunk2, chunk1, chunk0)
+    }
+
+    fn split_i32_into_i16s(n: i32) -> (i16, i16, i16, i16) {
+        let chunk3 = if n.is_negative() { -1i16 } else { 0i16 };
+        let chunk2 = if n.is_negative() { -1i16 } else { 0i16 };
+        let chunk1 = ((n >> 16) & 0xFFFF) as i16;
+        let chunk0 = (n & 0xFFFF) as i16;
+        (chunk3, chunk2, chunk1, chunk0)
+    }
+
+    fn split_u64_into_u16s(n: u64) -> (u16, u16, u16, u16) {
+        let chunk3 = (n >> 48) as u16;
+        let chunk2 = ((n >> 32) & 0xFFFF) as u16;
+        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
+        let chunk0 = (n & 0xFFFF) as u16;
+        (chunk3, chunk2, chunk1, chunk0)
+    }
+
+    fn split_i64_into_i16s(n: i64) -> (i16, i16, i16, i16) {
+        let chunk3 = (n >> 48) as i16;
+        let chunk2 = ((n >> 32) & 0xFFFF) as i16;
+        let chunk1 = ((n >> 16) & 0xFFFF) as i16;
+        let chunk0 = (n & 0xFFFF) as i16;
+        (chunk3, chunk2, chunk1, chunk0)
     }
 }
