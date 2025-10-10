@@ -324,6 +324,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         let field_ref = tracked_col_oracle.field_ref().unwrap();
         let data_type = field_ref.data_type();
+        dbg!(data_type);
         match *data_type {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {

@@ -1,4 +1,8 @@
+#[cfg(feature = "honest-prover")]
+use ark_ff::PrimeField;
 use ark_ff::{Field, batch_inversion};
+#[cfg(feature = "honest-prover")]
+use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS, prover::structs::polynomial::TrackedPoly};
 
 pub fn invert_or_one_in_place<F: Field>(v: &mut [F]) {
     // Record which entries are zero before we mutate the slice.
@@ -13,4 +17,29 @@ pub fn invert_or_one_in_place<F: Field>(v: &mut [F]) {
             *x = F::one();
         }
     }
+}
+
+#[cfg(feature = "honest-prover")]
+pub(super) fn activators_match<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+    lhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+    rhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+) -> bool {
+    match (lhs, rhs) {
+        (None, None) => true,
+        (Some(poly), None) | (None, Some(poly)) => activator_is_all_ones(&poly),
+        (Some(lhs_poly), Some(rhs_poly)) => {
+            lhs_poly.log_size() == rhs_poly.log_size()
+                && lhs_poly.evaluations() == rhs_poly.evaluations()
+        },
+    }
+}
+#[cfg(feature = "honest-prover")]
+pub(super)fn activator_is_all_ones<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    poly: &TrackedPoly<F, MvPCS, UvPCS>,
+) -> bool {
+    poly.evaluations().into_iter().all(|val| val == F::one())
 }

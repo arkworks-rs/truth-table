@@ -3,7 +3,6 @@
 use ark_piop::prover::structs::proof::Proof;
 use indexmap::IndexMap;
 use std::{
-    
     fs::File,
     hash::Hash,
     io::BufReader,
@@ -67,17 +66,21 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     //     sql: "SELECT l_partkey FROM lineitem",
     //     tables: &["lineitem"],
     // },
+    // QuerySpec {
+    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
+    // l_extendedprice = 100.1",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    l_extendedprice = 100.1",
+        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
         tables: &["lineitem"],
     },
     // QuerySpec {
