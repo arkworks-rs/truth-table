@@ -36,9 +36,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
@@ -120,9 +117,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())

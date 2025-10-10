@@ -61,11 +61,6 @@ where
     {
         unimplemented!()
     }
-
-    /// Returns the Proof plan as `Any` so that it can be downcast to a specific
-    /// implementation.
-    fn as_any(&self) -> &dyn Any;
-
     /// Short name for the ProverNode node, such as `FilterNode`.
     /// Children of this node expressed as proof plan trait objects. Leaf nodes
     /// return an empty list.
@@ -117,6 +112,18 @@ where
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+}
+
+impl<F, MvPCS, UvPCS> dyn ProverNode<F, MvPCS, UvPCS> + '_
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    /// Returns the Proof plan as `Any` so that it can be downcast to a specific implementation.
+    pub fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 pub fn output_prover_logical_plan<F, MvPCS, UvPCS>(

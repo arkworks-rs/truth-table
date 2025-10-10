@@ -45,9 +45,6 @@ where
     {
         unimplemented!()
     }
-
-    fn as_any(&self) -> &dyn Any;
-
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>;
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
@@ -79,6 +76,18 @@ where
         _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> dyn VerifierNode<F, MvPCS, UvPCS> + '_
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    /// Returns the verifier node as `Any` to support downcasting.
+    pub fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

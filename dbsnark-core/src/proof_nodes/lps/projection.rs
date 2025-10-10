@@ -50,9 +50,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
@@ -225,9 +222,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());

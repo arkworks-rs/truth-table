@@ -68,10 +68,6 @@ where
         }
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         Vec::new()
     }
@@ -170,10 +166,6 @@ where
             node_id: NodeId::LP(plan),
             hint_generation_plans,
         }
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {

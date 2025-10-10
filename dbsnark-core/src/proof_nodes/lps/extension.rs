@@ -46,9 +46,6 @@ where
     {
         todo!()
     }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
@@ -133,9 +130,6 @@ where
         Self: Sized,
     {
         todo!()
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {

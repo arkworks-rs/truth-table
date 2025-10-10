@@ -42,9 +42,6 @@ where
     {
         todo!()
     }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
@@ -128,9 +125,6 @@ where
         Self: Sized,
     {
         todo!()
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
