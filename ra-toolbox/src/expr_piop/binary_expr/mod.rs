@@ -1,8 +1,8 @@
+pub mod eq;
 pub mod utils;
-
 use crate::expr_piop::binary_expr::utils::invert_or_one_in_place;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{PrimeField, batch_inversion};
+use ark_ff::PrimeField;
 #[cfg(feature = "honest-prover")]
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::{
@@ -11,7 +11,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{
-        self, Prover,
+        Prover,
         errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
     },
     verifier::Verifier,

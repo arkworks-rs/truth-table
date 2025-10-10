@@ -1,7 +1,11 @@
-// Combined dbsnark-core/src/prover/nodes/lps/table_scan.rs and dbsnark-core/src/verifier/nodes/lps/table_scan.rs
+// Combined dbsnark-core/src/prover/nodes/lps/table_scan.rs and
+// dbsnark-core/src/verifier/nodes/lps/table_scan.rs
 
-
-use std::sync::Arc;
+use crate::{
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    prover::trees::piop_tree::ProverPIOPTree,
+    verifier::trees::piop_tree::VerifierPIOPTree,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -13,34 +17,19 @@ use datafusion::{
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
-use crate::proof_nodes::id::NodeId;
-use crate::{
+use std::sync::Arc;
 
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
-    verifier::trees::piop_tree::VerifierPIOPTree,
-};
-
-
-/// Proof node representing a base table scan.
-///
-/// - `plan`: the original DataFusion TableScan logical plan
-/// - witness plans include both the relative ("output_plan") plan and the
-///   original ("relative_output") scan plan.
 pub struct ProverTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
     pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
-
-impl ProverTableScanNode {
-    // Build a relative plan identical to the original scan (no added columns,
-    // no padding). Assumes upstream data already contains any required
-    // bookkeeping columns (e.g., `activator`).
-    pub fn build_output_plan(plan: LogicalPlan) -> df::LogicalPlan {
-        plan
-    }
+pub struct VerifierTableScanNode {
+    pub plan: LogicalPlan,
+    pub node_id: NodeId,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
+
 // TODO: Add the table scan output comitments (the root ones) in the prover
 // initial state as a mapping from table names to comitments
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverTableScanNode
@@ -50,17 +39,16 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
-        let output_plan = Self::build_output_plan(plan.clone());
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert("output_plan".to_string(), output_plan.clone());
+        hint_generation_plans.insert("output_plan".to_string(), plan.clone());
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -80,18 +68,6 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
-
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
@@ -109,7 +85,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
     }
@@ -122,25 +98,6 @@ where
     }
 }
 
-/// Proof node representing a base table scan.
-///
-/// - `plan`: the original DataFusion TableScan logical plan
-/// - witness plans include both the relative ("output_plan") plan and the
-///   original ("relative_output") scan plan.
-pub struct VerifierTableScanNode {
-    pub plan: LogicalPlan,
-    pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
-}
-
-impl VerifierTableScanNode {
-    // Build a relative plan identical to the original scan (no added columns,
-    // no padding). Assumes upstream data already contains any required
-    // bookkeeping columns (e.g., `activator`).
-    pub fn build_output_plan(plan: LogicalPlan) -> df::LogicalPlan {
-        plan
-    }
-}
 // TODO: Add the table scan output comitments (the root ones) in the prover
 // initial state as a mapping from table names to comitments
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierTableScanNode
@@ -150,17 +107,16 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
-        let output_plan = Self::build_output_plan(plan.clone());
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert("output_plan".to_string(), output_plan.clone());
+        hint_generation_plans.insert("output_plan".to_string(), plan.clone());
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -180,18 +136,6 @@ where
         self.hint_generation_plans.clone()
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
-
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
             child.append_sorted_descendants(out);
@@ -201,7 +145,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
     }

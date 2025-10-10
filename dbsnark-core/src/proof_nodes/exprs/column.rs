@@ -26,6 +26,11 @@ pub struct ProverColumnExprNode {
     pub parent_logical_plan: LogicalPlan,
     pub node_id: NodeId,
 }
+#[derive(Clone)]
+pub struct VerifierColumnExprNode {
+    pub parent_logical_plan: LogicalPlan,
+    pub node_id: NodeId,
+}
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where
@@ -33,7 +38,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -68,7 +72,7 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         // Fetch the columns expression
         let column_expr = match &self.node_id {
@@ -132,19 +136,12 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct VerifierColumnExprNode {
-    pub parent_logical_plan: LogicalPlan,
-    pub node_id: NodeId,
-}
-
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierColumnExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -171,7 +168,7 @@ where
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         // Fetch the columns expression
         let column_expr = match &self.node_id {

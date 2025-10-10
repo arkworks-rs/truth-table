@@ -1,16 +1,11 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/literal.rs and dbsnark-core/src/verifier/nodes/exprs/literal.rs
+// Combined dbsnark-core/src/prover/nodes/exprs/literal.rs and
+// dbsnark-core/src/verifier/nodes/exprs/literal.rs
 
-use crate::proof_nodes::id::NodeId;
-use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
-    verifier::trees::piop_tree::VerifierPIOPTree,
+use crate::proof_nodes::{
+    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
 };
 use arithmetic::{
-    encoding::encode_arrow_array_to_field,
-    table::TrackedTable,
-    table_oracle::TrackedTableOracle,
+    encoding::encode_arrow_array_to_field, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -18,29 +13,29 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     prover::Prover,
-    verifier::structs::oracle::Oracle,
 };
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema},
+    arrow::datatypes::{Field, Schema},
     logical_expr::Expr,
-    scalar::ScalarValue,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
-
 
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
     pub node_id: NodeId,
 }
 
+#[derive(Clone)]
+pub struct VerifierLiteralExprNode {
+    pub node_id: NodeId,
+}
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverLiteralExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -127,18 +122,12 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct VerifierLiteralExprNode {
-    pub node_id: NodeId,
-}
-
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierLiteralExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
