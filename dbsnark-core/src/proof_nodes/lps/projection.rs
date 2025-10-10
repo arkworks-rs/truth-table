@@ -1,6 +1,3 @@
-// Combined dbsnark-core/src/prover/nodes/lps/projection.rs and
-// dbsnark-core/src/verifier/nodes/lps/projection.rs
-
 use crate::{
     proof_nodes::{
         cost::ProvingCost,
@@ -26,12 +23,7 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
-/// Projection operator that preserves the `activator` column.
-///
-/// - `expr`: projection expressions from the original logical plan
-/// - `input`: child proof node
-/// - witness plans include a single logical plan entry named `"output"`
-///   representing the projection with the `activator` column retained.
+
 pub struct ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -43,14 +35,23 @@ where
     pub node_id: NodeId,
     pub hint_generation_plans: IndexMap<String, LogicalPlan>,
 }
-
+pub struct VerifierProjectionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    pub expr_proof_plans: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub input_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub node_id: NodeId,
+    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+}
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
         children.push(&self.input_proof_plan);
@@ -198,31 +199,12 @@ where
     }
 }
 
-/// Projection operator that preserves the `activator` column.
-///
-/// - `expr`: projection expressions from the original logical plan
-/// - `input`: child proof node
-/// - witness plans include a single logical plan entry named `"output"`
-///   representing the projection with the `activator` column retained.
-pub struct VerifierProjectionNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    pub expr_proof_plans: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub input_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
-}
-
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
         children.push(&self.input_proof_plan);
@@ -316,17 +298,6 @@ where
         }
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
