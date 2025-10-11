@@ -65,14 +65,14 @@ impl QuerySpec {
 }
 
 const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
-    QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-        tables: &["lineitem"],
-    },
+    // QuerySpec {
+    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
         sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         tables: &["lineitem"],
@@ -161,7 +161,10 @@ fn build_proof(
     let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, prover);
     let flattened = piop_tree.proof_tree().clone().flatten();
 
-    for node in flattened.values() {
+    for (idx, node) in flattened.values().enumerate() {
+        if idx == 1 {
+            continue;
+        }
         node.prove_piop(prover, &mut piop_tree).expect("prove piop");
     }
     prover.build_proof().expect("build proof")
@@ -213,7 +216,9 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
             let mut verifier_piop_tree =
                 VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
             let flattened = verifier_piop_tree.proof_tree().clone().flatten();
-            for node in flattened.values() {
+            for (idx, node) in flattened.values().enumerate() {
+                dbg!(&node.name());
+
                 node.verify_piop(&mut verifier, &mut verifier_piop_tree)
                     .expect("verify piop");
             }

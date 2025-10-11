@@ -215,7 +215,7 @@ fn inclusion_check_test_helper<
     );
 
     let inclusion_check_prover_input = InclusionCheckProverInput {
-        included_col: included_col.clone(),
+        included_cols: vec![included_col.clone()],
         super_col: super_col.clone(),
     };
 
@@ -247,7 +247,7 @@ fn inclusion_check_test_helper<
     );
 
     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-        included_tracked_col_oracle,
+        included_tracked_col_oracles: vec![included_tracked_col_oracle],
         super_tracked_col_oracle,
     };
 

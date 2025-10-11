@@ -184,9 +184,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Show col \subseteq supp
         InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove_with_advice(
             prover,
-            &col.clone(),
+            &vec![col.clone()],
             &supp.clone(),
-            &common_mset_supp_m.clone(),
+            &vec![common_mset_supp_m.clone()],
         )?;
 
         // Show common_mset_supp_m has no zeros, which implies supp \subseteq col
@@ -217,9 +217,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Use ColMultitool PIOP to show col and supp share a Common Multiset
         InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify_with_advice(
             verifier,
-            &col.clone(),
+            &vec![col.clone()],
             &supp.clone(),
-            &common_mset_supp_m.clone(),
+            &vec![common_mset_supp_m.clone()],
         )?;
 
         // col and supp are subsets of each other by showing multiplicity polys have no

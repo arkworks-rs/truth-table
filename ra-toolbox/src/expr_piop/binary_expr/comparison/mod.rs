@@ -177,7 +177,8 @@ where
             None => Some(one_minus_output.clone()),
         };
 
-        let non_selected_col = TrackedColOracle::new(diff, gated_activator, None);
+        let non_selected_col =
+            TrackedColOracle::new(diff, gated_activator, input.left_col_oracle.field_ref());
 
         let inner_comparison_verifier_input = InnerComparisonPIOPVerifierInput {
             bin_expr_piop_verifier_input: input.clone(),

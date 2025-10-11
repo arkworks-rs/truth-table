@@ -79,10 +79,10 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     // l_extendedprice = 100.1",
     //     tables: &["lineitem"],
     // },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-        tables: &["lineitem"],
-    },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
         sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         tables: &["lineitem"],

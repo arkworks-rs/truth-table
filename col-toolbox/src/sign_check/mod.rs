@@ -214,7 +214,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match data_type {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: col.clone(),
+                    included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(8).unwrap()),
                         None,
@@ -225,7 +225,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: col.clone(),
+                    included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(7).unwrap()),
                         None,
@@ -236,7 +236,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: col.clone(),
+                    included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
@@ -247,7 +247,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
             DataType::Int16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: col.clone(),
+                    included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
@@ -260,7 +260,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_col: segment,
+                        included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                             None,
@@ -276,7 +276,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             DataType::Int32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
                 let top_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: chunk3.clone(),
+                    included_cols: vec![chunk3.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
@@ -289,7 +289,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_col: segment,
+                        included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                             None,
@@ -306,7 +306,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_col: segment,
+                        included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                             None,
@@ -322,7 +322,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
                 let top_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_col: chunk3.clone(),
+                    included_cols: vec![chunk3.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
                         None,
@@ -335,7 +335,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_col: segment,
+                        included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                             None,
@@ -362,11 +362,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     ) -> SnarkResult<()> {
         let field_ref = tracked_col_oracle.field_ref().unwrap();
         let data_type = field_ref.data_type();
-        dbg!(data_type);
         match *data_type {
             DataType::UInt8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: tracked_col_oracle.clone(),
+                    included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(8, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(8)?.evaluate(&x))
@@ -383,7 +382,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: tracked_col_oracle.clone(),
+                    included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(7, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(7)?.evaluate(&x))
@@ -400,7 +399,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: tracked_col_oracle.clone(),
+                    included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -419,7 +418,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracle: segment,
+                        included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                                 Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -439,7 +438,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int32(verifier, tracked_col_oracle)?;
                 let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: chunk3.clone(),
+                    included_tracked_col_oracles: vec![chunk3.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
@@ -454,7 +453,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracle: segment,
+                        included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                                 Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -475,7 +474,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     Self::verify_non_neg_uint64(verifier, tracked_col_oracle)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracle: segment,
+                        included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                                 Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -495,7 +494,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int64(verifier, tracked_col_oracle)?;
                 let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracle: chunk3.clone(),
+                    included_tracked_col_oracles: vec![chunk3.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
                             Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
@@ -510,7 +509,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 )?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracle: segment,
+                        included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
                                 Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
@@ -553,7 +552,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         for eval in evaluations.iter() {
             let big = eval.into_bigint();
             let n = big.as_ref()[0] as u32;
-            let (chunk3, chunk2, chunk1, chunk0) = Self::split_u32_into_u16s(n);
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_u32_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
             chunk1_vals.push(F::from(chunk1 as u64));
@@ -683,7 +682,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         for eval in evaluations.iter() {
             let big = eval.into_bigint();
             let n = big.as_ref()[0] as i32;
-            let (chunk3, chunk2, chunk1, chunk0) = Self::split_i32_into_i16s(n);
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_i32_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
             chunk1_vals.push(F::from(chunk1 as u64));
@@ -813,7 +812,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         for eval in evaluations.iter() {
             let big = eval.into_bigint();
             let n = big.as_ref()[0] as u64;
-            let (chunk3, chunk2, chunk1, chunk0) = Self::split_u64_into_u16s(n);
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_u64_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
             chunk1_vals.push(F::from(chunk1 as u64));
@@ -943,7 +942,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         for eval in evaluations.iter() {
             let big = eval.into_bigint();
             let n = big.as_ref()[0] as i64;
-            let (chunk3, chunk2, chunk1, chunk0) = Self::split_i64_into_i16s(n);
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_i64_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
             chunk1_vals.push(F::from(chunk1 as u64));
@@ -1053,35 +1052,36 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
     }
 
-    fn split_u32_into_u16s(n: u32) -> (u16, u16, u16, u16) {
-        let chunk3 = 0u16;
+    fn split_u32_into_u16s(n: u32) -> [u16; 4] {
+        let chunk0 = (n & 0xFFFF) as u16;
+        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
         let chunk2 = 0u16;
-        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
+        let chunk3 = 0u16;
+        [chunk3, chunk2, chunk1, chunk0]
+    }
+
+    fn split_i32_into_u16s(n: i32) -> [u16; 4] {
+        let bits = n as u32;
+        let chunk0 = (bits & 0xFFFF) as u16;
+        let chunk1 = ((bits >> 16) & 0xFFFF) as u16;
+        let sign_extension = if n < 0 { 0xFFFF } else { 0 };
+        [sign_extension, sign_extension, chunk1, chunk0]
+    }
+
+    fn split_u64_into_u16s(n: u64) -> [u16; 4] {
         let chunk0 = (n & 0xFFFF) as u16;
-        (chunk3, chunk2, chunk1, chunk0)
-    }
-
-    fn split_i32_into_i16s(n: i32) -> (i16, i16, i16, i16) {
-        let chunk3 = if n.is_negative() { -1i16 } else { 0i16 };
-        let chunk2 = if n.is_negative() { -1i16 } else { 0i16 };
-        let chunk1 = ((n >> 16) & 0xFFFF) as i16;
-        let chunk0 = (n & 0xFFFF) as i16;
-        (chunk3, chunk2, chunk1, chunk0)
-    }
-
-    fn split_u64_into_u16s(n: u64) -> (u16, u16, u16, u16) {
-        let chunk3 = (n >> 48) as u16;
+        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
         let chunk2 = ((n >> 32) & 0xFFFF) as u16;
-        let chunk1 = ((n >> 16) & 0xFFFF) as u16;
-        let chunk0 = (n & 0xFFFF) as u16;
-        (chunk3, chunk2, chunk1, chunk0)
+        let chunk3 = ((n >> 48) & 0xFFFF) as u16;
+        [chunk3, chunk2, chunk1, chunk0]
     }
 
-    fn split_i64_into_i16s(n: i64) -> (i16, i16, i16, i16) {
-        let chunk3 = (n >> 48) as i16;
-        let chunk2 = ((n >> 32) & 0xFFFF) as i16;
-        let chunk1 = ((n >> 16) & 0xFFFF) as i16;
-        let chunk0 = (n & 0xFFFF) as i16;
-        (chunk3, chunk2, chunk1, chunk0)
+    fn split_i64_into_u16s(n: i64) -> [u16; 4] {
+        let bits = n as u64;
+        let chunk0 = (bits & 0xFFFF) as u16;
+        let chunk1 = ((bits >> 16) & 0xFFFF) as u16;
+        let chunk2 = ((bits >> 32) & 0xFFFF) as u16;
+        let chunk3 = ((bits >> 48) & 0xFFFF) as u16;
+        [chunk3, chunk2, chunk1, chunk0]
     }
 }

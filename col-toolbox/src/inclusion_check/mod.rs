@@ -20,13 +20,16 @@ use ark_piop::{
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
+use ark_std::cfg_iter;
 use derivative::Derivative;
+use rayon::iter::IntoParallelRefIterator;
 use std::{marker::PhantomData, sync::Arc};
 use utils::calc_inclusion_multiplicity;
 
 use crate::multiplicity_check::{
     MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
 };
+
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
 pub struct InclusionCheckProverInput<
@@ -34,7 +37,7 @@ pub struct InclusionCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub included_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub included_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub super_col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
@@ -46,7 +49,11 @@ where
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            included_col: self.included_col.deep_clone(prover.clone()),
+            included_cols: self
+                .included_cols
+                .iter()
+                .map(|c| c.deep_clone(prover.clone()))
+                .collect(),
             super_col: self.super_col.deep_clone(prover),
         }
     }
@@ -57,7 +64,7 @@ pub struct InclusionCheckProverOutput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub super_col_m: TrackedPoly<F, MvPCS, UvPCS>,
+    pub super_col_ms: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
 }
 
 pub struct InclusionCheckVerifierInput<
@@ -65,7 +72,7 @@ pub struct InclusionCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub included_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub included_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
@@ -74,7 +81,7 @@ pub struct InclusionCheckVerifierOutput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub super_col_m_comm: TrackedOracle<F, MvPCS, UvPCS>,
+    pub super_col_m_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
 }
 
 pub struct InclusionCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -107,7 +114,7 @@ where
         };
 
         let super_col_hash_set: HashSet<F> = input.super_col.effective_hashset();
-        for elem in input.included_col.effective_iter() {
+        for elem in input.included_cols.iter().flat_map(|c| c.effective_iter()) {
             if !super_col_hash_set.contains(&elem) {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
@@ -122,28 +129,45 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let super_col_m_mle = calc_inclusion_multiplicity(&input.included_col, &input.super_col);
-        let super_col_m = prover.track_and_commit_mat_mv_poly(&super_col_m_mle)?;
+        let super_col_m_mles = input
+            .included_cols
+            .iter()
+            .map(|included_col| calc_inclusion_multiplicity(included_col, &input.super_col))
+            .collect::<Vec<_>>();
+        let super_col_ms = super_col_m_mles
+            .iter()
+            .map(|mle| prover.track_and_commit_mat_mv_poly(mle))
+            .collect::<SnarkResult<Vec<_>>>()?;
 
-        Self::prove_with_advice(prover, &input.included_col, &input.super_col, &super_col_m)?;
-        Ok(InclusionCheckProverOutput { super_col_m })
+        Self::prove_with_advice(
+            prover,
+            &input.included_cols,
+            &input.super_col,
+            &super_col_ms,
+        )?;
+        Ok(InclusionCheckProverOutput { super_col_ms })
     }
 
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let super_col_m_id = verifier.peek_next_id();
-        let super_col_m = verifier.track_mv_com_by_id(super_col_m_id)?;
+        let super_col_m_comms = input
+            .included_tracked_col_oracles
+            .iter()
+            .map(|_| {
+                let id = verifier.peek_next_id();
+                verifier.track_mv_com_by_id(id)
+            })
+            .collect::<SnarkResult<Vec<_>>>()?;
+
         Self::verify_with_advice(
             verifier,
-            &input.included_tracked_col_oracle,
+            &input.included_tracked_col_oracles,
             &input.super_tracked_col_oracle,
-            &super_col_m,
+            &super_col_m_comms,
         )?;
-        Ok(InclusionCheckVerifierOutput {
-            super_col_m_comm: super_col_m,
-        })
+        Ok(InclusionCheckVerifierOutput { super_col_m_comms })
     }
 }
 
@@ -155,21 +179,26 @@ where
 {
     pub fn prove_with_advice(
         tracker: &mut Prover<F, MvPCS, UvPCS>,
-        included_col: &TrackedCol<F, MvPCS, UvPCS>,
+        included_cols: &Vec<TrackedCol<F, MvPCS, UvPCS>>,
         super_col: &TrackedCol<F, MvPCS, UvPCS>,
-        super_col_m: &TrackedPoly<F, MvPCS, UvPCS>,
+        super_col_ms: &Vec<TrackedPoly<F, MvPCS, UvPCS>>,
     ) -> SnarkResult<()> {
-        let nv = included_col.log_size();
+        let included_col_ms = included_cols
+            .iter()
+            .map(|included_col| {
+                let nv = included_col.log_size();
+                let one_const_mle =
+                    MLE::from_evaluations_vec(nv, vec![F::one(); 2_usize.pow(nv as u32)]);
+                Some(tracker.track_mat_mv_poly(one_const_mle))
+            })
+            .collect::<Vec<_>>();
 
-        // initialize multiplicity vector
-        let one_const_mle = MLE::from_evaluations_vec(nv, vec![F::one(); 2_usize.pow(nv as u32)]);
-        let included_col_m = tracker.track_mat_mv_poly(one_const_mle);
         // call the multiplicity_check prover
         let multiplicity_check_prover_input = MultiplicityCheckProverInput {
-            fxs: vec![included_col.clone()],
+            fxs: included_cols.clone(),
             gxs: vec![super_col.clone()],
-            mfxs: vec![Some(included_col_m.clone())],
-            mgxs: vec![Some(super_col_m.clone())],
+            mfxs: included_col_ms,
+            mgxs: super_col_ms.clone().iter().cloned().map(Some).collect(),
         };
 
         MultiplicityCheck::<F, MvPCS, UvPCS>::prove(tracker, multiplicity_check_prover_input)?;
@@ -179,21 +208,24 @@ where
 
     pub fn verify_with_advice(
         tracker: &mut Verifier<F, MvPCS, UvPCS>,
-        included_col: &TrackedColOracle<F, MvPCS, UvPCS>,
+        included_cols: &Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
         super_col: &TrackedColOracle<F, MvPCS, UvPCS>,
-        super_col_m: &TrackedOracle<F, MvPCS, UvPCS>,
+        super_col_ms: &Vec<TrackedOracle<F, MvPCS, UvPCS>>,
     ) -> SnarkResult<()> {
-        let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };
-        let one_comm = tracker.track_oracle(Oracle::new_multivariate(
-            included_col.log_size(),
-            one_closure,
-        ));
+        let included_col_ms = included_cols
+            .iter()
+            .map(|included_col| {
+                let nv = included_col.log_size();
+                let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };
+                Some(tracker.track_oracle(Oracle::new_multivariate(nv, one_closure)))
+            })
+            .collect::<Vec<_>>();
 
         let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![included_col.clone()],
+            fxs: included_cols.clone(),
             gxs: vec![super_col.clone()],
-            mfxs: vec![Some(one_comm.clone())],
-            mgxs: vec![Some(super_col_m.clone())],
+            mfxs: included_col_ms,
+            mgxs: super_col_ms.iter().cloned().map(Some).collect(),
         };
         MultiplicityCheck::<F, MvPCS, UvPCS>::verify(tracker, multiplicity_check_verifier_input)?;
         Ok(())

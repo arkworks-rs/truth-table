@@ -218,6 +218,90 @@ fn int32_non_negative_check_is_sound() -> SnarkResult<()> {
 }
 
 #[test]
+fn uint64_non_negative_check_is_complete() -> SnarkResult<()> {
+    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::UInt64,
+        2,
+        &to_field_vec!([25, 7, 0, 2], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::UInt64,
+        2,
+        &to_field_vec!([-25, 7, 7, 0], Fr),
+        Some(&to_field_vec!([0, 1, 1, 1], Fr)),
+        Sign::NoneNegative,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn uint64_non_negative_check_is_sound() -> SnarkResult<()> {
+    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::UInt64,
+        2,
+        &to_field_vec!([-4, 7, 0, 2], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::UInt64,
+        2,
+        &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn int64_non_negative_check_is_complete() -> SnarkResult<()> {
+    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::Int64,
+        2,
+        &to_field_vec!([i64::MAX, 7, 0, 2], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::Int64,
+        2,
+        &to_field_vec!([-25, 7, 7, 0], Fr),
+        Some(&to_field_vec!([0, 1, 1, 1], Fr)),
+        Sign::NoneNegative,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn int64_non_negative_check_is_sound() -> SnarkResult<()> {
+    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::Int64,
+        2,
+        &to_field_vec!([-4, 7, 0, 2], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        DataType::Int64,
+        2,
+        &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
+        None,
+        Sign::NoneNegative,
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn positive_check_is_complete() -> SnarkResult<()> {
     sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         DataType::UInt8,
