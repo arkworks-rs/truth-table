@@ -2,7 +2,7 @@
 // dbsnark-core/src/verifier/nodes/exprs/aggregate_function.rs
 
 use crate::{
-    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
+    proof_nodes::OUTPUT_PLAN_KEY, prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree}
 };
 use crate::proof_nodes::id::NodeId;
 use arithmetic::{ctx::SharedCtx, table::TrackedTable};
@@ -96,7 +96,7 @@ where
 
         for child in &self.inputs {
             let table = piop_tree
-                .tracked_table(&child.node_id(), "output_plan")
+                .tracked_table(&child.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {
                     panic!(
                         "missing output_plan table for aggregate argument {}",
@@ -125,7 +125,7 @@ where
         let output_table = TrackedTable::new(None, collected_cols, table_log_size.unwrap_or(0));
         piop_tree.add_table(
             self.node_id.clone(),
-            "output_plan".to_string(),
+            OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
     }

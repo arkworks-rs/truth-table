@@ -17,7 +17,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::{
-    proof_nodes::id::NodeId,
+    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree,
         hint_tree::ProverHintTree,
@@ -91,7 +91,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
         for (node_id, tables) in &tables_by_node {
             if let NodeId::LP(plan) = node_id {
                 if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
-                    if let Some(table) = tables.get("output_plan") {
+                    if let Some(table) = tables.get(OUTPUT_PLAN_KEY) {
                         tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
                             table.clone(),
                             &mut verifier,

@@ -1,5 +1,6 @@
 use crate::{
     proof_nodes::{
+        OUTPUT_PLAN_KEY,
         cost::ProvingCost,
         id::NodeId,
         prover::{ProverNode, output_prover_logical_plan},
@@ -20,7 +21,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
-    arrow::datatypes::Field,
+    arrow::datatypes::{DataType, Field, FieldRef},
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
@@ -74,7 +75,8 @@ where
             _ => panic!("expected filter logical plan"),
         };
 
-        // The input is itself a logical plan and needs to be proved
+        // The input is itself a logical plan and needs to be proved, so we call from_lp
+        // recursively
         let input_proof_plan =
             ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
         // Fetching the output logical plan of the input logical plan
@@ -123,36 +125,59 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
+        // Fetch the input tracked_table
         let input_table =
-            match piop_tree.tracked_table(&self.input_proof_plan.node_id(), "output_plan") {
+            match piop_tree.tracked_table(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY) {
                 Some(table) => table,
                 None => return,
             };
+        // Fetch the predicate tracked_table
         let predicate_table =
-            match piop_tree.tracked_table(&self.predicate_proof_plan.node_id(), "output_plan") {
+            match piop_tree.tracked_table(&self.predicate_proof_plan.node_id(), OUTPUT_PLAN_KEY) {
                 Some(table) => table,
                 None => return,
             };
-        let tracked_polys = predicate_table.tracked_polys();
-        let (pred_field, pred_poly) = tracked_polys
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .or_else(|| tracked_polys.iter().next())
-            .expect("predicate output table must have a column");
-        let activator_field = Field::new(ACTIVATOR_COL_NAME, pred_field.data_type().clone(), true);
-        let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
+        // Fetch the The predicate tracked colummn from the predicate table
+        let predicate_tracked_col = predicate_table.tracked_col_by_ind(0);
+        // Fetch the predicate tracked polynomial from the predicate tracked column
+        let mut predicate_tracked_poly = predicate_tracked_col.data_tracked_poly();
+        // update the predicate tracked polynomial by multiplying it with its own
+        // activator
+        if let Some(pred_activator) = predicate_tracked_col.activator_tracked_poly() {
+            predicate_tracked_poly = &predicate_tracked_poly * &pred_activator;
+        }
+        // update the predicate tracked polynomial by multiplying it with the input
+        // table activator
+        if let Some(input_activator) = input_table.activator_tracked_poly() {
+            predicate_tracked_poly = &predicate_tracked_poly * &input_activator;
+        }
+        // Create a field for the activator column
+        let activator_field = Field::new(
+            ACTIVATOR_COL_NAME,
+            predicate_tracked_col
+                .field_ref()
+                .map(|f| f.data_type().clone())
+                .unwrap_or(DataType::Boolean),
+            true,
+        );
+        let activator_field_ref = FieldRef::new(activator_field);
+        // Prepare the columns for the output table of the current filter node
         let mut columns = IndexMap::new();
+        // The output table of the current node is the same as the input table except
+        // the activator is replaced with the new predicate tracked polynomial
         for (field, poly) in input_table.tracked_polys() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
             columns.insert(field.clone(), poly.clone());
         }
-        columns.insert(activator_field_ref, pred_poly.clone());
+        columns.insert(activator_field_ref, predicate_tracked_poly);
+        // Data columns are unchanged; the activator becomes
+        // `input_activator AND predicate`.
         let output_table = TrackedTable::new(None, columns, input_table.log_size());
         piop_tree.add_table(
             self.node_id.clone(),
-            "output_plan".to_string(),
+            OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
     }
@@ -167,15 +192,15 @@ where
         };
 
         let predicate_col = piop_tree
-            .tracked_table(&NodeId::Expr(filter.predicate.clone()), "output_plan")
+            .tracked_table(&NodeId::Expr(filter.predicate.clone()), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0);
         let input_tracked_table = piop_tree
-            .tracked_table(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
+            .tracked_table(&NodeId::LP(filter.input.as_ref().clone()), OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
         let output_tracked_table = piop_tree
-            .tracked_table(&self.node_id, "output_plan")
+            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
 
@@ -189,7 +214,6 @@ where
         FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)
     }
 }
-
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierFilterNode<F, MvPCS, UvPCS>
 where
@@ -263,37 +287,62 @@ where
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        let input_table =
-            match piop_tree.tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan") {
-                Some(table) => table,
-                None => return,
-            };
-        let predicate_table = match piop_tree
-            .tracked_table_oracle(&self.predicate_proof_plan.node_id(), "output_plan")
+        // Fetch the input tracked_table
+        let input_table = match piop_tree
+            .tracked_table_oracle(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
         {
             Some(table) => table,
             None => return,
         };
-        let tracked_oracles = predicate_table.tracked_oracles();
-        let (pred_field, pred_poly) = tracked_oracles
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .or_else(|| tracked_oracles.iter().next())
-            .expect("predicate output table must have a column");
-        let activator_field = Field::new(ACTIVATOR_COL_NAME, pred_field.data_type().clone(), true);
+        // Fetch the predicate tracked_table
+        let predicate_table = match piop_tree
+            .tracked_table_oracle(&self.predicate_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+        {
+            Some(table) => table,
+            None => return,
+        };
+        // Fetch the The predicate tracked colummn from the predicate table
+        let predicate_col_oracle = predicate_table.tracked_col_oracle_by_ind(0);
+        // Fetch the predicate tracked polynomial from the predicate tracked column
+        let mut output_activator_oracle = predicate_col_oracle.data_tracked_oracle();
+        // update the predicate tracked polynomial by multiplying it with its own
+        // activator
+        if let Some(pred_activator) = predicate_col_oracle.activator_tracked_oracle() {
+            output_activator_oracle = &output_activator_oracle * &pred_activator;
+        }
+        // update the predicate tracked polynomial by multiplying it with the input
+        // table activator
+        if let Some(input_activator) = input_table.activator_tracked_poly() {
+            output_activator_oracle = &output_activator_oracle * &input_activator;
+        }
+        // Create a field for the activator column
+
+        let activator_field = Field::new(
+            ACTIVATOR_COL_NAME,
+            predicate_col_oracle
+                .field_ref()
+                .map(|f| f.data_type().clone())
+                .unwrap_or(datafusion::arrow::datatypes::DataType::Boolean),
+            true,
+        );
+        // Prepare the columns for the output table of the current filter node
         let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
         let mut columns = IndexMap::new();
+        // The output table of the current node is the same as the input table except
+        // the activator is replaced with the new predicate tracked polynomial
         for (field, poly) in input_table.tracked_oracles().iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
             columns.insert(field.clone(), poly.clone());
         }
-        columns.insert(activator_field_ref, pred_poly.clone());
+        columns.insert(activator_field_ref, output_activator_oracle);
+        // Data columns are unchanged; the activator becomes
+        // `input_activator AND predicate`.
         let output_table = TrackedTableOracle::new(None, columns, input_table.log_size());
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
-            "output_plan".to_string(),
+            OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
     }
@@ -308,15 +357,15 @@ where
         };
 
         let predicate_oracle = piop_tree
-            .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), "output_plan")
+            .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0);
         let input_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), "output_plan")
+            .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
         let output_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id, "output_plan")
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
 

@@ -2,6 +2,7 @@
 //! DataFusion logical plan.
 
 use crate::proof_nodes::id::NodeId;
+use crate::proof_nodes::OUTPUT_PLAN_KEY;
 use crate::{
 
     prover::trees::piop_tree::ProverPIOPTree,
@@ -87,7 +88,7 @@ where
 
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
-    /// the key `"output_plan"`.
+    /// the key `OUTPUT_PLAN_KEY`.
     ///
     /// Note that if your column can be generated from other columns, It doesn't
     /// need to be materialized and should be added to the 'add_virtual_witness'
@@ -137,7 +138,7 @@ where
     node.hint_generation_plans()
         .into_iter()
         .find_map(|(label, plan)| {
-            if label == "output_plan" {
+            if label == OUTPUT_PLAN_KEY {
                 Some(plan)
             } else {
                 None

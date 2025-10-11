@@ -10,7 +10,7 @@ use crate::expr_piop::binary_expr::comparison::{
     lt_eq::LtEqBinaryExprPIOP, not_eq::NotEqBinaryExprPIOP,
 };
 
-use super::{BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
+use super::{BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -85,6 +85,11 @@ where
     type ProverOutput = ();
     type VerifierOutput = ();
     type VerifierInput = BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS>;
+
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        <BinaryExprPIOP<F, MvPCS, UvPCS> as PIOP<F, MvPCS, UvPCS>>::honest_prover_check(input)
+    }
 
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,

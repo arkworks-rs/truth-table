@@ -1,5 +1,5 @@
 //! Verifier-side proof tree nodes and trait definitions.
-use crate::verifier::trees::piop_tree::VerifierPIOPTree;
+use crate::{proof_nodes::OUTPUT_PLAN_KEY, verifier::trees::piop_tree::VerifierPIOPTree};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -102,7 +102,7 @@ where
     node.hint_generation_plans()
         .into_iter()
         .find_map(|(label, plan)| {
-            if label == "output_plan" {
+            if label == OUTPUT_PLAN_KEY {
                 Some(plan)
             } else {
                 None

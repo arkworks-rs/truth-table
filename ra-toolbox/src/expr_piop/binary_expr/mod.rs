@@ -81,11 +81,17 @@ where
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         use crate::expr_piop::binary_expr::utils::activators_match;
 
-        if input.left_col.data_tracked_poly().log_size()
-            != input.right_col.data_tracked_poly().log_size()
-            || input.left_col.data_tracked_poly().log_size()
-                != input.output_col.data_tracked_poly().log_size()
-        {
+        let left_size = input.left_col.data_tracked_poly().log_size();
+        let right_size = input.right_col.data_tracked_poly().log_size();
+        let output_size = input.output_col.data_tracked_poly().log_size();
+        let target_size = *[left_size, right_size, output_size]
+            .iter()
+            .max()
+            .unwrap_or(&0);
+        let incompatible = [left_size, right_size, output_size]
+            .iter()
+            .any(|&size| size != 0 && size != target_size);
+        if incompatible {
             return Err(ProverError(HonestProverError(FalseClaim)));
         }
 

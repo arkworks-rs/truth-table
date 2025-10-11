@@ -2,7 +2,7 @@
 // dbsnark-core/src/verifier/nodes/exprs/literal.rs
 
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY,
 };
 use arithmetic::{
     encoding::encode_arrow_array_to_field, table::TrackedTable, table_oracle::TrackedTableOracle,
@@ -111,7 +111,7 @@ where
             1,
         );
 
-        piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), table);
+        piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
     fn prove_piop(
         &self,
@@ -195,7 +195,7 @@ where
             1,
         );
 
-        piop_tree.add_tracked_table_oracle(self.node_id.clone(), "output_plan".to_owned(), table);
+        piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
     fn verify_piop(
         &self,

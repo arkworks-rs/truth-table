@@ -65,14 +65,14 @@ impl QuerySpec {
 }
 
 const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
-    // QuerySpec {
-    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-    //     tables: &["lineitem"],
-    // },
+    QuerySpec {
+        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+        tables: &["lineitem"],
+    },
     QuerySpec {
         sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         tables: &["lineitem"],

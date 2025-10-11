@@ -2,7 +2,7 @@
 // dbsnark-core/src/verifier/nodes/exprs/alias.rs
 
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
 use arithmetic::ctx::SharedCtx;
@@ -81,10 +81,10 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         if let Some(inner) = self.inputs.first() {
-            if let Some(table) = piop_tree.tracked_table(&inner.node_id(), "output_plan") {
+            if let Some(table) = piop_tree.tracked_table(&inner.node_id(), OUTPUT_PLAN_KEY) {
                 piop_tree.add_table(
                     self.node_id.clone(),
-                    "output_plan".to_string(),
+                    OUTPUT_PLAN_KEY.to_string(),
                     table.clone(),
                 );
             }

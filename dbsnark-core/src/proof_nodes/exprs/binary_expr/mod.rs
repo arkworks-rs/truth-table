@@ -2,6 +2,7 @@
 // dbsnark-core/src/verifier/nodes/exprs/binary_expr.rs
 
 use crate::proof_nodes::id::NodeId;
+use crate::proof_nodes::OUTPUT_PLAN_KEY;
 use crate::{
 
     proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
@@ -9,7 +10,10 @@ use crate::{
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 
-use arithmetic::{col::TrackedCol, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -21,7 +25,7 @@ use ark_piop::{
 use datafusion::{
     arrow::datatypes::{Field, FieldRef},
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
-    prelude::case,
+    prelude::{case, col},
 };
 use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{
@@ -73,31 +77,31 @@ where
         input_plan: LogicalPlan,
     ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
-            let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
+            let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
-                .project(vec![bool_expr])
+                .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
                 .unwrap()
                 .build()
                 .unwrap();
             let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
             let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
 
-            let selector = case(datafusion::prelude::col("output_plan"))
+            let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
                 .when(
                     Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
                     one.clone(),
                 )
                 .otherwise(zero.clone())
                 .unwrap()
-                .alias("output_plan");
+                .alias(OUTPUT_PLAN_KEY);
 
             let plan = LogicalPlanBuilder::from(bool_plan)
-                .project(vec![selector])
+                .project(vec![selector, col(ACTIVATOR_COL_NAME)])
                 .unwrap()
                 .build()
                 .unwrap();
 
-            IndexMap::from([(String::from("output_plan"), plan)])
+            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), plan)])
         } else {
             IndexMap::new()
         }
@@ -174,16 +178,16 @@ where
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
                 let log_size = piop_tree
-                    .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
+                    .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .log_size();
                 let left_col = piop_tree
-                    .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
+                    .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_by_ind(0)
                     .clone();
                 let right_col = piop_tree
-                    .tracked_table(&self.right_proof_plan.node_id(), "output_plan")
+                    .tracked_table(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_by_ind(0)
                     .clone();
@@ -209,15 +213,31 @@ where
                     datafusion::arrow::datatypes::DataType::BinaryView,
                     false,
                 ));
-
-                let output_table = TrackedTable::new(
-                    None,
-                    IndexMap::from([(field_ref, output_data_tracked_poly)]),
-                    log_size,
-                );
+                let output_activator = match (
+                    left_col.activator_tracked_poly(),
+                    right_col.activator_tracked_poly(),
+                ) {
+                    (Some(l), Some(r)) => {
+                        debug_assert_eq!(l, r, "AND expects matching activators");
+                        Some(l)
+                    },
+                    (Some(l), None) => Some(l),
+                    (None, Some(r)) => Some(r),
+                    (None, None) => None,
+                };
+                let mut columns = IndexMap::from([(field_ref, output_data_tracked_poly)]);
+                if let Some(activator_poly) = output_activator {
+                    let activator_field = FieldRef::new(Field::new(
+                        arithmetic::ACTIVATOR_COL_NAME,
+                        datafusion::arrow::datatypes::DataType::Boolean,
+                        true,
+                    ));
+                    columns.insert(activator_field, activator_poly);
+                }
+                let output_table = TrackedTable::new(None, columns, log_size);
                 piop_tree.add_table(
                     self.node_id.clone(),
-                    "output_plan".to_string(),
+                    OUTPUT_PLAN_KEY.to_string(),
                     output_table,
                 );
             }
@@ -233,21 +253,33 @@ where
             _ => panic!("expected binary expression"),
         };
         let left_col = piop_tree
-            .tracked_table(&self.left_proof_plan.node_id(), "output_plan")
+            .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0)
             .clone();
         let right_col = piop_tree
-            .tracked_table(&self.right_proof_plan.node_id(), "output_plan")
+            .tracked_table(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0)
             .clone();
 
-        let output_col = piop_tree
-            .tracked_table(&self.node_id, "output_plan")
+        let raw_output_col = piop_tree
+            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0)
             .clone();
+        let output_activator = match (
+            left_col.activator_tracked_poly(),
+            raw_output_col.activator_tracked_poly(),
+        ) {
+            (Some(left_act), _) => Some(left_act),
+            (None, existing) => existing,
+        };
+        let output_col = TrackedCol::new(
+            raw_output_col.data_tracked_poly(),
+            output_activator,
+            raw_output_col.field_ref(),
+        );
         let binary_expr_piop_prover_input: BinaryExprPIOPProverInput<F, MvPCS, UvPCS> =
             BinaryExprPIOPProverInput {
                 op,
@@ -303,31 +335,31 @@ where
         input_plan: LogicalPlan,
     ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
-            let bool_expr = Expr::BinaryExpr(bin_expr).alias("output_plan");
+            let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
-                .project(vec![bool_expr])
+                .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
                 .unwrap()
                 .build()
                 .unwrap();
             let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
             let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
 
-            let selector = case(datafusion::prelude::col("output_plan"))
+            let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
                 .when(
                     Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
                     one.clone(),
                 )
                 .otherwise(zero.clone())
                 .unwrap()
-                .alias("output_plan");
+                .alias(OUTPUT_PLAN_KEY);
 
             let plan = LogicalPlanBuilder::from(bool_plan)
-                .project(vec![selector])
+                .project(vec![selector, col(ACTIVATOR_COL_NAME)])
                 .unwrap()
                 .build()
                 .unwrap();
 
-            IndexMap::from([(String::from("output_plan"), plan)])
+            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), plan)])
         } else {
             IndexMap::new()
         }
@@ -396,16 +428,16 @@ where
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
                 let log_size = piop_tree
-                    .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+                    .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .log_size();
                 let left_col = piop_tree
-                    .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+                    .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
                 let right_col = piop_tree
-                    .tracked_table_oracle(&self.right_proof_plan.node_id(), "output_plan")
+                    .tracked_table_oracle(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
@@ -431,13 +463,32 @@ where
                     datafusion::arrow::datatypes::DataType::BinaryView,
                     false,
                 ));
-
-                let tracked_oracles =
+                let output_activator = match (
+                    left_col.activator_tracked_oracle(),
+                    right_col.activator_tracked_oracle(),
+                ) {
+                    (Some(l), Some(r)) => {
+                        debug_assert_eq!(l, r, "AND expects matching activators");
+                        Some(l)
+                    },
+                    (Some(l), None) => Some(l),
+                    (None, Some(r)) => Some(r),
+                    (None, None) => None,
+                };
+                let mut tracked_oracles =
                     IndexMap::from_iter(vec![(field_ref.clone(), output_data_tracked_poly)]);
+                if let Some(activator_oracle) = output_activator {
+                    let activator_field = FieldRef::new(Field::new(
+                        arithmetic::ACTIVATOR_COL_NAME,
+                        datafusion::arrow::datatypes::DataType::Boolean,
+                        true,
+                    ));
+                    tracked_oracles.insert(activator_field, activator_oracle);
+                }
                 let output_table = TrackedTableOracle::new(None, tracked_oracles, log_size);
                 piop_tree.add_tracked_table_oracle(
                     self.node_id.clone(),
-                    "output_plan".to_string(),
+                    OUTPUT_PLAN_KEY.to_string(),
                     output_table,
                 );
             }
@@ -453,21 +504,33 @@ where
             _ => panic!("expected binary expression"),
         };
         let left_col = piop_tree
-            .tracked_table_oracle(&self.left_proof_plan.node_id(), "output_plan")
+            .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0)
             .clone();
         let right_col = piop_tree
-            .tracked_table_oracle(&self.right_proof_plan.node_id(), "output_plan")
+            .tracked_table_oracle(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0)
             .clone();
 
-        let output_col = piop_tree
-            .tracked_table_oracle(&self.node_id, "output_plan")
+        let raw_output_col = piop_tree
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0)
             .clone();
+        let output_activator = match (
+            left_col.activator_tracked_oracle(),
+            raw_output_col.activator_tracked_oracle(),
+        ) {
+            (Some(left_act), _) => Some(left_act),
+            (None, existing) => existing,
+        };
+        let output_col = TrackedColOracle::new(
+            raw_output_col.data_tracked_oracle(),
+            output_activator,
+            raw_output_col.field_ref(),
+        );
         let binary_expr_piop_verifier_input: BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS> =
             BinaryExprPIOPVerifierInput {
                 op,

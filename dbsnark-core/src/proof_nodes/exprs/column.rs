@@ -1,5 +1,5 @@
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -97,7 +97,7 @@ where
         };
 
         let table = piop_tree
-            .tracked_table(parent_node_id, "output_plan")
+            .tracked_table(parent_node_id, OUTPUT_PLAN_KEY)
             .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_by_name(&column_expr.name)
@@ -124,7 +124,7 @@ where
         );
         let output_table = TrackedTable::new(None, tracked_polys, 0);
 
-        piop_tree.add_table(self.node_id.clone(), "output_plan".to_owned(), output_table);
+        piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), output_table);
     }
     fn prove_piop(
         &self,
@@ -193,7 +193,7 @@ where
         };
 
         let table = piop_tree
-            .tracked_table_oracle(parent_node_id, "output_plan")
+            .tracked_table_oracle(parent_node_id, OUTPUT_PLAN_KEY)
             .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)
@@ -218,7 +218,7 @@ where
 
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
-            "output_plan".to_owned(),
+            OUTPUT_PLAN_KEY.to_owned(),
             output_table,
         );
     }

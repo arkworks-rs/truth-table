@@ -26,20 +26,10 @@ pub(super) fn activators_match<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPC
 ) -> bool {
     match (lhs, rhs) {
         (None, None) => true,
-        (Some(poly), None) | (None, Some(poly)) => activator_is_all_ones(&poly),
+        (Some(_), None) | (None, Some(_)) => true,
         (Some(lhs_poly), Some(rhs_poly)) => {
             lhs_poly.log_size() == rhs_poly.log_size()
                 && lhs_poly.evaluations() == rhs_poly.evaluations()
         },
     }
-}
-#[cfg(feature = "honest-prover")]
-pub(super)fn activator_is_all_ones<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    poly: &TrackedPoly<F, MvPCS, UvPCS>,
-) -> bool {
-    poly.evaluations().into_iter().all(|val| val == F::one())
 }

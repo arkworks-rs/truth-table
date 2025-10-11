@@ -2,7 +2,7 @@
 // dbsnark-core/src/verifier/nodes/lps/table_scan.rs
 
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -48,7 +48,7 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert("output_plan".to_string(), plan.clone());
+        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), plan.clone());
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -116,7 +116,7 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert("output_plan".to_string(), plan.clone());
+        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), plan.clone());
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),

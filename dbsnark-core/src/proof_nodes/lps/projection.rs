@@ -2,8 +2,8 @@ use crate::{
     proof_nodes::{
         cost::ProvingCost,
         id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::{VerifierNode, output_verifier_logical_plan},
+        prover::{output_prover_logical_plan, ProverNode},
+        verifier::{output_verifier_logical_plan, VerifierNode}, OUTPUT_PLAN_KEY,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -139,7 +139,7 @@ where
         let expr_tables: Option<Vec<_>> = self
             .expr_proof_plans
             .iter()
-            .map(|plan| piop_tree.tracked_table(&plan.node_id(), "output_plan"))
+            .map(|plan| piop_tree.tracked_table(&plan.node_id(), OUTPUT_PLAN_KEY))
             .collect();
 
         let expr_tables = match expr_tables {
@@ -170,7 +170,7 @@ where
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
-                    .tracked_table(&self.input_proof_plan.node_id(), "output_plan")
+                    .tracked_table(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .and_then(|table| {
                         table
                             .tracked_polys()
@@ -186,7 +186,7 @@ where
         let output_table = TrackedTable::new(None, data_columns, table_log_size);
         piop_tree.add_table(
             self.node_id.clone(),
-            "output_plan".to_string(),
+            OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
     }
@@ -322,7 +322,7 @@ where
         let expr_tables: Option<Vec<_>> = self
             .expr_proof_plans
             .iter()
-            .map(|plan| piop_tree.tracked_table_oracle(&plan.node_id(), "output_plan"))
+            .map(|plan| piop_tree.tracked_table_oracle(&plan.node_id(), OUTPUT_PLAN_KEY))
             .collect();
 
         let expr_tables = match expr_tables {
@@ -355,7 +355,7 @@ where
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
-                    .tracked_table_oracle(&self.input_proof_plan.node_id(), "output_plan")
+                    .tracked_table_oracle(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
                     .and_then(|table| {
                         table
                             .tracked_oracles()
@@ -371,7 +371,7 @@ where
         let output_table = TrackedTableOracle::new(None, tracked_oracles, table_log_size);
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
-            "output_plan".to_string(),
+            OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
     }

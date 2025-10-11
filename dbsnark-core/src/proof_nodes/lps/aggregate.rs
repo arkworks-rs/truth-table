@@ -5,8 +5,8 @@ use crate::{
     proof_nodes::{
         cost::ProvingCost,
         id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::VerifierNode,
+        prover::{output_prover_logical_plan, ProverNode},
+        verifier::VerifierNode, OUTPUT_PLAN_KEY,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::piop_tree::VerifierPIOPTree,
@@ -226,7 +226,7 @@ where
             aggr_expr,
             inputs,
             node_id: NodeId::LP(plan),
-            hint_generation_plans: IndexMap::from([("output_plan".to_string(), output_plan)]),
+            hint_generation_plans: IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), output_plan)]),
         }
     }
 
@@ -272,7 +272,7 @@ where
 
         for group_node in &self.group_expr {
             let table = piop_tree
-                .tracked_table(&group_node.node_id(), "output_plan")
+                .tracked_table(&group_node.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {
                     panic!(
                         "missing output_plan table for group expr {}",
@@ -305,7 +305,7 @@ where
         };
 
         let output_table = piop_tree
-            .tracked_table(&self.node_id, "output_plan")
+            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
         let grouping_col_count = aggregate.group_expr.len();
         let mut output_grouping_columns = IndexMap::with_capacity(grouping_col_count);

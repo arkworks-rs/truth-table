@@ -5,3 +5,5 @@ pub mod lps;
 pub mod prover;
 pub mod verifier;
 pub mod id;
+
+pub const OUTPUT_PLAN_KEY: &str = "output_plan";
