@@ -32,7 +32,6 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         data_type: &DataType,
     ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
-        dbg!(data_type);
         let (nv, sparse_poly) = match data_type {
             DataType::UInt8 => (8, Self::sparse_range_poly_by_nv(8)?),
             DataType::UInt16 => (16, Self::sparse_range_poly_by_nv(16)?),

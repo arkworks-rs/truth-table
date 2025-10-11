@@ -162,9 +162,6 @@ fn build_proof(
     let flattened = piop_tree.proof_tree().clone().flatten();
 
     for (idx, node) in flattened.values().enumerate() {
-        if idx == 1 {
-            continue;
-        }
         node.prove_piop(prover, &mut piop_tree).expect("prove piop");
     }
     prover.build_proof().expect("build proof")
@@ -217,7 +214,6 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
                 VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
             let flattened = verifier_piop_tree.proof_tree().clone().flatten();
             for (idx, node) in flattened.values().enumerate() {
-                dbg!(&node.name());
 
                 node.verify_piop(&mut verifier, &mut verifier_piop_tree)
                     .expect("verify piop");

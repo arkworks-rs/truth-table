@@ -41,7 +41,7 @@ parallel = [
     "arithmetic/parallel",
     "ark-std/parallel",
 ]
-honest-prover = []
+honest-prover = ["ra-toolbox/honest-prover", "ark-piop/honest-prover"]
 test-utils = []
 
 [[bench]]
