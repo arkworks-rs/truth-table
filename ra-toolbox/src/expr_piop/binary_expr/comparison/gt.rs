@@ -47,11 +47,10 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let non_neg_sign_check_prover_input = SignCheckProverInput {
-            col: input.selected_left_minus_right_col,
+            col: input.selected_left_minus_right_col.clone(),
             sign: col_toolbox::sign_check::Sign::Positive,
         };
         SignCheckPIOP::prove(prover, non_neg_sign_check_prover_input)?;
-
         let neg_sign_check_prover_input = SignCheckProverInput {
             col: input.non_selected_left_minus_right_col,
             sign: col_toolbox::sign_check::Sign::NonePositive,

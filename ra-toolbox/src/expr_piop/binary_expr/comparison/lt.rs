@@ -38,7 +38,7 @@ where
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        //TODO
+        // TODO
         Ok(())
     }
 
@@ -47,7 +47,7 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let non_neg_sign_check_prover_input = SignCheckProverInput {
-            col: input.selected_left_minus_right_col,
+            col: input.selected_left_minus_right_col.clone(),
             sign: col_toolbox::sign_check::Sign::Negative,
         };
         SignCheckPIOP::prove(prover, non_neg_sign_check_prover_input)?;
