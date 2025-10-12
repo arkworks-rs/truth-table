@@ -1,6 +1,9 @@
-use crate::expr_piop::binary_expr::comparison::{InnerComparisonPIOPProverInput, InnerComparisonPIOPVerifierInput};
+use crate::expr_piop::binary_expr::comparison::{
+    InnerComparisonPIOPProverInput, InnerComparisonPIOPVerifierInput,
+};
 
 use super::{BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -10,17 +13,17 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
+use col_toolbox::{
+    binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
+    sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
+};
 use std::marker::PhantomData;
 
 pub struct LtEqBinaryExprPIOP<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+>(PhantomData<F>, PhantomData<MvPCS>, PhantomData<UvPCS>);
 
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for LtEqBinaryExprPIOP<F, MvPCS, UvPCS>
 where
@@ -33,17 +36,47 @@ where
     type VerifierOutput = ();
     type VerifierInput = InnerComparisonPIOPVerifierInput<F, MvPCS, UvPCS>;
 
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        // TODO
+        Ok(())
+    }
+
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _input: Self::ProverInput,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        todo!("LtEqBinaryExprPIOP::prove_inner")
+        let non_neg_sign_check_prover_input = SignCheckProverInput {
+            col: input.selected_left_minus_right_col,
+            sign: col_toolbox::sign_check::Sign::NonePositive,
+        };
+        SignCheckPIOP::prove(prover, non_neg_sign_check_prover_input)?;
+
+        let neg_sign_check_prover_input = SignCheckProverInput {
+            col: input.non_selected_left_minus_right_col,
+            sign: col_toolbox::sign_check::Sign::Positive,
+        };
+        SignCheckPIOP::prove(prover, neg_sign_check_prover_input)?;
+
+        Ok(())
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _input: Self::VerifierInput,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        todo!("LtEqBinaryExprPIOP::verify_inner")
+        let non_neg_sign_check_verifier_input = SignCheckVerifierInput {
+            tracked_col_oracle: input.selected_left_minus_right_oracle,
+            sign: col_toolbox::sign_check::Sign::NonePositive,
+        };
+        SignCheckPIOP::verify(verifier, non_neg_sign_check_verifier_input)?;
+
+        let neg_sign_check_verifier_input = SignCheckVerifierInput {
+            tracked_col_oracle: input.non_selected_left_minus_right_oracle,
+            sign: col_toolbox::sign_check::Sign::Positive,
+        };
+        SignCheckPIOP::verify(verifier, neg_sign_check_verifier_input)?;
+
+        Ok(())
     }
 }

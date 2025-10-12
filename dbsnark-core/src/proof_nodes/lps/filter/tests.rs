@@ -8,9 +8,33 @@ fn proves_simple_eq_filter() {
     );
 }
 #[test]
-fn proves_simple_geq_filter() {
+fn proves_simple_gteq_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey >= 100",
+        "lineitem",
+    );
+}
+
+#[test]
+fn proves_simple_gt_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey > 100",
+        "lineitem",
+    );
+}
+
+#[test]
+fn proves_simple_lteq_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey <= 100",
+        "lineitem",
+    );
+}
+
+#[test]
+fn proves_simple_lt_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey < 100",
         "lineitem",
     );
 }
