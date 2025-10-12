@@ -74,6 +74,7 @@ where
                     format!("{} | {}", logical_plan_variant_name(plan), plan.display()),
                 ),
                 NodeId::Expr(expr) => ("Expr", format!("{} | {}", expr_variant_name(expr), expr)),
+                NodeId::None => ("None", "None".to_string()),
             };
 
             let hint_keys = {

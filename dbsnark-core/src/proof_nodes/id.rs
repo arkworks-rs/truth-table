@@ -5,6 +5,7 @@ use std::fmt;
 pub enum NodeId {
     LP(LogicalPlan),
     Expr(Expr),
+    None,
 }
 
 impl fmt::Display for NodeId {
@@ -12,6 +13,7 @@ impl fmt::Display for NodeId {
         match self {
             NodeId::LP(plan) => write!(f, "LogicalPlan({})", plan.to_string()),
             NodeId::Expr(expr) => write!(f, "Expr({})", expr),
+            NodeId::None => write!(f, "None"),
         }
     }
 }

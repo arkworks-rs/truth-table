@@ -112,7 +112,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: &LogicalPlan,
+        parent_node_id: &NodeId,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
     where
         F: PrimeField,
@@ -125,17 +125,14 @@ where
                 MvPCS,
                 UvPCS,
             >>::from_expr(
-                ctx,
-                prover_ctx.clone(),
-                expr,
-                parent_logical_plan.clone(),
+                ctx, prover_ctx.clone(), expr, parent_node_id.clone()
             )),
             Expr::Column(_) => Arc::new(
                 <ProverColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
                     ctx,
                     prover_ctx.clone(),
                     expr,
-                    parent_logical_plan.clone(),
+                    parent_node_id.clone(),
                 ),
             ),
             Expr::Literal(_) => Arc::new(
@@ -143,7 +140,7 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr,
-                    parent_logical_plan.clone(),
+                    parent_node_id.clone(),
                 ),
             ),
             Expr::BinaryExpr(_) => {
@@ -152,19 +149,18 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_expr(
-                    ctx, prover_ctx, expr, parent_logical_plan.clone()
+                    ctx, prover_ctx, expr, parent_node_id.clone()
                 ))
             },
-            Expr::AggregateFunction(_) => Arc::new(<ProverAggregateFunctionExprNode<
-                F,
-                MvPCS,
-                UvPCS,
-            > as ProverNode<F, MvPCS, UvPCS>>::from_expr(
-                ctx,
-                prover_ctx,
-                expr,
-                parent_logical_plan.clone(),
-            )),
+            Expr::AggregateFunction(_) => {
+                Arc::new(
+                    <ProverAggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(ctx, prover_ctx, expr, parent_node_id.clone()),
+                )
+            },
             _ => todo!(),
         }
     }
@@ -177,6 +173,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: &LogicalPlan,
+        parent_node_id: &NodeId,
     ) -> Self {
         match plan {
             df::LogicalPlan::TableScan(_ts) => Self::new(
@@ -185,6 +182,7 @@ where
                         ctx,
                         prover_ctx.clone(),
                         plan.clone(),
+                        parent_node_id.clone(),
                     ),
                 ),
                 prover_ctx,
@@ -196,7 +194,7 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone()
+                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
                 )),
                 prover_ctx,
             ),
@@ -206,7 +204,7 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone()
+                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
                 )),
                 prover_ctx,
             ),
@@ -217,7 +215,7 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone()
+                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
                 )),
                 prover_ctx,
             ),

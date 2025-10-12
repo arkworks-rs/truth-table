@@ -153,6 +153,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -162,9 +163,14 @@ where
             LogicalPlan::Aggregate(agg) => agg,
             _ => panic!("expected aggregate logical plan"),
         };
+        let node_id = NodeId::LP(plan.clone());
         // Recursively build the input proof tree
-        let input_tree =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &aggregate.input);
+        let input_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &aggregate.input,
+            &node_id,
+        );
         let input = input_tree.root();
         // The input to the current aggregate node is the output logical plan of its
         // input node
@@ -181,7 +187,7 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr.clone(),
-                    &aggregate.input,
+                    &node_id.clone(),
                 )
             })
             .collect();
@@ -203,7 +209,7 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr.clone(),
-                    &aggregate.input,
+                    &node_id.clone(),
                 )
             })
             .collect();
@@ -226,7 +232,7 @@ where
             group_expr,
             aggr_expr,
             inputs,
-            node_id: NodeId::LP(plan),
+            node_id,
             hint_generation_plans: IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), output_plan)]),
         }
     }
@@ -331,18 +337,6 @@ where
                 output_grouping_table,
             };
         AggregatePIOP::prove(prover, aggregate_piop_prover_input)
-    }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -481,6 +475,7 @@ where
         ctx: &SessionContext,
         _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -514,18 +509,6 @@ where
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
-    }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

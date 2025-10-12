@@ -41,7 +41,7 @@ where
         ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -54,6 +54,7 @@ where
         ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

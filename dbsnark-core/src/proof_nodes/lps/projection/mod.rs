@@ -77,6 +77,7 @@ where
         ctx: &SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -86,10 +87,16 @@ where
             _ => panic!("expected projection logical plan"),
         };
 
+        let node_id = NodeId::LP(plan.clone());
+
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
-        let input_tree =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &projection.input);
+        let input_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &projection.input,
+            &node_id,
+        );
         let input_proof_plan = input_tree.root();
         let child_output_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
             .unwrap_or_else(|| (*projection.input).clone());
@@ -104,7 +111,12 @@ where
         let expr_proof_plans = original_exprs
             .into_iter()
             .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(ctx, prover_ctx.clone(), expr, &plan)
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr,
+                    &node_id,
+                )
             })
             .collect();
 
@@ -114,7 +126,7 @@ where
         Self {
             expr_proof_plans,
             input_proof_plan,
-            node_id: NodeId::LP(plan),
+            node_id,
             hint_generation_plans,
         }
     }
@@ -230,6 +242,7 @@ where
         ctx: &SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -238,6 +251,7 @@ where
             Projection(p) => p,
             _ => panic!("expected projection logical plan"),
         };
+        let node_id = NodeId::LP(plan.clone());
 
         // // Recurse into the input subtree and fetch the logical plan that
         // feeds this // projection.
@@ -245,6 +259,7 @@ where
             ctx,
             prover_ctx.clone(),
             &projection.input,
+            &parent_node_id,
         );
         let input_proof_plan = input_tree.root();
         let child_output_plan = output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
@@ -287,7 +302,7 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr,
-                    &output_plan,
+                    &NodeId::LP(output_plan.clone()),
                 )
             })
             .collect();
@@ -297,7 +312,7 @@ where
         Self {
             expr_proof_plans,
             input_proof_plan,
-            node_id: NodeId::LP(plan),
+            node_id,
             hint_generation_plans,
         }
     }

@@ -108,7 +108,7 @@ where
         ctx: &SessionContext,
         verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: &LogicalPlan,
+        parent_node_id: &NodeId,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>
     where
         F: PrimeField,
@@ -121,38 +121,29 @@ where
                 MvPCS,
                 UvPCS,
             >>::from_expr(
-                ctx,
-                verifier_ctx.clone(),
-                expr,
-                parent_logical_plan.clone(),
+                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
             )),
-            Expr::Column(_) => {
-                Arc::new(
-                    <VerifierColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
-                        ctx,
-                        verifier_ctx.clone(),
-                        expr,
-                        parent_logical_plan.clone(),
-                    ),
-                )
-            },
-            Expr::Literal(_) => {
-                Arc::new(
-                    <VerifierLiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
-                        ctx,
-                        verifier_ctx.clone(),
-                        expr,
-                        parent_logical_plan.clone(),
-                    ),
-                )
-            },
+            Expr::Column(_) => Arc::new(<VerifierColumnExprNode as VerifierNode<
+                F,
+                MvPCS,
+                UvPCS,
+            >>::from_expr(
+                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+            )),
+            Expr::Literal(_) => Arc::new(<VerifierLiteralExprNode as VerifierNode<
+                F,
+                MvPCS,
+                UvPCS,
+            >>::from_expr(
+                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+            )),
             Expr::BinaryExpr(_) => {
                 Arc::new(<VerifierBinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
                     UvPCS,
                 >>::from_expr(
-                    ctx, verifier_ctx, expr, parent_logical_plan.clone()
+                    ctx, verifier_ctx, expr, parent_node_id.clone()
                 ))
             },
             _ => todo!(),
@@ -165,6 +156,7 @@ where
         ctx: &SessionContext,
         verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: &LogicalPlan,
+        parent_node_id: &NodeId,
     ) -> Self {
         match plan {
             df::LogicalPlan::TableScan(_ts) => Self::new(
@@ -173,6 +165,7 @@ where
                         ctx,
                         verifier_ctx.clone(),
                         plan.clone(),
+                        parent_node_id.clone(),
                     ),
                 ),
                 verifier_ctx,
@@ -184,7 +177,10 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, verifier_ctx.clone(), plan.clone()
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
                 )),
                 verifier_ctx,
             ),
@@ -194,7 +190,7 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, verifier_ctx.clone(), plan.clone()
+                    ctx, verifier_ctx.clone(), plan.clone(), parent_node_id.clone()
                 )),
                 verifier_ctx,
             ),

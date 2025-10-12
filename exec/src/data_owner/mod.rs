@@ -68,7 +68,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
             bench_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
         let prover_ctx = SharedCtx::default();
         let proof_tree =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan);
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &logical_plan, &NodeId::None);
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;

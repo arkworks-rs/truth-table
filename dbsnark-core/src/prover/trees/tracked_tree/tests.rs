@@ -2,11 +2,10 @@ use std::{fs::File, hash::Hash, io::BufReader};
 
 use super::ProverTrackedTree;
 use crate::{
-    prover::trees::{
+    proof_nodes::id::NodeId, prover::trees::{
         hint_tree::ProverHintTree, proof_tree::ProverProofTree,
         tracked_tree::ProverArithmetizedTree,
-    },
-    test_utils::test_df_plan,
+    }, test_utils::test_df_plan
 };
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
@@ -54,7 +53,7 @@ async fn display_graphviz_for(table: &str, query: &str) {
 
     let prover_ctx = SharedCtx::new(table_oracles);
 
-    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .unwrap();

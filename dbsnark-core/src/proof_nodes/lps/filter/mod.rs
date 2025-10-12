@@ -68,6 +68,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -77,11 +78,16 @@ where
             df::LogicalPlan::Filter(f) => f,
             _ => panic!("expected filter logical plan"),
         };
+        let node_id = NodeId::LP(plan.clone());
 
         // The input is itself a logical plan and needs to be proved, so we call from_lp
         // recursively
-        let input_proof_plan =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
+        let input_proof_plan = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &filter.input,
+            &node_id,
+        );
         // Fetching the output logical plan of the input logical plan
         let child_plan =
             output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
@@ -93,13 +99,13 @@ where
             ctx,
             prover_ctx,
             filter.predicate.clone(),
-            &output_plan,
+            &NodeId::LP(output_plan),
         );
         // Building the witness generation plans map
         Self {
             predicate_proof_plan,
             input_proof_plan: input_proof_plan.root(),
-            node_id: NodeId::LP(plan),
+            node_id,
             hint_generation_plans: IndexMap::new(),
         }
     }
@@ -228,6 +234,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -237,10 +244,15 @@ where
             df::LogicalPlan::Filter(f) => f,
             _ => panic!("expected filter logical plan"),
         };
+        let node_id = NodeId::LP(plan.clone());
 
         // The input is itself a logical plan and needs to be proved
-        let input_proof_plan =
-            VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), &filter.input);
+        let input_proof_plan = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &filter.input,
+            &node_id,
+        );
         // Fetching the output logical plan of the input logical plan
         let child_plan =
             output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
@@ -252,13 +264,13 @@ where
             ctx,
             prover_ctx,
             filter.predicate.clone(),
-            &output_plan,
+            &NodeId::LP(output_plan),
         );
         // Building the witness generation plans map
         Self {
             predicate_proof_plan,
             input_proof_plan: input_proof_plan.root(),
-            node_id: NodeId::LP(plan),
+            node_id,
             hint_generation_plans: IndexMap::new(),
         }
     }

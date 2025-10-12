@@ -388,6 +388,7 @@ where
     match node.node_id() {
         NodeId::LP(_) => "LogicalPlan",
         NodeId::Expr(_) => "Expr",
+        NodeId::None => "None",
     }
 }
 

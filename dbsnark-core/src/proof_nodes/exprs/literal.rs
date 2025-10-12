@@ -26,20 +26,19 @@ use datafusion::{
     logical_expr::Expr,
     prelude::SessionContext,
 };
-use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
     pub node_id: NodeId,
-    pub parent_logical_plan: LogicalPlan,
+    pub parent_node_id: NodeId,
 }
 
 #[derive(Clone)]
 pub struct VerifierLiteralExprNode {
     pub node_id: NodeId,
-    pub parent_logical_plan: LogicalPlan,
+    pub parent_node_id: NodeId,
 }
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverLiteralExprNode
 where
@@ -59,14 +58,14 @@ where
         _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
-            parent_logical_plan,
+            parent_node_id,
         }
     }
 
@@ -85,7 +84,7 @@ where
         };
         let parent_table = piop_tree
             .tracked_table(
-                &NodeId::LP(self.parent_logical_plan.clone()),
+                &self.parent_node_id,
                 OUTPUT_PLAN_KEY,
             )
             .expect("table not found in PIOP tree");
@@ -154,14 +153,14 @@ where
         _ctx: &SessionContext,
         _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
-            parent_logical_plan,
+            parent_node_id,
         }
     }
 
@@ -176,7 +175,7 @@ where
         };
         let parent_table = piop_tree
             .tracked_table_oracle(
-                &NodeId::LP(self.parent_logical_plan.clone()),
+                &self.parent_node_id,
                 OUTPUT_PLAN_KEY,
             )
             .expect("table not found in PIOP tree");

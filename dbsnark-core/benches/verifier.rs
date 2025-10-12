@@ -18,6 +18,7 @@ use datafusion::{
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::{
+    proof_nodes::id::NodeId,
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
@@ -65,27 +66,19 @@ impl QuerySpec {
 }
 
 const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
-    // QuerySpec {
-    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-    //     tables: &["lineitem"],
-    // },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
-    //     tables: &["lineitem"],
-    // },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8",
+        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
         tables: &["lineitem"],
     },
-    // QuerySpec {
-    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    // l_extendedprice = 100.1",
-    //     tables: &["lineitem"],
-    // },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+        tables: &["lineitem"],
+    },
+    QuerySpec {
+        sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
+        tables: &["lineitem"],
+    },
+
 ];
 
 struct CommonInputs {
@@ -149,8 +142,12 @@ fn build_proof(
     prover_ctx: &SharedCtx<F, MvPCS, UvPCS>,
     prover: &mut Prover<F, MvPCS, UvPCS>,
 ) -> ProofForBench {
-    let proof_tree =
-        ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), logical_plan);
+    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        ctx,
+        prover_ctx.clone(),
+        logical_plan,
+        &NodeId::None,
+    );
     let hint_tree = runtime
         .block_on(ProverHintTree::from_proof_tree(ctx, proof_tree.clone()))
         .expect("hint tree");
@@ -208,7 +205,7 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
             let mut verifier = verifier_template.clone();
             verifier.set_proof(proof);
             let verifier_proof_tree =
-                VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan);
+                VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan, &NodeId::None);
             let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
                 verifier_proof_tree.clone(),
                 shared_ctx,

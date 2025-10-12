@@ -51,7 +51,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: LogicalPlan,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -60,6 +60,7 @@ where
             Expr::AggregateFunction(agg) => agg,
             _ => panic!("expected aggregate function expression"),
         };
+        let node_id = NodeId::Expr(expr.clone());
 
         let inputs = aggregate_expr
             .params
@@ -70,15 +71,12 @@ where
                     ctx,
                     prover_ctx.clone(),
                     arg.clone(),
-                    &parent_logical_plan,
+                    &node_id,
                 )
             })
             .collect();
 
-        Self {
-            node_id: NodeId::Expr(expr),
-            inputs,
-        }
+        Self { node_id, inputs }
     }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
@@ -168,7 +166,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

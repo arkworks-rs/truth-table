@@ -54,6 +54,7 @@ where
         ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: df::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -63,18 +64,6 @@ where
 
     fn node_id(&self) -> NodeId {
         todo!()
-    }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: df::LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -157,6 +146,7 @@ where
         ctx: &SessionContext,
         _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: df::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -166,18 +156,6 @@ where
 
     fn node_id(&self) -> NodeId {
         todo!()
-    }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_logical_plan: df::LogicalPlan,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

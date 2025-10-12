@@ -74,6 +74,7 @@ where
                     format!("{} | {}", logical_plan_variant_name(plan), plan.display()),
                 ),
                 NodeId::Expr(expr) => ("Expr", format!("{} | {}", expr_variant_name(expr), expr)),
+                NodeId::None => ("None", "None".to_string()),
             };
 
             let mut table_entries: Vec<(&String, &ArithTable<F>)> = self

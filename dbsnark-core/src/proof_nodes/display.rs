@@ -56,6 +56,7 @@ where
             let (node_label, variant_label) = match node.node_id() {
                 NodeId::LP(plan) => ("LogicalPlan", format!("{}", plan.display())),
                 NodeId::Expr(expr) => ("Expr", expr.to_string()),
+                NodeId::None => ("None", "None".to_string()),
             };
             let witness_keys = {
                 let mut keys: Vec<_> = node.hint_generation_plans().keys().cloned().collect();

@@ -94,7 +94,7 @@ pub mod helper {
 
         let prover_ctx = SharedCtx::default();
         let proof_tree =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx.clone(), &logical_plan);
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx.clone(), &logical_plan, &NodeId::None);
         let hint_tree = runtime
             .block_on(ProverHintTree::from_proof_tree(&ctx, proof_tree.clone()))
             .expect("build prover hint tree");
@@ -152,7 +152,7 @@ pub mod helper {
 
         verifier.set_proof(proof);
         let verifier_proof_tree =
-            VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan);
+            VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan, &NodeId::None);
         let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
             verifier_proof_tree.clone(),
             verifier_ctx.clone(),

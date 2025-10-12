@@ -73,9 +73,13 @@ where
 {
     fn build_witness_plans(
         bin_expr: BinaryExpr,
-        input_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
+            let input_plan = match parent_node_id {
+                NodeId::LP(plan) => plan,
+                _ => panic!("expected parent node id to be a logical plan"),
+            };
             let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
                 .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
@@ -128,7 +132,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -139,22 +143,24 @@ where
         };
         let left_expr = bin_expr.left.as_ref().clone();
         let right_expr = bin_expr.right.as_ref().clone();
+
         let hint_generation_plans =
-            Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
+            Self::build_witness_plans(bin_expr.clone(), parent_node_id.clone());
+        let node_id = NodeId::Expr(expr.clone());
 
         Self {
-            node_id: NodeId::Expr(expr),
+            node_id: node_id.clone(),
             left_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 prover_ctx.clone(),
                 left_expr,
-                &parent_logical_plan,
+                &node_id.clone(),
             ),
             right_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 prover_ctx,
                 right_expr,
-                &parent_logical_plan,
+                &node_id.clone(),
             ),
             hint_generation_plans,
         }
@@ -376,9 +382,14 @@ where
 {
     fn build_witness_plans(
         bin_expr: BinaryExpr,
-        input_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> IndexMap<String, LogicalPlan> {
         if Self::requires_materialized_witness(bin_expr.op) {
+            let input_plan = match parent_node_id.clone() {
+                //TODO: What if the parent was a NodeId::Expr?
+                NodeId::LP(plan) => plan,
+                _ => panic!("expected parent node id to be a logical plan"),
+            };
             let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
             let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
                 .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
@@ -431,7 +442,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -440,10 +451,12 @@ where
             Expr::BinaryExpr(b) => b,
             _ => panic!("expected binary expression"),
         };
+        let node_id = NodeId::Expr(expr.clone());
         let left_expr = bin_expr.left.as_ref().clone();
         let right_expr = bin_expr.right.as_ref().clone();
+
         let hint_generation_plans =
-            Self::build_witness_plans(bin_expr.clone(), parent_logical_plan.clone());
+            Self::build_witness_plans(bin_expr.clone(), parent_node_id.clone());
 
         Self {
             node_id: NodeId::Expr(expr),
@@ -451,13 +464,13 @@ where
                 ctx,
                 prover_ctx.clone(),
                 left_expr,
-                &parent_logical_plan,
+                &node_id.clone(),
             ),
             right_proof_plan: VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
                 ctx,
                 prover_ctx,
                 right_expr,
-                &parent_logical_plan,
+                &node_id.clone(),
             ),
             hint_generation_plans,
         }

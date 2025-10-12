@@ -1,10 +1,9 @@
 use super::ProverPIOPTree;
 use crate::{
-    prover::trees::{
+    proof_nodes::id::NodeId, prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
-    },
-    test_utils::test_df_plan,
+    }, test_utils::test_df_plan
 };
 use arithmetic::ctx::SharedCtx;
 use ark_piop::{
@@ -23,7 +22,7 @@ async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await?;
     let prover_ctx = SharedCtx::default();
-    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await?;
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();

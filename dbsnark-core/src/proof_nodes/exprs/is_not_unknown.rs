@@ -45,7 +45,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -108,7 +108,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

@@ -47,6 +47,7 @@ where
                     format!("Expr ({})", expr_variant_name(expr)),
                     expr.to_string(),
                 ),
+                NodeId::None => ("None".to_string(), "None".to_string()),
             };
 
             let raw_label = format!("{}\\n{}", kind, detail);

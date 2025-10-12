@@ -25,12 +25,12 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProverColumnExprNode {
-    pub parent_logical_plan: LogicalPlan,
+    pub parent_node_id: NodeId,
     pub node_id: NodeId,
 }
 #[derive(Clone)]
 pub struct VerifierColumnExprNode {
-    pub parent_logical_plan: LogicalPlan,
+    pub parent_node_id: NodeId,
     pub node_id: NodeId,
 }
 
@@ -52,14 +52,14 @@ where
         _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_logical_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
-            parent_logical_plan,
+            parent_node_id,
         }
     }
 
@@ -95,7 +95,7 @@ where
                     _ => false,
                 })
                 .unwrap(),
-            None => &NodeId::LP(self.parent_logical_plan.clone()),
+            None => &self.parent_node_id,
         };
 
         let table = piop_tree
@@ -160,14 +160,14 @@ where
         _ctx: &SessionContext,
         _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        _parent_logical_plan: LogicalPlan,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
-            parent_logical_plan: _parent_logical_plan,
+            parent_node_id,
         }
     }
 
@@ -195,7 +195,7 @@ where
                     _ => false,
                 })
                 .unwrap(),
-            None => &NodeId::LP(self.parent_logical_plan.clone()),
+            None => &self.parent_node_id,
         };
 
         let table = piop_tree

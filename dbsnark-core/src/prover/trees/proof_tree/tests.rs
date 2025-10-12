@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use crate::test_utils::test_df_plan;
+use crate::{proof_nodes::id::NodeId, test_utils::test_df_plan};
 
 use super::ProverProofTree;
 use arithmetic::ctx::SharedCtx;
@@ -32,6 +32,6 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();
     let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan);
+        ProverProofTree::from_lp(&ctx, prover_ctx, &plan,&NodeId::None);
     println!("{}", proof_tree.display_graphviz());
 }

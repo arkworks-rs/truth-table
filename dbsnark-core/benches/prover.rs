@@ -22,9 +22,12 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
-use dbsnark_core::prover::trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+use dbsnark_core::{
+    proof_nodes::id::NodeId,
+    prover::trees::{
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+    },
 };
 use tokio::runtime::Runtime;
 type F = Fr;
@@ -87,10 +90,6 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
         sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         tables: &["lineitem"],
     },
-    // QuerySpec {
-    //     sql: "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
-    //     tables: &["lineitem"],
-    // },
 ];
 
 struct CommonInputs {
@@ -158,8 +157,12 @@ fn build_proof(
     prover_ctx: &SharedCtx<F, MvPCS, UvPCS>,
     prover: &mut Prover<F, MvPCS, UvPCS>,
 ) -> ProofForBench {
-    let proof_tree =
-        ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, prover_ctx.clone(), logical_plan);
+    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        ctx,
+        prover_ctx.clone(),
+        logical_plan,
+        &NodeId::None,
+    );
     let hint_tree = runtime
         .block_on(ProverHintTree::from_proof_tree(ctx, proof_tree.clone()))
         .expect("hint tree");
