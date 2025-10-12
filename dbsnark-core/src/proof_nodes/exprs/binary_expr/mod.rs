@@ -1,18 +1,17 @@
 // Combined dbsnark-core/src/prover/nodes/exprs/binary_expr.rs and
 // dbsnark-core/src/verifier/nodes/exprs/binary_expr.rs
 
-use crate::proof_nodes::id::NodeId;
-use crate::proof_nodes::OUTPUT_PLAN_KEY;
 use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -114,7 +113,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -193,17 +191,59 @@ where
                     .clone();
                 let output_data_tracked_poly = match bin_expr.op {
                     Operator::And => {
-                        let data_mult =
+                        let data_out =
                             &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
 
                         match (
                             left_col.activator_tracked_poly(),
                             right_col.activator_tracked_poly(),
                         ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_mult,
-                            (Some(l), None) => &l * &data_mult,
-                            (None, Some(r)) => &r * &data_mult,
-                            (None, None) => data_mult,
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Plus => {
+                        let data_out =
+                            &left_col.data_tracked_poly() + &right_col.data_tracked_poly();
+
+                        match (
+                            left_col.activator_tracked_poly(),
+                            right_col.activator_tracked_poly(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Minus => {
+                        let data_out =
+                            &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
+
+                        match (
+                            left_col.activator_tracked_poly(),
+                            right_col.activator_tracked_poly(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Multiply => {
+                        let data_out =
+                            &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
+
+                        match (
+                            left_col.activator_tracked_poly(),
+                            right_col.activator_tracked_poly(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
                         }
                     },
                     _ => panic!("unsupported operator for virtual witness"),
@@ -372,7 +412,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -443,17 +482,59 @@ where
                     .clone();
                 let output_data_tracked_poly = match bin_expr.op {
                     Operator::And => {
-                        let data_mult =
+                        let data_out =
                             &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
 
                         match (
                             left_col.activator_tracked_oracle(),
                             right_col.activator_tracked_oracle(),
                         ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_mult,
-                            (Some(l), None) => &l * &data_mult,
-                            (None, Some(r)) => &r * &data_mult,
-                            (None, None) => data_mult,
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Plus => {
+                        let data_out =
+                            &left_col.data_tracked_oracle() + &right_col.data_tracked_oracle();
+
+                        match (
+                            left_col.activator_tracked_oracle(),
+                            right_col.activator_tracked_oracle(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Minus => {
+                        let data_out =
+                            &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
+
+                        match (
+                            left_col.activator_tracked_oracle(),
+                            right_col.activator_tracked_oracle(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
+                        }
+                    },
+                    Operator::Multiply => {
+                        let data_out =
+                            &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
+
+                        match (
+                            left_col.activator_tracked_oracle(),
+                            right_col.activator_tracked_oracle(),
+                        ) {
+                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
+                            (Some(l), None) => &l * &data_out,
+                            (None, Some(r)) => &r * &data_out,
+                            (None, None) => data_out,
                         }
                     },
                     _ => panic!("unsupported operator for virtual witness"),

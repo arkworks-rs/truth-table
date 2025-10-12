@@ -122,7 +122,7 @@ where
                 .expect("Column activator polynomial should not be None")
                 .clone(),
         );
-        let output_table = TrackedTable::new(None, tracked_polys, 0);
+        let output_table = TrackedTable::new(None, tracked_polys, table.log_size());
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), output_table);
     }
@@ -214,7 +214,7 @@ where
                 .clone(),
         );
 
-        let output_table = TrackedTableOracle::new(None, tracked_polys, 0);
+        let output_table = TrackedTableOracle::new(None, tracked_polys, table.log_size());
 
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),

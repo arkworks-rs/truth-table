@@ -31,6 +31,9 @@ use ra_toolbox::lp_piop::filter_check::{
 };
 use std::sync::Arc;
 
+#[cfg(test)]
+mod tests;
+
 pub struct ProverFilterNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,

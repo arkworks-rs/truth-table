@@ -2,7 +2,7 @@
 // dbsnark-core/src/verifier/nodes/exprs/literal.rs
 
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY,
+    OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
 };
 use arithmetic::{
     encoding::encode_arrow_array_to_field, table::TrackedTable, table_oracle::TrackedTableOracle,
@@ -108,7 +108,7 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            1,
+            0,
         );
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
@@ -192,7 +192,7 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            1,
+            0,
         );
 
         piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);

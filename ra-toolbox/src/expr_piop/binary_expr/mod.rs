@@ -116,6 +116,9 @@ where
         } else {
             match input.op {
                 Operator::And => Ok(()),
+                Operator::Plus => Ok(()),
+                Operator::Minus => Ok(()),
+                Operator::Multiply => Ok(()),
                 Operator::Or => or::OrBinaryExprPIOP::prove(prover, input),
                 _ => unimplemented!("Proving for this operator is not implemented yet"),
             }
@@ -131,6 +134,9 @@ where
         } else {
             match input.op {
                 Operator::And => Ok(()),
+                Operator::Plus => Ok(()),
+                Operator::Minus => Ok(()),
+                Operator::Multiply => Ok(()),
                 Operator::Or => or::OrBinaryExprPIOP::verify(verifier, input),
                 _ => unimplemented!("Verifying for this operator is not implemented yet"),
             }

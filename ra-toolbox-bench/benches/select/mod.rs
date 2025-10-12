@@ -1,2 +1,0 @@
-mod eq;
-mod geq;

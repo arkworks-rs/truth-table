@@ -1,3 +1,5 @@
+
+
 use crate::{
     proof_nodes::{
         cost::ProvingCost,
@@ -23,6 +25,9 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 pub struct ProverProjectionNode<F, MvPCS, UvPCS>
 where

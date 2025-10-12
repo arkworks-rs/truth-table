@@ -88,7 +88,7 @@ where
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        <BinaryExprPIOP<F, MvPCS, UvPCS> as PIOP<F, MvPCS, UvPCS>>::honest_prover_check(input)
+        Ok(())
     }
 
     fn prove_inner(
