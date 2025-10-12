@@ -147,9 +147,9 @@
 //         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(left_nv,
 // left_activator))         .unwrap();
 //     let left_col = TrackedCol::new(None, left_tr_p.clone(),
-// Some(left_activator_p.clone()));     /////////////////////////////////////////////
-// ////////     let right_mle = MLE::from_evaluations_vec(right_nv,
-// right_evals);     let right_tr_p =
+// Some(left_activator_p.clone()));
+// ///////////////////////////////////////////// ////////     let right_mle =
+// MLE::from_evaluations_vec(right_nv, right_evals);     let right_tr_p =
 // prover.track_and_commit_mat_mv_poly(&right_mle).unwrap();
 //     let right_activator_p = prover
 //         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(right_nv,
@@ -168,12 +168,14 @@
 // perm_piop_prover_input)?;     let proof = prover.build_proof()?;
 //     verifier.set_proof(proof);
 //     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
-//     let left_activatorm = verifier.track_mv_com_by_id(left_activator_p.id())?;
+//     let left_activatorm =
+// verifier.track_mv_com_by_id(left_activator_p.id())?;
 //     let left_tracked_col_oracle = TrackedColOracle::new(None, left_comm,
 // Some(left_activatorm), left_nv);
 
 //     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
-//     let right_activatorm = verifier.track_mv_com_by_id(right_activator_p.id())?;
+//     let right_activatorm =
+// verifier.track_mv_com_by_id(right_activator_p.id())?;
 //     let right_tracked_col_oracle = TrackedColOracle::new(None, right_comm,
 // Some(right_activatorm), right_nv);     let perm_piop_verifier_input =
 // PermPIOPVerifierInput {         left_tracked_col_oracle,

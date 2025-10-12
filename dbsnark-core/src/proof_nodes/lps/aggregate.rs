@@ -3,10 +3,11 @@
 
 use crate::{
     proof_nodes::{
+        OUTPUT_PLAN_KEY,
         cost::ProvingCost,
         id::NodeId,
-        prover::{output_prover_logical_plan, ProverNode},
-        verifier::VerifierNode, OUTPUT_PLAN_KEY,
+        prover::{ProverNode, output_prover_logical_plan},
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::piop_tree::VerifierPIOPTree,

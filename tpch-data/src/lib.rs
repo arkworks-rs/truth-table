@@ -118,8 +118,8 @@ fn write_parquet<P: AsRef<Path>>(
 /// Generate TPC-H Parquet files at the given scale factor in the specified
 /// output directory (if it doesn't exist, it will be created).
 // Note that the tables are further preprocessed as follows:
-// - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is set true
-//   for the existing rows
+// - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is
+//   set true for the existing rows
 // - The tables are padded by duplicating the last row until the total row count
 //   is a power of two; the appended rows have activator=false
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {

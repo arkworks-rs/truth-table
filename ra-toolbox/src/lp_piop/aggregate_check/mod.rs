@@ -94,8 +94,12 @@ where
 
         // Fold the grouping columns of the input and output tables
 
-        let input_folded_col = input.input_grouping_table.fold_all_data_columns(&gpd_cols_fld_challs);
-        let output_folded_col = input.output_grouping_table.fold_all_data_columns(&gpd_cols_fld_challs);
+        let input_folded_col = input
+            .input_grouping_table
+            .fold_all_data_columns(&gpd_cols_fld_challs);
+        let output_folded_col = input
+            .output_grouping_table
+            .fold_all_data_columns(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckProverInput {
@@ -112,7 +116,9 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let num_gpd_cols = input.input_grouping_table_oracle.num_data_tracked_col_oracles();
+        let num_gpd_cols = input
+            .input_grouping_table_oracle
+            .num_data_tracked_col_oracles();
         // Generate one random field element for each column being grouped by
         // This is used to fold these columns to a single random linearly
         // combined column

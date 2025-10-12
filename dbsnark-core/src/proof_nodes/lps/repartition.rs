@@ -1,18 +1,18 @@
-// Combined dbsnark-core/src/prover/nodes/lps/repartition.rs and dbsnark-core/src/verifier/nodes/lps/repartition.rs
+// Combined dbsnark-core/src/prover/nodes/lps/repartition.rs and
+// dbsnark-core/src/verifier/nodes/lps/repartition.rs
 
-
-use std::sync::Arc;
+use crate::proof_nodes::{
+    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
 };
-use crate::proof_nodes::id::NodeId;
 use datafusion::prelude::SessionContext;
-use crate::proof_nodes::{cost::ProvingCost, prover::ProverNode};
 use indexmap::IndexMap;
-use crate::proof_nodes::verifier::VerifierNode;
+use std::sync::Arc;
 
 pub struct ProverRepartitionNode<F, MvPCS, UvPCS>
 where
@@ -29,7 +29,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }
@@ -92,7 +91,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }

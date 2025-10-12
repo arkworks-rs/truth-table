@@ -39,12 +39,6 @@ where
     log_size: usize,
 }
 
-
-
-
-
-
-
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,

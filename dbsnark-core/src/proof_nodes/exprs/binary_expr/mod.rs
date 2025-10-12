@@ -248,11 +248,15 @@ where
                     },
                     _ => panic!("unsupported operator for virtual witness"),
                 };
-                let field_ref = FieldRef::new(Field::new(
-                    "output",
-                    datafusion::arrow::datatypes::DataType::BinaryView,
-                    false,
-                ));
+                let field_ref = if let Some(f) = left_col.field_ref() {
+                    f.clone()
+                } else {
+                    FieldRef::new(Field::new(
+                        "output",
+                        datafusion::arrow::datatypes::DataType::Null,
+                        false,
+                    ))
+                };
                 let output_activator = match (
                     left_col.activator_tracked_poly(),
                     right_col.activator_tracked_poly(),
@@ -539,11 +543,7 @@ where
                     },
                     _ => panic!("unsupported operator for virtual witness"),
                 };
-                let field_ref = FieldRef::new(Field::new(
-                    "output",
-                    datafusion::arrow::datatypes::DataType::BinaryView,
-                    false,
-                ));
+
                 let output_activator = match (
                     left_col.activator_tracked_oracle(),
                     right_col.activator_tracked_oracle(),
@@ -556,8 +556,17 @@ where
                     (None, Some(r)) => Some(r),
                     (None, None) => None,
                 };
+                let field_ref = if let Some(f) = left_col.field_ref() {
+                    f.clone()
+                } else {
+                    FieldRef::new(Field::new(
+                        "output",
+                        datafusion::arrow::datatypes::DataType::Null,
+                        false,
+                    ))
+                };
                 let mut tracked_oracles =
-                    IndexMap::from_iter(vec![(field_ref.clone(), output_data_tracked_poly)]);
+                    IndexMap::from_iter(vec![(field_ref, output_data_tracked_poly)]);
                 if let Some(activator_oracle) = output_activator {
                     let activator_field = FieldRef::new(Field::new(
                         arithmetic::ACTIVATOR_COL_NAME,

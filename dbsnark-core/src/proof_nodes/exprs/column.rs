@@ -1,5 +1,7 @@
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -124,7 +126,11 @@ where
         );
         let output_table = TrackedTable::new(None, tracked_polys, table.log_size());
 
-        piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), output_table);
+        piop_tree.add_table(
+            self.node_id.clone(),
+            OUTPUT_PLAN_KEY.to_owned(),
+            output_table,
+        );
     }
     fn prove_piop(
         &self,

@@ -58,7 +58,13 @@ where
         col.data_tracked_poly()
             .evaluations()
             .iter()
-            .zip(col.activator_tracked_poly().as_ref().unwrap().evaluations().iter())
+            .zip(
+                col.activator_tracked_poly()
+                    .as_ref()
+                    .unwrap()
+                    .evaluations()
+                    .iter(),
+            )
             .for_each(|(val, activator)| {
                 if activator.is_one() {
                     new_activator_evals.push(F::one());

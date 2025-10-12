@@ -1,15 +1,11 @@
 //! The proof plan module contains a set of tools to build a proof plan from a
 //! DataFusion logical plan.
 
-use crate::proof_nodes::id::NodeId;
-use crate::proof_nodes::OUTPUT_PLAN_KEY;
+use super::cost::ProvingCost;
 use crate::{
-
+    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::piop_tree::ProverPIOPTree,
 };
-use super::cost::ProvingCost;
-use std::{any::Any, sync::Arc};
-use indexmap::IndexMap;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -24,6 +20,8 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
+use indexmap::IndexMap;
+use std::{any::Any, sync::Arc};
 
 pub use super::{cost, display, exprs, lps};
 
@@ -121,7 +119,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    /// Returns the Proof plan as `Any` so that it can be downcast to a specific implementation.
+    /// Returns the Proof plan as `Any` so that it can be downcast to a specific
+    /// implementation.
     pub fn as_any(&self) -> &dyn Any {
         self
     }

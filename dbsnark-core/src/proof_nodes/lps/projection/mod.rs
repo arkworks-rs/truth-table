@@ -1,11 +1,10 @@
-
-
 use crate::{
     proof_nodes::{
+        OUTPUT_PLAN_KEY,
         cost::ProvingCost,
         id::NodeId,
-        prover::{output_prover_logical_plan, ProverNode},
-        verifier::{output_verifier_logical_plan, VerifierNode}, OUTPUT_PLAN_KEY,
+        prover::{ProverNode, output_prover_logical_plan},
+        verifier::{VerifierNode, output_verifier_logical_plan},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -302,7 +301,6 @@ where
             hint_generation_plans,
         }
     }
-
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {

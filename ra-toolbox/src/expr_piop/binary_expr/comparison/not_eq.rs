@@ -1,4 +1,6 @@
-use crate::expr_piop::binary_expr::comparison::{InnerComparisonPIOPProverInput, InnerComparisonPIOPVerifierInput};
+use crate::expr_piop::binary_expr::comparison::{
+    InnerComparisonPIOPProverInput, InnerComparisonPIOPVerifierInput,
+};
 
 use super::{BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
 use ark_ff::PrimeField;
@@ -16,11 +18,7 @@ pub struct NotEqBinaryExprPIOP<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+>(PhantomData<F>, PhantomData<MvPCS>, PhantomData<UvPCS>);
 
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for NotEqBinaryExprPIOP<F, MvPCS, UvPCS>
 where

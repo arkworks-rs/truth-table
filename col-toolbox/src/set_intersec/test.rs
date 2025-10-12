@@ -343,18 +343,10 @@ fn set_inter_union_test_helper<
     //////////////////////////////////////////////////////////////////////
 
     let set_inter_union_check_verifier_input = SetInterUnionVerifierInput {
-        col_left: TrackedColOracle::new(
-            left_com, left_activator_com, None
-        ),
-        col_right: TrackedColOracle::new(
-            right_com, right_activator_com, None
-        ),
-        col_inter: TrackedColOracle::new(
-            inter_com, inter_activator_com, None
-        ),
-        col_union: TrackedColOracle::new(
-            union_com, union_activator_com, None
-        ),
+        col_left: TrackedColOracle::new(left_com, left_activator_com, None),
+        col_right: TrackedColOracle::new(right_com, right_activator_com, None),
+        col_inter: TrackedColOracle::new(inter_com, inter_activator_com, None),
+        col_union: TrackedColOracle::new(union_com, union_activator_com, None),
     };
 
     SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::verify(

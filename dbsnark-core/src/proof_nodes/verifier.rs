@@ -1,5 +1,9 @@
 //! Verifier-side proof tree nodes and trait definitions.
-use crate::{proof_nodes::OUTPUT_PLAN_KEY, verifier::trees::piop_tree::VerifierPIOPTree};
+pub use super::{exprs, lps};
+use crate::{
+    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
+    verifier::trees::piop_tree::VerifierPIOPTree,
+};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -14,8 +18,6 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
-use crate::proof_nodes::id::NodeId;
-pub use super::{exprs, lps};
 /// Common interface for a verifier proof tree node.
 pub trait VerifierNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where

@@ -1,7 +1,5 @@
-
-
-use std::fmt;
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
+use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum NodeId {

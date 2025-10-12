@@ -3,7 +3,11 @@ use super::*;
 use std::sync::Arc;
 
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::{self, TrackedTableOracle}, ACTIVATOR_COL_NAME
+    ACTIVATOR_COL_NAME,
+    col::TrackedCol,
+    col_oracle::TrackedColOracle,
+    table::TrackedTable,
+    table_oracle::{self, TrackedTableOracle},
 };
 use ark_ff::PrimeField;
 use ark_piop::{

@@ -102,8 +102,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let col_poly = verifier_input.tracked_col_oracle.data_tracked_oracle().clone();
-        let col_sel = verifier_input.tracked_col_oracle.activator_tracked_oracle().clone();
+        let col_poly = verifier_input
+            .tracked_col_oracle
+            .data_tracked_oracle()
+            .clone();
+        let col_sel = verifier_input
+            .tracked_col_oracle
+            .activator_tracked_oracle()
+            .clone();
         let inverses_poly_id = verifier.peek_next_id();
         let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
         let no_dups_check_poly = match col_sel {

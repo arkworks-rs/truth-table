@@ -706,16 +706,12 @@ fn multiplicity_test_helper<
     let f_tracked_col_oracles = f_tr_comms
         .iter()
         .zip(f_activator_comms.iter())
-        .map(|(tr, activator)| {
-            TrackedColOracle::new(tr.clone(), activator.clone(), None)
-        })
+        .map(|(tr, activator)| TrackedColOracle::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
     let g_tracked_col_oracles = g_tr_comms
         .iter()
         .zip(g_activator_comms.iter())
-        .map(|(tr, activator) | {
-            TrackedColOracle::new(tr.clone(), activator.clone(), None)
-        })
+        .map(|(tr, activator)| TrackedColOracle::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
 
     let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {

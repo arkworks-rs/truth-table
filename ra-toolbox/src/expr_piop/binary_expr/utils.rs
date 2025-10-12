@@ -2,7 +2,11 @@
 use ark_ff::PrimeField;
 use ark_ff::{Field, batch_inversion};
 #[cfg(feature = "honest-prover")]
-use ark_piop::{arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS, prover::structs::polynomial::TrackedPoly};
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    pcs::PCS,
+    prover::structs::polynomial::TrackedPoly,
+};
 
 pub fn invert_or_one_in_place<F: Field>(v: &mut [F]) {
     // Record which entries are zero before we mutate the slice.
@@ -20,7 +24,11 @@ pub fn invert_or_one_in_place<F: Field>(v: &mut [F]) {
 }
 
 #[cfg(feature = "honest-prover")]
-pub(super) fn activators_match<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+pub(super) fn activators_match<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
     lhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
     rhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
 ) -> bool {

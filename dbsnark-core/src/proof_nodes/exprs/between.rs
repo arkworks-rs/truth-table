@@ -30,7 +30,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }
@@ -93,7 +92,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

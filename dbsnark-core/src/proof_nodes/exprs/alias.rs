@@ -2,7 +2,9 @@
 // dbsnark-core/src/verifier/nodes/exprs/alias.rs
 
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
 use arithmetic::ctx::SharedCtx;
@@ -36,7 +38,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -117,7 +118,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

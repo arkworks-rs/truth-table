@@ -1,9 +1,9 @@
-use crate::{
-    prover::trees::{arithmetized_tree::ProverArithmetizedTree, proof_tree::ProverProofTree},
+use crate::prover::trees::{
+    arithmetized_tree::ProverArithmetizedTree, proof_tree::ProverProofTree,
 };
 pub mod display;
 use crate::proof_nodes::id::NodeId;
-use std::{ fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use arithmetic::{errors::EncodeError, table::TrackedTable};
 use ark_ff::PrimeField;
@@ -208,7 +208,11 @@ where
             for (label, arith_table) in tables {
                 let num_total_cols = arith_table.num_total_cols();
                 let table = if num_total_cols == 0 {
-                    TrackedTable::new(arith_table.schema(), IndexMap::new(), arith_table.log_size())
+                    TrackedTable::new(
+                        arith_table.schema(),
+                        IndexMap::new(),
+                        arith_table.log_size(),
+                    )
                 } else {
                     let mut tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
                         IndexMap::with_capacity(num_total_cols);
@@ -248,7 +252,8 @@ where
         &'a NodeId,
         &'a IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>,
     );
-    type IntoIter = indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter =
+        indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.iter()
@@ -262,7 +267,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     type Item = (NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>);
-    type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
+    type IntoIter =
+        indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.tracked_tables.into_iter()

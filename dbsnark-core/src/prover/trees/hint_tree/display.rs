@@ -1,17 +1,16 @@
-use crate::proof_nodes::prover::ProverNode;
-use std::{
-    collections::{HashSet, VecDeque},
-    fmt,
-    sync::Arc,
-};
-use crate::proof_nodes::id::NodeId;
 use super::{ProverHintTree, rows_cols_activated};
+use crate::proof_nodes::{id::NodeId, prover::ProverNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
 use datafusion::{arrow::record_batch::RecordBatch, logical_expr::LogicalPlan, prelude::Expr};
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt,
+    sync::Arc,
+};
 
 fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
     let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();

@@ -1,6 +1,6 @@
 use super::ProverPIOPTree;
 use crate::proof_nodes::{id::NodeId, prover::ProverNode};
-use arithmetic::table::TrackedTable;
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -88,9 +88,32 @@ where
                     } else {
                         0
                     };
+                    let type_names: Vec<String> = table
+                        .all_tracked_cols()
+                        .into_iter()
+                        .filter_map(|col| {
+                            let field_ref = col.field_ref();
+                            if let Some(field) = field_ref.clone() {
+                                if field.name() == ACTIVATOR_COL_NAME {
+                                    return None;
+                                }
+                                Some(field.data_type().to_string())
+                            } else {
+                                Some("None".to_string())
+                            }
+                        })
+                        .collect();
+                    let type_list = if type_names.is_empty() {
+                        "None".to_string()
+                    } else {
+                        type_names.join(", ")
+                    };
                     lines.push(format!(
-                        "{}: {} log_size, {} data cols",
-                        label, log_size, num_total_cols
+                        "{}: {} log_size, {} data cols, types: {}",
+                        label,
+                        log_size,
+                        table.num_data_tracked_cols(),
+                        type_list
                     ));
                 }
                 Some(lines.join("\n"))

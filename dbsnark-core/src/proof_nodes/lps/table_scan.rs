@@ -2,7 +2,9 @@
 // dbsnark-core/src/verifier/nodes/lps/table_scan.rs
 
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode, OUTPUT_PLAN_KEY},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };

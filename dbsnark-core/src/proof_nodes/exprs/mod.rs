@@ -79,7 +79,6 @@ pub mod prover {
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
-
         fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
             Vec::new()
         }
@@ -182,7 +181,6 @@ pub mod verifier {
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
-
         fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
             Vec::new()
         }

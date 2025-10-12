@@ -13,5 +13,4 @@ pub mod errors;
 pub mod table;
 pub mod table_oracle;
 
-
 pub const ACTIVATOR_COL_NAME: &str = "activator";

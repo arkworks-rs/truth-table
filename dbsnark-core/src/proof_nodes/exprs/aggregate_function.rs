@@ -2,9 +2,9 @@
 // dbsnark-core/src/verifier/nodes/exprs/aggregate_function.rs
 
 use crate::{
-    proof_nodes::OUTPUT_PLAN_KEY, prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree}
+    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
+    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
-use crate::proof_nodes::id::NodeId;
 use arithmetic::{ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -39,7 +39,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -157,7 +156,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

@@ -1,25 +1,20 @@
-// Combined dbsnark-core/src/prover/nodes/lps/subquery_alias.rs and dbsnark-core/src/verifier/nodes/lps/subquery_alias.rs
+// Combined dbsnark-core/src/prover/nodes/lps/subquery_alias.rs and
+// dbsnark-core/src/verifier/nodes/lps/subquery_alias.rs
 
-
+use crate::{
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    prover::trees::piop_tree::ProverPIOPTree,
+    verifier::trees::piop_tree::VerifierPIOPTree,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{
-    logical_expr as df,
-    prelude::SessionContext,
-};
-use std::sync::Arc;
-use crate::proof_nodes::id::NodeId;
-use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
-    verifier::trees::piop_tree::VerifierPIOPTree,
-};
+use datafusion::{logical_expr as df, prelude::SessionContext};
 use indexmap::IndexMap;
+use std::sync::Arc;
 
 pub struct ProverSubqueryAliasNode<F, MvPCS, UvPCS>
 where
@@ -36,7 +31,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }
@@ -122,7 +116,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         vec![&self.input]
     }

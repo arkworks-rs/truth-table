@@ -1,5 +1,3 @@
-
-
 use super::ProverPIOPTree;
 use crate::{
     prover::trees::{
@@ -46,9 +44,19 @@ async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz() -> DFResult<()> {
+async fn display_graphviz_piop_tree_1() -> DFResult<()> {
     display_graphviz_for(
         "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "lineitem",
+    )
+    .await
+}
+
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn display_graphviz_piop_tree_2() -> DFResult<()> {
+    display_graphviz_for(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey*2-l_orderkey",
         "lineitem",
     )
     .await

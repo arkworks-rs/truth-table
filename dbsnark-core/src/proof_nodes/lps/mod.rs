@@ -21,46 +21,29 @@ pub mod prover {
     // Submodules per node
 
     // Re-exports for easy access from parent module
-    pub use super::aggregate::ProverAggregateNode;
-    pub use super::analyze::ProverAnalyzeNode;
-    pub use super::distinct::ProverDistinctNode;
-    pub use super::explain::ProverExplainNode;
-    pub use super::extension::ProverExtensionNode;
-    pub use super::filter::ProverFilterNode;
-    pub use super::join::ProverJoinNode;
-    pub use super::limit::ProverLimitNode;
-    pub use super::other::ProverOtherNode;
-    pub use super::projection::ProverProjectionNode;
-    pub use super::repartition::ProverRepartitionNode;
-    pub use super::sort::ProverSortNode;
-    pub use super::subquery::ProverSubqueryNode;
-    pub use super::subquery_alias::ProverSubqueryAliasNode;
-    pub use super::table_scan::ProverTableScanNode;
-    pub use super::union::ProverUnionNode;
-    pub use super::values::ProverValuesNode;
-    pub use super::window::ProverWindowNode;
+    pub use super::{
+        aggregate::ProverAggregateNode, analyze::ProverAnalyzeNode, distinct::ProverDistinctNode,
+        explain::ProverExplainNode, extension::ProverExtensionNode, filter::ProverFilterNode,
+        join::ProverJoinNode, limit::ProverLimitNode, other::ProverOtherNode,
+        projection::ProverProjectionNode, repartition::ProverRepartitionNode, sort::ProverSortNode,
+        subquery::ProverSubqueryNode, subquery_alias::ProverSubqueryAliasNode,
+        table_scan::ProverTableScanNode, union::ProverUnionNode, values::ProverValuesNode,
+        window::ProverWindowNode,
+    };
 }
 
 pub mod verifier {
     // Submodules per node
 
     // Re-exports for easy access from parent module
-    pub use super::aggregate::VerifierAggregateNode;
-    pub use super::analyze::VerifierAnalyzeNode;
-    pub use super::distinct::VerifierDistinctNode;
-    pub use super::explain::VerifierExplainNode;
-    pub use super::extension::VerifierExtensionNode;
-    pub use super::filter::VerifierFilterNode;
-    pub use super::join::VerifierJoinNode;
-    pub use super::limit::VerifierLimitNode;
-    pub use super::other::VerifierOtherNode;
-    pub use super::projection::VerifierProjectionNode;
-    pub use super::repartition::VerifierRepartitionNode;
-    pub use super::sort::VerifierSortNode;
-    pub use super::subquery::VerifierSubqueryNode;
-    pub use super::subquery_alias::VerifierSubqueryAliasNode;
-    pub use super::table_scan::VerifierTableScanNode;
-    pub use super::union::VerifierUnionNode;
-    pub use super::values::VerifierValuesNode;
-    pub use super::window::VerifierWindowNode;
+    pub use super::{
+        aggregate::VerifierAggregateNode, analyze::VerifierAnalyzeNode,
+        distinct::VerifierDistinctNode, explain::VerifierExplainNode,
+        extension::VerifierExtensionNode, filter::VerifierFilterNode, join::VerifierJoinNode,
+        limit::VerifierLimitNode, other::VerifierOtherNode, projection::VerifierProjectionNode,
+        repartition::VerifierRepartitionNode, sort::VerifierSortNode,
+        subquery::VerifierSubqueryNode, subquery_alias::VerifierSubqueryAliasNode,
+        table_scan::VerifierTableScanNode, union::VerifierUnionNode, values::VerifierValuesNode,
+        window::VerifierWindowNode,
+    };
 }

@@ -33,7 +33,7 @@ where
     type VerifierInput = TableScanPIOPVerifierInput;
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        //TODO
+        // TODO
         Ok(())
     }
 

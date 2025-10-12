@@ -1,26 +1,20 @@
-// Combined dbsnark-core/src/prover/nodes/lps/explain.rs and dbsnark-core/src/verifier/nodes/lps/explain.rs
+// Combined dbsnark-core/src/prover/nodes/lps/explain.rs and
+// dbsnark-core/src/verifier/nodes/lps/explain.rs
 
-
-use std::sync::Arc;
+use crate::{
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    prover::trees::piop_tree::ProverPIOPTree,
+    verifier::trees::piop_tree::VerifierPIOPTree,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{
-    logical_expr::LogicalPlan,
-    prelude::SessionContext,
-};
+use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 use indexmap::IndexMap;
-use crate::proof_nodes::id::NodeId;
-use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
-    verifier::trees::piop_tree::VerifierPIOPTree,
-};
-
+use std::sync::Arc;
 
 pub struct ProverExplainNode<F, MvPCS, UvPCS>
 where

@@ -185,7 +185,15 @@ where
                         debug!(node = tree_label(&node), tree_label = %label, "executing hint tree");
                         let tree = ctx.state().optimize(&tree).unwrap();
                         let df = ctx.execute_logical_plan(tree).await?;
-                        let batches = df.collect().await?;
+                        // Collect per-partition batches and flatten them in partition order
+                        // so we keep a deterministic row ordering even when the executor
+                        // runs partitions in parallel.
+                        let batches = df
+                            .collect_partitioned()
+                            .await?
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>();
 
                         if label == "output_tree"
                             && node.as_any().downcast_ref::<ProverTableScanNode>().is_some()

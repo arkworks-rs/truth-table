@@ -1,7 +1,9 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/cast.rs and dbsnark-core/src/verifier/nodes/exprs/cast.rs
+// Combined dbsnark-core/src/prover/nodes/exprs/cast.rs and
+// dbsnark-core/src/verifier/nodes/exprs/cast.rs
 
-use crate::proof_nodes::id::NodeId;
-use std::sync::Arc;
+use crate::proof_nodes::{
+    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -9,8 +11,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::logical_expr::Expr;
-use crate::proof_nodes::{cost::ProvingCost, prover::ProverNode};
-use crate::proof_nodes::verifier::VerifierNode;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProverCastExprNode<F, MvPCS, UvPCS>
@@ -30,7 +31,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }
@@ -93,7 +93,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

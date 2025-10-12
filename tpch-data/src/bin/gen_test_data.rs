@@ -2,8 +2,8 @@ use clap::Parser;
 use std::path::PathBuf;
 // Generate small test data at scale 0.01 into tpch-data/test-data
 // Note that the tables are further preprocessed as follows:
-// - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is set true
-//   for the existing rows
+// - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is
+//   set true for the existing rows
 // - The tables are padded by duplicating the last row until the total row count
 //   is a power of two; the appended rows have activator=false
 #[derive(Parser, Debug)]

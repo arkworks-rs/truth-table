@@ -1,10 +1,8 @@
 // Combined dbsnark-core/src/prover/nodes/exprs/grouping_set.rs and
 // dbsnark-core/src/verifier/nodes/exprs/grouping_set.rs
 
-use crate::proof_nodes::id::NodeId;
 use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -35,7 +33,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }
@@ -98,7 +95,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

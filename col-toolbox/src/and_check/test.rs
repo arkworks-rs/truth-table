@@ -125,7 +125,11 @@ fn and_check_test_helper<
     let res_activator_orcl = verifier.track_mv_com_by_id(activator_id)?;
     let in_activator_orcls = in_activator_tracked_polys
         .iter()
-        .map(|activator_tracked_poly| verifier.track_mv_com_by_id(activator_tracked_poly.id()).unwrap())
+        .map(|activator_tracked_poly| {
+            verifier
+                .track_mv_com_by_id(activator_tracked_poly.id())
+                .unwrap()
+        })
         .collect();
     let and_check_verifier_input = AndCheckVerifierInput {
         in_activator_orcls,

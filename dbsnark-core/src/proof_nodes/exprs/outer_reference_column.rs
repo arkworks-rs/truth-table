@@ -1,9 +1,8 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/outer_reference_column.rs and dbsnark-core/src/verifier/nodes/exprs/outer_reference_column.rs
+// Combined dbsnark-core/src/prover/nodes/exprs/outer_reference_column.rs and
+// dbsnark-core/src/verifier/nodes/exprs/outer_reference_column.rs
 
-use crate::proof_nodes::id::NodeId;
 use crate::{
-
-    proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -15,7 +14,6 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 use std::sync::Arc;
-
 
 #[derive(Clone)]
 pub struct ProverOuterReferenceColumnExprNode<F, MvPCS, UvPCS>
@@ -29,13 +27,13 @@ where
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverOuterReferenceColumnExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS>
+    for ProverOuterReferenceColumnExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }
@@ -99,7 +97,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-
     fn node_id(&self) -> NodeId {
         NodeId::Expr(self.relative_expr.clone())
     }

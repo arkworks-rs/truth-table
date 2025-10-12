@@ -3,8 +3,8 @@
 //! 1. On input column C of size $N=2^\mu$, the prover commits to a column C'
 //!    that contains the same active elements as C but random unique elements
 //!    for the non-active elements. NoDup for C' implies NoDup for C.
-//! 3. The prover and the verifier run a zerocheck on $activator(x)(c'(x)-c(x))=0$
-//!    for all $x\in \mathcal{H}_\mu$
+//! 3. The prover and the verifier run a zerocheck on
+//!    $activator(x)(c'(x)-c(x))=0$ for all $x\in \mathcal{H}_\mu$
 //! 4. The prover computes the univariate polynomial
 //!    $z(x)=\prod_{i=0}^{N-1}(x-c'_i)$
 //! 5. The prover computes the univariate derivative polynomial
@@ -125,21 +125,22 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ///////////////////// Compute the deduplicated polynomial /////////////////////
         // TODO: Make sure the randomness is provided safely
 
-        let dedup_mle = if let Some(activator_tracked_poly) = defraged_in_col.activator_tracked_poly() {
-            let mut rng = ark_std::test_rng();
-            let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
-            let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
-            let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                &(&dedup_tr_p - &defraged_in_col.data_tracked_poly()) * &activator_tracked_poly;
-            prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
-            dedup_mle
-        } else {
-            MLE::from_evaluations_vec(
-                defraged_in_col.log_size(),
-                defraged_in_col.data_tracked_poly().evaluations(),
-            )
-        };
+        let dedup_mle =
+            if let Some(activator_tracked_poly) = defraged_in_col.activator_tracked_poly() {
+                let mut rng = ark_std::test_rng();
+                let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
+                let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                    prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
+                let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                    &(&dedup_tr_p - &defraged_in_col.data_tracked_poly()) * &activator_tracked_poly;
+                prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
+                dedup_mle
+            } else {
+                MLE::from_evaluations_vec(
+                    defraged_in_col.log_size(),
+                    defraged_in_col.data_tracked_poly().evaluations(),
+                )
+            };
 
         ///////////// Compute the challenge /////////////////////
         let chall: F = prover.get_and_append_challenge(b"bezout")?;
@@ -222,10 +223,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .collect();
 
         ///////////////////// Deduplication check /////////////////////
-        if let Some(defraged_activator_tracked_col_oracle) = defraged_in_tracked_col_oracle.activator_tracked_oracle() {
+        if let Some(defraged_activator_tracked_col_oracle) =
+            defraged_in_tracked_col_oracle.activator_tracked_oracle()
+        {
             let dedup_cm_id = verifier.peek_next_id();
             let dedup_tr_cm = verifier.track_mv_com_by_id(dedup_cm_id)?;
-            let dedup_wit_tr_cm = &(&dedup_tr_cm - &defraged_in_tracked_col_oracle.data_tracked_oracle())
+            let dedup_wit_tr_cm = &(&dedup_tr_cm
+                - &defraged_in_tracked_col_oracle.data_tracked_oracle())
                 * &defraged_activator_tracked_col_oracle;
             verifier.add_zerocheck_claim(dedup_wit_tr_cm.id());
         }

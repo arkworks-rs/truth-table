@@ -1,4 +1,4 @@
-use std::{ fs::File, hash::Hash, io::BufReader};
+use std::{fs::File, hash::Hash, io::BufReader};
 
 use super::ProverTrackedTree;
 use crate::{

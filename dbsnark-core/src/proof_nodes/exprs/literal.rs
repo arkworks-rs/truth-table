@@ -1,11 +1,16 @@
 // Combined dbsnark-core/src/prover/nodes/exprs/literal.rs and
 // dbsnark-core/src/verifier/nodes/exprs/literal.rs
 
-use crate::proof_nodes::{
-    OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+use crate::{
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
+    prover::trees::piop_tree::ProverPIOPTree,
+    verifier::trees::piop_tree::VerifierPIOPTree,
 };
 use arithmetic::{
-    encoding::encode_arrow_array_to_field, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ctx::SharedCtx, encoding::encode_arrow_array_to_field, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -13,22 +18,28 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     prover::Prover,
+    verifier::Verifier,
 };
 use datafusion::{
-    arrow::datatypes::{Field, Schema},
+    arrow::datatypes::{Field, Schema, SchemaRef},
+    common::Statistics,
     logical_expr::Expr,
+    prelude::SessionContext,
 };
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
     pub node_id: NodeId,
+    pub parent_logical_plan: LogicalPlan,
 }
 
 #[derive(Clone)]
 pub struct VerifierLiteralExprNode {
     pub node_id: NodeId,
+    pub parent_logical_plan: LogicalPlan,
 }
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverLiteralExprNode
 where
@@ -45,36 +56,39 @@ where
     }
 
     fn from_expr(
-        _ctx: &datafusion::prelude::SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        _parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_logical_plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
+            parent_logical_plan,
         }
     }
 
-    fn cost(
-        &self,
-        _statistics: datafusion::common::Statistics,
-        _schema: datafusion::arrow::datatypes::SchemaRef,
-    ) -> ProvingCost {
+    fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
         let scalar = match &self.node_id {
             NodeId::Expr(Expr::Literal(value)) => value.clone(),
             _ => panic!("literal node expected literal expression"),
         };
+        let parent_table = piop_tree
+            .tracked_table(
+                &NodeId::LP(self.parent_logical_plan.clone()),
+                OUTPUT_PLAN_KEY,
+            )
+            .expect("table not found in PIOP tree");
 
         let array = scalar
             .to_array()
@@ -108,15 +122,15 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            0,
+            parent_table.log_size(),
         );
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }
@@ -137,28 +151,35 @@ where
     }
 
     fn from_expr(
-        _ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _ctx: &SessionContext,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        _parent_logical_plan: datafusion::logical_expr::LogicalPlan,
+        parent_logical_plan: LogicalPlan,
     ) -> Self
     where
         Self: Sized,
     {
         Self {
             node_id: NodeId::Expr(expr),
+            parent_logical_plan,
         }
     }
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) {
         let scalar = match &self.node_id {
             NodeId::Expr(Expr::Literal(value)) => value.clone(),
             _ => panic!("literal node expected literal expression"),
         };
+        let parent_table = piop_tree
+            .tracked_table_oracle(
+                &NodeId::LP(self.parent_logical_plan.clone()),
+                OUTPUT_PLAN_KEY,
+            )
+            .expect("table not found in PIOP tree");
 
         let array = scalar
             .to_array()
@@ -192,15 +213,15 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            0,
+            parent_table.log_size(),
         );
 
         piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Ok(())
     }

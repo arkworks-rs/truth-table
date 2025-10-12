@@ -1,4 +1,4 @@
-use std::{ hash::Hash};
+use std::hash::Hash;
 
 use crate::test_utils::test_df_plan;
 

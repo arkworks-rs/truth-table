@@ -38,3 +38,11 @@ fn proves_simple_lt_filter() {
         "lineitem",
     );
 }
+
+#[test]
+fn proves_simple_plus_lt_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey*2-l_orderkey",
+        "lineitem",
+    );
+}
