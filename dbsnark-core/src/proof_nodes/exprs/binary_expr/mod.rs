@@ -53,71 +53,6 @@ where
     pub right_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
-impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    fn requires_materialized_witness(op: Operator) -> bool {
-        matches!(
-            op,
-            Operator::Eq
-                | Operator::Lt
-                | Operator::Gt
-                | Operator::GtEq
-                | Operator::LtEq
-                | Operator::NotEq
-                | Operator::Or
-        )
-    }
-}
-
-impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    fn build_hint_generation_plans(
-        bin_expr: BinaryExpr,
-        parent_node_id: NodeId,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
-        if Self::requires_materialized_witness(bin_expr.op) {
-            let input_plan = match parent_node_id {
-                NodeId::LP(plan) => plan,
-                _ => panic!("expected parent node id to be a logical plan"),
-            };
-            let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
-            let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
-                .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
-                .unwrap()
-                .build()
-                .unwrap();
-            let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
-            let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
-
-            let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
-                .when(
-                    Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
-                    one.clone(),
-                )
-                .otherwise(zero.clone())
-                .unwrap()
-                .alias(OUTPUT_PLAN_KEY);
-
-            let plan = LogicalPlanBuilder::from(bool_plan)
-                .project(vec![selector, col(ACTIVATOR_COL_NAME)])
-                .unwrap()
-                .build()
-                .unwrap();
-
-            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), (plan, true))])
-        } else {
-            IndexMap::new()
-        }
-    }
-}
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
 where
@@ -149,12 +84,14 @@ where
             Expr::BinaryExpr(b) => b,
             _ => panic!("expected binary expression"),
         };
+
+        let node_id = NodeId::Expr(expr.clone());
         let left_expr = bin_expr.left.as_ref().clone();
         let left_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx.clone(),
             left_expr.clone(),
-            &parent_node_id.clone(),
+            &node_id.clone(),
         )
         .root();
         let right_expr = bin_expr.right.as_ref().clone();
@@ -162,12 +99,11 @@ where
             ctx,
             prover_ctx.clone(),
             right_expr.clone(),
-            &parent_node_id.clone(),
+            &node_id.clone(),
         )
         .root();
         let hint_generation_plans =
             Self::build_hint_generation_plans(bin_expr.clone(), parent_node_id.clone());
-        let node_id = NodeId::Expr(expr.clone());
 
         Self {
             node_id: node_id.clone(),
@@ -352,7 +288,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -370,52 +306,42 @@ where
                 | Operator::Or
         )
     }
-}
 
-impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
     fn build_hint_generation_plans(
         bin_expr: BinaryExpr,
         parent_node_id: NodeId,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        if Self::requires_materialized_witness(bin_expr.op) {
-            let input_plan = match parent_node_id.clone() {
-                // TODO: What if the parent was a NodeId::Expr?
-                NodeId::LP(plan) => plan,
-                _ => panic!("expected parent node id to be a logical plan"),
-            };
-            let bool_expr = Expr::BinaryExpr(bin_expr).alias(OUTPUT_PLAN_KEY);
-            let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
-                .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
-                .unwrap()
-                .build()
-                .unwrap();
-            let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
-            let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
+        let input_plan = match parent_node_id {
+            NodeId::LP(plan) => plan,
+            _ => panic!("expected parent node id to be a logical plan"),
+        };
+        let bool_expr = Expr::BinaryExpr(bin_expr.clone()).alias(OUTPUT_PLAN_KEY);
+        let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
+            .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
+            .unwrap()
+            .build()
+            .unwrap();
+        let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
+        let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
 
-            let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
-                .when(
-                    Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
-                    one.clone(),
-                )
-                .otherwise(zero.clone())
-                .unwrap()
-                .alias(OUTPUT_PLAN_KEY);
+        let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
+            .when(
+                Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
+                one.clone(),
+            )
+            .otherwise(zero.clone())
+            .unwrap()
+            .alias(OUTPUT_PLAN_KEY);
 
-            let plan = LogicalPlanBuilder::from(bool_plan)
-                .project(vec![selector, col(ACTIVATOR_COL_NAME)])
-                .unwrap()
-                .build()
-                .unwrap();
-
-            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), (plan, true))])
-        } else {
-            IndexMap::new()
-        }
+        let plan = LogicalPlanBuilder::from(bool_plan)
+            .project(vec![selector, col(ACTIVATOR_COL_NAME)])
+            .unwrap()
+            .build()
+            .unwrap();
+        IndexMap::from([(
+            String::from(OUTPUT_PLAN_KEY),
+            (plan, Self::requires_materialized_witness(bin_expr.op)),
+        )])
     }
 }
 
@@ -470,7 +396,7 @@ where
             Self::build_hint_generation_plans(bin_expr.clone(), parent_node_id.clone());
 
         Self {
-            node_id: NodeId::Expr(expr),
+            node_id,
             left_verifier_node,
             right_verifier_node,
             hint_generation_plans,
@@ -643,5 +569,63 @@ where
                 output_col_oracle: output_col,
             };
         BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)
+    }
+}
+
+impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn requires_materialized_witness(op: Operator) -> bool {
+        matches!(
+            op,
+            Operator::Eq
+                | Operator::Lt
+                | Operator::Gt
+                | Operator::GtEq
+                | Operator::LtEq
+                | Operator::NotEq
+                | Operator::Or
+        )
+    }
+    fn build_hint_generation_plans(
+        bin_expr: BinaryExpr,
+        parent_node_id: NodeId,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
+        let input_plan = match parent_node_id.clone() {
+            // TODO: What if the parent was a NodeId::Expr?
+            NodeId::LP(plan) => plan,
+            _ => panic!("expected parent node id to be a logical plan"),
+        };
+        let bool_expr = Expr::BinaryExpr(bin_expr.clone()).alias(OUTPUT_PLAN_KEY);
+        let bool_plan = LogicalPlanBuilder::from(input_plan.clone())
+            .project(vec![bool_expr.clone(), col(ACTIVATOR_COL_NAME)])
+            .unwrap()
+            .build()
+            .unwrap();
+        let one = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(1)));
+        let zero = Expr::Literal(datafusion::scalar::ScalarValue::Int64(Some(0)));
+
+        let selector = case(datafusion::prelude::col(OUTPUT_PLAN_KEY))
+            .when(
+                Expr::Literal(datafusion::scalar::ScalarValue::Boolean(Some(true))),
+                one.clone(),
+            )
+            .otherwise(zero.clone())
+            .unwrap()
+            .alias(OUTPUT_PLAN_KEY);
+
+        let plan = LogicalPlanBuilder::from(bool_plan)
+            .project(vec![selector, col(ACTIVATOR_COL_NAME)])
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(
+            String::from(OUTPUT_PLAN_KEY),
+            (plan, Self::requires_materialized_witness(bin_expr.op)),
+        )])
     }
 }

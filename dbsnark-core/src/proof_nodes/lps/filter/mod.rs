@@ -102,12 +102,12 @@ where
         .root();
 
         // Fetching the output logical plan of the input logical plan
-        let input_output_plan =
+        let child_output_plan =
             output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_prover_node).unwrap();
 
         // Build the output logical plan for this filter node
         let output_plan =
-            build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
+            build_output_logical_plan(filter.predicate.clone(), child_output_plan.clone());
         let hint_generation_plans =
             IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
         // The predicate is an expr and needs to be proved
