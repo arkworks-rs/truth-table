@@ -12,6 +12,8 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
+use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -33,14 +35,14 @@ where
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
-    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
     fn from_lp(
-        ctx: &datafusion::prelude::SessionContext,
+        ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: datafusion::logical_expr::LogicalPlan,
+        plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
@@ -51,18 +53,6 @@ where
 
     fn node_id(&self) -> NodeId {
         todo!()
-    }
-
-    fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -118,14 +108,14 @@ where
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
-    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
     fn from_lp(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: datafusion::logical_expr::LogicalPlan,
+        ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
@@ -136,18 +126,6 @@ where
 
     fn node_id(&self) -> NodeId {
         todo!()
-    }
-
-    fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

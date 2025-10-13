@@ -1,6 +1,6 @@
 use datafusion::{
     error::{Result, Result as DFResult},
-    logical_expr::LogicalPlan,
+    logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
 use tpch_data::test_data_path;
@@ -93,8 +93,12 @@ pub mod helper {
             bench_prelude::<F, MvPCS, UvPCS>().expect("prepare prover and verifier");
 
         let prover_ctx = SharedCtx::default();
-        let proof_tree =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx.clone(), &logical_plan, &NodeId::None);
+        let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            &ctx,
+            prover_ctx.clone(),
+            &logical_plan,
+            &NodeId::None,
+        );
         let hint_tree = runtime
             .block_on(ProverHintTree::from_proof_tree(&ctx, proof_tree.clone()))
             .expect("build prover hint tree");
@@ -151,8 +155,12 @@ pub mod helper {
         let verifier_ctx = SharedCtx::new(table_oracle_map);
 
         verifier.set_proof(proof);
-        let verifier_proof_tree =
-            VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan, &NodeId::None);
+        let verifier_proof_tree = VerifierProofTree::from_lp(
+            &ctx,
+            verifier_ctx.clone(),
+            &logical_plan,
+            &NodeId::None,
+        );
         let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
             verifier_proof_tree.clone(),
             verifier_ctx.clone(),

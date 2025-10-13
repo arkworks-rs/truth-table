@@ -13,6 +13,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -36,14 +37,14 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 
     fn from_lp(
         ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: df::LogicalPlan,
+        plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
@@ -111,7 +112,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 

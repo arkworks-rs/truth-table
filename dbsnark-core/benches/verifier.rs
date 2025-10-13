@@ -14,7 +14,7 @@ use ark_piop::{
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
-    logical_expr::LogicalPlan,
+    logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::{
@@ -29,7 +29,6 @@ use dbsnark_core::{
     },
 };
 use tokio::runtime::Runtime;
-
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
@@ -78,7 +77,6 @@ const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
         sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         tables: &["lineitem"],
     },
-
 ];
 
 struct CommonInputs {
@@ -204,8 +202,12 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
             } = inputs;
             let mut verifier = verifier_template.clone();
             verifier.set_proof(proof);
-            let verifier_proof_tree =
-                VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan, &NodeId::None);
+            let verifier_proof_tree = VerifierProofTree::from_lp(
+                &ctx,
+                shared_ctx.clone(),
+                &logical_plan,
+                &NodeId::None,
+            );
             let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
                 verifier_proof_tree.clone(),
                 shared_ctx,

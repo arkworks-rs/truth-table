@@ -2,10 +2,12 @@ use std::{fs::File, hash::Hash, io::BufReader};
 
 use super::ProverTrackedTree;
 use crate::{
-    proof_nodes::id::NodeId, prover::trees::{
+    proof_nodes::id::NodeId,
+    prover::trees::{
         hint_tree::ProverHintTree, proof_tree::ProverProofTree,
         tracked_tree::ProverArithmetizedTree,
-    }, test_utils::test_df_plan
+    },
+    test_utils::test_df_plan,
 };
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
@@ -20,6 +22,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{ParquetReadOptions, SessionContext},
 };
+use datafusion_expr::LogicalPlanBuilder;
 use indexmap::IndexMap;
 use tpch_data::test_data_path;
 type F = Fr;

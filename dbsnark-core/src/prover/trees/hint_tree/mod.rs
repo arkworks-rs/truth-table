@@ -175,10 +175,11 @@ where
 
         for node in &nodes {
             let trees = node.hint_generation_plans();
-            for (label, tree) in trees {
-                let ctx = ctx.clone();
-                let node = Arc::clone(node);
-                futures.push(
+            for (label, (tree, should_materialize)) in trees {
+                if should_materialize {
+                    let ctx = ctx.clone();
+                    let node = Arc::clone(node);
+                    futures.push(
                     async move {
                         // Optimize and materialize the hint plan tied to this
                         // node/label pair.
@@ -220,6 +221,7 @@ where
                     }
                     .boxed(),
                 );
+                }
             }
         }
 

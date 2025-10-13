@@ -1,9 +1,11 @@
 use super::ProverPIOPTree;
 use crate::{
-    proof_nodes::id::NodeId, prover::trees::{
+    proof_nodes::id::NodeId,
+    prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
-    }, test_utils::test_df_plan
+    },
+    test_utils::test_df_plan,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_piop::{
@@ -12,7 +14,9 @@ use ark_piop::{
     test_utils::test_prelude,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{error::Result as DFResult, prelude::SessionContext};
+use datafusion::{
+    error::Result as DFResult, logical_expr::LogicalPlanBuilder, prelude::SessionContext,
+};
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;

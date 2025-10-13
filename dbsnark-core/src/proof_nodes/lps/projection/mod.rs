@@ -20,7 +20,7 @@ use datafusion::{
     logical_expr::{
         LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder, expr_rewriter::normalize_cols,
     },
-    prelude::{SessionContext, col},
+    prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -34,10 +34,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub expr_proof_plans: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
-    pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub expr_prover_nodes: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 pub struct VerifierProjectionNode<F, MvPCS, UvPCS>
 where
@@ -45,10 +45,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub expr_proof_plans: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub input_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub expr_verifier_nodes: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
 where
@@ -57,9 +57,9 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
-        children.push(&self.input_proof_plan);
-        for expr_plan in &self.expr_proof_plans {
+        let mut children = Vec::with_capacity(1 + self.expr_prover_nodes.len());
+        children.push(&self.input_prover_node);
+        for expr_plan in &self.expr_prover_nodes {
             children.push(expr_plan);
         }
         children
@@ -69,7 +69,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -77,38 +77,38 @@ where
         ctx: &SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
+        // Get the projection object from the logical plan
         let projection = match &plan {
             Projection(p) => p,
             _ => panic!("expected projection logical plan"),
         };
-
+        // Build the node id for this projection node
         let node_id = NodeId::LP(plan.clone());
 
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
-        let input_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &projection.input,
             &node_id,
-        );
-        let input_proof_plan = input_tree.root();
-        let child_output_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
+        )
+        .root();
+        let input_output_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_prover_node)
             .unwrap_or_else(|| (*projection.input).clone());
 
         // Normalize the projection expressions against the child plan.
-        let normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
+        let normalized_exprs = normalize_cols(projection.expr.clone(), &input_output_plan)
             .expect("failed to normalize projection expressions");
-        let original_exprs = normalized_exprs.clone();
 
         // Build expression proof plans for the projection expressions (excluding the
         // retained activator).
-        let expr_proof_plans = original_exprs
+        let expr_prover_nodes = normalized_exprs
             .into_iter()
             .map(|expr| {
                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
@@ -117,6 +117,7 @@ where
                     expr,
                     &node_id,
                 )
+                .root()
             })
             .collect();
 
@@ -124,8 +125,8 @@ where
         let hint_generation_plans = IndexMap::new();
 
         Self {
-            expr_proof_plans,
-            input_proof_plan,
+            expr_prover_nodes,
+            input_prover_node,
             node_id,
             hint_generation_plans,
         }
@@ -148,12 +149,12 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        if self.expr_proof_plans.is_empty() {
+        if self.expr_prover_nodes.is_empty() {
             return;
         }
 
         let expr_tables: Option<Vec<_>> = self
-            .expr_proof_plans
+            .expr_prover_nodes
             .iter()
             .map(|plan| piop_tree.tracked_table(&plan.node_id(), OUTPUT_PLAN_KEY))
             .collect();
@@ -186,7 +187,7 @@ where
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
-                    .tracked_table(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
                     .and_then(|table| {
                         table
                             .tracked_polys()
@@ -222,9 +223,9 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        let mut children = Vec::with_capacity(1 + self.expr_proof_plans.len());
-        children.push(&self.input_proof_plan);
-        for expr_plan in &self.expr_proof_plans {
+        let mut children = Vec::with_capacity(1 + self.expr_verifier_nodes.len());
+        children.push(&self.input_verifier_node);
+        for expr_plan in &self.expr_verifier_nodes {
             children.push(expr_plan);
         }
         children
@@ -234,7 +235,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -242,50 +243,38 @@ where
         ctx: &SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
+        // Get the projection object from the logical plan
         let projection = match &plan {
             Projection(p) => p,
             _ => panic!("expected projection logical plan"),
         };
+        // Build the node id for this projection node
+
         let node_id = NodeId::LP(plan.clone());
 
-        // // Recurse into the input subtree and fetch the logical plan that
-        // feeds this // projection.
-        let input_tree = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+        // Recurse into the input subtree and fetch the logical plan that feeds this
+        // projection.
+        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &projection.input,
-            &parent_node_id,
-        );
-        let input_proof_plan = input_tree.root();
-        let child_output_plan = output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan)
-            .unwrap_or_else(|| (*projection.input).clone());
+            &node_id,
+        )
+        .root();
+        let child_output_plan =
+            output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_verifier_node)
+                .unwrap_or_else(|| (*projection.input).clone());
 
-        // // Normalize the projection expressions against the child plan.
-        let mut normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan)
-            .expect(
-                "failed to normalize
+        // Normalize the projection expressions against the child plan.
+        let normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan).expect(
+            "failed to normalize
         projection expressions",
-            );
-        let original_exprs = normalized_exprs.clone();
-
-        // // Ensure the activator column is preserved in the output.
-        let activator_present = projection
-            .schema
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok();
-        if !activator_present {
-            let mut activator_expr =
-                normalize_cols(vec![col(ACTIVATOR_COL_NAME)], &child_output_plan).expect(
-                    "failed to normalize
-        activator column",
-                );
-            normalized_exprs.push(activator_expr.pop().expect("missing activator expression"));
-        }
+        );
 
         let output_plan = LogicalPlanBuilder::from(child_output_plan.clone())
             .project(normalized_exprs.clone())
@@ -295,7 +284,7 @@ where
 
         // Build expression proof plans for the projection expressions (excluding the //
         // retained activator).
-        let expr_proof_plans = original_exprs
+        let expr_verifier_nodes = normalized_exprs
             .into_iter()
             .map(|expr| {
                 VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
@@ -304,14 +293,15 @@ where
                     expr,
                     &NodeId::LP(output_plan.clone()),
                 )
+                .root()
             })
             .collect();
 
         let hint_generation_plans = IndexMap::new();
 
         Self {
-            expr_proof_plans,
-            input_proof_plan,
+            expr_verifier_nodes,
+            input_verifier_node,
             node_id,
             hint_generation_plans,
         }
@@ -333,12 +323,12 @@ where
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        if self.expr_proof_plans.is_empty() {
+        if self.expr_verifier_nodes.is_empty() {
             return;
         }
 
         let expr_tables: Option<Vec<_>> = self
-            .expr_proof_plans
+            .expr_verifier_nodes
             .iter()
             .map(|plan| piop_tree.tracked_table_oracle(&plan.node_id(), OUTPUT_PLAN_KEY))
             .collect();
@@ -373,7 +363,7 @@ where
             .map(|(field, poly)| (field.clone(), poly.clone()))
             .or_else(|| {
                 piop_tree
-                    .tracked_table_oracle(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .and_then(|table| {
                         table
                             .tracked_oracles()

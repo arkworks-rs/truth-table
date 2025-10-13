@@ -8,7 +8,7 @@ use std::{
     io::BufReader,
     sync::{Mutex, OnceLock},
 };
-
+use datafusion::logical_expr::LogicalPlanBuilder;
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},

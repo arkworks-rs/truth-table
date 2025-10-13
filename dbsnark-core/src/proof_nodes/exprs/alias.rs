@@ -1,6 +1,3 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/alias.rs and
-// dbsnark-core/src/verifier/nodes/exprs/alias.rs
-
 use crate::{
     proof_nodes::{
         OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
@@ -50,7 +47,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -59,15 +56,17 @@ where
             Expr::Alias(alias) => alias,
             _ => panic!("expected alias expression"),
         };
+        let node_id = NodeId::Expr(expr.clone());
         let input_expr = (*alias.expr).clone();
         let child = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx,
             input_expr,
-            &parent_node_id,
-        );
+            &node_id.clone(),
+        )
+        .root();
         Self {
-            node_id: NodeId::Expr(expr),
+            node_id,
             inputs: vec![child],
         }
     }
@@ -127,10 +126,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,

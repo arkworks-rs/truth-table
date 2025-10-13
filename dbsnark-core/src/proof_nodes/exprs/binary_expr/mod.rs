@@ -1,6 +1,3 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/binary_expr.rs and
-// dbsnark-core/src/verifier/nodes/exprs/binary_expr.rs
-
 use crate::{
     proof_nodes::{
         OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
@@ -40,11 +37,22 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub node_id: NodeId,
-    pub left_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub right_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub left_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub right_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
-
+#[derive(Clone)]
+pub struct VerifierBinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub node_id: NodeId,
+    pub left_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub right_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+}
 impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -71,10 +79,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn build_witness_plans(
+    fn build_hint_generation_plans(
         bin_expr: BinaryExpr,
         parent_node_id: NodeId,
-    ) -> IndexMap<String, LogicalPlan> {
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         if Self::requires_materialized_witness(bin_expr.op) {
             let input_plan = match parent_node_id {
                 NodeId::LP(plan) => plan,
@@ -104,7 +112,7 @@ where
                 .build()
                 .unwrap();
 
-            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), plan)])
+            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), (plan, true))])
         } else {
             IndexMap::new()
         }
@@ -122,9 +130,9 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        vec![&self.left_proof_plan, &self.right_proof_plan]
+        vec![&self.left_prover_node, &self.right_prover_node]
     }
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -142,26 +150,29 @@ where
             _ => panic!("expected binary expression"),
         };
         let left_expr = bin_expr.left.as_ref().clone();
+        let left_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            left_expr.clone(),
+            &parent_node_id.clone(),
+        )
+        .root();
         let right_expr = bin_expr.right.as_ref().clone();
-
+        let right_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            right_expr.clone(),
+            &parent_node_id.clone(),
+        )
+        .root();
         let hint_generation_plans =
-            Self::build_witness_plans(bin_expr.clone(), parent_node_id.clone());
+            Self::build_hint_generation_plans(bin_expr.clone(), parent_node_id.clone());
         let node_id = NodeId::Expr(expr.clone());
 
         Self {
             node_id: node_id.clone(),
-            left_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                ctx,
-                prover_ctx.clone(),
-                left_expr,
-                &node_id.clone(),
-            ),
-            right_proof_plan: ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                ctx,
-                prover_ctx,
-                right_expr,
-                &node_id.clone(),
-            ),
+            left_prover_node,
+            right_prover_node,
             hint_generation_plans,
         }
     }
@@ -182,16 +193,16 @@ where
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
                 let log_size = piop_tree
-                    .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .log_size();
                 let left_col = piop_tree
-                    .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_by_ind(0)
                     .clone();
                 let right_col = piop_tree
-                    .tracked_table(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table(&self.right_prover_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_by_ind(0)
                     .clone();
@@ -303,12 +314,12 @@ where
             _ => panic!("expected binary expression"),
         };
         let left_col = piop_tree
-            .tracked_table(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0)
             .clone();
         let right_col = piop_tree
-            .tracked_table(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table(&self.right_prover_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0)
             .clone();
@@ -341,19 +352,6 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct VerifierBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    pub node_id: NodeId,
-    pub left_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub right_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
-}
-
 impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -380,13 +378,13 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn build_witness_plans(
+    fn build_hint_generation_plans(
         bin_expr: BinaryExpr,
         parent_node_id: NodeId,
-    ) -> IndexMap<String, LogicalPlan> {
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         if Self::requires_materialized_witness(bin_expr.op) {
             let input_plan = match parent_node_id.clone() {
-                //TODO: What if the parent was a NodeId::Expr?
+                // TODO: What if the parent was a NodeId::Expr?
                 NodeId::LP(plan) => plan,
                 _ => panic!("expected parent node id to be a logical plan"),
             };
@@ -414,7 +412,7 @@ where
                 .build()
                 .unwrap();
 
-            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), plan)])
+            IndexMap::from([(String::from(OUTPUT_PLAN_KEY), (plan, true))])
         } else {
             IndexMap::new()
         }
@@ -432,9 +430,9 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        vec![&self.left_proof_plan, &self.right_proof_plan]
+        vec![&self.left_verifier_node, &self.right_verifier_node]
     }
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -453,25 +451,28 @@ where
         };
         let node_id = NodeId::Expr(expr.clone());
         let left_expr = bin_expr.left.as_ref().clone();
+        let left_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            left_expr.clone(),
+            &node_id.clone(),
+        )
+        .root();
         let right_expr = bin_expr.right.as_ref().clone();
-
+        let right_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            right_expr.clone(),
+            &node_id.clone(),
+        )
+        .root();
         let hint_generation_plans =
-            Self::build_witness_plans(bin_expr.clone(), parent_node_id.clone());
+            Self::build_hint_generation_plans(bin_expr.clone(), parent_node_id.clone());
 
         Self {
             node_id: NodeId::Expr(expr),
-            left_proof_plan: VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-                ctx,
-                prover_ctx.clone(),
-                left_expr,
-                &node_id.clone(),
-            ),
-            right_proof_plan: VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-                ctx,
-                prover_ctx,
-                right_expr,
-                &node_id.clone(),
-            ),
+            left_verifier_node,
+            right_verifier_node,
             hint_generation_plans,
         }
     }
@@ -484,16 +485,16 @@ where
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
             if !Self::requires_materialized_witness(bin_expr.op) {
                 let log_size = piop_tree
-                    .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .log_size();
                 let left_col = piop_tree
-                    .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
                 let right_col = piop_tree
-                    .tracked_table_oracle(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+                    .tracked_table_oracle(&self.right_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
@@ -607,12 +608,12 @@ where
             _ => panic!("expected binary expression"),
         };
         let left_col = piop_tree
-            .tracked_table_oracle(&self.left_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0)
             .clone();
         let right_col = piop_tree
-            .tracked_table_oracle(&self.right_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.right_verifier_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0)
             .clone();

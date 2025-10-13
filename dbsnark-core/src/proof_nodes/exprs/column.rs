@@ -22,7 +22,6 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
-
 #[derive(Clone)]
 pub struct ProverColumnExprNode {
     pub parent_node_id: NodeId,

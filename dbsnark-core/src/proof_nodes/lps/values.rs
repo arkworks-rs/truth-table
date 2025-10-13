@@ -13,6 +13,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -28,14 +29,14 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 
     fn from_lp(
         ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: datafusion::logical_expr::LogicalPlan,
+        plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
@@ -48,17 +49,7 @@ where
         todo!()
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
+
     fn cost(
         &self,
         _statistics: datafusion::common::Statistics,
@@ -95,14 +86,14 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, datafusion::logical_expr::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 
     fn from_lp(
         ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: datafusion::logical_expr::LogicalPlan,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
@@ -114,19 +105,6 @@ where
     fn node_id(&self) -> NodeId {
         todo!()
     }
-
-    fn from_expr(
-        ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: datafusion::prelude::Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        std::unimplemented!()
-    }
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,

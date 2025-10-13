@@ -61,7 +61,6 @@ where
             _ => panic!("expected aggregate function expression"),
         };
         let node_id = NodeId::Expr(expr.clone());
-
         let inputs = aggregate_expr
             .params
             .args
@@ -72,7 +71,7 @@ where
                     prover_ctx.clone(),
                     arg.clone(),
                     &node_id,
-                )
+                ).root()
             })
             .collect();
 
@@ -163,10 +162,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,

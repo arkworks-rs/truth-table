@@ -24,12 +24,12 @@ use std::sync::Arc;
 pub struct ProverTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 pub struct VerifierTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 // TODO: Add the table scan output comitments (the root ones) in the prover
@@ -41,7 +41,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        _ctx: &SessionContext,
+        ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
@@ -51,7 +51,7 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), plan.clone());
+        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), (plan.clone(), true));
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -67,7 +67,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -110,7 +110,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        _ctx: &SessionContext,
+        ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
@@ -120,7 +120,7 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), plan.clone());
+        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), (plan.clone(), true));
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -136,7 +136,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 

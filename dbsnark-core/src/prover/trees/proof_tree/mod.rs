@@ -113,54 +113,67 @@ where
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_node_id: &NodeId,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
+    ) -> Self
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         match expr.clone() {
-            Expr::Alias(_) => Arc::new(<ProverAliasExprNode<F, MvPCS, UvPCS> as ProverNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, prover_ctx.clone(), expr, parent_node_id.clone()
-            )),
-            Expr::Column(_) => Arc::new(
-                <ProverColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr,
-                    parent_node_id.clone(),
-                ),
+            Expr::Alias(_) => Self::new(
+                Arc::new(<ProverAliasExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, prover_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                prover_ctx,
             ),
-            Expr::Literal(_) => Arc::new(
-                <ProverLiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr,
-                    parent_node_id.clone(),
+            Expr::Column(_) => Self::new(
+                Arc::new(
+                    <ProverColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        prover_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
                 ),
+                prover_ctx,
             ),
-            Expr::BinaryExpr(_) => {
+            Expr::Literal(_) => Self::new(
+                Arc::new(
+                    <ProverLiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        prover_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
+                ),
+                prover_ctx,
+            ),
+            Expr::BinaryExpr(_) => Self::new(
                 Arc::new(<ProverBinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
                     F,
                     MvPCS,
                     UvPCS,
                 >>::from_expr(
-                    ctx, prover_ctx, expr, parent_node_id.clone()
-                ))
-            },
-            Expr::AggregateFunction(_) => {
+                    ctx, prover_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                prover_ctx,
+            ),
+            Expr::AggregateFunction(_) => Self::new(
                 Arc::new(
                     <ProverAggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
                         F,
                         MvPCS,
                         UvPCS,
-                    >>::from_expr(ctx, prover_ctx, expr, parent_node_id.clone()),
-                )
-            },
+                    >>::from_expr(
+                        ctx, prover_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                prover_ctx,
+            ),
             _ => todo!(),
         }
     }
@@ -194,7 +207,10 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
                 )),
                 prover_ctx,
             ),
@@ -204,7 +220,10 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
                 )),
                 prover_ctx,
             ),
@@ -215,7 +234,10 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, prover_ctx.clone(), plan.clone(), parent_node_id.clone()
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
                 )),
                 prover_ctx,
             ),

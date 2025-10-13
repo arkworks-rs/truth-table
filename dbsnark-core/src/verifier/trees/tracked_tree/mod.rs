@@ -189,7 +189,7 @@ where
             let schema_map: IndexMap<String, DFSchemaRef> = node
                 .hint_generation_plans()
                 .into_iter()
-                .map(|(label, plan)| (label, Arc::clone(plan.schema())))
+                .map(|(label, (plan, _should_materialize))| (label, Arc::clone(plan.schema())))
                 .collect();
             ordered_infos.push((node_id, is_table_scan, schema_map));
         }

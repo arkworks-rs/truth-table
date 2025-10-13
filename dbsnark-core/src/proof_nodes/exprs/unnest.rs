@@ -1,18 +1,19 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/unnest.rs and
-// dbsnark-core/src/verifier/nodes/exprs/unnest.rs
-
 use crate::{
     proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::logical_expr::Expr;
+use datafusion::{
+    logical_expr::{Expr, LogicalPlan},
+    prelude::SessionContext,
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -42,10 +43,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -104,10 +105,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,

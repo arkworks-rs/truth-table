@@ -10,6 +10,7 @@ use ark_piop::{
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlanBuilder;
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
@@ -32,6 +33,11 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();
     let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan,&NodeId::None);
+        ProverProofTree::from_lp(
+            &ctx,
+            prover_ctx,
+            &plan,
+            &NodeId::None,
+        );
     println!("{}", proof_tree.display_graphviz());
 }

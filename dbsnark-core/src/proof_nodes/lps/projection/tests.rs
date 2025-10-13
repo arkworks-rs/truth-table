@@ -1,7 +1,7 @@
 use crate::test_utils::helper::prove_and_verify_query;
 
 #[test]
-fn proves_simple_projection() {
+fn prove_projection() {
     prove_and_verify_query("SELECT l_partkey FROM lineitem", "lineitem");
 }
 

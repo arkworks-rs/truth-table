@@ -1,10 +1,13 @@
 use std::{fs::File, io::BufReader, time::Instant};
 
 use crate::{
-    proof_nodes::id::NodeId, prover::trees::{
+    proof_nodes::id::NodeId,
+    prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
-    }, test_utils::test_df_plan, verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree}
+    },
+    test_utils::test_df_plan,
+    verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree},
 };
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
@@ -14,6 +17,7 @@ use ark_piop::{
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlanBuilder;
 use indexmap::IndexMap;
 use tpch_data::test_data_path;
 
@@ -58,7 +62,12 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let verifier_ctx = shared_ctx.clone();
 
     let prover_start = Instant::now();
-    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
+    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        &ctx,
+        prover_ctx,
+        &plan,
+        &NodeId::None,
+    );
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
         .await
         .expect("hint tree");
@@ -76,6 +85,11 @@ async fn display_graphviz_for(table: &str, query: &str) {
     println!("Prover pipeline completed in {:?}", prover_start.elapsed());
 
     verifier.set_proof(proof);
-    let verifier_proof_tree = VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan, &NodeId::None);
+    let verifier_proof_tree = VerifierProofTree::from_lp(
+        &ctx,
+        verifier_ctx,
+        &plan,
+        &NodeId::None,
+    );
     println!("{}", verifier_proof_tree.display_graphviz());
 }

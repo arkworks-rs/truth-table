@@ -92,7 +92,7 @@ where
     /// Note that if your column can be generated from other columns, It doesn't
     /// need to be materialized and should be added to the 'add_virtual_witness'
     /// function.
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         IndexMap::new()
     }
 
@@ -137,7 +137,7 @@ where
 {
     node.hint_generation_plans()
         .into_iter()
-        .find_map(|(label, plan)| {
+        .find_map(|(label, (plan, _should_materialize))| {
             if label == OUTPUT_PLAN_KEY {
                 Some(plan)
             } else {

@@ -29,7 +29,7 @@ where
     pub fetch: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, df::LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverLimitNode<F, MvPCS, UvPCS>
@@ -46,7 +46,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -107,7 +107,7 @@ where
     pub fetch: Option<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, df::LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierLimitNode<F, MvPCS, UvPCS>
@@ -124,13 +124,13 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, df::LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
     fn from_lp(
         ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self

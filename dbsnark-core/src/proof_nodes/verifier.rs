@@ -63,7 +63,7 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         IndexMap::new()
     }
 
@@ -104,7 +104,7 @@ where
 {
     node.hint_generation_plans()
         .into_iter()
-        .find_map(|(label, plan)| {
+        .find_map(|(label, (plan, _should_materialize))| {
             if label == OUTPUT_PLAN_KEY {
                 Some(plan)
             } else {

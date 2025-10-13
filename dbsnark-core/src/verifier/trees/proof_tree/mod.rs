@@ -109,43 +109,61 @@ where
         verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
         parent_node_id: &NodeId,
-    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>
+    ) -> Self
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         match expr.clone() {
-            Expr::Alias(_) => Arc::new(<VerifierAliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
-            )),
-            Expr::Column(_) => Arc::new(<VerifierColumnExprNode as VerifierNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
-            )),
-            Expr::Literal(_) => Arc::new(<VerifierLiteralExprNode as VerifierNode<
-                F,
-                MvPCS,
-                UvPCS,
-            >>::from_expr(
-                ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
-            )),
-            Expr::BinaryExpr(_) => {
+            Expr::Alias(_) => Self::new(
+                Arc::new(<VerifierAliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr,
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
+            Expr::Column(_) => Self::new(
+                Arc::new(
+                    <VerifierColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::Literal(_) => Self::new(
+                Arc::new(
+                    <VerifierLiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::BinaryExpr(_) => Self::new(
                 Arc::new(<VerifierBinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
                     UvPCS,
                 >>::from_expr(
-                    ctx, verifier_ctx, expr, parent_node_id.clone()
-                ))
-            },
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr,
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
             _ => todo!(),
         }
     }
@@ -190,7 +208,10 @@ where
                     MvPCS,
                     UvPCS,
                 >>::from_lp(
-                    ctx, verifier_ctx.clone(), plan.clone(), parent_node_id.clone()
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
                 )),
                 verifier_ctx,
             ),

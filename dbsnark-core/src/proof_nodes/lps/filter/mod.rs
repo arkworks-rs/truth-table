@@ -29,33 +29,45 @@ use indexmap::IndexMap;
 use ra_toolbox::lp_piop::filter_check::{
     FilterPIOP, FilterPIOPProverInput, FilterPIOPVerifierInput,
 };
-use std::sync::Arc;
+use std::{hint, sync::Arc};
 
 #[cfg(test)]
 mod tests;
 
+/// The implementation of a filter node in the prover proof tree.
 pub struct ProverFilterNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub predicate_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub input_proof_plan: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    /// Child proof plan for the filter predicate expression.
+    pub predicate_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    /// Child proof plan for the input logical plan to be filtered.
+    pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    /// The unique identifier for this node.
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    /// Plans for generating hints needed by this node. Note that filter does
+    /// not materialize any hints
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
+/// The implementation of a filter node in the verification proof tree.
 pub struct VerifierFilterNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub predicate_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub input_proof_plan: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    /// Child proof plan for the filter predicate expression.
+    pub predicate_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    /// Child proof plan for the input logical plan to be filtered.
+    pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    /// The unique identifier for this node.
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    /// Plans for generating hints needed by this node. Note that filter does
+    /// not materialize any hints
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
@@ -73,51 +85,56 @@ where
     where
         Self: Sized,
     {
-        // Match only on filter logical plan
+        // Get the inner filter object
         let filter = match &plan {
             df::LogicalPlan::Filter(f) => f,
             _ => panic!("expected filter logical plan"),
         };
+        // Build the node id for this filter node
         let node_id = NodeId::LP(plan.clone());
-
-        // The input is itself a logical plan and needs to be proved, so we call from_lp
-        // recursively
-        let input_proof_plan = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        // Recursively build the prover proof node for the input logical plan
+        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &filter.input,
             &node_id,
-        );
+        )
+        .root();
+
         // Fetching the output logical plan of the input logical plan
-        let child_plan =
-            output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
-        // Build the output logical plan for this filter node on top of the child output
-        // logical plan
-        let output_plan = build_output_logical_plan(filter.predicate.clone(), child_plan);
+        let input_output_plan =
+            output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_prover_node).unwrap();
+
+        // Build the output logical plan for this filter node
+        let output_plan =
+            build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
+        let hint_generation_plans =
+            IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
         // The predicate is an expr and needs to be proved
-        let predicate_proof_plan = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+        let predicate_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx,
             filter.predicate.clone(),
-            &NodeId::LP(output_plan),
-        );
+            &node_id.clone(),
+        )
+        .root();
         // Building the witness generation plans map
         Self {
-            predicate_proof_plan,
-            input_proof_plan: input_proof_plan.root(),
+            predicate_prover_node,
+            input_prover_node,
             node_id,
-            hint_generation_plans: IndexMap::new(),
+            hint_generation_plans,
         }
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        vec![&self.input_proof_plan, &self.predicate_proof_plan]
+        vec![&self.input_prover_node, &self.predicate_prover_node]
     }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -136,13 +153,13 @@ where
     ) {
         // Fetch the input tracked_table
         let input_table =
-            match piop_tree.tracked_table(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY) {
+            match piop_tree.tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY) {
                 Some(table) => table,
                 None => return,
             };
         // Fetch the predicate tracked_table
         let predicate_table =
-            match piop_tree.tracked_table(&self.predicate_proof_plan.node_id(), OUTPUT_PLAN_KEY) {
+            match piop_tree.tracked_table(&self.predicate_prover_node.node_id(), OUTPUT_PLAN_KEY) {
                 Some(table) => table,
                 None => return,
             };
@@ -234,55 +251,59 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
-        // Match only on filter logical plan
+        // Get the inner filter object
         let filter = match &plan {
             df::LogicalPlan::Filter(f) => f,
             _ => panic!("expected filter logical plan"),
         };
+        // Build the node id for this filter node
         let node_id = NodeId::LP(plan.clone());
-
-        // The input is itself a logical plan and needs to be proved
-        let input_proof_plan = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+        // Recursively build the prover proof node for the input logical plan
+        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &filter.input,
             &node_id,
-        );
+        )
+        .root();
         // Fetching the output logical plan of the input logical plan
-        let child_plan =
-            output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_proof_plan.root()).unwrap();
-        // Build the output logical plan for this filter node on top of the child output
-        // logical plan
-        let output_plan = build_output_logical_plan(filter.predicate.clone(), child_plan);
+        let input_output_plan =
+            output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_verifier_node).unwrap();
+        // Build the output logical plan for this filter node
+
+        let output_plan = build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
+        let hint_generation_plans =
+            IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
+
         // The predicate is an expr and needs to be proved
-        let predicate_proof_plan = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+        let predicate_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx,
             filter.predicate.clone(),
-            &NodeId::LP(output_plan),
-        );
+            &node_id,
+        ).root();
         // Building the witness generation plans map
         Self {
-            predicate_proof_plan,
-            input_proof_plan: input_proof_plan.root(),
+            predicate_verifier_node,
+            input_verifier_node,
             node_id,
-            hint_generation_plans: IndexMap::new(),
+            hint_generation_plans,
         }
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        vec![&self.input_proof_plan, &self.predicate_proof_plan]
+        vec![&self.input_verifier_node, &self.predicate_verifier_node]
     }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -304,14 +325,14 @@ where
     ) {
         // Fetch the input tracked_table
         let input_table = match piop_tree
-            .tracked_table_oracle(&self.input_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
         {
             Some(table) => table,
             None => return,
         };
         // Fetch the predicate tracked_table
         let predicate_table = match piop_tree
-            .tracked_table_oracle(&self.predicate_proof_plan.node_id(), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.predicate_verifier_node.node_id(), OUTPUT_PLAN_KEY)
         {
             Some(table) => table,
             None => return,

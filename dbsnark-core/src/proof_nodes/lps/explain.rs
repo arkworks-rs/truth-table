@@ -48,7 +48,7 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
@@ -109,7 +109,7 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
@@ -123,14 +123,13 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
     fn node_id(&self) -> NodeId {
         todo!()
     }
-
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {

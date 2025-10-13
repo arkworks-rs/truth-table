@@ -23,12 +23,11 @@ use ark_piop::{
 use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
     common::Statistics,
-    logical_expr::Expr,
+    logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
-
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
     pub node_id: NodeId,
@@ -82,12 +81,6 @@ where
             NodeId::Expr(Expr::Literal(value)) => value.clone(),
             _ => panic!("literal node expected literal expression"),
         };
-        let parent_table = piop_tree
-            .tracked_table(
-                &self.parent_node_id,
-                OUTPUT_PLAN_KEY,
-            )
-            .expect("table not found in PIOP tree");
 
         let array = scalar
             .to_array()
@@ -121,7 +114,7 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            parent_table.log_size(),
+            0,
         );
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
@@ -173,13 +166,6 @@ where
             NodeId::Expr(Expr::Literal(value)) => value.clone(),
             _ => panic!("literal node expected literal expression"),
         };
-        let parent_table = piop_tree
-            .tracked_table_oracle(
-                &self.parent_node_id,
-                OUTPUT_PLAN_KEY,
-            )
-            .expect("table not found in PIOP tree");
-
         let array = scalar
             .to_array()
             .expect("failed to convert scalar into arrow array");
@@ -212,7 +198,7 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            parent_table.log_size(),
+            0,
         );
 
         piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);

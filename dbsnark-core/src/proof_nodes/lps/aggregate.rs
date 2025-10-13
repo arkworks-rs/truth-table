@@ -45,7 +45,7 @@ where
     pub aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> ProverAggregateNode<F, MvPCS, UvPCS>
@@ -158,83 +158,87 @@ where
     where
         Self: Sized,
     {
-        // Get the aggregate logical plan
-        let aggregate = match &plan {
-            LogicalPlan::Aggregate(agg) => agg,
-            _ => panic!("expected aggregate logical plan"),
-        };
-        let node_id = NodeId::LP(plan.clone());
-        // Recursively build the input proof tree
-        let input_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            &aggregate.input,
-            &node_id,
-        );
-        let input = input_tree.root();
-        // The input to the current aggregate node is the output logical plan of its
-        // input node
-        let child_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input)
-            .unwrap_or_else(|| (*aggregate.input).clone());
-        // Recursively build the children by first building a tree for the grouping
-        // expressions Note that their parent logical plan is unusually set to
-        // be the input logical plan of the aggregate
-        let group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
-            .group_expr
-            .iter()
-            .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr.clone(),
-                    &node_id.clone(),
-                )
-            })
-            .collect();
+        // // Get the aggregate logical plan
+        // let aggregate = match &plan {
+        //     LogicalPlan::Aggregate(agg) => agg,
+        //     _ => panic!("expected aggregate logical plan"),
+        // };
+        // let node_id = NodeId::LP(plan.clone());
+        // // Recursively build the input proof tree
+        // let input_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        //     ctx,
+        //     prover_ctx.clone(),
+        //     &aggregate.input,
+        //     &node_id,
+        // );
+        // let input = input_tree.root();
+        // // The input to the current aggregate node is the output logical plan of its
+        // // input node
+        // let child_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input)
+        //     .unwrap_or_else(|| (*aggregate.input).clone());
+        // // Recursively build the children by first building a tree for the grouping
+        // // expressions Note that their parent logical plan is unusually set to
+        // // be the input logical plan of the aggregate
+        // let group_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
+        //     .group_expr
+        //     .iter()
+        //     .map(|expr| {
+        //         ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+        //             ctx,
+        //             prover_ctx.clone(),
+        //             expr.clone(),
+        //             &node_id.clone(),
+        //         )
+        //     })
+        //     .collect();
 
-        // Recursively build the children by first building a tree for the aggregate
-        // expressions Note that their parent logical plan is unusually set to
-        // Note that their parent logical plan is unusually set to be the input logical
-        // plan of the aggregate
-        for expr in &aggregate.aggr_expr {
-            if !matches!(expr, Expr::AggregateFunction(_)) {
-                panic!("expected aggregate expression to be AggregateFunction, got {expr}");
-            }
-        }
-        let aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
-            .aggr_expr
-            .iter()
-            .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr.clone(),
-                    &node_id.clone(),
-                )
-            })
-            .collect();
+        // // Recursively build the children by first building a tree for the aggregate
+        // // expressions Note that their parent logical plan is unusually set to
+        // // Note that their parent logical plan is unusually set to be the input logical
+        // // plan of the aggregate
+        // for expr in &aggregate.aggr_expr {
+        //     if !matches!(expr, Expr::AggregateFunction(_)) {
+        //         panic!("expected aggregate expression to be AggregateFunction, got {expr}");
+        //     }
+        // }
+        // let aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
+        //     .aggr_expr
+        //     .iter()
+        //     .map(|expr| {
+        //         ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+        //             ctx,
+        //             prover_ctx.clone(),
+        //             expr.clone(),
+        //             &node_id.clone(),
+        //         )
+        //     })
+        //     .collect();
 
-        // Build the output logical plan of this aggregate node
-        let output_plan = Self::build_output_plan(
-            &aggregate.group_expr,
-            &aggregate.aggr_expr,
-            &aggregate.schema,
-            child_plan,
-        );
+        // // Build the output logical plan of this aggregate node
+        // let output_plan = Self::build_output_plan(
+        //     &aggregate.group_expr,
+        //     &aggregate.aggr_expr,
+        //     &aggregate.schema,
+        //     child_plan,
+        // );
 
-        // Build the list of input nodes (children) to this aggregate node
-        let mut inputs = Vec::with_capacity(1 + group_expr.len() + aggr_expr.len());
-        inputs.push(input);
-        inputs.extend(group_expr.iter().cloned());
-        inputs.extend(aggr_expr.iter().cloned());
+        // // Build the list of input nodes (children) to this aggregate node
+        // let mut inputs = Vec::with_capacity(1 + group_expr.len() + aggr_expr.len());
+        // inputs.push(input);
+        // inputs.extend(group_expr.iter().cloned());
+        // inputs.extend(aggr_expr.iter().cloned());
 
-        Self {
-            group_expr,
-            aggr_expr,
-            inputs,
-            node_id,
-            hint_generation_plans: IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), output_plan)]),
-        }
+        // Self {
+        //     group_expr,
+        //     aggr_expr,
+        //     inputs,
+        //     node_id,
+        //     hint_generation_plans: IndexMap::from([(
+        //         OUTPUT_PLAN_KEY.to_string(),
+        //         (output_plan, true),
+        //     )]),
+        // }
+        todo!()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -245,7 +249,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -447,7 +451,7 @@ where
     pub aggr_expr: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, LogicalPlan>,
+    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> VerifierAggregateNode<F, MvPCS, UvPCS>
@@ -473,7 +477,7 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
@@ -491,7 +495,7 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, LogicalPlan> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 

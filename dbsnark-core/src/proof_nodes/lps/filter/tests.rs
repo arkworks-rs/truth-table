@@ -1,14 +1,14 @@
 use crate::test_utils::helper::prove_and_verify_query;
 
 #[test]
-fn proves_simple_eq_filter() {
+fn prove_eq_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey = 100",
         "lineitem",
     );
 }
 #[test]
-fn proves_simple_gteq_filter() {
+fn prove_gteq_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey >= 100",
         "lineitem",
@@ -16,7 +16,7 @@ fn proves_simple_gteq_filter() {
 }
 
 #[test]
-fn proves_simple_gt_filter() {
+fn prove_gt_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey > 100",
         "lineitem",
@@ -24,7 +24,7 @@ fn proves_simple_gt_filter() {
 }
 
 #[test]
-fn proves_simple_lteq_filter() {
+fn prove_lteq_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey <= 100",
         "lineitem",
@@ -32,7 +32,7 @@ fn proves_simple_lteq_filter() {
 }
 
 #[test]
-fn proves_simple_lt_filter() {
+fn prove_lt_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey < 100",
         "lineitem",
@@ -40,9 +40,17 @@ fn proves_simple_lt_filter() {
 }
 
 #[test]
-fn proves_simple_plus_lt_filter() {
+fn prove_plus_lt_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey*2-l_orderkey",
+        "lineitem",
+    );
+}
+
+#[test]
+fn prove_and_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey AND l_orderkey < 100",
         "lineitem",
     );
 }

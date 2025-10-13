@@ -1,11 +1,14 @@
 use super::ProverArithmetizedTree;
 use crate::{
-    proof_nodes::id::NodeId, prover::trees::{hint_tree::ProverHintTree, proof_tree::ProverProofTree}, test_utils::test_df_plan
+    proof_nodes::id::NodeId,
+    prover::trees::{hint_tree::ProverHintTree, proof_tree::ProverProofTree},
+    test_utils::test_df_plan,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlanBuilder;
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
@@ -30,8 +33,12 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
+    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> = ProverProofTree::from_lp(
+        &ctx,
+        prover_ctx,
+        &plan,
+        &NodeId::None,
+    );
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .unwrap();

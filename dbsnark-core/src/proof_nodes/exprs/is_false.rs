@@ -1,6 +1,3 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/is_false.rs and
-// dbsnark-core/src/verifier/nodes/exprs/is_false.rs
-
 use crate::{
     proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
     prover::trees::piop_tree::ProverPIOPTree,
@@ -14,7 +11,9 @@ use ark_piop::{
 };
 use datafusion::logical_expr::Expr;
 use std::sync::Arc;
-
+    use datafusion::prelude::SessionContext;
+    use arithmetic::ctx::SharedCtx;
+    use datafusion::logical_expr::LogicalPlan;
 #[derive(Clone)]
 pub struct ProverIsFalseExprNode<F, MvPCS, UvPCS>
 where
@@ -42,10 +41,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -104,10 +103,10 @@ where
     }
 
     fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        parent_logical_plan: NodeId,
     ) -> Self
     where
         Self: Sized,
