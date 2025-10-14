@@ -139,6 +139,7 @@ where
         .into_iter()
         .find_map(|(label, (plan, _should_materialize))| {
             if label == OUTPUT_PLAN_KEY {
+                dbg!("Found output plan");
                 Some(plan)
             } else {
                 None

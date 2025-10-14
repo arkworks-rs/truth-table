@@ -155,12 +155,8 @@ pub mod helper {
         let verifier_ctx = SharedCtx::new(table_oracle_map);
 
         verifier.set_proof(proof);
-        let verifier_proof_tree = VerifierProofTree::from_lp(
-            &ctx,
-            verifier_ctx.clone(),
-            &logical_plan,
-            &NodeId::None,
-        );
+        let verifier_proof_tree =
+            VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan, &NodeId::None);
         let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
             verifier_proof_tree.clone(),
             verifier_ctx.clone(),

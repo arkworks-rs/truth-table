@@ -62,12 +62,8 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let verifier_ctx = shared_ctx.clone();
 
     let prover_start = Instant::now();
-    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-        &ctx,
-        prover_ctx,
-        &plan,
-        &NodeId::None,
-    );
+    let proof_tree =
+        ProverProofTree::<F, MvPCS, UvPCS>::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
         .await
         .expect("hint tree");
@@ -85,11 +81,6 @@ async fn display_graphviz_for(table: &str, query: &str) {
     println!("Prover pipeline completed in {:?}", prover_start.elapsed());
 
     verifier.set_proof(proof);
-    let verifier_proof_tree = VerifierProofTree::from_lp(
-        &ctx,
-        verifier_ctx,
-        &plan,
-        &NodeId::None,
-    );
+    let verifier_proof_tree = VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan, &NodeId::None);
     println!("{}", verifier_proof_tree.display_graphviz());
 }

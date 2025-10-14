@@ -194,12 +194,12 @@ where
 
         // // Recursively build the children by first building a tree for the aggregate
         // // expressions Note that their parent logical plan is unusually set to
-        // // Note that their parent logical plan is unusually set to be the input logical
-        // // plan of the aggregate
+        // // Note that their parent logical plan is unusually set to be the input
+        // logical // plan of the aggregate
         // for expr in &aggregate.aggr_expr {
         //     if !matches!(expr, Expr::AggregateFunction(_)) {
-        //         panic!("expected aggregate expression to be AggregateFunction, got {expr}");
-        //     }
+        //         panic!("expected aggregate expression to be AggregateFunction, got
+        // {expr}");     }
         // }
         // let aggr_expr: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
         //     .aggr_expr

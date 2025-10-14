@@ -33,12 +33,8 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> = ProverProofTree::from_lp(
-        &ctx,
-        prover_ctx,
-        &plan,
-        &NodeId::None,
-    );
+    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
+        ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .unwrap();

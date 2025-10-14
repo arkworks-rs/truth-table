@@ -29,7 +29,7 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
@@ -48,7 +48,6 @@ where
     fn node_id(&self) -> NodeId {
         todo!()
     }
-
 
     fn cost(
         &self,
@@ -86,7 +85,7 @@ where
         Vec::new()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 

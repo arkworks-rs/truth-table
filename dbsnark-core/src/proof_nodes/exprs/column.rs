@@ -17,8 +17,8 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::FieldRef,
-    logical_expr::{Expr, LogicalPlan},
-    prelude::SessionContext,
+    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
+    prelude::{SessionContext, col},
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -39,6 +39,35 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+        let parent_plan = match &self.parent_node_id {
+            NodeId::LP(plan) => plan.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let column_expr = match &self.node_id {
+            NodeId::Expr(Expr::Column(column)) => column.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let mut projection_exprs = vec![Expr::Column(column_expr)];
+        if parent_plan
+            .schema()
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .is_ok()
+        {
+            projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+
+        let output_plan = LogicalPlanBuilder::from(parent_plan)
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+    }
+
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -147,6 +176,34 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+        let parent_plan = match &self.parent_node_id {
+            NodeId::LP(plan) => plan.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let column_expr = match &self.node_id {
+            NodeId::Expr(Expr::Column(column)) => column.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let mut projection_exprs = vec![Expr::Column(column_expr)];
+        if parent_plan
+            .schema()
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .is_ok()
+        {
+            projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+
+        let output_plan = LogicalPlanBuilder::from(parent_plan)
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+    }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }

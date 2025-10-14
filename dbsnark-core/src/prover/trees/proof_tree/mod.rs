@@ -37,6 +37,7 @@ where
 {
     ctx: SharedCtx<F, MvPCS, UvPCS>,
     root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    proof_nodes: IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverProofTree<F, MvPCS, UvPCS>
@@ -65,7 +66,15 @@ where
         root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
         ctx: SharedCtx<F, MvPCS, UvPCS>,
     ) -> Self {
-        Self { root, ctx }
+        let proof_nodes = Self::sort_nodes(Arc::clone(&root), &ctx);
+        Self { root, ctx, proof_nodes }
+    }
+
+    fn sort_nodes(
+        root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+        ctx: &SharedCtx<F, MvPCS, UvPCS>,
+    ) -> IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
+        todo!()
     }
 
     pub fn display_graphviz(&self) -> display::ProverProofTreeGraphviz<'_, F, MvPCS, UvPCS> {

@@ -36,7 +36,7 @@ where
         self.inputs.iter().collect()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
@@ -109,7 +109,7 @@ where
         self.inputs.iter().collect()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
@@ -128,8 +128,6 @@ where
     fn node_id(&self) -> NodeId {
         todo!()
     }
-
-
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {

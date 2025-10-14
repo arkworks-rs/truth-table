@@ -1,25 +1,16 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use ark_piop::prover::structs::proof::Proof;
-use indexmap::IndexMap;
-use std::{
-    fs::File,
-    hash::Hash,
-    io::BufReader,
-    sync::{Mutex, OnceLock},
-};
-use datafusion::logical_expr::LogicalPlanBuilder;
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
-    prover::Prover,
+    prover::{Prover, structs::proof::Proof},
     test_utils::bench_prelude,
     verifier::Verifier,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
-    logical_expr::LogicalPlan,
+    logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
 use dbsnark_core::{
@@ -28,6 +19,13 @@ use dbsnark_core::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
     },
+};
+use indexmap::IndexMap;
+use std::{
+    fs::File,
+    hash::Hash,
+    io::BufReader,
+    sync::{Mutex, OnceLock},
 };
 use tokio::runtime::Runtime;
 type F = Fr;

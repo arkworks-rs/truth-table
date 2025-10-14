@@ -3,17 +3,18 @@ use crate::{
     prover::trees::piop_tree::ProverPIOPTree,
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::logical_expr::Expr;
+use datafusion::{
+    logical_expr::{Expr, LogicalPlan},
+    prelude::SessionContext,
+};
 use std::sync::Arc;
-    use datafusion::prelude::SessionContext;
-    use arithmetic::ctx::SharedCtx;
-    use datafusion::logical_expr::LogicalPlan;
 #[derive(Clone)]
 pub struct ProverIsFalseExprNode<F, MvPCS, UvPCS>
 where

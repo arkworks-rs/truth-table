@@ -82,12 +82,7 @@ async fn display_graphviz_for(table: &str, query: &str) {
     let proof = prover.build_proof().expect("build proof");
 
     verifier.set_proof(proof);
-    let verifier_proof_tree = VerifierProofTree::from_lp(
-        &ctx,
-        verifier_ctx,
-        &plan,
-        &NodeId::None,
-    );
+    let verifier_proof_tree = VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan, &NodeId::None);
     let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
         verifier_proof_tree.clone(),
         shared_ctx,

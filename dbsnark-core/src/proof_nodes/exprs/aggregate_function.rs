@@ -71,7 +71,8 @@ where
                     prover_ctx.clone(),
                     arg.clone(),
                     &node_id,
-                ).root()
+                )
+                .root()
             })
             .collect();
 

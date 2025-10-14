@@ -1,5 +1,3 @@
-
-
 use crate::{
     proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
     prover::trees::piop_tree::ProverPIOPTree,

@@ -276,7 +276,8 @@ where
             output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_verifier_node).unwrap();
         // Build the output logical plan for this filter node
 
-        let output_plan = build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
+        let output_plan =
+            build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
         let hint_generation_plans =
             IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
 
@@ -286,7 +287,8 @@ where
             prover_ctx,
             filter.predicate.clone(),
             &node_id,
-        ).root();
+        )
+        .root();
         // Building the witness generation plans map
         Self {
             predicate_verifier_node,

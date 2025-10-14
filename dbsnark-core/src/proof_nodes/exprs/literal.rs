@@ -9,7 +9,7 @@ use crate::{
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
 use arithmetic::{
-    ctx::SharedCtx, encoding::encode_arrow_array_to_field, table::TrackedTable,
+    ACTIVATOR_COL_NAME, ctx::SharedCtx, encoding::encode_arrow_array_to_field, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
@@ -23,8 +23,8 @@ use ark_piop::{
 use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
     common::Statistics,
-    logical_expr::{Expr, LogicalPlan},
-    prelude::SessionContext,
+    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
+    prelude::{SessionContext, col},
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -47,6 +47,35 @@ where
 {
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
+    }
+
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+        let parent_plan = match &self.parent_node_id {
+            NodeId::LP(plan) => plan.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let literal_expr = match &self.node_id {
+            NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let mut projection_exprs = vec![literal_expr.alias("literal")];
+        if parent_plan
+            .schema()
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .is_ok()
+        {
+            projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+
+        let output_plan = LogicalPlanBuilder::from(parent_plan)
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -136,6 +165,35 @@ where
 {
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
+    }
+
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+        let parent_plan = match &self.parent_node_id {
+            NodeId::LP(plan) => plan.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let literal_expr = match &self.node_id {
+            NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
+            _ => return IndexMap::new(),
+        };
+
+        let mut projection_exprs = vec![literal_expr.alias("literal")];
+        if parent_plan
+            .schema()
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .is_ok()
+        {
+            projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+
+        let output_plan = LogicalPlanBuilder::from(parent_plan)
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {

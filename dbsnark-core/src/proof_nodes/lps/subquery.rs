@@ -33,7 +33,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 
@@ -96,7 +96,7 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan,bool)> {
         todo!()
     }
 
