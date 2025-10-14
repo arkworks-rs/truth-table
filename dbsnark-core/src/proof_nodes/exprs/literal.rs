@@ -58,12 +58,11 @@ where
             _ => return IndexMap::new(),
         };
 
-        let (base_plan, base_should_materialize) =
-            if let Some(entry) = first_tablescan_plan_prover(proof_tree) {
-                entry
-            } else {
-                return IndexMap::new();
-            };
+        let (base_plan, _) = if let Some(entry) = first_tablescan_plan_prover(proof_tree) {
+            entry
+        } else {
+            panic!("no tablescan plan found");
+        };
 
         let literal_plan = LogicalPlanBuilder::from(base_plan)
             .project(vec![literal_expr.alias("literal")])
@@ -71,10 +70,7 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            (literal_plan, base_should_materialize),
-        )])
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (literal_plan, false))])
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -175,12 +171,11 @@ where
             _ => return IndexMap::new(),
         };
 
-        let (base_plan, base_should_materialize) =
-            if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
-                entry
-            } else {
-                return IndexMap::new();
-            };
+        let (base_plan, _) = if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
+            entry
+        } else {
+            panic!("no tablescan plan found");
+        };
 
         let literal_plan = LogicalPlanBuilder::from(base_plan)
             .project(vec![literal_expr.alias("literal")])
@@ -188,10 +183,7 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            (literal_plan, base_should_materialize),
-        )])
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (literal_plan, false))])
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {

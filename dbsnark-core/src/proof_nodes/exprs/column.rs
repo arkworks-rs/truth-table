@@ -74,7 +74,7 @@ where
                         .cloned()
                 })
             });
-        let (base_plan, base_should_materialize) = match base_entry {
+        let (base_plan, _) = match base_entry {
             Some(entry) => entry,
             None => return IndexMap::new(),
         };
@@ -94,10 +94,7 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            (output_plan, base_should_materialize),
-        )])
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
 
     fn node_id(&self) -> NodeId {
@@ -243,7 +240,7 @@ where
                         .cloned()
                 })
             });
-        let (base_plan, base_should_materialize) = match base_entry {
+        let (base_plan, _) = match base_entry {
             Some(entry) => entry,
             None => return IndexMap::new(),
         };
@@ -263,10 +260,7 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            (output_plan, base_should_materialize),
-        )])
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
