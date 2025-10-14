@@ -263,30 +263,18 @@ where
             &node_id,
         )
         .root();
-        let child_output_plan: LogicalPlan = todo!();
-
-        // Normalize the projection expressions against the child plan.
-        let normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan).expect(
-            "failed to normalize
-        projection expressions",
-        );
-
-        let output_plan = LogicalPlanBuilder::from(child_output_plan.clone())
-            .project(normalized_exprs.clone())
-            .expect("failed to apply projection")
-            .build()
-            .expect("failed to build projection logical plan");
-
         // Build expression proof plans for the projection expressions (excluding the //
         // retained activator).
-        let expr_verifier_nodes = normalized_exprs
+        let expr_verifier_nodes = projection
+            .clone()
+            .expr
             .into_iter()
             .map(|expr| {
                 VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
                     ctx,
                     prover_ctx.clone(),
                     expr,
-                    &NodeId::LP(output_plan.clone()),
+                    &node_id,
                 )
                 .root()
             })

@@ -364,7 +364,90 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        todo!()
+        let input_plan = proof_tree
+            .node(&self.input_verifier_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .unwrap()
+            .0
+            .clone();
+        // Determine activator's datatype from input schema
+        let schema = input_plan.schema().clone();
+        let activator_field = schema
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
+        let activator_dtype = activator_field.data_type().clone();
+
+        // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
+        let try_bool_and = df::and(
+            df::col(ACTIVATOR_COL_NAME),
+            self.predicate_verifier_node
+                .node_id()
+                .to_expr()
+                .cloned()
+                .unwrap(),
+        );
+        let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
+            try_bool_and.alias(ACTIVATOR_COL_NAME)
+        } else {
+            // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
+            // if bitwise not supported)
+            let one = df::lit(1)
+                .cast_to(&activator_dtype, schema.as_ref())
+                .unwrap();
+            let zero = df::lit(0)
+                .cast_to(&activator_dtype, schema.as_ref())
+                .unwrap();
+            let mask = df::when(
+                self.predicate_verifier_node
+                    .node_id()
+                    .to_expr()
+                    .cloned()
+                    .unwrap(),
+                one.clone(),
+            )
+            .otherwise(zero.clone())
+            .unwrap();
+
+            // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
+            // replacement
+            let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
+            if try_bit_and.get_type(schema.as_ref()).is_ok() {
+                try_bit_and.alias(ACTIVATOR_COL_NAME)
+            } else {
+                // CASE WHEN predicate THEN activator ELSE 0
+                df::when(
+                    self.predicate_verifier_node
+                        .node_id()
+                        .to_expr()
+                        .cloned()
+                        .unwrap(),
+                    df::col(ACTIVATOR_COL_NAME),
+                )
+                .otherwise(zero)
+                .unwrap()
+                .alias(ACTIVATOR_COL_NAME)
+            }
+        };
+
+        // Pass through all other columns unchanged
+        let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
+        for f in schema.fields() {
+            if f.name() == ACTIVATOR_COL_NAME {
+                proj_exprs.push(new_activator.clone());
+            } else {
+                proj_exprs.push(df::col(f.name()));
+            }
+        }
+
+        let output_plan = LogicalPlanBuilder::from(input_plan)
+            .project(proj_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

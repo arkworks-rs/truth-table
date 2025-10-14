@@ -20,6 +20,7 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{Field, FieldRef},
+    functions::unicode::left,
     logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::col,
 };
@@ -69,16 +70,18 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let left_plan: Option<LogicalPlan> = proof_tree
+        let left_hint_generation_plans = proof_tree
             .node(&self.left_prover_node.node_id())
             .unwrap()
-            .hint_generation_plans(&proof_tree)
-            .get(OUTPUT_PLAN_KEY)
-            .map(|(plan, _)| plan.clone());
-        let right_plan: Option<LogicalPlan> = proof_tree
+            .hint_generation_plans(proof_tree);
+        let right_hint_generation_plans = proof_tree
             .node(&self.right_prover_node.node_id())
             .unwrap()
-            .hint_generation_plans(&proof_tree)
+            .hint_generation_plans(proof_tree);
+        let left_plan: Option<LogicalPlan> = left_hint_generation_plans
+            .get(OUTPUT_PLAN_KEY)
+            .map(|(plan, _)| plan.clone());
+        let right_plan: Option<LogicalPlan> = right_hint_generation_plans
             .get(OUTPUT_PLAN_KEY)
             .map(|(plan, _)| plan.clone());
         let bin_expr = match self.node_id.to_expr().unwrap() {

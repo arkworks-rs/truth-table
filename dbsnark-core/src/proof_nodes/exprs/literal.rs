@@ -24,7 +24,7 @@ use datafusion::{
     arrow::datatypes::{Field, Schema, SchemaRef},
     common::Statistics,
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
-    prelude::{SessionContext, col},
+    prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -53,32 +53,28 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let parent_plan = match &self.parent_node_id {
-            NodeId::LP(plan) => plan.clone(),
-            _ => return IndexMap::new(),
-        };
-
         let literal_expr = match &self.node_id {
             NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
             _ => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![literal_expr.alias("literal")];
-        if parent_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
+        let (base_plan, base_should_materialize) =
+            if let Some(entry) = first_tablescan_plan_prover(proof_tree) {
+                entry
+            } else {
+                return IndexMap::new();
+            };
 
-        let output_plan = LogicalPlanBuilder::from(parent_plan)
-            .project(projection_exprs)
+        let literal_plan = LogicalPlanBuilder::from(base_plan)
+            .project(vec![literal_expr.alias("literal")])
             .unwrap()
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            (literal_plan, base_should_materialize),
+        )])
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -174,32 +170,28 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let parent_plan = match &self.parent_node_id {
-            NodeId::LP(plan) => plan.clone(),
-            _ => return IndexMap::new(),
-        };
-
         let literal_expr = match &self.node_id {
             NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
             _ => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![literal_expr.alias("literal")];
-        if parent_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
+        let (base_plan, base_should_materialize) =
+            if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
+                entry
+            } else {
+                return IndexMap::new();
+            };
 
-        let output_plan = LogicalPlanBuilder::from(parent_plan)
-            .project(projection_exprs)
+        let literal_plan = LogicalPlanBuilder::from(base_plan)
+            .project(vec![literal_expr.alias("literal")])
             .unwrap()
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            (literal_plan, base_should_materialize),
+        )])
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -274,4 +266,44 @@ where
     ) -> SnarkResult<()> {
         Ok(())
     }
+}
+
+fn first_tablescan_plan_prover<F, MvPCS, UvPCS>(
+    proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+) -> Option<(LogicalPlan, bool)>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    proof_tree
+        .proof_nodes()
+        .iter()
+        .find_map(|(node_id, node)| match node_id {
+            NodeId::LP(LogicalPlan::TableScan(_)) => node
+                .hint_generation_plans(proof_tree)
+                .get(OUTPUT_PLAN_KEY)
+                .cloned(),
+            _ => None,
+        })
+}
+
+fn first_tablescan_plan_verifier<F, MvPCS, UvPCS>(
+    proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+) -> Option<(LogicalPlan, bool)>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    proof_tree
+        .proof_nodes()
+        .iter()
+        .find_map(|(node_id, node)| match node_id {
+            NodeId::LP(LogicalPlan::TableScan(_)) => node
+                .hint_generation_plans(proof_tree)
+                .get(OUTPUT_PLAN_KEY)
+                .cloned(),
+            _ => None,
+        })
 }

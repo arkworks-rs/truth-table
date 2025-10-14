@@ -43,18 +43,44 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let parent_plan = match &self.parent_node_id {
-            NodeId::LP(plan) => plan.clone(),
-            _ => return IndexMap::new(),
-        };
-
         let column_expr = match &self.node_id {
             NodeId::Expr(Expr::Column(column)) => column.clone(),
             _ => return IndexMap::new(),
         };
 
+        let base_entry = column_expr
+            .relation
+            .as_ref()
+            .and_then(|relation| {
+                proof_tree
+                    .proof_nodes()
+                    .iter()
+                    .find_map(|(node_id, node)| match node_id {
+                        NodeId::LP(LogicalPlan::TableScan(scan_plan))
+                            if &scan_plan.table_name == relation =>
+                        {
+                            node.hint_generation_plans(proof_tree)
+                                .get(OUTPUT_PLAN_KEY)
+                                .cloned()
+                        },
+                        _ => None,
+                    })
+            })
+            .or_else(|| {
+                proof_tree.node(&self.parent_node_id).and_then(|parent| {
+                    parent
+                        .hint_generation_plans(proof_tree)
+                        .get(OUTPUT_PLAN_KEY)
+                        .cloned()
+                })
+            });
+        let (base_plan, base_should_materialize) = match base_entry {
+            Some(entry) => entry,
+            None => return IndexMap::new(),
+        };
+
         let mut projection_exprs = vec![Expr::Column(column_expr)];
-        if parent_plan
+        if base_plan
             .schema()
             .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .is_ok()
@@ -62,13 +88,16 @@ where
             projection_exprs.push(col(ACTIVATOR_COL_NAME));
         }
 
-        let output_plan = LogicalPlanBuilder::from(parent_plan)
+        let output_plan = LogicalPlanBuilder::from(base_plan)
             .project(projection_exprs)
             .unwrap()
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            (output_plan, base_should_materialize),
+        )])
     }
 
     fn node_id(&self) -> NodeId {
@@ -183,18 +212,44 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let parent_plan = match &self.parent_node_id {
-            NodeId::LP(plan) => plan.clone(),
-            _ => return IndexMap::new(),
-        };
-
         let column_expr = match &self.node_id {
             NodeId::Expr(Expr::Column(column)) => column.clone(),
             _ => return IndexMap::new(),
         };
 
+        let base_entry = column_expr
+            .relation
+            .as_ref()
+            .and_then(|relation| {
+                proof_tree
+                    .proof_nodes()
+                    .iter()
+                    .find_map(|(node_id, node)| match node_id {
+                        NodeId::LP(LogicalPlan::TableScan(scan_plan))
+                            if &scan_plan.table_name == relation =>
+                        {
+                            node.hint_generation_plans(proof_tree)
+                                .get(OUTPUT_PLAN_KEY)
+                                .cloned()
+                        },
+                        _ => None,
+                    })
+            })
+            .or_else(|| {
+                proof_tree.node(&self.parent_node_id).and_then(|parent| {
+                    parent
+                        .hint_generation_plans(proof_tree)
+                        .get(OUTPUT_PLAN_KEY)
+                        .cloned()
+                })
+            });
+        let (base_plan, base_should_materialize) = match base_entry {
+            Some(entry) => entry,
+            None => return IndexMap::new(),
+        };
+
         let mut projection_exprs = vec![Expr::Column(column_expr)];
-        if parent_plan
+        if base_plan
             .schema()
             .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .is_ok()
@@ -202,13 +257,16 @@ where
             projection_exprs.push(col(ACTIVATOR_COL_NAME));
         }
 
-        let output_plan = LogicalPlanBuilder::from(parent_plan)
+        let output_plan = LogicalPlanBuilder::from(base_plan)
             .project(projection_exprs)
             .unwrap()
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            (output_plan, base_should_materialize),
+        )])
     }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
