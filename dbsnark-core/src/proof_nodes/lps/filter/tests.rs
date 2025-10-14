@@ -54,3 +54,10 @@ fn prove_and_filter() {
         "lineitem",
     );
 }
+#[test]
+fn prove_or_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey OR l_orderkey < 100",
+        "lineitem",
+    );
+}

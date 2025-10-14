@@ -16,12 +16,11 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::{Prover, structs::proof},
+    prover::Prover,
 };
 use datafusion::{
     arrow::datatypes::{Field, FieldRef},
-    functions::unicode::left,
-    logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator},
+    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::col,
 };
 use indexmap::IndexMap;
@@ -29,7 +28,7 @@ use ra_toolbox::expr_piop::binary_expr::{
     BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput,
 };
 use std::sync::Arc;
-
+mod virtual_ops;
 #[derive(Clone)]
 pub struct ProverBinaryExprNode<F, MvPCS, UvPCS>
 where
@@ -70,28 +69,36 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
+        // Extract the binary expression from the node ID
         let bin_expr = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.clone(),
             _ => panic!("expected binary expression"),
         };
 
-        let Some(base_plan) = first_tablescan_plan_prover(proof_tree) else {
+        // Get a base plan to compute the expr, which is the first tablescan plan we
+        // find. We might run into a problem in join scenarios where the left
+        // and right nodes come from different base plans.
+        let Some(base_table_scan_plan) = first_tablescan_plan_prover(proof_tree) else {
             panic!("no tablescan plan found");
         };
 
-        let should_materialize = Self::requires_materialized_witness(bin_expr.op);
-
+        // Build the projection expressions for the binary expression
+        // This determines the output schema of this node
+        // This projection, projects the expression result and the activator
         let mut projection_exprs =
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
-        if base_plan
+        if base_table_scan_plan
             .schema()
             .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .is_ok()
         {
             projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        } else {
+            panic!("base plan missing activator column");
         }
 
-        let output_plan = LogicalPlanBuilder::from(base_plan)
+        // Build the output plan
+        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
             .project(projection_exprs)
             .unwrap()
             .build()
@@ -99,7 +106,10 @@ where
 
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
-            (output_plan, should_materialize),
+            (
+                output_plan,
+                Self::requires_materialized_witness(bin_expr.op),
+            ),
         )])
     }
 
@@ -107,36 +117,40 @@ where
         ctx: &datafusion::prelude::SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
+        // Get the Binary Expression
         let bin_expr = match expr.clone() {
             Expr::BinaryExpr(b) => b,
             _ => panic!("expected binary expression"),
         };
 
+        // Builf the id for the current node
         let node_id = NodeId::Expr(expr.clone());
+        // Recursively build the left child node
         let left_expr = bin_expr.left.as_ref().clone();
         let left_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx.clone(),
             left_expr.clone(),
-            &node_id.clone(),
+            &node_id,
         )
         .root();
+        // Recursively build the right child node
         let right_expr = bin_expr.right.as_ref().clone();
         let right_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx.clone(),
             right_expr.clone(),
-            &node_id.clone(),
+            &node_id,
         )
         .root();
 
         Self {
-            node_id: node_id.clone(),
+            node_id,
             left_prover_node,
             right_prover_node,
         }
@@ -171,100 +185,11 @@ where
                     .unwrap()
                     .tracked_col_by_ind(0)
                     .clone();
-                let output_data_tracked_poly = match bin_expr.op {
-                    Operator::And => {
-                        let data_out =
-                            &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
 
-                        match (
-                            left_col.activator_tracked_poly(),
-                            right_col.activator_tracked_poly(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Plus => {
-                        let data_out =
-                            &left_col.data_tracked_poly() + &right_col.data_tracked_poly();
-
-                        match (
-                            left_col.activator_tracked_poly(),
-                            right_col.activator_tracked_poly(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Minus => {
-                        let data_out =
-                            &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
-
-                        match (
-                            left_col.activator_tracked_poly(),
-                            right_col.activator_tracked_poly(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Multiply => {
-                        let data_out =
-                            &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
-
-                        match (
-                            left_col.activator_tracked_poly(),
-                            right_col.activator_tracked_poly(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    _ => panic!("unsupported operator for virtual witness"),
-                };
-                let field_ref = if let Some(f) = left_col.field_ref() {
-                    f.clone()
-                } else {
-                    FieldRef::new(Field::new(
-                        "output",
-                        datafusion::arrow::datatypes::DataType::Null,
-                        false,
-                    ))
-                };
-                let output_activator = match (
-                    left_col.activator_tracked_poly(),
-                    right_col.activator_tracked_poly(),
-                ) {
-                    (Some(l), Some(r)) => {
-                        debug_assert_eq!(l, r, "AND expects matching activators");
-                        Some(l)
-                    },
-                    (Some(l), None) => Some(l),
-                    (None, Some(r)) => Some(r),
-                    (None, None) => None,
-                };
-                let mut columns = IndexMap::from([(field_ref, output_data_tracked_poly)]);
-                if let Some(activator_poly) = output_activator {
-                    let activator_field = FieldRef::new(Field::new(
-                        arithmetic::ACTIVATOR_COL_NAME,
-                        datafusion::arrow::datatypes::DataType::Boolean,
-                        true,
-                    ));
-                    columns.insert(activator_field, activator_poly);
-                }
-                let output_table = TrackedTable::new(None, columns, log_size);
                 piop_tree.add_table(
                     self.node_id.clone(),
                     OUTPUT_PLAN_KEY.to_string(),
-                    output_table,
+                    Self::output_virtual_table(bin_expr, &left_col, &right_col, log_size),
                 );
             }
         }
@@ -354,28 +279,32 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
+        // Extract the binary expression from the node ID
         let bin_expr = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.clone(),
             _ => panic!("expected binary expression"),
         };
-
-        let Some(base_plan) = first_tablescan_plan_verifier(proof_tree) else {
+        // Get a base plan to compute the expr, which is the first tablescan plan we
+        // find. We might run into a problem in join scenarios where the left
+        // and right nodes come from different base plans.
+        let Some(base_table_scan_plan) = first_tablescan_plan_verifier(proof_tree) else {
             panic!("no tablescan plan found");
         };
 
-        let should_materialize = Self::requires_materialized_witness(bin_expr.op);
-
+        // Build the projection expressions for the binary expression
+        // This determines the output schema of this node
+        // This projection, projects the expression result and the activator
         let mut projection_exprs =
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
-        if base_plan
+        if base_table_scan_plan
             .schema()
             .field_with_unqualified_name(ACTIVATOR_COL_NAME)
             .is_ok()
         {
             projection_exprs.push(col(ACTIVATOR_COL_NAME));
         }
-
-        let output_plan = LogicalPlanBuilder::from(base_plan)
+        // Build the output plan
+        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
             .project(projection_exprs)
             .unwrap()
             .build()
@@ -383,7 +312,10 @@ where
 
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
-            (output_plan, should_materialize),
+            (
+                output_plan,
+                Self::requires_materialized_witness(bin_expr.op),
+            ),
         )])
     }
 
@@ -396,25 +328,30 @@ where
     where
         Self: Sized,
     {
+        // Get the Binary Expression
         let bin_expr = match expr.clone() {
             Expr::BinaryExpr(b) => b,
             _ => panic!("expected binary expression"),
         };
+        // Builf the id for the current node
         let node_id = NodeId::Expr(expr.clone());
+        // Recursively build the left child node
         let left_expr = bin_expr.left.as_ref().clone();
         let left_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx.clone(),
             left_expr.clone(),
-            &node_id.clone(),
+            &node_id,
         )
         .root();
+        // Recursively build the right child node
+
         let right_expr = bin_expr.right.as_ref().clone();
         let right_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
             prover_ctx.clone(),
             right_expr.clone(),
-            &node_id.clone(),
+            &node_id,
         )
         .root();
 
@@ -436,112 +373,26 @@ where
                     .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .log_size();
-                let left_col = piop_tree
+                let left_col_oracle = piop_tree
                     .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
-                let right_col = piop_tree
+                let right_col_oracle = piop_tree
                     .tracked_table_oracle(&self.right_verifier_node.node_id(), OUTPUT_PLAN_KEY)
                     .unwrap()
                     .tracked_col_oracle_by_ind(0)
                     .clone();
-                let output_data_tracked_poly = match bin_expr.op {
-                    Operator::And => {
-                        let data_out =
-                            &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
 
-                        match (
-                            left_col.activator_tracked_oracle(),
-                            right_col.activator_tracked_oracle(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Plus => {
-                        let data_out =
-                            &left_col.data_tracked_oracle() + &right_col.data_tracked_oracle();
-
-                        match (
-                            left_col.activator_tracked_oracle(),
-                            right_col.activator_tracked_oracle(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Minus => {
-                        let data_out =
-                            &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
-
-                        match (
-                            left_col.activator_tracked_oracle(),
-                            right_col.activator_tracked_oracle(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    Operator::Multiply => {
-                        let data_out =
-                            &left_col.data_tracked_oracle() * &right_col.data_tracked_oracle();
-
-                        match (
-                            left_col.activator_tracked_oracle(),
-                            right_col.activator_tracked_oracle(),
-                        ) {
-                            (Some(l), Some(r)) => &(&l * &r) * &data_out,
-                            (Some(l), None) => &l * &data_out,
-                            (None, Some(r)) => &r * &data_out,
-                            (None, None) => data_out,
-                        }
-                    },
-                    _ => panic!("unsupported operator for virtual witness"),
-                };
-
-                let output_activator = match (
-                    left_col.activator_tracked_oracle(),
-                    right_col.activator_tracked_oracle(),
-                ) {
-                    (Some(l), Some(r)) => {
-                        debug_assert_eq!(l, r, "AND expects matching activators");
-                        Some(l)
-                    },
-                    (Some(l), None) => Some(l),
-                    (None, Some(r)) => Some(r),
-                    (None, None) => None,
-                };
-                let field_ref = if let Some(f) = left_col.field_ref() {
-                    f.clone()
-                } else {
-                    FieldRef::new(Field::new(
-                        "output",
-                        datafusion::arrow::datatypes::DataType::Null,
-                        false,
-                    ))
-                };
-                let mut tracked_oracles =
-                    IndexMap::from_iter(vec![(field_ref, output_data_tracked_poly)]);
-                if let Some(activator_oracle) = output_activator {
-                    let activator_field = FieldRef::new(Field::new(
-                        arithmetic::ACTIVATOR_COL_NAME,
-                        datafusion::arrow::datatypes::DataType::Boolean,
-                        true,
-                    ));
-                    tracked_oracles.insert(activator_field, activator_oracle);
-                }
-                let output_table = TrackedTableOracle::new(None, tracked_oracles, log_size);
                 piop_tree.add_tracked_table_oracle(
                     self.node_id.clone(),
                     OUTPUT_PLAN_KEY.to_string(),
-                    output_table,
+                    Self::output_virtual_table(
+                        bin_expr,
+                        &left_col_oracle,
+                        &right_col_oracle,
+                        log_size,
+                    ),
                 );
             }
         }
