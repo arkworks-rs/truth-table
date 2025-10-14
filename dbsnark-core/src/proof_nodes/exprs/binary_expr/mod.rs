@@ -1,10 +1,6 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY,
-        cost::ProvingCost,
-        id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::{VerifierNode, output_verifier_logical_plan},
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -20,7 +16,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::{Prover, structs::proof},
 };
 use datafusion::{
     arrow::datatypes::{Field, FieldRef},
@@ -43,7 +39,6 @@ where
     pub node_id: NodeId,
     pub left_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub right_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 #[derive(Clone)]
 pub struct VerifierBinaryExprNode<F, MvPCS, UvPCS>
@@ -55,7 +50,6 @@ where
     pub node_id: NodeId,
     pub left_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub right_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
@@ -71,8 +65,56 @@ where
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         vec![&self.left_prover_node, &self.right_prover_node]
     }
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
+        let left_plan: Option<LogicalPlan> = proof_tree
+            .node(&self.left_prover_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .map(|(plan, _)| plan.clone());
+        let right_plan: Option<LogicalPlan> = proof_tree
+            .node(&self.right_prover_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .map(|(plan, _)| plan.clone());
+        let bin_expr = match self.node_id.to_expr().unwrap() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
+        let base_plan = left_plan
+            .clone()
+            .or(right_plan.clone())
+            .expect("binary expression requires at least one child output plan");
+
+        let include_activator = base_plan
+            .schema()
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .is_ok();
+
+        let binary_expr = Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr");
+
+        let mut projection_exprs = vec![binary_expr];
+        if include_activator {
+            projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+
+        let output_plan = LogicalPlanBuilder::from(base_plan)
+            .project(projection_exprs)
+            .expect("failed to project binary expression output")
+            .build()
+            .expect("failed to build binary expression logical plan");
+
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            (
+                output_plan,
+                Self::requires_materialized_witness(bin_expr.op),
+            ),
+        )])
     }
 
     fn from_expr(
@@ -106,17 +148,11 @@ where
             &node_id.clone(),
         )
         .root();
-        let hint_generation_plans = Self::build_hint_generation_plans(
-            bin_expr.clone(),
-            &left_prover_node,
-            &right_prover_node,
-        );
 
         Self {
             node_id: node_id.clone(),
             left_prover_node,
             right_prover_node,
-            hint_generation_plans,
         }
     }
 
@@ -313,14 +349,41 @@ where
                 | Operator::Or
         )
     }
+}
 
-    fn build_hint_generation_plans(
-        bin_expr: BinaryExpr,
-        left_node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-        right_node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierBinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn node_id(&self) -> NodeId {
+        self.node_id.clone()
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
+        vec![&self.left_verifier_node, &self.right_verifier_node]
+    }
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        let left_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(left_node);
-        let right_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(right_node);
+        let left_plan: Option<LogicalPlan> = proof_tree
+            .node(&self.left_verifier_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .map(|(plan, _)| plan.clone());
+        let right_plan: Option<LogicalPlan> = proof_tree
+            .node(&self.right_verifier_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .map(|(plan, _)| plan.clone());
+        let bin_expr = match self.node_id.to_expr().unwrap() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
         let base_plan = left_plan
             .clone()
             .or(right_plan.clone())
@@ -351,24 +414,6 @@ where
                 Self::requires_materialized_witness(bin_expr.op),
             ),
         )])
-    }
-}
-
-impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    fn node_id(&self) -> NodeId {
-        self.node_id.clone()
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        vec![&self.left_verifier_node, &self.right_verifier_node]
-    }
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
     }
 
     fn from_expr(
@@ -401,17 +446,11 @@ where
             &node_id.clone(),
         )
         .root();
-        let hint_generation_plans = Self::build_hint_generation_plans(
-            bin_expr.clone(),
-            &left_verifier_node,
-            &right_verifier_node,
-        );
 
         Self {
             node_id,
             left_verifier_node,
             right_verifier_node,
-            hint_generation_plans,
         }
     }
 
@@ -601,45 +640,5 @@ where
                 | Operator::NotEq
                 | Operator::Or
         )
-    }
-    fn build_hint_generation_plans(
-        bin_expr: BinaryExpr,
-        left_node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-        right_node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
-        dbg!(left_node.name(), right_node.name());
-        let left_plan = output_verifier_logical_plan::<F, MvPCS, UvPCS>(left_node);
-        let right_plan = output_verifier_logical_plan::<F, MvPCS, UvPCS>(right_node);
-
-        let base_plan = left_plan
-            .clone()
-            .or(right_plan.clone())
-            .expect("binary expression requires at least one child output plan");
-
-        let include_activator = base_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok();
-
-        let binary_expr = Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr");
-
-        let mut projection_exprs = vec![binary_expr];
-        if include_activator {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
-
-        let output_plan = LogicalPlanBuilder::from(base_plan)
-            .project(projection_exprs)
-            .expect("failed to project binary expression output")
-            .build()
-            .expect("failed to build binary expression logical plan");
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            (
-                output_plan,
-                Self::requires_materialized_witness(bin_expr.op),
-            ),
-        )])
     }
 }

@@ -1,8 +1,10 @@
 // Combined dbsnark-core/src/prover/nodes/lps/repartition.rs and
 // dbsnark-core/src/verifier/nodes/lps/repartition.rs
 
-use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+use crate::{
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    prover::trees::proof_tree::ProverProofTree,
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -34,7 +36,10 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 
@@ -97,7 +102,10 @@ where
         vec![&self.input]
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 

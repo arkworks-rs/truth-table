@@ -3,14 +3,10 @@
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY,
-        cost::ProvingCost,
-        id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::VerifierNode,
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
-    verifier::trees::piop_tree::VerifierPIOPTree,
+    verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::{ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable};
 use ark_ff::PrimeField;
@@ -249,7 +245,10 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -495,7 +494,10 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 

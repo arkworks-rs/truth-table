@@ -1,10 +1,6 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY,
-        cost::ProvingCost,
-        id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::{VerifierNode, output_verifier_logical_plan},
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -47,9 +43,6 @@ where
     pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     /// The unique identifier for this node.
     pub node_id: NodeId,
-    /// Plans for generating hints needed by this node. Note that filter does
-    /// not materialize any hints
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 /// The implementation of a filter node in the verification proof tree.
@@ -65,9 +58,6 @@ where
     pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     /// The unique identifier for this node.
     pub node_id: NodeId,
-    /// Plans for generating hints needed by this node. Note that filter does
-    /// not materialize any hints
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
@@ -101,15 +91,6 @@ where
         )
         .root();
 
-        // Fetching the output logical plan of the input logical plan
-        let child_output_plan =
-            output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_prover_node).unwrap();
-
-        // Build the output logical plan for this filter node
-        let output_plan =
-            build_output_logical_plan(filter.predicate.clone(), child_output_plan.clone());
-        let hint_generation_plans =
-            IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
         // The predicate is an expr and needs to be proved
         let predicate_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
@@ -123,7 +104,6 @@ where
             predicate_prover_node,
             input_prover_node,
             node_id,
-            hint_generation_plans,
         }
     }
 
@@ -134,8 +114,94 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
+        let input_plan = proof_tree
+            .node(&self.input_prover_node.node_id())
+            .unwrap()
+            .hint_generation_plans(&proof_tree)
+            .get(OUTPUT_PLAN_KEY)
+            .unwrap()
+            .0
+            .clone();
+        // Determine activator's datatype from input schema
+        let schema = input_plan.schema().clone();
+        let activator_field = schema
+            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+            .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
+        let activator_dtype = activator_field.data_type().clone();
+
+        // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
+        let try_bool_and = df::and(
+            df::col(ACTIVATOR_COL_NAME),
+            self.predicate_prover_node
+                .node_id()
+                .to_expr()
+                .cloned()
+                .unwrap(),
+        );
+        let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
+            try_bool_and.alias(ACTIVATOR_COL_NAME)
+        } else {
+            // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
+            // if bitwise not supported)
+            let one = df::lit(1)
+                .cast_to(&activator_dtype, schema.as_ref())
+                .unwrap();
+            let zero = df::lit(0)
+                .cast_to(&activator_dtype, schema.as_ref())
+                .unwrap();
+            let mask = df::when(
+                self.predicate_prover_node
+                    .node_id()
+                    .to_expr()
+                    .cloned()
+                    .unwrap(),
+                one.clone(),
+            )
+            .otherwise(zero.clone())
+            .unwrap();
+
+            // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
+            // replacement
+            let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
+            if try_bit_and.get_type(schema.as_ref()).is_ok() {
+                try_bit_and.alias(ACTIVATOR_COL_NAME)
+            } else {
+                // CASE WHEN predicate THEN activator ELSE 0
+                df::when(
+                    self.predicate_prover_node
+                        .node_id()
+                        .to_expr()
+                        .cloned()
+                        .unwrap(),
+                    df::col(ACTIVATOR_COL_NAME),
+                )
+                .otherwise(zero)
+                .unwrap()
+                .alias(ACTIVATOR_COL_NAME)
+            }
+        };
+
+        // Pass through all other columns unchanged
+        let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
+        for f in schema.fields() {
+            if f.name() == ACTIVATOR_COL_NAME {
+                proj_exprs.push(new_activator.clone());
+            } else {
+                proj_exprs.push(df::col(f.name()));
+            }
+        }
+
+        let output_plan = LogicalPlanBuilder::from(input_plan)
+            .project(proj_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
     }
 
     fn cost(
@@ -271,16 +337,6 @@ where
             &node_id,
         )
         .root();
-        // Fetching the output logical plan of the input logical plan
-        let input_output_plan =
-            output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_verifier_node).unwrap();
-        // Build the output logical plan for this filter node
-
-        let output_plan =
-            build_output_logical_plan(filter.predicate.clone(), input_output_plan.clone());
-        let hint_generation_plans =
-            IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))]);
-
         // The predicate is an expr and needs to be proved
         let predicate_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
             ctx,
@@ -294,7 +350,6 @@ where
             predicate_verifier_node,
             input_verifier_node,
             node_id,
-            hint_generation_plans,
         }
     }
 
@@ -305,8 +360,11 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
+        todo!()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
@@ -416,60 +474,4 @@ where
 
         FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)
     }
-}
-
-pub fn build_output_logical_plan(predicate_expr: Expr, input_plan: LogicalPlan) -> LogicalPlan {
-    // Determine activator's datatype from input schema
-    let schema = input_plan.schema().clone();
-    let activator_field = schema
-        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
-    let activator_dtype = activator_field.data_type().clone();
-
-    // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-    let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
-    let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
-        try_bool_and.alias(ACTIVATOR_COL_NAME)
-    } else {
-        // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
-        // if bitwise not supported)
-        let one = df::lit(1)
-            .cast_to(&activator_dtype, schema.as_ref())
-            .unwrap();
-        let zero = df::lit(0)
-            .cast_to(&activator_dtype, schema.as_ref())
-            .unwrap();
-        let mask = df::when(predicate_expr.clone(), one.clone())
-            .otherwise(zero.clone())
-            .unwrap();
-
-        // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
-        // replacement
-        let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
-        if try_bit_and.get_type(schema.as_ref()).is_ok() {
-            try_bit_and.alias(ACTIVATOR_COL_NAME)
-        } else {
-            // CASE WHEN predicate THEN activator ELSE 0
-            df::when(predicate_expr.clone(), df::col(ACTIVATOR_COL_NAME))
-                .otherwise(zero)
-                .unwrap()
-                .alias(ACTIVATOR_COL_NAME)
-        }
-    };
-
-    // Pass through all other columns unchanged
-    let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
-    for f in schema.fields() {
-        if f.name() == ACTIVATOR_COL_NAME {
-            proj_exprs.push(new_activator.clone());
-        } else {
-            proj_exprs.push(df::col(f.name()));
-        }
-    }
-
-    LogicalPlanBuilder::from(input_plan)
-        .project(proj_exprs)
-        .unwrap()
-        .build()
-        .unwrap()
 }

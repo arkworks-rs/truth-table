@@ -4,7 +4,7 @@
 use super::cost::ProvingCost;
 use crate::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
-    prover::trees::piop_tree::ProverPIOPTree,
+    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -92,7 +92,10 @@ where
     /// Note that if your column can be generated from other columns, It doesn't
     /// need to be materialized and should be added to the 'add_virtual_witness'
     /// function.
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         IndexMap::new()
     }
 
@@ -125,24 +128,4 @@ where
     pub fn as_any(&self) -> &dyn Any {
         self
     }
-}
-
-pub fn output_prover_logical_plan<F, MvPCS, UvPCS>(
-    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-) -> Option<LogicalPlan>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    node.hint_generation_plans()
-        .into_iter()
-        .find_map(|(label, (plan, _should_materialize))| {
-            if label == OUTPUT_PLAN_KEY {
-                dbg!("Found output plan");
-                Some(plan)
-            } else {
-                None
-            }
-        })
 }

@@ -142,31 +142,7 @@ where
         ctx: &SessionContext,
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DFResult<Self> {
-        let root = proof_tree.root();
-        // Walk the proof tree once to gather every node in post-order while
-        // also recording how far each node sits from the root. This depth map
-        // later drives a deterministic which is shared between the prover and the
-        // verifier. This ordering is necessary for the prover and the verifier to be in
-        // sync.
-        fn collect<F, MvPCS, UvPCS>(
-            node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-            depth: usize,
-            depths: &mut IndexMap<usize, usize>,
-            out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
-        ) where
-            F: PrimeField,
-            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-        {
-            for c in node.children() {
-                collect(c, depth + 1, depths, out);
-            }
-            depths.insert(node_ptr_id(node), depth);
-            out.push(Arc::clone(node));
-        }
-        let mut nodes = Vec::new();
-        let mut depths = IndexMap::new();
-        collect(&root, 0, &mut depths, &mut nodes);
+        let nodes: Vec<_> = proof_tree.proof_nodes().values().cloned().collect();
 
         #[allow(clippy::type_complexity)]
         let mut futures: Vec<
@@ -174,7 +150,7 @@ where
         > = Vec::new();
 
         for node in &nodes {
-            let trees = node.hint_generation_plans();
+            let trees = node.hint_generation_plans(&proof_tree);
             for (label, (tree, should_materialize)) in trees {
                 if should_materialize {
                     let ctx = ctx.clone();
@@ -239,48 +215,9 @@ where
             by_id.entry(node_ptr_id(node)).or_default();
         }
 
-        let node_count = nodes.len();
-        // Split nodes into table scans and everything else so we can honor the
-        // "table scans first" constraint.
-        let mut table_scan_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|&node| {
-                node.as_any()
-                    .downcast_ref::<ProverTableScanNode>()
-                    .is_some()
-            })
-            .cloned()
-            .collect();
-        let mut other_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|&node| {
-                node.as_any()
-                    .downcast_ref::<ProverTableScanNode>()
-                    .is_none()
-            })
-            .cloned()
-            .collect();
-
-        let cmp_nodes = |a: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-                         b: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>| {
-            let depth_a = depths.get(&node_ptr_id(a)).copied().unwrap_or(0);
-            let depth_b = depths.get(&node_ptr_id(b)).copied().unwrap_or(0);
-            depth_b
-                .cmp(&depth_a)
-                .then_with(|| a.node_id().to_string().cmp(&b.node_id().to_string()))
-        };
-
-        table_scan_nodes.sort_by(cmp_nodes);
-        other_nodes.sort_by(cmp_nodes);
-
-        // Stitch table scans (already sorted deepest-to-shallow) before the rest.
-        let ordered_nodes = table_scan_nodes.into_iter().chain(other_nodes.into_iter());
-
         let mut results_by_node_id: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> =
-            IndexMap::with_capacity(node_count);
-        // Finally, emit entries following the deterministic order we just
-        // computed.
-        for node in ordered_nodes {
+            IndexMap::with_capacity(nodes.len());
+        for node in nodes {
             let node_id = node.node_id();
             let ptr_id = node_ptr_id(&node);
             let entry = by_id.remove(&ptr_id).unwrap_or_default();

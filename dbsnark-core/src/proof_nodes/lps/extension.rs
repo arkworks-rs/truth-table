@@ -3,7 +3,7 @@
 
 use crate::{
     proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
+    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
 use ark_ff::PrimeField;
@@ -47,7 +47,10 @@ where
         self.inputs.iter().collect()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         todo!()
     }
 

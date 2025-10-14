@@ -1,10 +1,6 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY,
-        cost::ProvingCost,
-        id::NodeId,
-        prover::{ProverNode, output_prover_logical_plan},
-        verifier::{VerifierNode, output_verifier_logical_plan},
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -69,7 +65,10 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -99,16 +98,11 @@ where
             &node_id,
         )
         .root();
-        let input_output_plan = output_prover_logical_plan::<F, MvPCS, UvPCS>(&input_prover_node)
-            .unwrap_or_else(|| (*projection.input).clone());
-
-        // Normalize the projection expressions against the child plan.
-        let normalized_exprs = normalize_cols(projection.expr.clone(), &input_output_plan)
-            .expect("failed to normalize projection expressions");
-
         // Build expression proof plans for the projection expressions (excluding the
         // retained activator).
-        let expr_prover_nodes = normalized_exprs
+        let expr_prover_nodes = projection
+            .expr
+            .clone()
             .into_iter()
             .map(|expr| {
                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
@@ -235,7 +229,10 @@ where
         self.node_id.clone()
     }
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         self.hint_generation_plans.clone()
     }
 
@@ -266,9 +263,7 @@ where
             &node_id,
         )
         .root();
-        let child_output_plan =
-            output_verifier_logical_plan::<F, MvPCS, UvPCS>(&input_verifier_node)
-                .unwrap_or_else(|| (*projection.input).clone());
+        let child_output_plan: LogicalPlan = todo!();
 
         // Normalize the projection expressions against the child plan.
         let normalized_exprs = normalize_cols(projection.expr.clone(), &child_output_plan).expect(

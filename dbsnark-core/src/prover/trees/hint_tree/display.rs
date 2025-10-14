@@ -77,26 +77,34 @@ where
                 NodeId::None => ("None", "None".to_string()),
             };
 
-            let hint_keys = {
-                let mut entries: Vec<_> = node.hint_generation_plans().into_iter().collect();
-                if entries.is_empty() {
-                    None
-                } else {
-                    entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    Some(
-                        entries
-                            .into_iter()
-                            .map(|(label, _)| {
-                                let (rows, cols) = hint_rows_cols(
-                                    self.tree.batches_for(&node_kind, label.as_str()),
-                                );
-                                format!("{} ( {} rows, {} columns)", label, rows, cols)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    )
-                }
-            };
+            let hint_keys = self
+                .tree
+                .proof_tree()
+                .node(&node_kind)
+                .map(|original_node| {
+                    let mut entries: Vec<_> = original_node
+                        .hint_generation_plans(self.tree.proof_tree())
+                        .into_iter()
+                        .collect();
+                    if entries.is_empty() {
+                        None
+                    } else {
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        Some(
+                            entries
+                                .into_iter()
+                                .map(|(label, _)| {
+                                    let (rows, cols) = hint_rows_cols(
+                                        self.tree.batches_for(&node_kind, label.as_str()),
+                                    );
+                                    format!("{} ( {} rows, {} columns)", label, rows, cols)
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        )
+                    }
+                })
+                .unwrap_or(None);
 
             let base = format!("{} ({})", node_label, variant_label);
             let base_html = esc_html(&base).replace('\n', "<BR ALIGN=\"LEFT\"/>");

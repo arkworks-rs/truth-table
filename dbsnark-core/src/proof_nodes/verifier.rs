@@ -2,7 +2,7 @@
 pub use super::{exprs, lps};
 use crate::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
-    verifier::trees::piop_tree::VerifierPIOPTree,
+    verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -63,7 +63,10 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_generation_plans(&self) -> IndexMap<String, (LogicalPlan, bool)> {
+    fn hint_generation_plans(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> IndexMap<String, (LogicalPlan, bool)> {
         IndexMap::new()
     }
 
@@ -92,23 +95,4 @@ where
     pub fn as_any(&self) -> &dyn Any {
         self
     }
-}
-
-pub fn output_verifier_logical_plan<F, MvPCS, UvPCS>(
-    node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-) -> Option<LogicalPlan>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    node.hint_generation_plans()
-        .into_iter()
-        .find_map(|(label, (plan, _should_materialize))| {
-            if label == OUTPUT_PLAN_KEY {
-                Some(plan)
-            } else {
-                None
-            }
-        })
 }
