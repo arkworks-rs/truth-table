@@ -8,6 +8,13 @@ fn prove_eq_filter() {
     );
 }
 #[test]
+fn prove_not_eq_filter() {
+    prove_and_verify_query(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey != 100",
+        "lineitem",
+    );
+}
+#[test]
 fn prove_gteq_filter() {
     prove_and_verify_query(
         "SELECT l_partkey,l_discount FROM lineitem where l_suppkey >= 100",

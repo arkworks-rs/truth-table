@@ -92,6 +92,7 @@ where
         };
         BinaryCheckPIOP::verify(verifier, binary_check_verifier_input)?;
 
+        let _burned_id = verifier.gen_id();
         let p_id = verifier.peek_next_id();
         let p_tracked = verifier.track_mv_com_by_id(p_id)?;
         let zero_poly = match (
