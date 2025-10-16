@@ -13,6 +13,7 @@ use ark_piop::{
     verifier::Verifier,
 };
 use datafusion::{
+    arrow::datatypes::SchemaRef,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
@@ -83,6 +84,7 @@ where
     ) -> SnarkResult<()> {
         todo!()
     }
+    fn ctx_schema(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef;
 }
 
 impl<F, MvPCS, UvPCS> dyn VerifierNode<F, MvPCS, UvPCS> + '_

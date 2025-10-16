@@ -23,6 +23,7 @@ where
     pub relative_expr: Expr,
     pub output_expr: Expr,
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub parent_node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverIsNotFalseExprNode<F, MvPCS, UvPCS>
@@ -59,6 +60,16 @@ where
         todo!()
     }
 
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> datafusion::arrow::datatypes::SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
+    }
+
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -85,6 +96,7 @@ where
     pub relative_expr: Expr,
     pub output_expr: Expr,
     pub inputs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub parent_node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierIsNotFalseExprNode<F, MvPCS, UvPCS>
@@ -126,5 +138,15 @@ where
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> datafusion::arrow::datatypes::SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 }

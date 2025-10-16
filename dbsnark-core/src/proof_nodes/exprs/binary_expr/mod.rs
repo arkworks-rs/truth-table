@@ -39,6 +39,7 @@ where
     pub node_id: NodeId,
     pub left_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub right_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub parent_node_id: NodeId,
 }
 #[derive(Clone)]
 pub struct VerifierBinaryExprNode<F, MvPCS, UvPCS>
@@ -50,6 +51,7 @@ where
     pub node_id: NodeId,
     pub left_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub right_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub parent_node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
@@ -117,7 +119,7 @@ where
         ctx: &datafusion::prelude::SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        _parent_node_id: NodeId,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -153,6 +155,7 @@ where
             node_id,
             left_prover_node,
             right_prover_node,
+            parent_node_id,
         }
     }
 
@@ -162,6 +165,16 @@ where
         _schema: datafusion::arrow::datatypes::SchemaRef,
     ) -> ProvingCost {
         todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> datafusion::arrow::datatypes::SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 
     fn add_virtual_witness(
@@ -359,6 +372,7 @@ where
             node_id,
             left_verifier_node,
             right_verifier_node,
+            parent_node_id,
         }
     }
 
@@ -442,6 +456,16 @@ where
                 output_col_oracle: output_col,
             };
         BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> datafusion::arrow::datatypes::SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 }
 

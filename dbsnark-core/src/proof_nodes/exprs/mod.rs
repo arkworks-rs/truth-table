@@ -54,7 +54,10 @@ pub mod prover {
         try_cast::ProverTryCastExprNode, unnest::ProverUnnestExprNode,
         wildcard::ProverWildcardExprNode, window_function::ProverWindowFunctionExprNode,
     };
-    use crate::proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode};
+    use crate::{
+        proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode},
+        prover::trees::proof_tree::ProverProofTree,
+    };
     use ark_ff::PrimeField;
     use ark_piop::{
         arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -65,11 +68,15 @@ pub mod prover {
     #[derive(Clone)]
     pub struct RawExprNode {
         relative_expr: Expr,
+        parent_node_id: NodeId,
     }
 
     impl RawExprNode {
-        pub fn new(relative_expr: Expr) -> Self {
-            Self { relative_expr }
+        pub fn new(relative_expr: Expr, parent_node_id: NodeId) -> Self {
+            Self {
+                relative_expr,
+                parent_node_id,
+            }
         }
     }
 
@@ -107,6 +114,16 @@ pub mod prover {
             todo!()
         }
 
+        fn ctx_schema(
+            &self,
+            proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        ) -> datafusion::arrow::datatypes::SchemaRef {
+            proof_tree
+                .node(&self.parent_node_id)
+                .unwrap()
+                .ctx_schema(proof_tree)
+        }
+
         fn add_virtual_witness(
             &self,
             piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -123,13 +140,16 @@ pub mod prover {
         }
     }
 
-    pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
+    pub fn wrap_logical_expr<F, MvPCS, UvPCS>(
+        expr: Expr,
+        parent_node_id: NodeId,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
-        Arc::new(RawExprNode::new(expr))
+        Arc::new(RawExprNode::new(expr, parent_node_id))
     }
 }
 
@@ -155,23 +175,30 @@ pub mod verifier {
         try_cast::VerifierTryCastExprNode, unnest::VerifierUnnestExprNode,
         wildcard::VerifierWildcardExprNode, window_function::VerifierWindowFunctionExprNode,
     };
-    use crate::proof_nodes::{id::NodeId, verifier::VerifierNode};
+    use crate::{
+        proof_nodes::{id::NodeId, verifier::VerifierNode},
+        verifier::trees::proof_tree::VerifierProofTree,
+    };
     use ark_ff::PrimeField;
     use ark_piop::{
         arithmetic::mat_poly::{lde::LDE, mle::MLE},
         errors::SnarkResult,
         pcs::PCS,
     };
-    use datafusion::logical_expr::Expr;
+    use datafusion::{arrow::datatypes::SchemaRef, logical_expr::Expr};
 
     #[derive(Clone)]
     pub struct RawExprNode {
         relative_expr: Expr,
+        parent_node_id: NodeId,
     }
 
     impl RawExprNode {
-        pub fn new(relative_expr: Expr) -> Self {
-            Self { relative_expr }
+        pub fn new(relative_expr: Expr, parent_node_id: NodeId) -> Self {
+            Self {
+                relative_expr,
+                parent_node_id,
+            }
         }
     }
 
@@ -215,14 +242,23 @@ pub mod verifier {
         ) -> SnarkResult<()> {
             todo!()
         }
+        fn ctx_schema(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+            proof_tree
+                .node(&self.parent_node_id)
+                .unwrap()
+                .ctx_schema(proof_tree)
+        }
     }
 
-    pub fn wrap_logical_expr<F, MvPCS, UvPCS>(expr: Expr) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>
+    pub fn wrap_logical_expr<F, MvPCS, UvPCS>(
+        expr: Expr,
+        parent_node_id: NodeId,
+    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
-        Arc::new(RawExprNode::new(expr))
+        Arc::new(RawExprNode::new(expr, parent_node_id))
     }
 }

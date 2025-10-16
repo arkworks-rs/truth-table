@@ -24,9 +24,10 @@ pub async fn test_df_plan(
         ParquetReadOptions::default(),
     )
     .await?;
-
-    let df = ctx.sql(&query).await?;
-    Ok(df.into_unoptimized_plan())
+    let state = ctx.state();
+    let plan = state.create_logical_plan(query).await?;
+    // let plan = state.optimize(&plan).unwrap();
+    Ok(plan)
 }
 use std::sync::Arc;
 
@@ -82,12 +83,8 @@ pub mod helper {
             .expect("register parquet table");
         });
 
-        let logical_plan = runtime.block_on(async {
-            ctx.sql(sql)
-                .await
-                .unwrap_or_else(|err| panic!("sql execution failed: {err:?}"))
-                .into_unoptimized_plan()
-        });
+        let logical_plan =
+            runtime.block_on(async { ctx.state().create_logical_plan(sql).await.unwrap() });
 
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().expect("prepare prover and verifier");

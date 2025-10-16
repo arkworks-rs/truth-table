@@ -15,7 +15,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
-    arrow::datatypes::SchemaRef,
+    arrow::datatypes::{Schema, SchemaRef},
     common::Statistics,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
@@ -115,6 +115,7 @@ where
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+    fn ctx_schema(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef;
 }
 
 impl<F, MvPCS, UvPCS> dyn ProverNode<F, MvPCS, UvPCS> + '_

@@ -41,7 +41,7 @@ where
 {
     pub group_expr_proof_tree_roots: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub aggr_expr_proof_tree_roots: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
-    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input_proof_tree_root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
 }
 // TODO: For the aggregation functions, we need some witnesses like the
@@ -54,9 +54,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub group_expr: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub aggr_expr: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub group_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub aggr_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub input_proof_tree_root: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
 }
 
@@ -82,7 +82,7 @@ where
         };
         let node_id = NodeId::LP(plan.clone());
         // Recursively build the input proof tree
-        let input_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        let input_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &aggregate.input,
@@ -129,24 +129,26 @@ where
             })
             .collect();
 
-        // Build the list of input nodes (children) to this aggregate node
-        let mut inputs = Vec::with_capacity(
-            1 + group_expr_proof_tree_roots.len() + aggr_expr_proof_tree_roots.len(),
-        );
-        inputs.push(input_tree_root);
-        inputs.extend(group_expr_proof_tree_roots.iter().cloned());
-        inputs.extend(aggr_expr_proof_tree_roots.iter().cloned());
-
         Self {
             group_expr_proof_tree_roots,
             aggr_expr_proof_tree_roots,
-            inputs,
+            input_proof_tree_root,
             node_id,
         }
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        self.inputs.iter().collect()
+        let mut children = Vec::new();
+
+        children.push(&self.input_proof_tree_root);
+        self.group_expr_proof_tree_roots
+            .iter()
+            .for_each(|node| children.push(node));
+        self.aggr_expr_proof_tree_roots
+            .iter()
+            .for_each(|node| children.push(node));
+
+        children
     }
 
     fn node_id(&self) -> NodeId {
@@ -163,10 +165,8 @@ where
             _ => panic!("expected aggregate logical plan"),
         };
 
-        // Pull the logical plan produced by the aggregate input child.
-        let input_node = self.inputs.first().expect("aggregate needs an input child");
         let base_plan = proof_tree
-            .node(&input_node.node_id())
+            .node(&self.input_proof_tree_root.node_id())
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
@@ -182,6 +182,19 @@ where
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> SchemaRef {
+        let input_table_map = proof_tree
+            .node(&self.input_proof_tree_root.node_id())
+            .unwrap()
+            .hint_generation_plans(proof_tree);
+        let df_schema = input_table_map.get(OUTPUT_PLAN_KEY).unwrap().0.schema();
+        // Convert DFSchema to Arrow Schema
+        df_schema.inner().clone()
     }
 
     fn add_virtual_witness(
@@ -375,7 +388,17 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        vec![&self.input]
+        let mut children = Vec::new();
+
+        children.push(&self.input_proof_tree_root);
+        self.group_expr_proof_tree_roots
+            .iter()
+            .for_each(|node| children.push(node));
+        self.aggr_expr_proof_tree_roots
+            .iter()
+            .for_each(|node| children.push(node));
+
+        children
     }
 
     fn node_id(&self) -> NodeId {
@@ -394,7 +417,7 @@ where
 
         // Obtain the input plan exposed by the verifier child node.
         let base_plan = proof_tree
-            .node(&self.input.node_id())
+            .node(&self.input_proof_tree_root.node_id())
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
@@ -433,8 +456,8 @@ where
         }
 
         // Collect the grouping expression columns produced by the verifier child nodes.
-        let mut group_entries = Vec::with_capacity(self.group_expr.len());
-        for group_node in &self.group_expr {
+        let mut group_entries = Vec::with_capacity(self.group_expr_proof_tree_roots.len());
+        for group_node in &self.group_expr_proof_tree_roots {
             let Some(group_table) =
                 piop_tree.tracked_table_oracle(&group_node.node_id(), OUTPUT_PLAN_KEY)
             else {
@@ -492,6 +515,13 @@ where
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> SchemaRef {
         todo!()
     }
 

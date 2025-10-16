@@ -115,20 +115,12 @@ async fn main() {
         }
         for (nr, sql) in queries {
             println!("-- Q{}\n{}\n", nr, sql);
-            let df = ctx.sql(&sql).await.expect("plan SQL");
+            let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
             if cli.plan {
-                println!(
-                    "-- Q{} Logical Plan\n{}\n",
-                    nr,
-                    df.logical_plan().display_indent()
-                );
+                println!("-- Q{} Logical Plan\n{}\n", nr, plan.display_indent());
             }
             if want_treeviz {
-                println!(
-                    "-- Q{} Treeviz DOT\n{}\n",
-                    nr,
-                    df.logical_plan().display_graphviz()
-                );
+                println!("-- Q{} Treeviz DOT\n{}\n", nr, plan.display_graphviz());
             }
         }
         return;
@@ -177,18 +169,14 @@ async fn main() {
             .await
             .expect("register parquet");
     }
-    let df = ctx.sql(&sql).await.expect("plan SQL");
+    let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
     if cli.plan {
-        println!(
-            "{}\n-- Logical Plan\n{}",
-            sql,
-            df.logical_plan().display_indent()
-        );
+        println!("{}\n-- Logical Plan\n{}", sql, plan.display_indent());
     } else {
         // Still print SQL above if only treeviz was requested
         println!("{}", sql);
     }
     if want_treeviz {
-        println!("\n-- Treeviz DOT\n{}", df.logical_plan().display_graphviz());
+        println!("\n-- Treeviz DOT\n{}", plan.display_graphviz());
     }
 }

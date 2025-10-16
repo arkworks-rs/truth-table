@@ -16,7 +16,7 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::datatypes::FieldRef,
+    arrow::datatypes::{FieldRef, SchemaRef},
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
     prelude::{SessionContext, col},
 };
@@ -128,6 +128,13 @@ where
         todo!()
     }
 
+    fn ctx_schema(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
+    }
+
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -138,47 +145,36 @@ where
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        // If the column has a table reference, then find the TableScan
-        // that loads that table and use the column there. Otherwise, if it
-        // doesn't have a table reference, it must be from the parent logical plan
-        let parent_node_id = match column_expr.relation.as_ref() {
-            Some(relation) => piop_tree
+        let table = if let Some(relation) = column_expr.relation.as_ref() {
+            piop_tree
                 .tracked_tables()
-                .keys()
-                .find(|node_id| match node_id {
-                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                        &scan_plan.table_name == relation
+                .iter()
+                .find_map(|(node_id, tables)| match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan))
+                        if &scan_plan.table_name == relation =>
+                    {
+                        tables.get(OUTPUT_PLAN_KEY)
                     },
-                    _ => false,
+                    _ => None,
                 })
-                .cloned()
-                .expect("table scan not found for relation"),
-            None => match &self.parent_node_id {
-                NodeId::Expr(Expr::Alias(alias)) => {
-                    if let Some(relation) = alias.relation.as_ref() {
-                        piop_tree
-                            .tracked_tables()
-                            .keys()
-                            .find(|node_id| match node_id {
-                                NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                                    &scan_plan.table_name == relation
-                                },
-                                _ => false,
-                            })
-                            .cloned()
-                            .unwrap_or_else(|| self.parent_node_id.clone())
-                    } else {
-                        self.parent_node_id.clone()
-                    }
-                },
-                _ => self.parent_node_id.clone(),
-            },
+                .expect("table scan not found for relation")
+        } else {
+            let ctx_schema = self.ctx_schema(piop_tree.proof_tree());
+            piop_tree
+                .tracked_tables()
+                .values()
+                .find_map(|tables| {
+                    tables.values().find(|table| {
+                        table
+                            .schema()
+                            .as_ref()
+                            .map(|schema| schema == ctx_schema.as_ref())
+                            .unwrap_or(false)
+                    })
+                })
+                .expect("table not found matching column context schema")
         };
 
-        dbg!(&parent_node_id);
-        let table = piop_tree
-            .tracked_table(&parent_node_id, OUTPUT_PLAN_KEY)
-            .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_by_name(&column_expr.name)
             .expect("column not found in table");
@@ -316,46 +312,35 @@ where
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        // If the column has a table reference, then find the TableScan
-        // that loads that table and use the column there. Otherwise, if it
-        // doesn't have a table reference, it must be from the parent logical plan
-        let parent_node_id = match column_expr.relation.as_ref() {
-            Some(relation) => piop_tree
+        let table = if let Some(relation) = column_expr.relation.as_ref() {
+            piop_tree
                 .tracked_table_oracles()
-                .keys()
-                .find(|node_id| match node_id {
-                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                        &scan_plan.table_name == relation
+                .iter()
+                .find_map(|(node_id, tables)| match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan))
+                        if &scan_plan.table_name == relation =>
+                    {
+                        tables.get(OUTPUT_PLAN_KEY)
                     },
-                    _ => false,
+                    _ => None,
                 })
-                .cloned()
-                .expect("table scan not found for relation"),
-            None => match &self.parent_node_id {
-                NodeId::Expr(Expr::Alias(alias)) => {
-                    if let Some(relation) = alias.relation.as_ref() {
-                        piop_tree
-                            .tracked_table_oracles()
-                            .keys()
-                            .find(|node_id| match node_id {
-                                NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
-                                    &scan_plan.table_name == relation
-                                },
-                                _ => false,
-                            })
-                            .cloned()
-                            .unwrap_or_else(|| self.parent_node_id.clone())
-                    } else {
-                        self.parent_node_id.clone()
-                    }
-                },
-                _ => self.parent_node_id.clone(),
-            },
+                .expect("table scan not found for relation")
+        } else {
+            let ctx_schema = self.ctx_schema(piop_tree.proof_tree());
+            piop_tree
+                .tracked_table_oracles()
+                .values()
+                .find_map(|tables| {
+                    tables.values().find(|table| {
+                        table
+                            .schema()
+                            .as_ref()
+                            .map(|schema| schema == ctx_schema.as_ref())
+                            .unwrap_or(false)
+                    })
+                })
+                .expect("table not found matching column context schema")
         };
-
-        let table = piop_tree
-            .tracked_table_oracle(&parent_node_id, OUTPUT_PLAN_KEY)
-            .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)
             .expect("column not found in table");
@@ -390,5 +375,12 @@ where
     ) -> SnarkResult<()> {
         // No need to invoke a piop for column expressions
         Ok(())
+    }
+
+    fn ctx_schema(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 }

@@ -27,6 +27,7 @@ where
 {
     pub node_id: NodeId,
     pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub parent_node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverAliasExprNode<F, MvPCS, UvPCS>
@@ -68,11 +69,22 @@ where
         Self {
             node_id,
             inputs: vec![child],
+            parent_node_id: parent_logical_plan,
         }
     }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 
     fn add_virtual_witness(
@@ -109,6 +121,7 @@ where
     pub relative_expr: Expr,
     pub output_expr: Expr,
     pub inputs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub parent_node_id: NodeId,
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierAliasExprNode<F, MvPCS, UvPCS>
@@ -150,5 +163,15 @@ where
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
+    }
+
+    fn ctx_schema(
+        &self,
+        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> SchemaRef {
+        proof_tree
+            .node(&self.parent_node_id)
+            .unwrap()
+            .ctx_schema(proof_tree)
     }
 }

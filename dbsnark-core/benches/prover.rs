@@ -120,12 +120,8 @@ fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
         }
     });
 
-    let logical_plan = runtime.block_on(async {
-        ctx.sql(spec.sql)
-            .await
-            .expect("sql execution")
-            .into_unoptimized_plan()
-    });
+    let logical_plan =
+        runtime.block_on(async { ctx.state().create_logical_plan(spec.sql).await.unwrap() });
 
     let table_oracle_path = tpch_data::bench_data_path(spec.tables.join("_") + ".oracle");
     let table_oracle_file = File::open(&table_oracle_path).expect("open table oracle commitment");
