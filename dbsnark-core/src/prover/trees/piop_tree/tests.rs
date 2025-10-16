@@ -14,20 +14,36 @@ use ark_piop::{
     test_utils::test_prelude,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    error::Result as DFResult, logical_expr::LogicalPlanBuilder, prelude::SessionContext,
-};
+use datafusion::{error::Result as DFResult, prelude::SessionContext};
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
-async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn can_display_prover_proof_trees() -> DFResult<()> {
+    display_prover_piop_tree(
+        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
+        "lineitem",
+    )
+    .await;
+    display_prover_piop_tree(
+        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey*2-l_orderkey",
+        "lineitem",
+    )
+    .await;
+    Ok(())
+}
+
+pub async fn display_prover_piop_tree(table: &str, query: &str) {
     let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx, query, table).await?;
+    let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();
     let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree).await?;
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .unwrap();
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
@@ -41,26 +57,4 @@ async fn display_graphviz_for(query: &str, table: &str) -> DFResult<()> {
             .collect::<Vec<_>>()
     );
     println!("{}", piop_plan.display_graphviz());
-
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz_piop_tree_1() -> DFResult<()> {
-    display_graphviz_for(
-        "SELECT l_orderkey FROM lineitem WHERE l_quantity >= l_suppkey",
-        "lineitem",
-    )
-    .await
-}
-
-#[tokio::test]
-#[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz_piop_tree_2() -> DFResult<()> {
-    display_graphviz_for(
-        "SELECT l_partkey,l_discount FROM lineitem where l_suppkey+20 > l_partkey*2-l_orderkey",
-        "lineitem",
-    )
-    .await
 }

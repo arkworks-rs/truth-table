@@ -151,12 +151,33 @@ where
                     },
                     _ => false,
                 })
-                .unwrap(),
-            None => &self.parent_node_id,
+                .cloned()
+                .expect("table scan not found for relation"),
+            None => match &self.parent_node_id {
+                NodeId::Expr(Expr::Alias(alias)) => {
+                    if let Some(relation) = alias.relation.as_ref() {
+                        piop_tree
+                            .tracked_tables()
+                            .keys()
+                            .find(|node_id| match node_id {
+                                NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                                    &scan_plan.table_name == relation
+                                },
+                                _ => false,
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| self.parent_node_id.clone())
+                    } else {
+                        self.parent_node_id.clone()
+                    }
+                },
+                _ => self.parent_node_id.clone(),
+            },
         };
 
+        dbg!(&parent_node_id);
         let table = piop_tree
-            .tracked_table(parent_node_id, OUTPUT_PLAN_KEY)
+            .tracked_table(&parent_node_id, OUTPUT_PLAN_KEY)
             .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_by_name(&column_expr.name)
@@ -308,12 +329,32 @@ where
                     },
                     _ => false,
                 })
-                .unwrap(),
-            None => &self.parent_node_id,
+                .cloned()
+                .expect("table scan not found for relation"),
+            None => match &self.parent_node_id {
+                NodeId::Expr(Expr::Alias(alias)) => {
+                    if let Some(relation) = alias.relation.as_ref() {
+                        piop_tree
+                            .tracked_table_oracles()
+                            .keys()
+                            .find(|node_id| match node_id {
+                                NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                                    &scan_plan.table_name == relation
+                                },
+                                _ => false,
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| self.parent_node_id.clone())
+                    } else {
+                        self.parent_node_id.clone()
+                    }
+                },
+                _ => self.parent_node_id.clone(),
+            },
         };
 
         let table = piop_tree
-            .tracked_table_oracle(parent_node_id, OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&parent_node_id, OUTPUT_PLAN_KEY)
             .expect("table not found in PIOP tree");
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)

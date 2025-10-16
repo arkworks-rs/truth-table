@@ -14,20 +14,20 @@ use datafusion_expr::LogicalPlanBuilder;
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz() {
-    display_graphviz_for(
+async fn can_display_prover_proof_trees() {
+    display_prover_proof_tree(
         "lineitem",
         "SELECT l_suppkey+l_partkey, l_extendedprice FROM lineitem where l_quantity+l_linenumber == 5 ",
     )
     .await;
-    // display_graphviz_for(
+    // display_proof_tree(
     //     "lineitem",
     //     "SELECT count(l_partkey) FROM lineitem GROUP BY l_quantity",
     // )
     // .await;
 }
 
-async fn display_graphviz_for(table: &str, query: &str) {
+pub async fn display_prover_proof_tree(table: &str, query: &str) {
     init_tracing_for_tests();
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await.unwrap();

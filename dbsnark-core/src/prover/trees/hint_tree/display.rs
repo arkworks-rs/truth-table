@@ -81,30 +81,38 @@ where
                 .tree
                 .proof_tree()
                 .node(&node_kind)
-                .map(|original_node| {
+                .and_then(|original_node| {
                     let mut entries: Vec<_> = original_node
                         .hint_generation_plans(self.tree.proof_tree())
                         .into_iter()
                         .collect();
                     if entries.is_empty() {
+                        return None;
+                    }
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    let lines: Vec<_> = entries
+                        .into_iter()
+                        .filter_map(|(label, (_plan, should_materialize))| {
+                            if !should_materialize {
+                                return None;
+                            }
+                            let batches_opt = self.tree.batches_for(&node_kind, label.as_str());
+                            let (rows, cols, activated_true) = batches_opt
+                                .map(|batches| rows_cols_activated(batches.as_slice()))
+                                .unwrap_or((0, 0, None));
+                            let activated = activated_true.unwrap_or(rows);
+                            Some(format!(
+                                "{} ( {} rows, {} activated, {} columns)",
+                                label, rows, activated, cols
+                            ))
+                        })
+                        .collect();
+                    if lines.is_empty() {
                         None
                     } else {
-                        entries.sort_by(|a, b| a.0.cmp(&b.0));
-                        Some(
-                            entries
-                                .into_iter()
-                                .map(|(label, _)| {
-                                    let (rows, cols) = hint_rows_cols(
-                                        self.tree.batches_for(&node_kind, label.as_str()),
-                                    );
-                                    format!("{} ( {} rows, {} columns)", label, rows, cols)
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                        )
+                        Some(lines.join(", "))
                     }
-                })
-                .unwrap_or(None);
+                });
 
             let base = format!("{} ({})", node_label, variant_label);
             let base_html = esc_html(&base).replace('\n', "<BR ALIGN=\"LEFT\"/>");
@@ -112,7 +120,7 @@ where
             let label = if let Some(keys) = hint_keys {
                 let keys_html = esc_html(&keys).replace('\n', "<BR ALIGN=\"LEFT\"/>");
                 format!(
-                    "  n{} [label=<{}<BR/><FONT COLOR=\"blue\">hint: {}</FONT>>];\n",
+                    "  n{} [label=<{}<BR/><FONT COLOR=\"green\">hint: {}</FONT>>];\n",
                     id, base_html, keys_html
                 )
             } else {

@@ -16,8 +16,8 @@ type UvPCS = KZG10<Bls12_381>;
 
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz() {
-    display_graphviz_for(
+async fn can_display_prover_arithmetized_trees() {
+    display_prover_arithmetized_tree(
         "lineitem",
         "SELECT l_suppkey+l_partkey, l_extendedprice FROM lineitem where l_quantity+l_linenumber == 5 ",
     )
@@ -29,7 +29,7 @@ async fn display_graphviz() {
     // .await;
 }
 
-async fn display_graphviz_for(table: &str, query: &str) {
+pub async fn display_prover_arithmetized_tree(table: &str, query: &str) {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
     let prover_ctx = SharedCtx::default();

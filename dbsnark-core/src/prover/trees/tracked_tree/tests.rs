@@ -30,16 +30,16 @@ type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
-async fn display_graphviz() {
+async fn can_display_prover_tracked_trees() {
     init_tracing_for_tests();
-    display_graphviz_for(
+    display_prover_tracked_tree(
         "lineitem",
         "SELECT count(l_partkey) FROM lineitem GROUP BY 2*l_quantity",
     )
     .await;
 }
 
-async fn display_graphviz_for(table: &str, query: &str) {
+pub async fn display_prover_tracked_tree(table: &str, query: &str) {
     let ctx = SessionContext::new();
     let plan = test_df_plan(&ctx, query, table).await.unwrap();
 

@@ -2,7 +2,7 @@ use crate::prover::trees::{proof_tree::ProverProofTree, tracked_tree::ProverTrac
 pub mod display;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 use crate::proof_nodes::id::NodeId;
 use indexmap::IndexMap;
