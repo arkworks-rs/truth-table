@@ -147,6 +147,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        dbg!(piop_tree.tracked_table(&self.node_id, OUTPUT_PLAN_KEY));
         self.children()
             .iter()
             .try_for_each(|child| child.prove_piop(prover, piop_tree))?;

@@ -18,7 +18,7 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::datatypes::{Schema, SchemaRef},
+    arrow::datatypes::{DataType, Field, Schema, SchemaRef},
     common::Statistics,
     logical_expr::{
         self as df, ExprFunctionExt, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder,
@@ -35,6 +35,16 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+
+const GROUP_MULTIPLICITY_COL_NAME: &str = "__dbsnark_group_multiplicity";
+
+fn grouping_multiplicity_field() -> Arc<Field> {
+    Arc::new(Field::new(
+        GROUP_MULTIPLICITY_COL_NAME,
+        DataType::UInt64,
+        true,
+    ))
+}
 
 pub struct ProverAggregateNode<F, MvPCS, UvPCS>
 where
@@ -377,6 +387,54 @@ where
         let aggregate_piop_prover_output =
             AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
 
+        let grouping_multiplicity_poly =
+            aggregate_piop_prover_output.grouping_multiplicty_tracked_poly;
+        let multiplicity_log_size = grouping_multiplicity_poly.log_size();
+
+        for aggr_expr_node in &self.aggr_expr_proof_tree_roots {
+            let multiplicity_field = grouping_multiplicity_field();
+            if let Some(existing_table) = piop_tree
+                .tracked_table(&aggr_expr_node.node_id(), OUTPUT_PLAN_KEY)
+                .cloned()
+            {
+                debug_assert_eq!(
+                    existing_table.log_size(),
+                    multiplicity_log_size,
+                    "aggregate expression output log size mismatch"
+                );
+                let mut columns = existing_table.tracked_polys();
+                columns.insert(
+                    multiplicity_field.clone(),
+                    grouping_multiplicity_poly.clone(),
+                );
+                let schema = existing_table.schema().map(|schema| {
+                    let fields: Vec<Field> = columns
+                        .keys()
+                        .map(|field_ref| field_ref.as_ref().clone())
+                        .collect();
+                    Schema::new_with_metadata(fields, schema.metadata().clone())
+                });
+                let updated_table = TrackedTable::new(schema, columns, existing_table.log_size());
+                piop_tree.add_table(
+                    aggr_expr_node.node_id().clone(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    updated_table,
+                );
+            } else {
+                let mut columns = IndexMap::new();
+                columns.insert(
+                    multiplicity_field.clone(),
+                    grouping_multiplicity_poly.clone(),
+                );
+                let updated_table = TrackedTable::new(None, columns, multiplicity_log_size);
+                piop_tree.add_table(
+                    aggr_expr_node.node_id().clone(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    updated_table,
+                );
+            }
+        }
+
         self.children()
             .iter()
             .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
@@ -695,8 +753,55 @@ where
         let aggregate_piop_verifier_output =
             AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
 
+        let grouping_multiplicity_oracle =
+            aggregate_piop_verifier_output.grouping_multiplicty_tracked_oracle;
+        let multiplicity_log_size = grouping_multiplicity_oracle.log_size();
 
-            
+        for aggr_expr_node in &self.aggr_expr_proof_tree_roots {
+            let multiplicity_field = grouping_multiplicity_field();
+            if let Some(existing_table) = piop_tree
+                .tracked_table_oracle(&aggr_expr_node.node_id(), OUTPUT_PLAN_KEY)
+                .cloned()
+            {
+                debug_assert_eq!(
+                    existing_table.log_size(),
+                    multiplicity_log_size,
+                    "aggregate expression oracle log size mismatch"
+                );
+                let mut columns = existing_table.tracked_oracles();
+                columns.insert(
+                    multiplicity_field.clone(),
+                    grouping_multiplicity_oracle.clone(),
+                );
+                let schema = existing_table.schema().map(|schema| {
+                    let fields: Vec<Field> = columns
+                        .keys()
+                        .map(|field_ref| field_ref.as_ref().clone())
+                        .collect();
+                    Schema::new_with_metadata(fields, schema.metadata().clone())
+                });
+                let updated_table =
+                    TrackedTableOracle::new(schema, columns, existing_table.log_size());
+                piop_tree.add_tracked_table_oracle(
+                    aggr_expr_node.node_id().clone(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    updated_table,
+                );
+            } else {
+                let mut columns = IndexMap::new();
+                columns.insert(
+                    multiplicity_field.clone(),
+                    grouping_multiplicity_oracle.clone(),
+                );
+                let updated_table = TrackedTableOracle::new(None, columns, multiplicity_log_size);
+                piop_tree.add_tracked_table_oracle(
+                    aggr_expr_node.node_id().clone(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    updated_table,
+                );
+            }
+        }
+
         self.children()
             .iter()
             .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
