@@ -160,6 +160,8 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_schema = self.ctx_schema(piop_tree.proof_tree());
+            dbg!(ctx_schema.as_ref());
+            dbg!(&piop_tree.tracked_tables());
             piop_tree
                 .tracked_tables()
                 .values()
@@ -174,7 +176,8 @@ where
                 })
                 .expect("table not found matching column context schema")
         };
-
+        dbg!(table.tracked_polys());
+        dbg!(&column_expr.name);
         let col = table
             .tracked_col_by_name(&column_expr.name)
             .expect("column not found in table");
