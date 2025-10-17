@@ -6,8 +6,8 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
-    verifier::Verifier,
+    prover::{Prover, structs::polynomial::TrackedPoly},
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use col_toolbox::supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput};
 use datafusion::logical_expr::Aggregate;
@@ -27,7 +27,19 @@ pub struct AggregatePIOPProverInput<
     pub input_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
 }
-
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "")
+)]
+pub struct AggregatePIOPProverOutput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub grouping_multiplicty_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+}
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for AggregatePIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -53,7 +65,19 @@ pub struct AggregatePIOPVerifierInput<
     pub input_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
-
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "")
+)]
+pub struct AggregatePIOPVerifierOutput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+}
 pub struct AggregatePIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -72,8 +96,8 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     type ProverInput = AggregatePIOPProverInput<F, MvPCS, UvPCS>;
-    type ProverOutput = ();
-    type VerifierOutput = ();
+    type ProverOutput = AggregatePIOPProverOutput<F, MvPCS, UvPCS>;
+    type VerifierOutput = AggregatePIOPVerifierOutput<F, MvPCS, UvPCS>;
     type VerifierInput = AggregatePIOPVerifierInput<F, MvPCS, UvPCS>;
 
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
@@ -114,7 +138,9 @@ where
 
         let supp_check_output = SuppCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, supp_check_input)?;
 
-        Ok(())
+        Ok(AggregatePIOPProverOutput {
+            grouping_multiplicty_tracked_poly: supp_check_output.super_set_multiplicity_tr_p,
+        })
     }
 
     fn verify_inner(
@@ -152,7 +178,9 @@ where
 
         let supp_check_output =
             SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
-        Ok(())
+        Ok(AggregatePIOPVerifierOutput {
+            grouping_multiplicty_tracked_oracle: supp_check_output.super_set_multiplicity_tr_com,
+        })
     }
 }
 

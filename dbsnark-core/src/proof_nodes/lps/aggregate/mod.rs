@@ -374,7 +374,9 @@ where
                 input_grouping_table,
                 output_grouping_table,
             };
-        AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
+        let aggregate_piop_prover_output =
+            AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
+
         self.children()
             .iter()
             .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
@@ -690,7 +692,11 @@ where
                 input_grouping_table_oracle,
                 output_grouping_table_oracle,
             };
-        AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
+        let aggregate_piop_verifier_output =
+            AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
+
+
+            
         self.children()
             .iter()
             .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
