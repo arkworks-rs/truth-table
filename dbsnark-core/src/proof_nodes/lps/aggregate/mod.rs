@@ -187,14 +187,8 @@ where
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> SchemaRef {
-        let input_table_map = proof_tree
-            .node(&self.input_proof_tree_root.node_id())
-            .unwrap()
-            .hint_generation_plans(proof_tree);
-        let df_schema = input_table_map.get(OUTPUT_PLAN_KEY).unwrap().0.schema();
-        // Convert DFSchema to Arrow Schema
-        df_schema.inner().clone()
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+        self.input_proof_tree_root.clone()
     }
 
 
@@ -522,7 +516,7 @@ where
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> SchemaRef {
+    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
 

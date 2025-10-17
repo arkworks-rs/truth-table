@@ -115,7 +115,10 @@ where
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-    fn ctx_lp_node(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef;
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>;
 }
 
 impl<F, MvPCS, UvPCS> dyn ProverNode<F, MvPCS, UvPCS> + '_

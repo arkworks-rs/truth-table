@@ -64,13 +64,12 @@ where
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> datafusion::arrow::datatypes::SchemaRef {
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>{
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
     }
-
 
     fn add_virtual_witness(
         &self,
@@ -146,12 +145,10 @@ where
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> datafusion::arrow::datatypes::SchemaRef {
+    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
     }
-
-
 }

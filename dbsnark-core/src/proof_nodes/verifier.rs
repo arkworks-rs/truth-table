@@ -84,7 +84,10 @@ where
     ) -> SnarkResult<()> {
         todo!()
     }
-    fn ctx_lp_node(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef;
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>;
 }
 
 impl<F, MvPCS, UvPCS> dyn VerifierNode<F, MvPCS, UvPCS> + '_

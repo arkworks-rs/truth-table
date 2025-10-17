@@ -128,13 +128,15 @@ where
         todo!()
     }
 
-    fn ctx_lp_node(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
     }
-
 
     fn add_virtual_witness(
         &self,
@@ -161,27 +163,7 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            dbg!(ctx_lp_node.as_ref());
-            dbg!(
-                &piop_tree
-                    .tracked_tables()
-                    .iter()
-                    .map(|(k, v)| (k, v.values().map(|f| f.schema()).collect::<Vec<_>>()))
-                    .collect::<Vec<_>>()
-            );
-            piop_tree
-                .tracked_tables()
-                .values()
-                .find_map(|tables| {
-                    tables.values().find(|table| {
-                        table
-                            .schema()
-                            .as_ref()
-                            .map(|schema| schema == ctx_lp_node.as_ref())
-                            .unwrap_or(false)
-                    })
-                })
-                .expect("table not found matching column context schema")
+            todo!()
         };
         // dbg!(table.tracked_polys());
         // dbg!(&column_expr.name);
@@ -337,19 +319,7 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            piop_tree
-                .tracked_table_oracles()
-                .values()
-                .find_map(|tables| {
-                    tables.values().find(|table| {
-                        table
-                            .schema()
-                            .as_ref()
-                            .map(|schema| schema == ctx_lp_node.as_ref())
-                            .unwrap_or(false)
-                    })
-                })
-                .expect("table not found matching column context schema")
+            todo!()
         };
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)
@@ -387,12 +357,13 @@ where
         Ok(())
     }
 
-    fn ctx_lp_node(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
     }
-
-
 }
