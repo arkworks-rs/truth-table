@@ -124,8 +124,12 @@ where
         let (proof_tree, tables_by_node) = arith_plan.into_parts();
         // TODO: See if we can avoid these clones, specially cloning the tables_by_node
         let mut piop_tree = ProverPIOPTree::new(proof_tree.clone(), tables_by_node.clone());
+        dbg!(&tables_by_node);
         let flattened_proof_tree = proof_tree.flatten();
         for (node_id, _) in tables_by_node.iter() {
+            dbg!("************************************************************");
+            dbg!(node_id);
+            dbg!("************************************************************");
             let prover_node = flattened_proof_tree
                 .get(node_id)
                 .expect("missing node in proof tree");

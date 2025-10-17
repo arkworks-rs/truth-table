@@ -39,13 +39,7 @@ pub async fn display_prover_hint_tree(table: &str, query: &str) {
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .unwrap();
-    println!(
-        "The ordered list of nodes {:?}\n",
-        hint_tree
-            .hint_map()
-            .keys()
-            .map(|k| k.to_string())
-            .collect::<Vec<_>>()
-    );
+    hint_tree.hint_map().keys().for_each(|v| println!("{}", v));
+    println!("--------------------------------");
     println!("{}", hint_tree.display_graphviz());
 }

@@ -184,7 +184,7 @@ where
         todo!()
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> SchemaRef {
@@ -196,6 +196,7 @@ where
         // Convert DFSchema to Arrow Schema
         df_schema.inner().clone()
     }
+
 
     fn add_virtual_witness(
         &self,
@@ -518,12 +519,14 @@ where
         todo!()
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> SchemaRef {
         todo!()
     }
+
+
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {

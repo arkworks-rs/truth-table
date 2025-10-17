@@ -124,12 +124,23 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> Self {
         let (proof_tree, tables_by_node) = tracked_tree.into_parts();
-        // TODO: See if we can avoid these clones, specially cloning the tables_by_node
-        let mut piop_tree = VerifierPIOPTree::new(proof_tree.clone(), tables_by_node.clone());
         let flattened_proof_tree = proof_tree.flatten();
-        for (node_id, _) in tables_by_node.iter() {
+
+        let mut ordered_tables = IndexMap::new();
+        for node_id in flattened_proof_tree.keys() {
+            if let Some(tables) = tables_by_node.get(node_id) {
+                ordered_tables.insert(node_id.clone(), tables.clone());
+            }
+        }
+        for (node_id, tables) in tables_by_node.into_iter() {
+            ordered_tables.entry(node_id).or_insert(tables);
+        }
+
+        let mut piop_tree = VerifierPIOPTree::new(proof_tree.clone(), ordered_tables);
+        let node_ids: Vec<_> = piop_tree.tracked_table_oracles.keys().cloned().collect();
+        for node_id in node_ids {
             let prover_node = flattened_proof_tree
-                .get(node_id)
+                .get(&node_id)
                 .expect("missing node in proof tree");
             prover_node.add_virtual_witness(&mut piop_tree, verifier);
         }

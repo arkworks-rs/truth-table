@@ -128,12 +128,13 @@ where
         todo!()
     }
 
-    fn ctx_schema(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+    fn ctx_lp_node(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
-            .ctx_schema(proof_tree)
+            .ctx_lp_node(proof_tree)
     }
+
 
     fn add_virtual_witness(
         &self,
@@ -159,9 +160,15 @@ where
                 })
                 .expect("table scan not found for relation")
         } else {
-            let ctx_schema = self.ctx_schema(piop_tree.proof_tree());
-            dbg!(ctx_schema.as_ref());
-            dbg!(&piop_tree.tracked_tables());
+            let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
+            dbg!(ctx_lp_node.as_ref());
+            dbg!(
+                &piop_tree
+                    .tracked_tables()
+                    .iter()
+                    .map(|(k, v)| (k, v.values().map(|f| f.schema()).collect::<Vec<_>>()))
+                    .collect::<Vec<_>>()
+            );
             piop_tree
                 .tracked_tables()
                 .values()
@@ -170,14 +177,14 @@ where
                         table
                             .schema()
                             .as_ref()
-                            .map(|schema| schema == ctx_schema.as_ref())
+                            .map(|schema| schema == ctx_lp_node.as_ref())
                             .unwrap_or(false)
                     })
                 })
                 .expect("table not found matching column context schema")
         };
-        dbg!(table.tracked_polys());
-        dbg!(&column_expr.name);
+        // dbg!(table.tracked_polys());
+        // dbg!(&column_expr.name);
         let col = table
             .tracked_col_by_name(&column_expr.name)
             .expect("column not found in table");
@@ -329,7 +336,7 @@ where
                 })
                 .expect("table scan not found for relation")
         } else {
-            let ctx_schema = self.ctx_schema(piop_tree.proof_tree());
+            let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
             piop_tree
                 .tracked_table_oracles()
                 .values()
@@ -338,7 +345,7 @@ where
                         table
                             .schema()
                             .as_ref()
-                            .map(|schema| schema == ctx_schema.as_ref())
+                            .map(|schema| schema == ctx_lp_node.as_ref())
                             .unwrap_or(false)
                     })
                 })
@@ -380,10 +387,12 @@ where
         Ok(())
     }
 
-    fn ctx_schema(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+    fn ctx_lp_node(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
         proof_tree
             .node(&self.parent_node_id)
             .unwrap()
-            .ctx_schema(proof_tree)
+            .ctx_lp_node(proof_tree)
     }
+
+
 }

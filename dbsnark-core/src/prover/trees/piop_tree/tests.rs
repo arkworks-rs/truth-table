@@ -14,7 +14,7 @@ use ark_piop::{
     test_utils::test_prelude,
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{error::Result as DFResult, prelude::SessionContext};
+use datafusion::{error::Result as DFResult, functions::math::pi, prelude::SessionContext};
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
@@ -48,13 +48,10 @@ pub async fn display_prover_piop_tree(table: &str, query: &str) {
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
     let piop_plan = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-    println!(
-        "The ordered list of nodes {:?}\n",
-        piop_plan
-            .tracked_tables()
-            .keys()
-            .map(|k| k.to_string())
-            .collect::<Vec<_>>()
-    );
+    piop_plan
+        .tracked_tables()
+        .keys()
+        .for_each(|v| println!("{}", v));
+    println!("--------------------------------");
     println!("{}", piop_plan.display_graphviz());
 }

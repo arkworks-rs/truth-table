@@ -39,13 +39,10 @@ pub async fn display_prover_arithmetized_tree(table: &str, query: &str) {
         .await
         .unwrap();
     let arith_tree = ProverArithmetizedTree::from_hint_tree(hint_tree).unwrap();
-    println!(
-        "The ordered list of nodes {:?}\n",
-        arith_tree
-            .arithmetized_tables()
-            .keys()
-            .map(|k| k.to_string())
-            .collect::<Vec<_>>()
-    );
+    arith_tree
+        .arithmetized_tables()
+        .keys()
+        .for_each(|v| println!("{}", v));
+    println!("--------------------------------");
     println!("{}", arith_tree.display_graphviz());
 }

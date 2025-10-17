@@ -89,12 +89,13 @@ where
         todo!()
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> datafusion::arrow::datatypes::SchemaRef {
         todo!()
     }
+
 
     fn add_virtual_witness(
         &self,
@@ -198,12 +199,14 @@ where
         todo!()
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> datafusion::arrow::datatypes::SchemaRef {
         todo!()
     }
+
+
 }
 
 // TODO: Compute the following witnesses:

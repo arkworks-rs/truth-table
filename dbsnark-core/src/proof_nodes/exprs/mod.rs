@@ -114,14 +114,14 @@ pub mod prover {
             todo!()
         }
 
-        fn ctx_schema(
+        fn ctx_lp_node(
             &self,
             proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
         ) -> datafusion::arrow::datatypes::SchemaRef {
             proof_tree
                 .node(&self.parent_node_id)
                 .unwrap()
-                .ctx_schema(proof_tree)
+                .ctx_lp_node(proof_tree)
         }
 
         fn add_virtual_witness(
@@ -242,12 +242,14 @@ pub mod verifier {
         ) -> SnarkResult<()> {
             todo!()
         }
-        fn ctx_schema(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
+        fn ctx_lp_node(&self, proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>) -> SchemaRef {
             proof_tree
                 .node(&self.parent_node_id)
                 .unwrap()
-                .ctx_schema(proof_tree)
+                .ctx_lp_node(proof_tree)
         }
+
+
     }
 
     pub fn wrap_logical_expr<F, MvPCS, UvPCS>(

@@ -46,3 +46,4 @@ async fn build_tracked_tree() {
 async fn build_piop_tree() {
     display_prover_piop_tree(QUERY_SPEC_1.0, QUERY_SPEC_1.1).await;
 }
+    

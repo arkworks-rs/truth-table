@@ -138,10 +138,11 @@ where
         todo!()
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> datafusion::arrow::datatypes::SchemaRef {
+        // TODO this is wrong
         let input_table_map = proof_tree
             .node(&self.input_prover_node.node_id())
             .unwrap()
@@ -150,6 +151,7 @@ where
         // Convert DFSchema to Arrow Schema
         df_schema.inner().clone()
     }
+
 
     fn add_virtual_witness(
         &self,
@@ -387,10 +389,12 @@ where
         Ok(())
     }
 
-    fn ctx_schema(
+    fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> datafusion::arrow::datatypes::SchemaRef {
         todo!()
     }
+
+
 }
