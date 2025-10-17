@@ -75,7 +75,6 @@ where
         todo!()
     }
 
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -157,6 +156,4 @@ where
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
-
-
 }

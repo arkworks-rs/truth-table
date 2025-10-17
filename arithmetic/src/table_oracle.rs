@@ -149,24 +149,14 @@ where
     /// polynomial as the original tracked table oracle (if any) and does
     /// not have any datatype
     pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
-        let schema = self
-            .schema
-            .as_ref()
-            .expect("schema required for indexed folding");
-        let first_field = schema.field(col_inds[0]).clone();
         let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &self
-            .tracked_oracles
-            .get(&first_field)
-            .expect("column oracle not found")
-            .clone()
+            .tracked_col_oracle_by_ind(col_inds[0])
+            .data_tracked_oracle()
             * challs[0];
         for i in 1..col_inds.len() {
-            let field_ref = schema.field(col_inds[i]).clone();
             let col_oracle = self
-                .tracked_oracles
-                .get(&field_ref)
-                .expect("column oracle not found")
-                .clone();
+                .tracked_col_oracle_by_ind(col_inds[i])
+                .data_tracked_oracle();
             folded += &(&col_oracle * challs[i]);
         }
         TrackedColOracle::new(folded, self.activator_tracked_poly(), None)

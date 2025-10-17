@@ -65,11 +65,7 @@ where
         ctx: SharedCtx<F, MvPCS, UvPCS>,
     ) -> Self {
         let arena = Self::sort_nodes(Arc::clone(&root));
-        Self {
-            root,
-            ctx,
-            arena,
-        }
+        Self { root, ctx, arena }
     }
 
     fn sort_nodes(

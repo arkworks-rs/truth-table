@@ -42,12 +42,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverArithmetizedTree")
             .field("num_nodes", &self.arena.len())
-            .field(
-                "nodes",
-                &ArithNodesDebug::<F> {
-                    inner: &self.arena,
-                },
-            )
+            .field("nodes", &ArithNodesDebug::<F> { inner: &self.arena })
             .finish()
     }
 }
@@ -148,9 +143,7 @@ where
     }
 
     pub fn arithmetized_table_for(&self, node_id: &NodeId, label: &str) -> Option<&ArithTable<F>> {
-        self.arena
-            .get(node_id)
-            .and_then(|tables| tables.get(label))
+        self.arena.get(node_id).and_then(|tables| tables.get(label))
     }
 
     pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {

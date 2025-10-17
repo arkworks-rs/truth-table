@@ -38,12 +38,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverPIOPTree")
             .field("num_nodes", &self.arena.len())
-            .field(
-                "nodes",
-                &VirtualNodesDebug {
-                    inner: &self.arena,
-                },
-            )
+            .field("nodes", &VirtualNodesDebug { inner: &self.arena })
             .finish()
     }
 }
@@ -72,9 +67,7 @@ where
         self.arena.is_empty()
     }
 
-    pub fn arena(
-        &self,
-    ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    pub fn arena(&self) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.arena
     }
 
@@ -99,10 +92,7 @@ where
         label: String,
         table: TrackedTable<F, MvPCS, UvPCS>,
     ) {
-        self.arena
-            .entry(node_id)
-            .or_default()
-            .insert(label, table);
+        self.arena.entry(node_id).or_default().insert(label, table);
     }
 
     pub fn tracked_table(

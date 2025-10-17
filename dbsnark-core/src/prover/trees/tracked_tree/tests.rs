@@ -63,10 +63,7 @@ pub async fn display_prover_tracked_tree(table: &str, query: &str) {
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
-    tracked_tree
-        .arena()
-        .keys()
-        .for_each(|v| println!("{}", v));
+    tracked_tree.arena().keys().for_each(|v| println!("{}", v));
     println!("--------------------------------");
     println!("{}", tracked_tree.display_graphviz());
 }

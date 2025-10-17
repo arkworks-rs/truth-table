@@ -328,11 +328,15 @@ where
             }
         }
 
-        let input_grouping_table = if grouping_columns.is_empty() {
-            panic!("aggregate PIOP requires at least one grouping column");
-        } else {
-            TrackedTable::new(None, grouping_columns, grouping_table_log_size.unwrap_or(0))
-        };
+        let input_grouping_table =
+            TrackedTable::new(None, grouping_columns, grouping_table_log_size.unwrap_or(0));
+        dbg!(
+            &input_grouping_table
+                .tracked_polys()
+                .values()
+                .collect::<Vec<_>>()
+        );
+        dbg!(input_grouping_table.activator_tracked_poly());
 
         let output_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
@@ -353,6 +357,13 @@ where
         let output_grouping_table =
             TrackedTable::new(None, output_grouping_columns, output_table.log_size());
 
+        dbg!(
+            &output_grouping_table
+                .tracked_polys()
+                .values()
+                .collect::<Vec<_>>()
+        );
+        dbg!(output_grouping_table.activator_tracked_poly());
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,

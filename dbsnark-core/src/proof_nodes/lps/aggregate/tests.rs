@@ -1,8 +1,12 @@
-use crate::{prover::trees::{
-    arithmetized_tree::tests::display_prover_arithmetized_tree,
-    hint_tree::tests::display_prover_hint_tree, piop_tree::tests::display_prover_piop_tree,
-    proof_tree::tests::display_prover_proof_tree, tracked_tree::tests::display_prover_tracked_tree,
-}, test_utils::helper::prove_and_verify_query};
+use crate::{
+    prover::trees::{
+        arithmetized_tree::tests::display_prover_arithmetized_tree,
+        hint_tree::tests::display_prover_hint_tree, piop_tree::tests::display_prover_piop_tree,
+        proof_tree::tests::display_prover_proof_tree,
+        tracked_tree::tests::display_prover_tracked_tree,
+    },
+    test_utils::helper::prove_and_verify_query,
+};
 
 const QUERY_SPEC_1: (&str, &str) = (
     "customer",
@@ -49,5 +53,15 @@ async fn build_piop_tree() {
 
 #[test]
 fn prove_aggregate() {
-    prove_and_verify_query(QUERY_SPEC_1.1, QUERY_SPEC_1.0);
+    prove_and_verify_query(
+        r#"
+        SELECT
+            l_suppkey,
+            l_linenumber,
+            COUNT(l_discount)
+        FROM lineitem
+        GROUP BY l_suppkey, l_linenumber
+    "#,
+        "lineitem",
+    );
 }

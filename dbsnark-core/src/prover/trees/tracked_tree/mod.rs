@@ -46,12 +46,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverTrackedTree")
             .field("num_nodes", &self.arena.len())
-            .field(
-                "nodes",
-                &ArithNodesDebug {
-                    inner: &self.arena,
-                },
-            )
+            .field("nodes", &ArithNodesDebug { inner: &self.arena })
             .finish()
     }
 }
@@ -104,9 +99,7 @@ where
             .and_then(|by_label| by_label.get(label))
     }
 
-    pub fn arena(
-        &self,
-    ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
+    pub fn arena(&self) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.arena
     }
 
