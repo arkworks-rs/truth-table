@@ -47,9 +47,6 @@ where
     pub input_proof_tree_root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
 }
-// TODO: For the aggregation functions, we need some witnesses like the
-// broadcast in max, etc TODO: For grouping expressions, we need to compute the
-// multiplicity witness for the support check
 
 pub struct VerifierAggregateNode<F, MvPCS, UvPCS>
 where
@@ -83,6 +80,7 @@ where
             LogicalPlan::Aggregate(agg) => agg,
             _ => panic!("expected aggregate logical plan"),
         };
+        // Get the node id of the current node
         let node_id = NodeId::LP(plan.clone());
         // Recursively build the input proof tree
         let input_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
@@ -93,9 +91,8 @@ where
         )
         .root();
 
-        // Recursively build the children by first building a tree for the grouping
-        // expressions Note that their parent logical plan is unusually set to
-        // be the input logical plan of the aggregate
+        // Recursively build the children by first building trees for the grouping
+        // expressions
         let group_expr_proof_tree_roots: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
             .group_expr
             .iter()
@@ -110,19 +107,18 @@ where
             })
             .collect();
 
-
-        for expr in &aggregate.aggr_expr {
-            if !matches!(expr, Expr::AggregateFunction(_)) {
-                panic!(
-                    "expected aggregate expression to be AggregateFunction, got
-        {expr}"
-                );
-            }
-        }
+        // Recursively build the children by first building trees for the eggregation
+        // expressions
         let aggr_expr_proof_tree_roots: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = aggregate
             .aggr_expr
             .iter()
             .map(|expr| {
+                if !matches!(expr, Expr::AggregateFunction(_)) {
+                    panic!(
+                        "expected aggregate expression to be AggregateFunction, got
+        {expr}"
+                    );
+                }
                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
                     ctx,
                     prover_ctx.clone(),
@@ -143,7 +139,9 @@ where
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::new();
-
+        // Note that the leftmost child is always the node corresponding to the input
+        // logical plans This is crucial when traversing the proof tree in a
+        // post-order fashion
         children.push(&self.input_proof_tree_root);
         self.group_expr_proof_tree_roots
             .iter()
@@ -190,7 +188,7 @@ where
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         self.input_proof_tree_root.clone()
     }
@@ -200,11 +198,15 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
+        // Fetch the current output table tracked by this aggregate node
+        // This should contain only the materialized columns; i.e. the new activator and
+        // the aggregate expression columns
+        // It remains to attach the grouping expression columns at the front
         let Some(existing_output) = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .cloned()
         else {
-            return;
+            panic!("missing output plan table for the current aggregate node");
         };
 
         // Separate aggregate value columns and the activator from the current output
@@ -228,7 +230,6 @@ where
                 return;
             };
 
-
             let (field, poly) = group_table
                 .tracked_polys()
                 .into_iter()
@@ -243,7 +244,7 @@ where
         }
 
         if group_entries.is_empty() {
-            return;
+            panic!("no grouping expressions found for aggregate node");
         }
 
         // Rebuild the output table so grouping columns appear first, followed by
@@ -367,7 +368,6 @@ where
         let output_grouping_table =
             TrackedTable::new(None, output_grouping_columns, output_table.log_size());
 
-
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,
@@ -435,7 +435,6 @@ where
                 .root()
             })
             .collect();
-
 
         for expr in &aggregate.aggr_expr {
             if !matches!(expr, Expr::AggregateFunction(_)) {

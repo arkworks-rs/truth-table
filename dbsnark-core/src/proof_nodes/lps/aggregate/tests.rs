@@ -51,6 +51,22 @@ async fn build_piop_tree() {
     display_prover_piop_tree(QUERY_SPEC_1.0, QUERY_SPEC_1.1).await;
 }
 
+#[tokio::test]
+#[ignore = "This test is for visualization purposes and may require manual inspection."]
+async fn build_piop_tree2() {
+    display_prover_piop_tree(
+        "lineitem",
+        r#"
+        SELECT
+            l_suppkey,
+            l_linenumber,
+            COUNT(l_discount)
+        FROM lineitem
+        GROUP BY l_suppkey, l_linenumber
+    "#,
+    )
+    .await;
+}
 #[test]
 fn prove_aggregate() {
     prove_and_verify_query(
