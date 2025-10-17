@@ -163,13 +163,10 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            // dbg!(&ctx_lp_node.node_id());
             piop_tree
                 .tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap()
         };
-        // dbg!(table.tracked_polys());
-        // dbg!(&column_expr.name);
         let col = table
             .tracked_col_by_name(&column_expr.name)
             .unwrap_or_else(|| panic!("column {} not found in table", &column_expr.name));
@@ -322,7 +319,9 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            todo!()
+            piop_tree
+                .tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap()
         };
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)

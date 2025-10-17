@@ -385,6 +385,6 @@ where
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        todo!()
+        self.input_verifier_node.clone()
     }
 }

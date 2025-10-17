@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use crate::proof_nodes::{
     exprs::verifier::{
-        VerifierAliasExprNode, VerifierBinaryExprNode, VerifierColumnExprNode,
-        VerifierLiteralExprNode,
+        VerifierAggregateFunctionExprNode, VerifierAliasExprNode, VerifierBinaryExprNode,
+        VerifierColumnExprNode, VerifierLiteralExprNode,
     },
     id::NodeId,
-    lps::verifier::{VerifierFilterNode, VerifierProjectionNode, VerifierTableScanNode},
+    lps::verifier::{
+        VerifierAggregateNode, VerifierFilterNode, VerifierProjectionNode, VerifierTableScanNode,
+    },
     verifier::VerifierNode,
 };
 use arithmetic::ctx::SharedCtx;
@@ -233,6 +235,18 @@ where
                 )),
                 verifier_ctx,
             ),
+            Expr::AggregateFunction(_) => Self::new(
+                Arc::new(
+                    <VerifierAggregateFunctionExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(
+                        ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                verifier_ctx,
+            ),
             _ => todo!(),
         }
     }
@@ -284,8 +298,20 @@ where
                 )),
                 verifier_ctx,
             ),
+            df::LogicalPlan::Aggregate(_aggr) => Self::new(
+                Arc::new(<VerifierAggregateNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_lp(
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
             df::LogicalPlan::Window(_w) => todo!(),
-            df::LogicalPlan::Aggregate(_aggr) => todo!(),
             df::LogicalPlan::Sort(_s) => todo!(),
             df::LogicalPlan::Repartition(_r) => todo!(),
             df::LogicalPlan::Analyze(_a) => todo!(),

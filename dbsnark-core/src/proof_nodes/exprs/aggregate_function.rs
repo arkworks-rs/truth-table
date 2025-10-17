@@ -4,6 +4,7 @@
 use crate::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
@@ -157,8 +158,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub relative_expr: Expr,
-    pub output_expr: Expr,
+    pub node_id: NodeId,
     pub inputs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub parent_node_id: NodeId,
 }
@@ -171,7 +171,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn node_id(&self) -> NodeId {
-        NodeId::Expr(self.relative_expr.clone())
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -187,7 +187,31 @@ where
     where
         Self: Sized,
     {
-        todo!()
+        let aggregate_expr = match expr.clone() {
+            Expr::AggregateFunction(agg) => agg,
+            _ => panic!("expected aggregate function expression"),
+        };
+        let node_id = NodeId::Expr(expr.clone());
+        let inputs = aggregate_expr
+            .params
+            .args
+            .iter()
+            .map(|arg| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    arg.clone(),
+                    &node_id,
+                )
+                .root()
+            })
+            .collect();
+
+        Self {
+            node_id,
+            inputs,
+            parent_node_id: parent_logical_plan,
+        }
     }
 
     fn add_virtual_witness(

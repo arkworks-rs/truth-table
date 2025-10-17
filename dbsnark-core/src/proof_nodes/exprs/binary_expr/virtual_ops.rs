@@ -219,7 +219,6 @@ where
                 false,
             ))
         };
-        dbg!(&field_ref);
         let mut tracked_oracles = IndexMap::from_iter(vec![(field_ref, output_data_tracked_poly)]);
         if let Some(activator_oracle) = output_activator {
             let activator_field = FieldRef::new(Field::new(

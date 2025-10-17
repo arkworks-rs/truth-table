@@ -15,6 +15,7 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
     arrow::datatypes::{Schema, SchemaRef},
@@ -27,7 +28,9 @@ use datafusion::{
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::aggregate_check::{AggregatePIOP, AggregatePIOPProverInput};
+use ra_toolbox::lp_piop::aggregate_check::{
+    AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPVerifierInput,
+};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -107,12 +110,7 @@ where
             })
             .collect();
 
-        // dbg!(
-        //     &group_expr_proof_tree_roots
-        //         .iter()
-        //         .map(|n| n.node_id())
-        //         .collect::<Vec<_>>()
-        // );
+
         for expr in &aggregate.aggr_expr {
             if !matches!(expr, Expr::AggregateFunction(_)) {
                 panic!(
@@ -225,13 +223,11 @@ where
         // nodes.
         let mut group_entries = Vec::with_capacity(self.group_expr_proof_tree_roots.len());
         for group_node in &self.group_expr_proof_tree_roots {
-            // dbg!(&group_node.node_id());
             let Some(group_table) = piop_tree.tracked_table(&group_node.node_id(), OUTPUT_PLAN_KEY)
             else {
                 return;
             };
 
-            // dbg!(&group_table.tracked_polys().keys().collect::<Vec<_>>());
 
             let (field, poly) = group_table
                 .tracked_polys()
@@ -245,7 +241,6 @@ where
                 });
             group_entries.push((field, poly));
         }
-        // dbg!(&group_entries);
 
         if group_entries.is_empty() {
             return;
@@ -275,7 +270,6 @@ where
             combined_columns,
             existing_output.log_size(),
         );
-        // dbg!(&updated_table.tracked_polys().keys().collect::<Vec<_>>());
 
         piop_tree.add_table(
             self.node_id.clone(),
@@ -299,6 +293,10 @@ where
             ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
         > = IndexMap::new();
         let mut grouping_table_log_size: Option<usize> = None;
+
+        let input_base_table = piop_tree
+            .tracked_table(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| panic!("missing output_plan table for aggregate input"));
 
         for group_node in &self.group_expr_proof_tree_roots {
             let table = piop_tree
@@ -328,16 +326,20 @@ where
             }
         }
 
-        let input_grouping_table =
-            TrackedTable::new(None, grouping_columns, grouping_table_log_size.unwrap_or(0));
-        dbg!(
-            &input_grouping_table
-                .tracked_polys()
-                .values()
-                .collect::<Vec<_>>()
-        );
-        dbg!(input_grouping_table.activator_tracked_poly());
+        if let Some((field, poly)) = input_base_table
+            .tracked_polys()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            grouping_columns.insert(field, poly);
+        }
 
+        let input_grouping_table = TrackedTable::new(
+            None,
+            grouping_columns,
+            grouping_table_log_size.unwrap_or_else(|| input_base_table.log_size()),
+        );
         let output_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
@@ -354,16 +356,18 @@ where
             grouping_col_count,
             "aggregate output table does not contain enough grouping columns",
         );
+        if let Some((field, poly)) = output_table
+            .tracked_polys()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            output_grouping_columns.insert(field, poly);
+        }
         let output_grouping_table =
             TrackedTable::new(None, output_grouping_columns, output_table.log_size());
 
-        dbg!(
-            &output_grouping_table
-                .tracked_polys()
-                .values()
-                .collect::<Vec<_>>()
-        );
-        dbg!(output_grouping_table.activator_tracked_poly());
+
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,
@@ -393,14 +397,74 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        // Get the aggregate logical plan
+        let aggregate = match &plan {
+            LogicalPlan::Aggregate(agg) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the input proof tree
+        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            verifier_ctx.clone(),
+            &aggregate.input,
+            &node_id,
+        )
+        .root();
+
+        // Recursively build the children by first building a tree for the grouping
+        // expressions Note that their parent logical plan is unusually set to
+        // be the input logical plan of the aggregate
+        let group_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
+            .group_expr
+            .iter()
+            .map(|expr| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr.clone(),
+                    &node_id.clone(),
+                )
+                .root()
+            })
+            .collect();
+
+
+        for expr in &aggregate.aggr_expr {
+            if !matches!(expr, Expr::AggregateFunction(_)) {
+                panic!(
+                    "expected aggregate expression to be AggregateFunction, got
+        {expr}"
+                );
+            }
+        }
+        let aggr_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
+            .aggr_expr
+            .iter()
+            .map(|expr| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr.clone(),
+                    &node_id.clone(),
+                )
+                .root()
+            })
+            .collect();
+
+        Self {
+            group_expr_proof_tree_roots,
+            aggr_expr_proof_tree_roots,
+            input_proof_tree_root,
+            node_id,
+        }
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -528,10 +592,102 @@ where
     }
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let aggregate = match &self.node_id {
+            NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        }
+        .clone();
+
+        let mut grouping_columns: IndexMap<
+            datafusion::arrow::datatypes::FieldRef,
+            TrackedOracle<F, MvPCS, UvPCS>,
+        > = IndexMap::new();
+        let mut grouping_table_log_size: Option<usize> = None;
+
+        let input_base_table = piop_tree
+            .tracked_table_oracle(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| panic!("missing output_plan table for aggregate input"));
+
+        for group_node in &self.group_expr_proof_tree_roots {
+            let table = piop_tree
+                .tracked_table_oracle(&group_node.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for group expr {}",
+                        group_node.name()
+                    )
+                });
+
+            let table_log_size = table.log_size();
+            if let Some(expected) = grouping_table_log_size {
+                assert_eq!(
+                    expected, table_log_size,
+                    "grouping expression tables must have matching log sizes",
+                );
+            } else {
+                grouping_table_log_size = Some(table_log_size);
+            }
+
+            for (field, poly) in table.tracked_oracles() {
+                if field.name() == ACTIVATOR_COL_NAME {
+                    continue;
+                }
+                grouping_columns.insert(field.clone(), poly.clone());
+            }
+        }
+
+        if let Some((field, poly)) = input_base_table
+            .tracked_oracles()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            grouping_columns.insert(field, poly);
+        }
+
+        let input_grouping_table_oracle = TrackedTableOracle::new(
+            None,
+            grouping_columns,
+            grouping_table_log_size.unwrap_or_else(|| input_base_table.log_size()),
+        );
+
+        let output_table = piop_tree
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
+        let grouping_col_count = aggregate.group_expr.len();
+        let mut output_grouping_columns = IndexMap::with_capacity(grouping_col_count);
+        for (idx, (field, poly)) in output_table.tracked_oracles().iter().enumerate() {
+            if idx >= grouping_col_count {
+                break;
+            }
+            output_grouping_columns.insert(field.clone(), poly.clone());
+        }
+        assert_eq!(
+            output_grouping_columns.len(),
+            grouping_col_count,
+            "aggregate output table does not contain enough grouping columns",
+        );
+        if let Some((field, poly)) = output_table
+            .tracked_oracles()
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            output_grouping_columns.insert(field, poly);
+        }
+        let output_grouping_table_oracle =
+            TrackedTableOracle::new(None, output_grouping_columns, output_table.log_size());
+
+        let aggregate_piop_verifier_input: AggregatePIOPVerifierInput<F, MvPCS, UvPCS> =
+            AggregatePIOPVerifierInput {
+                aggregate,
+                input_grouping_table_oracle,
+                output_grouping_table_oracle,
+            };
+        AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)
     }
 
     fn ctx_lp_node(
@@ -565,6 +721,8 @@ fn build_aggregate_hint_output_plan(
     base_plan: LogicalPlan,
     aggregate_plan: &df::Aggregate,
 ) -> LogicalPlan {
+    let aggregate_schema = Arc::clone(&aggregate_plan.schema);
+
     // Preserve the activator column type so the synthetic flag respects upstream
     // typing.
     let activator_dtype = base_plan
@@ -623,7 +781,6 @@ fn build_aggregate_hint_output_plan(
     let mut aggregated_projection_exprs: Vec<Expr> =
         Vec::with_capacity(aggregated_schema.fields().len());
     let mut aggregate_value_aliases: Vec<String> = Vec::new();
-    let mut aggregate_output_names: Vec<String> = Vec::new();
     for (idx, field) in aggregated_schema.fields().iter().enumerate() {
         let column_expr = df::col(field.name());
         if idx < agg_group_aliases.len() {
@@ -633,7 +790,6 @@ fn build_aggregate_hint_output_plan(
             let alias = format!("__dbsnark_aggr_expr_{agg_idx}");
             aggregated_projection_exprs.push(column_expr.alias(alias.clone()));
             aggregate_value_aliases.push(alias);
-            aggregate_output_names.push(field.name().to_string());
         }
     }
     let aggregated_with_alias = LogicalPlanBuilder::from(aggregated_plan.clone())
@@ -666,8 +822,10 @@ fn build_aggregate_hint_output_plan(
     // active.
     let partition_exprs: Vec<Expr> = base_group_aliases.iter().map(df::col).collect();
     let row_number_alias = "__dbsnark_group_row_number".to_string();
+    let order_exprs = vec![df::col(ACTIVATOR_COL_NAME).sort(false, false)];
     let row_number_expr = row_number()
         .partition_by(partition_exprs)
+        .order_by(order_exprs)
         .build()
         .expect("build row_number() window expression")
         .alias(row_number_alias.clone());
@@ -692,8 +850,24 @@ fn build_aggregate_hint_output_plan(
 
     // Project aggregate values with their original names along with the new
     // activator.
+    let group_output_names: Vec<String> = aggregate_schema
+        .fields()
+        .iter()
+        .take(group_exprs.len())
+        .map(|field| field.name().to_string())
+        .collect();
+    let aggregate_output_names: Vec<String> = aggregate_schema
+        .fields()
+        .iter()
+        .skip(group_exprs.len())
+        .map(|field| field.name().to_string())
+        .collect();
+
     let mut final_projection_exprs: Vec<Expr> =
-        Vec::with_capacity(aggregate_value_aliases.len() + 1);
+        Vec::with_capacity(group_output_names.len() + aggregate_output_names.len() + 1);
+    for (alias, original_name) in agg_group_aliases.iter().zip(group_output_names.iter()) {
+        final_projection_exprs.push(df::col(alias).alias(original_name.clone()));
+    }
     for (alias, original_name) in aggregate_value_aliases
         .iter()
         .zip(aggregate_output_names.iter())

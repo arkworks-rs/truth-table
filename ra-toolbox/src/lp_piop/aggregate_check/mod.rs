@@ -85,7 +85,6 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        dbg!(&input);
         let num_gpd_cols = input.input_grouping_table.num_data_tracked_cols();
         // Generate one random field element for each column being grouped by
         // This is used to fold these columns to a single random linearly
