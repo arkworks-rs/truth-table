@@ -158,6 +158,9 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(_prover, _piop_tree))?;
         Ok(())
     }
 }
@@ -266,6 +269,9 @@ where
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(_verifier, _piop_tree))?;
         Ok(())
     }
 

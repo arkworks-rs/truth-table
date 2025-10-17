@@ -13,6 +13,7 @@ use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::SnarkResult,
     pcs::PCS,
     verifier::Verifier,
 };
@@ -71,6 +72,10 @@ where
         &self,
     ) -> &IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
         &self.arena
+    }
+
+    pub fn verify(&mut self, verifier: &mut Verifier<F, MvPCS, UvPCS>) -> SnarkResult<()> {
+        self.inner_proof_tree.root().verify_piop(verifier, self)
     }
 
     pub fn tracked_table_oracles_for(

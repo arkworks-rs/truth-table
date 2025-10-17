@@ -119,11 +119,7 @@ pub mod helper {
             .expect("build tracked tree");
         let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
 
-        let prover_nodes = piop_tree.proof_tree().clone().flatten();
-        for node in prover_nodes.values() {
-            node.prove_piop(&mut prover, &mut piop_tree)
-                .expect("prove piop node");
-        }
+        piop_tree.prove(&mut prover).expect("prove piop tree");
         let mv_param = prover.mv_pcs_prover_param();
         let proof = prover.build_proof().expect("construct proof");
 
@@ -161,11 +157,9 @@ pub mod helper {
         );
         let mut verifier_piop_tree =
             VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
-        let verifier_nodes = verifier_piop_tree.proof_tree().clone().flatten();
-        for node in verifier_nodes.values() {
-            node.verify_piop(&mut verifier, &mut verifier_piop_tree)
-                .expect("verify piop node");
-        }
+        verifier_piop_tree
+            .verify(&mut verifier)
+            .expect("verify piop tree");
         verifier.verify().expect("verify proof");
     }
 }

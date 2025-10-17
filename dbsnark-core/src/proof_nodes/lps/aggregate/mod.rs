@@ -374,7 +374,11 @@ where
                 input_grouping_table,
                 output_grouping_table,
             };
-        AggregatePIOP::prove(prover, aggregate_piop_prover_input)
+        AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
+        Ok(())
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -686,7 +690,11 @@ where
                 input_grouping_table_oracle,
                 output_grouping_table_oracle,
             };
-        AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)
+        AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
+        Ok(())
     }
 
     fn ctx_lp_node(

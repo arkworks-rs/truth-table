@@ -73,20 +73,8 @@ where
     fn sort_nodes(
         root: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     ) -> IndexMap<NodeId, Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>) -> usize
-        where
-            F: PrimeField,
-            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-        {
-            let data_ptr = &**node as *const dyn VerifierNode<F, MvPCS, UvPCS> as *const ();
-            data_ptr as usize
-        }
-
         fn collect<F, MvPCS, UvPCS>(
             node: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-            depth: usize,
-            depths: &mut IndexMap<usize, usize>,
             out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
         ) where
             F: PrimeField,
@@ -94,51 +82,16 @@ where
             UvPCS: PCS<F, Poly = LDE<F>> + 'static,
         {
             for child in node.children() {
-                collect(child, depth + 1, depths, out);
+                collect(child, out);
             }
-            depths.insert(node_ptr_id(node), depth);
             out.push(Arc::clone(node));
         }
 
         let mut nodes = Vec::new();
-        let mut depths = IndexMap::new();
-        collect(&root, 0, &mut depths, &mut nodes);
-
-        let mut table_scan_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|node| {
-                node.as_any()
-                    .downcast_ref::<VerifierTableScanNode>()
-                    .is_some()
-            })
-            .cloned()
-            .collect();
-        let mut other_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|node| {
-                node.as_any()
-                    .downcast_ref::<VerifierTableScanNode>()
-                    .is_none()
-            })
-            .cloned()
-            .collect();
-
-        let cmp_nodes = |a: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-                         b: &Arc<dyn VerifierNode<F, MvPCS, UvPCS>>| {
-            let depth_a = depths.get(&node_ptr_id(a)).copied().unwrap_or(0);
-            let depth_b = depths.get(&node_ptr_id(b)).copied().unwrap_or(0);
-            depth_b
-                .cmp(&depth_a)
-                .then_with(|| a.node_id().to_string().cmp(&b.node_id().to_string()))
-        };
-
-        table_scan_nodes.sort_by(cmp_nodes);
-        other_nodes.sort_by(cmp_nodes);
-
-        let ordered_nodes = table_scan_nodes.into_iter().chain(other_nodes.into_iter());
+        collect(&root, &mut nodes);
 
         let mut ordered_map = IndexMap::with_capacity(nodes.len());
-        for node in ordered_nodes {
+        for node in nodes {
             ordered_map.insert(node.node_id(), node);
         }
 

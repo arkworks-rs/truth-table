@@ -251,7 +251,11 @@ where
                 right_col,
                 output_col,
             };
-        BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_expr_piop_prover_input)
+        BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_expr_piop_prover_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
+        Ok(())
     }
 }
 
@@ -455,7 +459,11 @@ where
                 right_col_oracle: right_col,
                 output_col_oracle: output_col,
             };
-        BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)
+        BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
+        Ok(())
     }
 
     fn ctx_lp_node(

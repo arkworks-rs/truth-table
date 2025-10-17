@@ -291,11 +291,11 @@ where
         };
 
         let predicate_col = piop_tree
-            .tracked_table(&NodeId::Expr(filter.predicate.clone()), OUTPUT_PLAN_KEY)
+            .tracked_table(&self.predicate_prover_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_by_ind(0);
         let input_tracked_table = piop_tree
-            .tracked_table(&NodeId::LP(filter.input.as_ref().clone()), OUTPUT_PLAN_KEY)
+            .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
         let output_tracked_table = piop_tree
@@ -310,7 +310,11 @@ where
             output_tracked_table,
         };
 
-        FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)
+        FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
+        Ok(())
     }
 }
 
@@ -543,11 +547,11 @@ where
         };
 
         let predicate_oracle = piop_tree
-            .tracked_table_oracle(&NodeId::Expr(filter.predicate.clone()), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.predicate_verifier_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .tracked_col_oracle_by_ind(0);
         let input_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&NodeId::LP(filter.input.as_ref().clone()), OUTPUT_PLAN_KEY)
+            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
             .unwrap()
             .clone();
         let output_tracked_table_oracle = piop_tree
@@ -562,7 +566,11 @@ where
             output_tracked_table_oracle,
         };
 
-        FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)
+        FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)?;
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
+        Ok(())
     }
 
     fn ctx_lp_node(

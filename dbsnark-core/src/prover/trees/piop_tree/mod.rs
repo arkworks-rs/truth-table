@@ -67,6 +67,16 @@ where
         self.arena.is_empty()
     }
 
+    // We prove the entire PIOP tree by starting at the root node
+    // Then recursively proving their children and so on
+    pub fn prove(
+        &mut self,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let root = self.inner_proof_tree.root();
+        root.prove_piop(prover, self)
+    }
+
     pub fn arena(&self) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
         &self.arena
     }

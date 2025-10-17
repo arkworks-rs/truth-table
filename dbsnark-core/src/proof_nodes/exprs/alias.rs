@@ -104,10 +104,13 @@ where
     }
     fn prove_piop(
         &self,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
+        Ok(())
     }
 }
 
@@ -159,10 +162,13 @@ where
     }
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
+        Ok(())
     }
 
     fn ctx_lp_node(
