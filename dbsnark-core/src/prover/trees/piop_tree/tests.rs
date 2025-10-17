@@ -48,10 +48,7 @@ pub async fn display_prover_piop_tree(table: &str, query: &str) {
     let (mut prover, _verifier): (Prover<F, MvPCS, UvPCS>, _) = test_prelude().unwrap();
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
     let piop_plan = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-    piop_plan
-        .tracked_tables()
-        .keys()
-        .for_each(|v| println!("{}", v));
+    piop_plan.arena().keys().for_each(|v| println!("{}", v));
     println!("--------------------------------");
     println!("{}", piop_plan.display_graphviz());
 }

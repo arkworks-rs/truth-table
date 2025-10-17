@@ -501,7 +501,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     proof_tree
-        .proof_nodes()
+        .arena()
         .iter()
         .find_map(|(node_id, node)| match node_id {
             NodeId::LP(LogicalPlan::TableScan(_)) => node
@@ -521,7 +521,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     proof_tree
-        .proof_nodes()
+        .arena()
         .iter()
         .find_map(|(node_id, node)| match node_id {
             NodeId::LP(LogicalPlan::TableScan(_)) => node

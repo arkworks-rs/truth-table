@@ -53,7 +53,7 @@ where
             .as_ref()
             .and_then(|relation| {
                 proof_tree
-                    .proof_nodes()
+                    .arena()
                     .iter()
                     .find_map(|(node_id, node)| match node_id {
                         NodeId::LP(LogicalPlan::TableScan(scan_plan))
@@ -150,7 +150,7 @@ where
         };
         let table = if let Some(relation) = column_expr.relation.as_ref() {
             piop_tree
-                .tracked_tables()
+                .arena()
                 .iter()
                 .find_map(|(node_id, tables)| match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan))
@@ -163,13 +163,16 @@ where
                 .expect("table scan not found for relation")
         } else {
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            todo!()
+            // dbg!(&ctx_lp_node.node_id());
+            piop_tree
+                .tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap()
         };
         // dbg!(table.tracked_polys());
         // dbg!(&column_expr.name);
         let col = table
             .tracked_col_by_name(&column_expr.name)
-            .expect("column not found in table");
+            .unwrap_or_else(|| panic!("column {} not found in table", &column_expr.name));
         // TODO: Clean this up later
         let mut tracked_polys: IndexMap<
             Arc<datafusion::arrow::datatypes::Field>,
@@ -228,7 +231,7 @@ where
             .as_ref()
             .and_then(|relation| {
                 proof_tree
-                    .proof_nodes()
+                    .arena()
                     .iter()
                     .find_map(|(node_id, node)| match node_id {
                         NodeId::LP(LogicalPlan::TableScan(scan_plan))
@@ -306,7 +309,7 @@ where
         };
         let table = if let Some(relation) = column_expr.relation.as_ref() {
             piop_tree
-                .tracked_table_oracles()
+                .arena()
                 .iter()
                 .find_map(|(node_id, tables)| match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan))

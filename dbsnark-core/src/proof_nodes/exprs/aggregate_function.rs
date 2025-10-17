@@ -5,7 +5,7 @@ use crate::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
-use arithmetic::{ctx::SharedCtx, table::TrackedTable};
+use arithmetic::{ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -98,7 +98,6 @@ where
             .ctx_lp_node(proof_tree)
     }
 
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -147,7 +146,7 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 
@@ -196,14 +195,51 @@ where
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        let mut collected_cols = IndexMap::new();
+        let mut table_log_size: Option<usize> = None;
+
+        for child in &self.inputs {
+            let table = piop_tree
+                .tracked_table_oracle(&child.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for aggregate argument {}",
+                        child.name()
+                    )
+                });
+
+            let child_log_size = table.log_size();
+            if let Some(expected) = table_log_size {
+                assert_eq!(
+                    expected, child_log_size,
+                    "aggregate arguments must share the same table log size",
+                );
+            } else {
+                table_log_size = Some(child_log_size);
+            }
+            let col = table.tracked_col_oracle_by_ind(0);
+            let field = col.field_ref().unwrap();
+            collected_cols.insert(field, col.data_tracked_oracle().clone());
+        }
+
+        if collected_cols.is_empty() {
+            return;
+        }
+
+        let output_table =
+            TrackedTableOracle::new(None, collected_cols, table_log_size.unwrap_or(0));
+        piop_tree.add_tracked_table_oracle(
+            self.node_id().clone(),
+            OUTPUT_PLAN_KEY.to_string(),
+            output_table,
+        );
     }
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn ctx_lp_node(
@@ -215,6 +251,4 @@ where
             .unwrap()
             .ctx_lp_node(proof_tree)
     }
-
-
 }

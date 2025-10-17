@@ -25,7 +25,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_table_oracles: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    arena: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -37,11 +37,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VerifierPIOPTree")
-            .field("num_nodes", &self.tracked_table_oracles.len())
+            .field("num_nodes", &self.arena.len())
             .field(
                 "nodes",
                 &VirtualNodesDebug {
-                    inner: &self.tracked_table_oracles,
+                    inner: &self.arena,
                 },
             )
             .finish()
@@ -56,36 +56,36 @@ where
 {
     pub fn new(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
-        tracked_table_oracles: IndexMap<
+        arena: IndexMap<
             NodeId,
             IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
         >,
     ) -> Self {
         Self {
-            tracked_table_oracles,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.tracked_table_oracles.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tracked_table_oracles.is_empty()
+        self.arena.is_empty()
     }
 
-    pub fn tracked_table_oracles(
+    pub fn arena(
         &self,
     ) -> &IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
-        &self.tracked_table_oracles
+        &self.arena
     }
 
     pub fn tracked_table_oracles_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
-        self.tracked_table_oracles.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn proof_tree(&self) -> &VerifierProofTree<F, MvPCS, UvPCS> {
@@ -102,7 +102,7 @@ where
         label: String,
         table: TrackedTableOracle<F, MvPCS, UvPCS>,
     ) {
-        self.tracked_table_oracles
+        self.arena
             .entry(node_id)
             .or_default()
             .insert(label, table);
@@ -113,7 +113,7 @@ where
         node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTableOracle<F, MvPCS, UvPCS>> {
-        self.tracked_table_oracles
+        self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
@@ -137,7 +137,7 @@ where
         }
 
         let mut piop_tree = VerifierPIOPTree::new(proof_tree.clone(), ordered_tables);
-        let node_ids: Vec<_> = piop_tree.tracked_table_oracles.keys().cloned().collect();
+        let node_ids: Vec<_> = piop_tree.arena.keys().cloned().collect();
         for node_id in node_ids {
             let prover_node = flattened_proof_tree
                 .get(&node_id)
@@ -154,10 +154,10 @@ where
         IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) {
         let VerifierPIOPTree {
-            tracked_table_oracles,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, tracked_table_oracles)
+        (inner_proof_tree, arena)
     }
 }
 
@@ -175,7 +175,7 @@ where
         indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_table_oracles.iter()
+        self.arena.iter()
     }
 }
 
@@ -193,7 +193,7 @@ where
         indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_table_oracles.into_iter()
+        self.arena.into_iter()
     }
 }
 

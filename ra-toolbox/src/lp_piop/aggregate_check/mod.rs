@@ -76,6 +76,11 @@ where
     type VerifierOutput = ();
     type VerifierInput = AggregatePIOPVerifierInput<F, MvPCS, UvPCS>;
 
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        // TODO
+        Ok(())
+    }
+
     fn prove_inner(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,

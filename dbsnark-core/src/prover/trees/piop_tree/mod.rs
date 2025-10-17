@@ -25,7 +25,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    arena: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -37,11 +37,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverPIOPTree")
-            .field("num_nodes", &self.tracked_tables.len())
+            .field("num_nodes", &self.arena.len())
             .field(
                 "nodes",
                 &VirtualNodesDebug {
-                    inner: &self.tracked_tables,
+                    inner: &self.arena,
                 },
             )
             .finish()
@@ -56,33 +56,33 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        arena: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
-            tracked_tables,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.tracked_tables.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tracked_tables.is_empty()
+        self.arena.is_empty()
     }
 
-    pub fn tracked_tables(
+    pub fn arena(
         &self,
     ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
-        &self.tracked_tables
+        &self.arena
     }
 
     pub fn tables_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
-        self.tracked_tables.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
@@ -99,7 +99,7 @@ where
         label: String,
         table: TrackedTable<F, MvPCS, UvPCS>,
     ) {
-        self.tracked_tables
+        self.arena
             .entry(node_id)
             .or_default()
             .insert(label, table);
@@ -110,7 +110,7 @@ where
         node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
-        self.tracked_tables
+        self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
@@ -124,12 +124,12 @@ where
         let (proof_tree, tables_by_node) = arith_plan.into_parts();
         // TODO: See if we can avoid these clones, specially cloning the tables_by_node
         let mut piop_tree = ProverPIOPTree::new(proof_tree.clone(), tables_by_node.clone());
-        dbg!(&tables_by_node);
+        // dbg!(&tables_by_node);
         let flattened_proof_tree = proof_tree.flatten();
         for (node_id, _) in tables_by_node.iter() {
-            dbg!("************************************************************");
-            dbg!(node_id);
-            dbg!("************************************************************");
+            // dbg!("************************************************************");
+            // dbg!(node_id);
+            // dbg!("************************************************************");
             let prover_node = flattened_proof_tree
                 .get(node_id)
                 .expect("missing node in proof tree");
@@ -145,10 +145,10 @@ where
         IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let ProverPIOPTree {
-            tracked_tables,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, tracked_tables)
+        (inner_proof_tree, arena)
     }
 }
 
@@ -166,7 +166,7 @@ where
         indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_tables.iter()
+        self.arena.iter()
     }
 }
 
@@ -181,7 +181,7 @@ where
         indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_tables.into_iter()
+        self.arena.into_iter()
     }
 }
 

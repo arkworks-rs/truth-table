@@ -29,7 +29,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    arithmetized_tables: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
+    arena: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -41,11 +41,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverArithmetizedTree")
-            .field("num_nodes", &self.arithmetized_tables.len())
+            .field("num_nodes", &self.arena.len())
             .field(
                 "nodes",
                 &ArithNodesDebug::<F> {
-                    inner: &self.arithmetized_tables,
+                    inner: &self.arena,
                 },
             )
             .finish()
@@ -60,10 +60,10 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        arithmetized_tables: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
+        arena: IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     ) -> Self {
         Self {
-            arithmetized_tables,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
@@ -129,26 +129,26 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.arithmetized_tables.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.arithmetized_tables.is_empty()
+        self.arena.is_empty()
     }
 
     pub fn arithmetized_tables_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&IndexMap<String, ArithTable<F>>> {
-        self.arithmetized_tables.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn arithmetized_tables(&self) -> &IndexMap<NodeId, IndexMap<String, ArithTable<F>>> {
-        &self.arithmetized_tables
+        &self.arena
     }
 
     pub fn arithmetized_table_for(&self, node_id: &NodeId, label: &str) -> Option<&ArithTable<F>> {
-        self.arithmetized_tables
+        self.arena
             .get(node_id)
             .and_then(|tables| tables.get(label))
     }
@@ -170,10 +170,10 @@ where
         IndexMap<NodeId, IndexMap<String, ArithTable<F>>>,
     ) {
         let ProverArithmetizedTree {
-            arithmetized_tables,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, arithmetized_tables)
+        (inner_proof_tree, arena)
     }
 }
 
@@ -187,7 +187,7 @@ where
     type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, ArithTable<F>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.arithmetized_tables.into_iter()
+        self.arena.into_iter()
     }
 }
 

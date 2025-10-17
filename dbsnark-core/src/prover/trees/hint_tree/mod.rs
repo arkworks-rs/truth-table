@@ -41,7 +41,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    hint_map: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
+    arena: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -53,13 +53,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverHintTree")
-            .field("num_nodes", &self.hint_map.len())
-            .field(
-                "nodes",
-                &HintNodesDebug {
-                    inner: &self.hint_map,
-                },
-            )
+            .field("num_nodes", &self.arena.len())
+            .field("nodes", &HintNodesDebug { inner: &self.arena })
             .finish()
     }
 }
@@ -72,26 +67,26 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        hint_map: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
+        arena: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     ) -> Self {
         Self {
-            hint_map,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.hint_map.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.hint_map.is_empty()
+        self.arena.is_empty()
     }
 
     /// Return the batches collected for a specific hint label at the
     /// requested proof-tree node, if present.
     pub fn batches_for(&self, node_id: &NodeId, label: &str) -> Option<&Vec<RecordBatch>> {
-        self.hint_map
+        self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
@@ -101,11 +96,11 @@ where
     pub fn primary_batches(&self, node_id: &NodeId) -> Option<&Vec<RecordBatch>> {
         self.batches_for(node_id, "output_tree")
             .or_else(|| self.batches_for(node_id, "relative_output"))
-            .or_else(|| self.hint_map.get(node_id).and_then(|m| m.values().next()))
+            .or_else(|| self.arena.get(node_id).and_then(|m| m.values().next()))
     }
 
     pub fn results_for(&self, node_id: &NodeId) -> Option<&IndexMap<String, Vec<RecordBatch>>> {
-        self.hint_map.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
@@ -116,8 +111,8 @@ where
         display::DisplayableProverHintTree::new(self)
     }
 
-    pub fn hint_map(&self) -> &IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> {
-        &self.hint_map
+    pub fn arena(&self) -> &IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> {
+        &self.arena
     }
 
     #[allow(clippy::type_complexity)]
@@ -128,10 +123,10 @@ where
         IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
     ) {
         let ProverHintTree {
-            hint_map,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, hint_map)
+        (inner_proof_tree, arena)
     }
 
     /// Execute the proof tree and assemble a hint tree mirroring the
@@ -142,7 +137,7 @@ where
         ctx: &SessionContext,
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DFResult<Self> {
-        let nodes: Vec<_> = proof_tree.proof_nodes().values().cloned().collect();
+        let nodes: Vec<_> = proof_tree.arena().values().cloned().collect();
 
         #[allow(clippy::type_complexity)]
         let mut futures: Vec<
@@ -238,7 +233,7 @@ where
     type IntoIter = indexmap::map::Iter<'a, NodeId, IndexMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.hint_map.iter()
+        self.arena.iter()
     }
 }
 
@@ -252,8 +247,8 @@ where
     type IntoIter = indexmap::map::IntoIter<NodeId, IndexMap<String, Vec<RecordBatch>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let ProverHintTree { hint_map, .. } = self;
-        hint_map.into_iter()
+        let ProverHintTree { arena, .. } = self;
+        arena.into_iter()
     }
 }
 

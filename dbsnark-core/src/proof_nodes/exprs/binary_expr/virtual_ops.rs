@@ -81,10 +81,19 @@ where
             _ => panic!("unsupported operator for virtual witness"),
         };
         let field_ref = if let Some(f) = left_col.field_ref() {
-            f.clone()
+            let base_field = f.as_ref();
+            let mut new_field = Field::new(
+                bin_expr.to_string(),
+                base_field.data_type().clone(),
+                base_field.is_nullable(),
+            );
+            if !base_field.metadata().is_empty() {
+                new_field = new_field.with_metadata(base_field.metadata().clone());
+            }
+            FieldRef::new(new_field)
         } else {
             FieldRef::new(Field::new(
-                "output",
+                bin_expr.to_string(),
                 datafusion::arrow::datatypes::DataType::Null,
                 false,
             ))
@@ -193,14 +202,24 @@ where
             (None, None) => None,
         };
         let field_ref = if let Some(f) = left_col_oracle.field_ref() {
-            f.clone()
+            let base_field = f.as_ref();
+            let mut new_field = Field::new(
+                bin_expr.to_string(),
+                base_field.data_type().clone(),
+                base_field.is_nullable(),
+            );
+            if !base_field.metadata().is_empty() {
+                new_field = new_field.with_metadata(base_field.metadata().clone());
+            }
+            FieldRef::new(new_field)
         } else {
             FieldRef::new(Field::new(
-                "output",
+                bin_expr.to_string(),
                 datafusion::arrow::datatypes::DataType::Null,
                 false,
             ))
         };
+        dbg!(&field_ref);
         let mut tracked_oracles = IndexMap::from_iter(vec![(field_ref, output_data_tracked_poly)]);
         if let Some(activator_oracle) = output_activator {
             let activator_field = FieldRef::new(Field::new(

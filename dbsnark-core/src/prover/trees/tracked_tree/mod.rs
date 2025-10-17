@@ -33,7 +33,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+    arena: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     inner_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -45,11 +45,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProverTrackedTree")
-            .field("num_nodes", &self.tracked_tables.len())
+            .field("num_nodes", &self.arena.len())
             .field(
                 "nodes",
                 &ArithNodesDebug {
-                    inner: &self.tracked_tables,
+                    inner: &self.arena,
                 },
             )
             .finish()
@@ -64,10 +64,10 @@ where
 {
     pub fn new(
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
-        tracked_tables: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
+        arena: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
-            tracked_tables,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
@@ -80,18 +80,18 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.tracked_tables.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tracked_tables.is_empty()
+        self.arena.is_empty()
     }
 
     pub fn tracked_tables_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
-        self.tracked_tables.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn tracked_table_for(
@@ -99,15 +99,15 @@ where
         node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTable<F, MvPCS, UvPCS>> {
-        self.tracked_tables
+        self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
 
-    pub fn tracked_tables(
+    pub fn arena(
         &self,
     ) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {
-        &self.tracked_tables
+        &self.arena
     }
 
     pub fn proof_tree(&self) -> &ProverProofTree<F, MvPCS, UvPCS> {
@@ -125,10 +125,10 @@ where
         IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>,
     ) {
         let ProverTrackedTree {
-            tracked_tables,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, tracked_tables)
+        (inner_proof_tree, arena)
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -256,7 +256,7 @@ where
         indexmap::map::Iter<'a, NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_tables.iter()
+        self.arena.iter()
     }
 }
 
@@ -271,7 +271,7 @@ where
         indexmap::map::IntoIter<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.tracked_tables.into_iter()
+        self.arena.into_iter()
     }
 }
 

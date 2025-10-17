@@ -37,7 +37,7 @@ where
 {
     ctx: SharedCtx<F, MvPCS, UvPCS>,
     root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-    proof_nodes: IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    arena: IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverProofTree<F, MvPCS, UvPCS>
@@ -66,11 +66,11 @@ where
         root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
         ctx: SharedCtx<F, MvPCS, UvPCS>,
     ) -> Self {
-        let proof_nodes = Self::sort_nodes(Arc::clone(&root));
+        let arena = Self::sort_nodes(Arc::clone(&root));
         Self {
             ctx,
             root,
-            proof_nodes,
+            arena,
         }
     }
 
@@ -106,12 +106,12 @@ where
         display::ProverProofTreeGraphviz::new(&self.root)
     }
 
-    pub fn proof_nodes(&self) -> &IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        &self.proof_nodes
+    pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
+        &self.arena
     }
 
     pub fn node(&self, node_id: &NodeId) -> Option<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        self.proof_nodes.get(node_id)
+        self.arena.get(node_id)
     }
 
     /// Returns all descendants including root in post-order.
@@ -128,7 +128,7 @@ where
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
-        self.proof_nodes.clone()
+        self.arena.clone()
     }
 
     /// Build a `ProverNode` tree from a DataFusion `Expr`.

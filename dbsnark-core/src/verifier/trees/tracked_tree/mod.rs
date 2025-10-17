@@ -27,7 +27,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    tables: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+    arena: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     inner_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
 }
 
@@ -39,7 +39,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VerifierTrackedTree")
-            .field("num_nodes", &self.tables.len())
+            .field("num_nodes", &self.arena.len())
             .finish()
     }
 }
@@ -52,10 +52,10 @@ where
 {
     pub fn new(
         proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
-        tables: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
+        arena: IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) -> Self {
         Self {
-            tables,
+            arena,
             inner_proof_tree: proof_tree,
         }
     }
@@ -67,10 +67,10 @@ where
         IndexMap<NodeId, IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>>,
     ) {
         let VerifierTrackedTree {
-            tables,
+            arena,
             inner_proof_tree,
         } = self;
-        (inner_proof_tree, tables)
+        (inner_proof_tree, arena)
     }
 
     pub fn table_by_node_map(
@@ -81,18 +81,18 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.tables.len()
+        self.arena.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tables.is_empty()
+        self.arena.is_empty()
     }
 
     pub fn tables_for(
         &self,
         node_id: &NodeId,
     ) -> Option<&IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>> {
-        self.tables.get(node_id)
+        self.arena.get(node_id)
     }
 
     pub fn table_for(
@@ -100,7 +100,7 @@ where
         node_id: &NodeId,
         label: &str,
     ) -> Option<&TrackedTableOracle<F, MvPCS, UvPCS>> {
-        self.tables
+        self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
     }
@@ -119,7 +119,7 @@ where
         shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     ) -> VerifierTrackedTree<F, MvPCS, UvPCS> {
-        let ordered_nodes: Vec<_> = proof_tree.proof_nodes().values().cloned().collect();
+        let ordered_nodes: Vec<_> = proof_tree.arena().values().cloned().collect();
 
         let mut ordered_infos: Vec<(NodeId, bool, IndexMap<String, (DFSchemaRef, bool)>)> =
             Vec::with_capacity(ordered_nodes.len());

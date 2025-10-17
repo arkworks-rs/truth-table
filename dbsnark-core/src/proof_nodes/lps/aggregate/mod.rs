@@ -107,6 +107,12 @@ where
             })
             .collect();
 
+        // dbg!(
+        //     &group_expr_proof_tree_roots
+        //         .iter()
+        //         .map(|n| n.node_id())
+        //         .collect::<Vec<_>>()
+        // );
         for expr in &aggregate.aggr_expr {
             if !matches!(expr, Expr::AggregateFunction(_)) {
                 panic!(
@@ -191,7 +197,6 @@ where
         self.input_proof_tree_root.clone()
     }
 
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -220,10 +225,13 @@ where
         // nodes.
         let mut group_entries = Vec::with_capacity(self.group_expr_proof_tree_roots.len());
         for group_node in &self.group_expr_proof_tree_roots {
+            // dbg!(&group_node.node_id());
             let Some(group_table) = piop_tree.tracked_table(&group_node.node_id(), OUTPUT_PLAN_KEY)
             else {
                 return;
             };
+
+            // dbg!(&group_table.tracked_polys().keys().collect::<Vec<_>>());
 
             let (field, poly) = group_table
                 .tracked_polys()
@@ -237,6 +245,7 @@ where
                 });
             group_entries.push((field, poly));
         }
+        // dbg!(&group_entries);
 
         if group_entries.is_empty() {
             return;
@@ -266,6 +275,7 @@ where
             combined_columns,
             existing_output.log_size(),
         );
+        // dbg!(&updated_table.tracked_polys().keys().collect::<Vec<_>>());
 
         piop_tree.add_table(
             self.node_id.clone(),
@@ -519,8 +529,6 @@ where
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
-
-
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {

@@ -35,7 +35,7 @@ pub async fn display_prover_proof_tree(table: &str, query: &str) {
     let proof_tree: ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> =
         ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     proof_tree
-        .proof_nodes()
+        .arena()
         .values()
         .for_each(|v| println!("{}", v.name()));
     println!("--------------------------------");
