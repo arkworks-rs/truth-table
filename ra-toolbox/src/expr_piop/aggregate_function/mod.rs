@@ -112,7 +112,8 @@ where
     type VerifierOutput = ();
     type VerifierInput = AggregateFunctionPIOPVerifierInput<F, MvPCS, UvPCS>;
 
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
         // TODO
         Ok(())
     }
@@ -130,11 +131,6 @@ where
 
         match aggregate.func.name() {
             "count" => {
-                dbg!(&group_multiplicty_tracked_poly.evaluations()[1489]);
-                dbg!(&aggregated_col.data_tracked_poly().evaluations()[1489]);
-                dbg!(&aggregated_col.activator_tracked_poly().unwrap().evaluations()[1489]);
-                dbg!(&input_col.data_tracked_poly().evaluations()[1489]);
-                dbg!(&input_col.activator_tracked_poly().unwrap().evaluations()[1489]);
                 let zero_poly = match input_col.activator_tracked_poly() {
                     Some(activator_poly) => {
                         &(&aggregated_col.activated_data_tracked_poly()
@@ -146,16 +142,7 @@ where
                             - &group_multiplicty_tracked_poly
                     },
                 };
-                dbg!(zero_poly.evaluations().into_iter().sum::<F>());
-                dbg!(
-                    zero_poly
-                        .evaluations()
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, element)| !element.is_zero())
-                        .collect::<Vec<_>>()
-                );
-                // prover.add_mv_zerocheck_claim(zero_poly.id())?;
+                prover.add_mv_zerocheck_claim(zero_poly.id())?;
                 Ok(())
             },
             "sum" => todo!("AggregateFunctionExprPIOP::prove_inner sum"),
@@ -191,7 +178,7 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let AggregateFunctionPIOPVerifierInput {
@@ -203,7 +190,7 @@ where
 
         match aggregate.func.name() {
             "count" => {
-                let zero_col_oracle = match input_col_oracle.activator_tracked_oracle() {
+                let _zero_col_oracle = match input_col_oracle.activator_tracked_oracle() {
                     Some(activator_poly) => {
                         &(&aggregated_col_oracle.activated_data_tracked_oracle()
                             - &group_multiplicty_tracked_oracle)

@@ -1,4 +1,3 @@
-use crate::utils::fold_polys;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -100,7 +99,8 @@ where
     type VerifierOutput = AggregatePIOPVerifierOutput<F, MvPCS, UvPCS>;
     type VerifierInput = AggregatePIOPVerifierInput<F, MvPCS, UvPCS>;
 
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
         // TODO
         Ok(())
     }
@@ -122,16 +122,6 @@ where
             .collect();
 
         // Fold the grouping columns of the input and output tables
-        input
-            .input_grouping_table
-            .tracked_polys()
-            .iter()
-            .for_each(|(key, value)| println!("{:?}", value.evaluations()[..5].to_vec()));
-        input
-            .output_grouping_table
-            .tracked_polys()
-            .iter()
-            .for_each(|(key, value)| println!("{:?}", value.evaluations()[..5].to_vec()));
         let input_folded_col = input
             .input_grouping_table
             .fold_all_data_columns(&gpd_cols_fld_challs);
