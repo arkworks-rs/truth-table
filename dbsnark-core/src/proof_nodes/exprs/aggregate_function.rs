@@ -6,12 +6,16 @@ use crate::{
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::{ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    col::TrackedCol, col_oracle::TrackedColOracle, ctx::SharedCtx, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
+    piop::PIOP,
     prover::Prover,
 };
 use datafusion::{
@@ -19,7 +23,10 @@ use datafusion::{
 };
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use std::{any::Any, sync::Arc};
+use ra_toolbox::expr_piop::aggregate_function::{
+    AggregateFunctionExprPIOP, AggregateFunctionPIOPProverInput, AggregateFunctionPIOPVerifierInput,
+};
+use std::sync::Arc;
 
 use crate::proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode};
 #[derive(Clone)]
@@ -147,7 +154,56 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        dbg!(piop_tree.tracked_table(&self.node_id, OUTPUT_PLAN_KEY));
+        let aggregate_expr = match &self.node_id {
+            NodeId::Expr(Expr::AggregateFunction(agg)) => agg.clone(),
+            _ => panic!("aggregate function node expected AggregateFunction expression"),
+        };
+
+        let auxiliary_table = piop_tree
+            .tracked_table(&self.parent_node_id, "auxiliary")
+            .unwrap_or_else(|| {
+                panic!("missing auxiliary table for aggregate node {}", self.name())
+            });
+
+        let group_multiplicity_poly = auxiliary_table
+            .tracked_polys()
+            .into_iter()
+            .next()
+            .map(|(_, poly)| poly)
+            .expect("auxiliary table missing multiplicity polynomial");
+
+        let output_table = piop_tree
+            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing output table for aggregate function {}",
+                    self.name()
+                )
+            });
+        let aggregated_col: TrackedCol<F, MvPCS, UvPCS> = output_table.tracked_col_by_ind(0);
+
+        let input_node = self
+            .inputs
+            .first()
+            .unwrap_or_else(|| panic!("aggregate function {} missing argument", self.name()));
+        let input_table = piop_tree
+            .tracked_table(&input_node.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing output table for aggregate argument {}",
+                    input_node.name()
+                )
+            });
+        let input_col: TrackedCol<F, MvPCS, UvPCS> = input_table.tracked_col_by_ind(0);
+
+        let piop_input = AggregateFunctionPIOPProverInput {
+            aggregate: aggregate_expr,
+            group_multiplicty_tracked_poly: group_multiplicity_poly,
+            aggregated_col,
+            input_col,
+        };
+        AggregateFunctionExprPIOP::prove(prover, piop_input)?;
+
         self.children()
             .iter()
             .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
@@ -267,6 +323,60 @@ where
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        let aggregate_expr = match &self.node_id {
+            NodeId::Expr(Expr::AggregateFunction(agg)) => agg.clone(),
+            _ => panic!("aggregate function node expected AggregateFunction expression"),
+        };
+
+        let auxiliary_table = piop_tree
+            .tracked_table_oracle(&self.parent_node_id, "auxiliary")
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing auxiliary oracle table for aggregate node {}",
+                    self.name()
+                )
+            });
+        let group_multiplicity_oracle = auxiliary_table
+            .tracked_oracles()
+            .into_iter()
+            .next()
+            .map(|(_, oracle)| oracle)
+            .expect("auxiliary oracle table missing multiplicity oracle");
+
+        let output_table = piop_tree
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing output oracle table for aggregate function {}",
+                    self.name()
+                )
+            });
+        let aggregated_col_oracle: TrackedColOracle<F, MvPCS, UvPCS> =
+            output_table.tracked_col_oracle_by_ind(0);
+
+        let input_node = self
+            .inputs
+            .first()
+            .unwrap_or_else(|| panic!("aggregate function {} missing argument", self.name()));
+        let input_table = piop_tree
+            .tracked_table_oracle(&input_node.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing output oracle table for aggregate argument {}",
+                    input_node.name()
+                )
+            });
+        let input_col_oracle: TrackedColOracle<F, MvPCS, UvPCS> =
+            input_table.tracked_col_oracle_by_ind(0);
+
+        let piop_input = AggregateFunctionPIOPVerifierInput {
+            aggregate: aggregate_expr,
+            group_multiplicty_tracked_oracle: group_multiplicity_oracle,
+            aggregated_col_oracle,
+            input_col_oracle,
+        };
+        AggregateFunctionExprPIOP::verify(verifier, piop_input)?;
+
         self.children()
             .iter()
             .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;

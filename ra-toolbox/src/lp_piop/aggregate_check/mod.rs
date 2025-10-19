@@ -122,7 +122,16 @@ where
             .collect();
 
         // Fold the grouping columns of the input and output tables
-
+        input
+            .input_grouping_table
+            .tracked_polys()
+            .iter()
+            .for_each(|(key, value)| println!("{:?}", value.evaluations()[..5].to_vec()));
+        input
+            .output_grouping_table
+            .tracked_polys()
+            .iter()
+            .for_each(|(key, value)| println!("{:?}", value.evaluations()[..5].to_vec()));
         let input_folded_col = input
             .input_grouping_table
             .fold_all_data_columns(&gpd_cols_fld_challs);
