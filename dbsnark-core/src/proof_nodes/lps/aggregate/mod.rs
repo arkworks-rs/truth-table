@@ -19,13 +19,15 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema, SchemaRef},
-    common::Statistics,
+    common::{Statistics, TableReference},
     logical_expr::{
-        self as df, ExprFunctionExt, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder,
-        expr_rewriter::normalize_cols,
+        self as df, Case, ExprFunctionExt, ExprSchemable, JoinType, LogicalPlan,
+        LogicalPlanBuilder, expr_rewriter::normalize_cols,
     },
     prelude::{Column, Expr, SessionContext},
+    scalar::ScalarValue,
 };
+use datafusion_expr::WindowFrame;
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{
@@ -221,13 +223,59 @@ where
 
         // Separate aggregate value columns and the activator from the current output
         // table.
+        let aggregate_plan = match self.node_id.to_lp() {
+            Some(LogicalPlan::Aggregate(agg)) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        };
+        let group_col_count = aggregate_plan.group_expr.len();
+        let aggregate_col_count = aggregate_plan.aggr_expr.len();
+
         let mut aggregate_entries = Vec::new();
+        let mut passthrough_entries = Vec::new();
         let mut activator_entry = None;
-        for (field, poly) in existing_output.tracked_polys() {
+        for (idx, (field, poly)) in existing_output.tracked_polys().into_iter().enumerate() {
             if field.name() == ACTIVATOR_COL_NAME {
                 activator_entry = Some((field, poly));
-            } else {
+            } else if idx >= group_col_count && idx < group_col_count + aggregate_col_count {
                 aggregate_entries.push((field, poly));
+            } else if idx >= group_col_count + aggregate_col_count {
+                passthrough_entries.push((field, poly));
+            } else {
+                // These correspond to grouping columns; they will be populated
+                // from the child group expression nodes below.
+            }
+        }
+
+        if !self.aggr_expr_proof_tree_roots.is_empty() {
+            if aggregate_entries.len() != self.aggr_expr_proof_tree_roots.len() {
+                panic!(
+                    "aggregate expressions count mismatch: expected {}, found {}",
+                    self.aggr_expr_proof_tree_roots.len(),
+                    aggregate_entries.len()
+                );
+            }
+
+            let (activator_field, activator_poly) = activator_entry
+                .as_ref()
+                .unwrap_or_else(|| panic!("aggregate output missing activator column"));
+
+            for (idx, aggr_node) in self.aggr_expr_proof_tree_roots.iter().enumerate() {
+                let (agg_field, agg_poly) = aggregate_entries
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("missing aggregate entry for {}", aggr_node.name()));
+
+                let mut columns = IndexMap::with_capacity(2);
+                columns.insert(agg_field, agg_poly);
+                columns.insert(activator_field.clone(), activator_poly.clone());
+
+                let agg_child_table = TrackedTable::new(None, columns, existing_output.log_size());
+
+                piop_tree.add_table(
+                    aggr_node.node_id(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    agg_child_table,
+                );
             }
         }
 
@@ -266,6 +314,15 @@ where
             combined_columns.insert(field, poly);
         }
         for (field, poly) in aggregate_entries {
+            if combined_columns.contains_key(&field) {
+                continue;
+            }
+            combined_columns.insert(field, poly);
+        }
+        for (field, poly) in passthrough_entries {
+            if combined_columns.contains_key(&field) {
+                continue;
+            }
             combined_columns.insert(field, poly);
         }
         if let Some((field, poly)) = activator_entry {
@@ -390,50 +447,15 @@ where
         let grouping_multiplicity_poly =
             aggregate_piop_prover_output.grouping_multiplicty_tracked_poly;
         let multiplicity_log_size = grouping_multiplicity_poly.log_size();
-
-        for aggr_expr_node in &self.aggr_expr_proof_tree_roots {
-            let multiplicity_field = grouping_multiplicity_field();
-            if let Some(existing_table) = piop_tree
-                .tracked_table(&aggr_expr_node.node_id(), OUTPUT_PLAN_KEY)
-                .cloned()
-            {
-                debug_assert_eq!(
-                    existing_table.log_size(),
-                    multiplicity_log_size,
-                    "aggregate expression output log size mismatch"
-                );
-                let mut columns = existing_table.tracked_polys();
-                columns.insert(
-                    multiplicity_field.clone(),
-                    grouping_multiplicity_poly.clone(),
-                );
-                let schema = existing_table.schema().map(|schema| {
-                    let fields: Vec<Field> = columns
-                        .keys()
-                        .map(|field_ref| field_ref.as_ref().clone())
-                        .collect();
-                    Schema::new_with_metadata(fields, schema.metadata().clone())
-                });
-                let updated_table = TrackedTable::new(schema, columns, existing_table.log_size());
-                piop_tree.add_table(
-                    aggr_expr_node.node_id().clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    updated_table,
-                );
-            } else {
-                let mut columns = IndexMap::new();
-                columns.insert(
-                    multiplicity_field.clone(),
-                    grouping_multiplicity_poly.clone(),
-                );
-                let updated_table = TrackedTable::new(None, columns, multiplicity_log_size);
-                piop_tree.add_table(
-                    aggr_expr_node.node_id().clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    updated_table,
-                );
-            }
-        }
+        let multiplicity_field = grouping_multiplicity_field();
+        let mut columns = IndexMap::new();
+        columns.insert(multiplicity_field, grouping_multiplicity_poly);
+        let auxiliary_table = TrackedTable::new(None, columns, multiplicity_log_size);
+        piop_tree.add_table(
+            self.node_id.clone(),
+            "auxiliary".to_string(),
+            auxiliary_table,
+        );
 
         self.children()
             .iter()
@@ -588,13 +610,59 @@ where
 
         // Separate aggregate value columns and the activator from the current output
         // table.
+        let aggregate_plan = match self.node_id.to_lp() {
+            Some(LogicalPlan::Aggregate(agg)) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        };
+        let group_col_count = aggregate_plan.group_expr.len();
+        let aggregate_col_count = aggregate_plan.aggr_expr.len();
+
         let mut aggregate_entries = Vec::new();
+        let mut passthrough_entries = Vec::new();
         let mut activator_entry = None;
-        for (field, oracle) in existing_output.tracked_oracles() {
+        for (idx, (field, oracle)) in existing_output.tracked_oracles().into_iter().enumerate() {
             if field.name() == ACTIVATOR_COL_NAME {
                 activator_entry = Some((field, oracle));
-            } else {
+            } else if idx >= group_col_count && idx < group_col_count + aggregate_col_count {
                 aggregate_entries.push((field, oracle));
+            } else if idx >= group_col_count + aggregate_col_count {
+                passthrough_entries.push((field, oracle));
+            } else {
+                // Grouping columns are re-attached from child outputs below.
+            }
+        }
+
+        if !self.aggr_expr_proof_tree_roots.is_empty() {
+            if aggregate_entries.len() != self.aggr_expr_proof_tree_roots.len() {
+                panic!(
+                    "aggregate expressions count mismatch: expected {}, found {}",
+                    self.aggr_expr_proof_tree_roots.len(),
+                    aggregate_entries.len()
+                );
+            }
+
+            let (activator_field, activator_oracle) = activator_entry
+                .as_ref()
+                .unwrap_or_else(|| panic!("aggregate output missing activator column"));
+
+            for (idx, aggr_node) in self.aggr_expr_proof_tree_roots.iter().enumerate() {
+                let (agg_field, agg_oracle) = aggregate_entries
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("missing aggregate entry for {}", aggr_node.name()));
+
+                let mut columns = IndexMap::with_capacity(2);
+                columns.insert(agg_field, agg_oracle);
+                columns.insert(activator_field.clone(), activator_oracle.clone());
+
+                let agg_child_table =
+                    TrackedTableOracle::new(None, columns, existing_output.log_size());
+
+                piop_tree.add_tracked_table_oracle(
+                    aggr_node.node_id(),
+                    OUTPUT_PLAN_KEY.to_string(),
+                    agg_child_table,
+                );
             }
         }
 
@@ -631,6 +699,15 @@ where
             combined_columns.insert(field, oracle);
         }
         for (field, oracle) in aggregate_entries {
+            if combined_columns.contains_key(&field) {
+                continue;
+            }
+            combined_columns.insert(field, oracle);
+        }
+        for (field, oracle) in passthrough_entries {
+            if combined_columns.contains_key(&field) {
+                continue;
+            }
             combined_columns.insert(field, oracle);
         }
         if let Some((field, oracle)) = activator_entry {
@@ -756,51 +833,15 @@ where
         let grouping_multiplicity_oracle =
             aggregate_piop_verifier_output.grouping_multiplicty_tracked_oracle;
         let multiplicity_log_size = grouping_multiplicity_oracle.log_size();
-
-        for aggr_expr_node in &self.aggr_expr_proof_tree_roots {
-            let multiplicity_field = grouping_multiplicity_field();
-            if let Some(existing_table) = piop_tree
-                .tracked_table_oracle(&aggr_expr_node.node_id(), OUTPUT_PLAN_KEY)
-                .cloned()
-            {
-                debug_assert_eq!(
-                    existing_table.log_size(),
-                    multiplicity_log_size,
-                    "aggregate expression oracle log size mismatch"
-                );
-                let mut columns = existing_table.tracked_oracles();
-                columns.insert(
-                    multiplicity_field.clone(),
-                    grouping_multiplicity_oracle.clone(),
-                );
-                let schema = existing_table.schema().map(|schema| {
-                    let fields: Vec<Field> = columns
-                        .keys()
-                        .map(|field_ref| field_ref.as_ref().clone())
-                        .collect();
-                    Schema::new_with_metadata(fields, schema.metadata().clone())
-                });
-                let updated_table =
-                    TrackedTableOracle::new(schema, columns, existing_table.log_size());
-                piop_tree.add_tracked_table_oracle(
-                    aggr_expr_node.node_id().clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    updated_table,
-                );
-            } else {
-                let mut columns = IndexMap::new();
-                columns.insert(
-                    multiplicity_field.clone(),
-                    grouping_multiplicity_oracle.clone(),
-                );
-                let updated_table = TrackedTableOracle::new(None, columns, multiplicity_log_size);
-                piop_tree.add_tracked_table_oracle(
-                    aggr_expr_node.node_id().clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    updated_table,
-                );
-            }
-        }
+        let multiplicity_field = grouping_multiplicity_field();
+        let mut columns = IndexMap::new();
+        columns.insert(multiplicity_field, grouping_multiplicity_oracle);
+        let auxiliary_table = TrackedTableOracle::new(None, columns, multiplicity_log_size);
+        piop_tree.add_tracked_table_oracle(
+            self.node_id.clone(),
+            "auxiliary".to_string(),
+            auxiliary_table,
+        );
 
         self.children()
             .iter()
@@ -827,176 +868,167 @@ where
     }
 }
 
-// TODO: For the aggregation functions, we need some witnesses like the
-// broadcast in max, etc TODO: For grouping expressions, we need to compute the
-// multiplicity witness for the support check
-
-/// Builds the logical hint plan shared by the prover and verifier.
-/// The helper joins the aggregate results back to the base input so the
-/// output keeps the input cardinality while zeroing out non-representative
-/// rows via an updated activator column.
 fn build_aggregate_hint_output_plan(
     base_plan: LogicalPlan,
     aggregate_plan: &df::Aggregate,
 ) -> LogicalPlan {
-    let aggregate_schema = Arc::clone(&aggregate_plan.schema);
+    const BASE_ALIAS: &str = "__dbsnark_aggr_base";
+    const AGG_ALIAS: &str = "__dbsnark_aggr_values";
+    const POS_COL: &str = "__dbsnark_aggr_pos";
+    const RN_COL: &str = "__dbsnark_aggr_rank";
+    const GROUP_EXPR_PREFIX: &str = "__dbsnark_aggr_group_expr_";
 
-    // Preserve the activator column type so the synthetic flag respects upstream
-    // typing.
-    let activator_dtype = base_plan
-        .schema()
-        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        .expect("aggregate input missing activator column")
-        .data_type()
-        .clone();
+    let base_schema = base_plan.schema().clone();
 
-    // Resolve grouping and aggregation expressions against the input schema.
-    let group_exprs = normalize_cols(aggregate_plan.group_expr.clone(), &base_plan)
-        .expect("normalize group expressions");
-    let aggr_exprs = normalize_cols(aggregate_plan.aggr_expr.clone(), &base_plan)
-        .expect("normalize aggregate expressions");
+    let mut projection_exprs: Vec<Expr> = base_schema
+        .iter()
+        .map(|(qualifier, field)| Expr::from((qualifier, field)))
+        .collect();
 
-    // Run the logical aggregate once to obtain one row per group.
-    let aggregated_plan = LogicalPlanBuilder::from(base_plan.clone())
-        .aggregate(group_exprs.clone(), aggr_exprs.clone())
-        .expect("build aggregate plan")
-        .build()
-        .expect("aggregate logical plan");
-
-    // Suffix helper aliases to avoid name collisions between base and aggregate
-    // rows.
-    let base_group_aliases: Vec<String> = group_exprs
+    let group_aliases: Vec<String> = aggregate_plan
+        .group_expr
         .iter()
         .enumerate()
-        .map(|(idx, _)| format!("__dbsnark_group_expr_{idx}_base"))
-        .collect();
-    let agg_group_aliases: Vec<String> = group_exprs
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| format!("__dbsnark_group_expr_{idx}_agg"))
+        .map(|(idx, _)| format!("{GROUP_EXPR_PREFIX}{idx}"))
         .collect();
 
-    // Extend the base plan with the grouping expressions under deterministic
-    // aliases.
-    let base_schema = base_plan.schema();
-    let mut base_projection_exprs: Vec<Expr> = base_schema
-        .fields()
-        .iter()
-        .map(|field| df::col(field.name()))
-        .collect();
-    for (expr, alias) in group_exprs.iter().zip(base_group_aliases.iter()) {
-        base_projection_exprs.push(expr.clone().alias(alias.clone()));
+    for (expr, alias) in aggregate_plan.group_expr.iter().zip(group_aliases.iter()) {
+        projection_exprs.push(expr.clone().alias(alias.clone()));
     }
-    let base_with_groups = LogicalPlanBuilder::from(base_plan.clone())
-        .project(base_projection_exprs)
-        .expect("project base with groups")
-        .build()
-        .expect("base with groups plan");
 
-    // Rename aggregate outputs so grouping columns align with the helper aliases
-    // while recording the aggregate value names for the final projection.
-    let aggregated_schema = aggregated_plan.schema();
-    let mut aggregated_projection_exprs: Vec<Expr> =
-        Vec::with_capacity(aggregated_schema.fields().len());
-    let mut aggregate_value_aliases: Vec<String> = Vec::new();
-    for (idx, field) in aggregated_schema.fields().iter().enumerate() {
-        let column_expr = df::col(field.name());
-        if idx < agg_group_aliases.len() {
-            aggregated_projection_exprs.push(column_expr.alias(agg_group_aliases[idx].clone()));
-        } else {
-            let agg_idx = idx - agg_group_aliases.len();
-            let alias = format!("__dbsnark_aggr_expr_{agg_idx}");
-            aggregated_projection_exprs.push(column_expr.alias(alias.clone()));
-            aggregate_value_aliases.push(alias);
-        }
-    }
-    let aggregated_with_alias = LogicalPlanBuilder::from(aggregated_plan.clone())
-        .project(aggregated_projection_exprs)
-        .expect("alias aggregate outputs")
+    let base_with_group_exprs = LogicalPlanBuilder::from(base_plan)
+        .project(projection_exprs)
+        .expect("failed to append group expressions to aggregate base plan")
         .build()
-        .expect("aggregate with aliases plan");
+        .expect("failed to build base plan with group expressions");
 
-    // Join the aggregate results back to every base row on the grouping aliases.
-    let left_join_cols: Vec<Column> = base_group_aliases
+    let base_with_pos = LogicalPlanBuilder::from(base_with_group_exprs.clone())
+        .window(vec![row_number().alias(POS_COL)])
+        .expect("failed to append position column for aggregate plan")
+        .build()
+        .expect("failed to build plan with position column");
+
+    let partition_exprs: Vec<Expr> = group_aliases
         .iter()
-        .map(|alias| Column::from_name(alias.clone()))
+        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
         .collect();
-    let right_join_cols: Vec<Column> = agg_group_aliases
+
+    let order_exprs = vec![Expr::Column(Column::from_name(POS_COL.to_string())).sort(true, false)];
+
+    let rn_expr = row_number()
+        .partition_by(partition_exprs)
+        .order_by(order_exprs)
+        .build()
+        .expect("failed to construct row_number expression for aggregate plan")
+        .alias(RN_COL);
+
+    let base_with_rn = LogicalPlanBuilder::from(base_with_pos.clone())
+        .window(vec![rn_expr])
+        .expect("failed to append per-group rank column to aggregate plan")
+        .build()
+        .expect("failed to build plan with per-group rank column");
+
+    let group_by_exprs_for_agg: Vec<Expr> = group_aliases
         .iter()
-        .map(|alias| Column::from_name(alias.clone()))
+        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
         .collect();
-    let joined_plan = LogicalPlanBuilder::from(base_with_groups.clone())
+
+    let aggregate_values_plan = LogicalPlanBuilder::from(base_with_group_exprs.clone())
+        .aggregate(group_by_exprs_for_agg, aggregate_plan.aggr_expr.clone())
+        .expect("failed to build aggregate plan for hint generation")
+        .build()
+        .expect("failed to finalize aggregate hint plan");
+
+    let base_table_ref = TableReference::bare(BASE_ALIAS);
+    let agg_table_ref = TableReference::bare(AGG_ALIAS);
+
+    let base_aliased = LogicalPlanBuilder::from(base_with_rn)
+        .alias(base_table_ref.clone())
+        .expect("failed to alias aggregate base plan")
+        .build()
+        .expect("failed to build aliased aggregate base plan");
+
+    let agg_aliased = LogicalPlanBuilder::from(aggregate_values_plan)
+        .alias(agg_table_ref.clone())
+        .expect("failed to alias aggregate values plan")
+        .build()
+        .expect("failed to build aliased aggregate values plan");
+
+    let left_join_cols: Vec<Column> = group_aliases
+        .iter()
+        .map(|alias| Column::new(Some(base_table_ref.clone()), alias.clone()))
+        .collect();
+    let right_join_cols: Vec<Column> = group_aliases
+        .iter()
+        .map(|alias| Column::new(Some(agg_table_ref.clone()), alias.clone()))
+        .collect();
+
+    let joined = LogicalPlanBuilder::from(base_aliased)
         .join(
-            aggregated_with_alias.clone(),
+            agg_aliased,
             JoinType::Inner,
             (left_join_cols, right_join_cols),
             None,
         )
-        .expect("join aggregate outputs with base rows")
+        .expect("failed to join aggregate base with aggregate values")
         .build()
-        .expect("aggregate joined plan");
+        .expect("failed to build joined aggregate hint plan");
 
-    // Compute row_number() per group to detect the representative row to keep
-    // active.
-    let partition_exprs: Vec<Expr> = base_group_aliases.iter().map(df::col).collect();
-    let row_number_alias = "__dbsnark_group_row_number".to_string();
-    let order_exprs = vec![df::col(ACTIVATOR_COL_NAME).sort(false, false)];
-    let row_number_expr = row_number()
-        .partition_by(partition_exprs)
-        .order_by(order_exprs)
-        .build()
-        .expect("build row_number() window expression")
-        .alias(row_number_alias.clone());
-    let joined_with_row_number = LogicalPlanBuilder::from(joined_plan.clone())
-        .window(vec![row_number_expr])
-        .expect("attach row_number window")
-        .build()
-        .expect("aggregate joined with row number plan");
+    let pos_sort = Expr::Column(Column::new(
+        Some(base_table_ref.clone()),
+        POS_COL.to_string(),
+    ))
+    .sort(true, false);
 
-    // Rewrite the activator so only the first row per group remains active.
-    let window_schema = joined_with_row_number.schema();
-    let zero_literal = df::lit(0u64)
-        .cast_to(&activator_dtype, window_schema.as_ref())
-        .expect("cast zero literal to activator dtype");
-    let new_activator = df::when(
-        df::col(&row_number_alias).eq(df::lit(1u64)),
-        df::col(ACTIVATOR_COL_NAME),
-    )
-    .otherwise(zero_literal)
-    .expect("build group representative activator")
+    let sorted = LogicalPlanBuilder::from(joined)
+        .sort(vec![pos_sort])
+        .expect("failed to apply ordering to aggregate hint plan")
+        .build()
+        .expect("failed to build sorted aggregate hint plan");
+
+    let agg_schema = aggregate_plan.schema.as_ref();
+    let mut final_exprs =
+        Vec::with_capacity(group_aliases.len() + aggregate_plan.aggr_expr.len() + 1);
+
+    for (idx, alias) in group_aliases.iter().enumerate() {
+        let field_name = agg_schema.field(idx).name().clone();
+        final_exprs.push(
+            Expr::Column(Column::new(Some(base_table_ref.clone()), alias.clone()))
+                .alias(field_name),
+        );
+    }
+
+    for (agg_idx, _) in aggregate_plan.aggr_expr.iter().enumerate() {
+        let schema_idx = group_aliases.len() + agg_idx;
+        let field_name = agg_schema.field(schema_idx).name().clone();
+        final_exprs.push(
+            Expr::Column(Column::new(Some(agg_table_ref.clone()), field_name.clone()))
+                .alias(field_name),
+        );
+    }
+
+    let rank_column = Expr::Column(Column::new(
+        Some(base_table_ref.clone()),
+        RN_COL.to_string(),
+    ));
+    let activator_column = Expr::Column(Column::new(
+        Some(base_table_ref.clone()),
+        ACTIVATOR_COL_NAME.to_string(),
+    ));
+    let activator_case = Expr::Case(Case::new(
+        None,
+        vec![(
+            Box::new(rank_column.eq(Expr::Literal(ScalarValue::UInt64(Some(1))))),
+            Box::new(activator_column),
+        )],
+        Some(Box::new(Expr::Literal(ScalarValue::Boolean(Some(false))))),
+    ))
     .alias(ACTIVATOR_COL_NAME.to_string());
+    final_exprs.push(activator_case);
 
-    // Project aggregate values with their original names along with the new
-    // activator.
-    let group_output_names: Vec<String> = aggregate_schema
-        .fields()
-        .iter()
-        .take(group_exprs.len())
-        .map(|field| field.name().to_string())
-        .collect();
-    let aggregate_output_names: Vec<String> = aggregate_schema
-        .fields()
-        .iter()
-        .skip(group_exprs.len())
-        .map(|field| field.name().to_string())
-        .collect();
-
-    let mut final_projection_exprs: Vec<Expr> =
-        Vec::with_capacity(group_output_names.len() + aggregate_output_names.len() + 1);
-    for (alias, original_name) in agg_group_aliases.iter().zip(group_output_names.iter()) {
-        final_projection_exprs.push(df::col(alias).alias(original_name.clone()));
-    }
-    for (alias, original_name) in aggregate_value_aliases
-        .iter()
-        .zip(aggregate_output_names.iter())
-    {
-        final_projection_exprs.push(df::col(alias).alias(original_name.clone()));
-    }
-    final_projection_exprs.push(new_activator);
-
-    LogicalPlanBuilder::from(joined_with_row_number)
-        .project(final_projection_exprs)
-        .expect("final aggregate hint projection")
+    LogicalPlanBuilder::from(sorted)
+        .project(final_exprs)
+        .expect("failed to project final aggregate hint output")
         .build()
-        .expect("aggregate hint output plan")
+        .expect("failed to construct aggregate hint output plan")
 }
