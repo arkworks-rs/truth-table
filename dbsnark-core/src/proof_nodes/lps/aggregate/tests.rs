@@ -110,3 +110,17 @@ fn prove_max_aggregate() {
         "lineitem",
     );
 }
+#[test]
+fn prove_min_aggregate() {
+    prove_and_verify_query(
+        r#"
+        SELECT
+            l_suppkey,
+            l_linenumber,
+            MIN(l_orderkey)
+        FROM lineitem
+        GROUP BY l_suppkey, l_linenumber
+    "#,
+        "lineitem",
+    );
+}

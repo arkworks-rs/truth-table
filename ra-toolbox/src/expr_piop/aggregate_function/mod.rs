@@ -19,7 +19,7 @@ use col_toolbox::{
     sign_check::{self, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
-use datafusion::logical_expr::expr::AggregateFunction;
+use datafusion::{arrow::compute::kernels::aggregate, logical_expr::expr::AggregateFunction};
 use derivative::Derivative;
 
 const AGG_COUNT: &str = "count";
@@ -148,6 +148,7 @@ where
         } = input;
 
         match aggregate.func.name() {
+            // Some wirings need to be done for the count
             "count" => Ok(()),
             "sum" => {
                 let multiplicity_check_prover_input = MultiplicityCheckProverInput {
@@ -159,59 +160,22 @@ where
                 MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
                 Ok(())
             },
-            "max" => {
-                let broadcast_tracked_col = TrackedCol::new(
-                    aggregated_col.data_tracked_poly(),
-                    input_col.activator_tracked_poly(),
-                    aggregated_col.field_ref(),
-                );
-                let non_neg_col = TrackedCol::new(
-                    &broadcast_tracked_col.data_tracked_poly() - &input_col.data_tracked_poly(),
-                    input_col.activator_tracked_poly(),
-                    aggregated_col.field_ref(),
-                );
-                let sign_check_prover_input = SignCheckProverInput {
-                    col: non_neg_col,
-                    sign: sign_check::Sign::NoneNegative,
-                };
-                SignCheckPIOP::prove(prover, sign_check_prover_input)?;
-                let r = prover.get_and_append_challenge(b"r")?;
-                // let support_tracked_poly = &aggregated_col.data_tracked_poly()
-                //     + &(&output_folded_col.data_tracked_poly() * r);
-                // let support_tracked_col = TrackedCol::new(
-                //     support_tracked_poly,
-                //     aggregated_col.activator_tracked_poly(),
-                //     aggregated_col.field_ref(),
-                // );
-                // let multiset_tracked_poly =
-                //     &input_col.data_tracked_poly() + &(&input_folded_col.data_tracked_poly()
-                // * r); let multiset_tracked_col = TrackedCol::new( multiset_tracked_poly,
-                //   input_col.activator_tracked_poly(), input_col.field_ref(),
-                // );
-                // let supp_check_prover_input = SuppCheckProverInput {
-                //     col: multiset_tracked_col,
-                //     supp: support_tracked_col,
-                // };
-                // SuppCheckPIOP::prove(prover, supp_check_prover_input)?;
-
-                let super_data_poly = &input_folded_col.data_tracked_poly()
-                    + &(&(&aggregated_col.data_tracked_poly() - &input_col.data_tracked_poly())
-                        * r);
-                let super_activator = input_folded_col.activator_tracked_poly();
-                let super_tracked_col = TrackedCol::new(
-                    super_data_poly,
-                    super_activator,
-                    input_folded_col.field_ref(),
-                );
-                let inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_cols: vec![output_folded_col],
-                    super_col: super_tracked_col,
-                };
-                InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
-
-                Ok(())
-            },
-            "min" => todo!("AggregateFunctionExprPIOP::prove_inner min"),
+            "max" => Self::prove_max_min(
+                aggregated_col,
+                input_folded_col,
+                output_folded_col,
+                input_col,
+                sign_check::Sign::NoneNegative,
+                prover,
+            ),
+            "min" => Self::prove_max_min(
+                aggregated_col,
+                input_folded_col,
+                output_folded_col,
+                input_col,
+                sign_check::Sign::NonePositive,
+                prover,
+            ),
             "avg" => todo!("AggregateFunctionExprPIOP::prove_inner avg"),
             "approx_distinct" => {
                 todo!("AggregateFunctionExprPIOP::prove_inner approx_distinct")
@@ -266,62 +230,22 @@ where
                 MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
                 Ok(())
             },
-            "max" => {
-                let broadcast_tracked_col_oracle = TrackedColOracle::new(
-                    aggregated_col_oracle.data_tracked_oracle(),
-                    input_col_oracle.activator_tracked_oracle(),
-                    aggregated_col_oracle.field_ref(),
-                );
-                let non_neg_col_oracle = TrackedColOracle::new(
-                    &broadcast_tracked_col_oracle.data_tracked_oracle()
-                        - &input_col_oracle.data_tracked_oracle(),
-                    input_col_oracle.activator_tracked_oracle(),
-                    aggregated_col_oracle.field_ref(),
-                );
-                let sign_check_verifier_input = SignCheckVerifierInput {
-                    tracked_col_oracle: non_neg_col_oracle,
-                    sign: sign_check::Sign::NoneNegative,
-                };
-                SignCheckPIOP::verify(verifier, sign_check_verifier_input)?;
-                let r = verifier.get_and_append_challenge(b"r")?;
-                // let support_tracked_poly = &aggregated_col_oracle.data_tracked_oracle()
-                //     + &(&output_folded_col_oracle.data_tracked_oracle() * r);
-                // let support_tracked_col_oracle = TrackedColOracle::new(
-                //     support_tracked_poly,
-                //     aggregated_col_oracle.activator_tracked_oracle(),
-                //     aggregated_col_oracle.field_ref(),
-                // );
-                // let multiset_tracked_poly = &input_col_oracle.data_tracked_oracle()
-                //     + &(&input_folded_col_oracle.data_tracked_oracle() * r);
-                // let multiset_tracked_col_oracle = TrackedColOracle::new(
-                //     multiset_tracked_poly,
-                //     input_col_oracle.activator_tracked_oracle(),
-                //     input_col_oracle.field_ref(),
-                // );
-                // let supp_check_verifier_input = SuppCheckVerifierInput {
-                //     col: multiset_tracked_col_oracle,
-                //     supp: support_tracked_col_oracle,
-                // };
-                // SuppCheckPIOP::verify(verifier, supp_check_verifier_input)?;
-
-                let super_data_oracle = &input_folded_col_oracle.data_tracked_oracle()
-                    + &(&(&aggregated_col_oracle.data_tracked_oracle()
-                        - &input_col_oracle.data_tracked_oracle())
-                        * r);
-                let super_activator_oracle = input_folded_col_oracle.activator_tracked_oracle();
-                let super_tracked_col_oracle = TrackedColOracle::new(
-                    super_data_oracle,
-                    super_activator_oracle,
-                    input_folded_col_oracle.field_ref(),
-                );
-                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracles: vec![output_folded_col_oracle],
-                    super_tracked_col_oracle,
-                };
-                InclusionCheckPIOP::verify(verifier, inclusion_check_verifier_input)?;
-                Ok(())
-            },
-            "min" => todo!("AggregateFunctionExprPIOP::verify min"),
+            "max" => Self::Verify_max_min(
+                aggregated_col_oracle,
+                input_folded_col_oracle,
+                output_folded_col_oracle,
+                input_col_oracle,
+                sign_check::Sign::NoneNegative,
+                verifier,
+            ),
+            "min" => Self::Verify_max_min(
+                aggregated_col_oracle,
+                input_folded_col_oracle,
+                output_folded_col_oracle,
+                input_col_oracle,
+                sign_check::Sign::NonePositive,
+                verifier,
+            ),
             "avg" => todo!("AggregateFunctionExprPIOP::verify avg"),
             "approx_distinct" => {
                 todo!("AggregateFunctionExprPIOP::verify approx_distinct")
@@ -349,5 +273,139 @@ where
             },
             other => todo!("AggregateFunctionExprPIOP::verify unsupported aggregate {other}"),
         }
+    }
+}
+
+impl<F, MvPCS, UvPCS> AggregateFunctionExprPIOP<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn prove_max_min(
+        aggregated_col: TrackedCol<F, MvPCS, UvPCS>,
+        input_folded_col: TrackedCol<F, MvPCS, UvPCS>,
+        output_folded_col: TrackedCol<F, MvPCS, UvPCS>,
+        input_col: TrackedCol<F, MvPCS, UvPCS>,
+        sign: sign_check::Sign,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        let broadcast_tracked_col = TrackedCol::new(
+            aggregated_col.data_tracked_poly(),
+            input_col.activator_tracked_poly(),
+            aggregated_col.field_ref(),
+        );
+        let non_neg_col = TrackedCol::new(
+            &broadcast_tracked_col.data_tracked_poly() - &input_col.data_tracked_poly(),
+            input_col.activator_tracked_poly(),
+            aggregated_col.field_ref(),
+        );
+        let sign_check_prover_input = SignCheckProverInput {
+            col: non_neg_col,
+            sign,
+        };
+        SignCheckPIOP::prove(prover, sign_check_prover_input)?;
+        /////////////////////////////////////////////////////////////////////////////////
+        let r = prover.get_and_append_challenge(b"r")?;
+        let support_tracked_poly =
+            &aggregated_col.data_tracked_poly() + &(&output_folded_col.data_tracked_poly() * r);
+        let support_tracked_col = TrackedCol::new(
+            support_tracked_poly,
+            aggregated_col.activator_tracked_poly(),
+            aggregated_col.field_ref(),
+        );
+        let multiset_tracked_poly =
+            &aggregated_col.data_tracked_poly() + &(&input_folded_col.data_tracked_poly() * r);
+        let multiset_tracked_col = TrackedCol::new(
+            multiset_tracked_poly,
+            input_col.activator_tracked_poly(),
+            input_col.field_ref(),
+        );
+        let supp_check_prover_input = SuppCheckProverInput {
+            col: multiset_tracked_col,
+            supp: support_tracked_col,
+        };
+        SuppCheckPIOP::prove(prover, supp_check_prover_input)?;
+        /////////////////////////////////////////////////////////////////////////////////
+        let super_data_poly = &input_folded_col.data_tracked_poly()
+            + &(&(&aggregated_col.data_tracked_poly() - &input_col.data_tracked_poly()) * r);
+        let super_activator = input_folded_col.activator_tracked_poly();
+        let super_tracked_col = TrackedCol::new(
+            super_data_poly,
+            super_activator,
+            input_folded_col.field_ref(),
+        );
+        let inclusion_check_prover_input = InclusionCheckProverInput {
+            included_cols: vec![output_folded_col],
+            super_col: super_tracked_col,
+        };
+        InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
+
+        Ok(())
+    }
+
+    fn Verify_max_min(
+        aggregated_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        input_folded_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        output_folded_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        input_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+        sign: sign_check::Sign,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        let broadcast_tracked_col_oracle = TrackedColOracle::new(
+            aggregated_col_oracle.data_tracked_oracle(),
+            input_col_oracle.activator_tracked_oracle(),
+            aggregated_col_oracle.field_ref(),
+        );
+        let non_neg_col_oracle = TrackedColOracle::new(
+            &broadcast_tracked_col_oracle.data_tracked_oracle()
+                - &input_col_oracle.data_tracked_oracle(),
+            input_col_oracle.activator_tracked_oracle(),
+            aggregated_col_oracle.field_ref(),
+        );
+        let sign_check_verifier_input = SignCheckVerifierInput {
+            tracked_col_oracle: non_neg_col_oracle,
+            sign,
+        };
+        SignCheckPIOP::verify(verifier, sign_check_verifier_input)?;
+        let r = verifier.get_and_append_challenge(b"r")?;
+        //////////////////////////////////////////////////////////////////////////////
+        let support_tracked_poly = &aggregated_col_oracle.data_tracked_oracle()
+            + &(&output_folded_col_oracle.data_tracked_oracle() * r);
+        let support_tracked_col_oracle = TrackedColOracle::new(
+            support_tracked_poly,
+            aggregated_col_oracle.activator_tracked_oracle(),
+            aggregated_col_oracle.field_ref(),
+        );
+        let multiset_tracked_poly = &aggregated_col_oracle.data_tracked_oracle()
+            + &(&input_folded_col_oracle.data_tracked_oracle() * r);
+        let multiset_tracked_col_oracle = TrackedColOracle::new(
+            multiset_tracked_poly,
+            input_col_oracle.activator_tracked_oracle(),
+            input_col_oracle.field_ref(),
+        );
+        let supp_check_verifier_input = SuppCheckVerifierInput {
+            col: multiset_tracked_col_oracle,
+            supp: support_tracked_col_oracle,
+        };
+        SuppCheckPIOP::verify(verifier, supp_check_verifier_input)?;
+
+        //////////////////////////////////////////////////////////////////////////////
+        let super_data_oracle = &input_folded_col_oracle.data_tracked_oracle()
+            + &(&(&aggregated_col_oracle.data_tracked_oracle()
+                - &input_col_oracle.data_tracked_oracle())
+                * r);
+        let super_activator_oracle = input_folded_col_oracle.activator_tracked_oracle();
+        let super_tracked_col_oracle = TrackedColOracle::new(
+            super_data_oracle,
+            super_activator_oracle,
+            input_folded_col_oracle.field_ref(),
+        );
+        let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+            included_tracked_col_oracles: vec![output_folded_col_oracle],
+            super_tracked_col_oracle,
+        };
+        InclusionCheckPIOP::verify(verifier, inclusion_check_verifier_input)?;
+        Ok(())
     }
 }
