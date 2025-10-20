@@ -33,6 +33,50 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
+pub struct HintedSuppCheckPIOP<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    #[doc(hidden)] PhantomData<F>,
+    #[doc(hidden)] PhantomData<MvPCS>,
+    #[doc(hidden)] PhantomData<UvPCS>,
+);
+
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct HintedSuppCheckProverInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub col: TrackedCol<F, MvPCS, UvPCS>,
+    pub supp: TrackedCol<F, MvPCS, UvPCS>,
+    pub multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
+}
+
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    DeepClone<F, MvPCS, UvPCS> for HintedSuppCheckProverInput<F, MvPCS, UvPCS>
+{
+    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+        HintedSuppCheckProverInput {
+            col: self.col.deep_clone(new_prover.clone()),
+            supp: self.supp.deep_clone(new_prover.clone()),
+            multiplicity: self.multiplicity.deep_clone(new_prover),
+        }
+    }
+}
+
+pub struct HintedSuppCheckVerifierInput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub col: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub supp: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
+}
+
 pub struct SuppCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -96,6 +140,129 @@ pub struct SuppCheckVerifierOutput<
 /// is to show that it's strictly sorted)
 /// IMPORTANT: The supp column should be sorted
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    PIOP<F, MvPCS, UvPCS> for HintedSuppCheckPIOP<F, MvPCS, UvPCS>
+{
+    type ProverInput = HintedSuppCheckProverInput<F, MvPCS, UvPCS>;
+    type VerifierInput = HintedSuppCheckVerifierInput<F, MvPCS, UvPCS>;
+    type ProverOutput = ();
+    type VerifierOutput = ();
+
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
+        for elem in input.supp.effective_iter() {
+            *bookkeeping_map.entry(elem).or_insert(0) += 1;
+        }
+        for key in bookkeeping_map.keys() {
+            if *bookkeeping_map.get(key).unwrap() != 1 {
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+        for elem in input.col.effective_hashset().iter() {
+            *bookkeeping_map.entry(*elem).or_insert(-1) -= 1;
+        }
+        for (_, count) in bookkeeping_map.iter() {
+            if *count != 0 {
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn prove_inner(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover_input: Self::ProverInput,
+    ) -> SnarkResult<Self::ProverOutput> {
+        Self::prove_with_advice(
+            prover,
+            &prover_input.col,
+            &prover_input.supp,
+            &prover_input.multiplicity,
+        )?;
+        Ok(())
+    }
+
+    fn verify_inner(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier_input: Self::VerifierInput,
+    ) -> SnarkResult<Self::VerifierOutput> {
+        Self::verify_with_advice(
+            verifier,
+            &verifier_input.col,
+            &verifier_input.supp,
+            &verifier_input.multiplicity,
+        )?;
+        Ok(())
+    }
+}
+
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+    HintedSuppCheckPIOP<F, MvPCS, UvPCS>
+{
+    pub fn prove_with_advice(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+        supp: &TrackedCol<F, MvPCS, UvPCS>,
+        common_mset_supp_m: &TrackedPoly<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove_with_advice(
+            prover,
+            &vec![col.clone()],
+            &supp.clone(),
+            &vec![common_mset_supp_m.clone()],
+        )?;
+
+        let supp_no_dups_checker = TrackedCol::new(
+            common_mset_supp_m.clone(),
+            supp.activator_tracked_poly(),
+            None,
+        );
+        let no_zeros_check_prover_input = NoZerosCheckProverInput {
+            col: supp_no_dups_checker,
+        };
+        NoZerosCheck::<F, MvPCS, UvPCS>::prove(prover, no_zeros_check_prover_input)?;
+        let no_dup_prover_input = NoDupCheckProverInput { col: supp.clone() };
+        NoDupPIOP::<F, MvPCS, UvPCS>::prove(prover, no_dup_prover_input)?;
+        Ok(())
+    }
+
+    pub fn verify_with_advice(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        col: &TrackedColOracle<F, MvPCS, UvPCS>,
+        supp: &TrackedColOracle<F, MvPCS, UvPCS>,
+        common_mset_supp_m: &TrackedOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify_with_advice(
+            verifier,
+            &vec![col.clone()],
+            &supp.clone(),
+            &vec![common_mset_supp_m.clone()],
+        )?;
+
+        let supp_no_dups_checker = TrackedColOracle::new(
+            common_mset_supp_m.clone(),
+            supp.activator_tracked_oracle(),
+            None,
+        );
+        let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
+            tracked_col_oracle: supp_no_dups_checker,
+        };
+        NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
+        let no_dup_verifier_input = NoDupCheckVerifierInput {
+            tracked_col_oracle: supp.clone(),
+        };
+        NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, no_dup_verifier_input)?;
+
+        Ok(())
+    }
+}
+
+impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for SuppCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = SuppCheckProverInput<F, MvPCS, UvPCS>;
@@ -140,7 +307,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let super_set_multiplicity_tr_p =
             prover.track_and_commit_mat_mv_poly(&super_set_multiplicity_p)?;
 
-        SuppCheckPIOP::prove_with_advice(
+        HintedSuppCheckPIOP::prove_with_advice(
             prover,
             &prover_input.col,
             &prover_input.supp,
@@ -159,7 +326,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let super_set_multiplicity_tr_com =
             verifier.track_mv_com_by_id(super_set_multiplicity_com_id)?;
 
-        SuppCheckPIOP::verify_with_advice(
+        HintedSuppCheckPIOP::verify_with_advice(
             verifier,
             &verifier_input.col,
             &verifier_input.supp,
@@ -172,72 +339,3 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    SuppCheckPIOP<F, MvPCS, UvPCS>
-{
-    pub fn prove_with_advice(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-        supp: &TrackedCol<F, MvPCS, UvPCS>,
-        common_mset_supp_m: &TrackedPoly<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        // Show col \subseteq supp
-        InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove_with_advice(
-            prover,
-            &vec![col.clone()],
-            &supp.clone(),
-            &vec![common_mset_supp_m.clone()],
-        )?;
-
-        // Show common_mset_supp_m has no zeros, which implies supp \subseteq col
-        // common_mset_supp_m will have no zeros becuaes it's the only way to for it to
-        // be valid otherwise calc_inclusion_multiplicity would not
-        // return something without zeros by default Note: can resuse the
-        // supp.selector as the supp_m.selector
-        let supp_no_dups_checker = TrackedCol::new(
-            common_mset_supp_m.clone(),
-            supp.activator_tracked_poly(),
-            None,
-        );
-        let no_zeros_check_prover_input = NoZerosCheckProverInput {
-            col: supp_no_dups_checker,
-        };
-        NoZerosCheck::<F, MvPCS, UvPCS>::prove(prover, no_zeros_check_prover_input)?;
-        let no_dup_prover_input = NoDupCheckProverInput { col: supp.clone() };
-        NoDupPIOP::<F, MvPCS, UvPCS>::prove(prover, no_dup_prover_input)?;
-        Ok(())
-    }
-
-    pub fn verify_with_advice(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        col: &TrackedColOracle<F, MvPCS, UvPCS>,
-        supp: &TrackedColOracle<F, MvPCS, UvPCS>,
-        common_mset_supp_m: &TrackedOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        // Use ColMultitool PIOP to show col and supp share a Common Multiset
-        InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify_with_advice(
-            verifier,
-            &vec![col.clone()],
-            &supp.clone(),
-            &vec![common_mset_supp_m.clone()],
-        )?;
-
-        // col and supp are subsets of each other by showing multiplicity polys have no
-        // zeros
-        let supp_no_dups_checker = TrackedColOracle::new(
-            common_mset_supp_m.clone(),
-            supp.activator_tracked_oracle(),
-            None,
-        );
-        let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
-            tracked_col_oracle: supp_no_dups_checker,
-        };
-        NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
-        let no_dup_verifier_input = NoDupCheckVerifierInput {
-            tracked_col_oracle: supp.clone(),
-        };
-        NoDupPIOP::<F, MvPCS, UvPCS>::verify(verifier, no_dup_verifier_input)?;
-
-        Ok(())
-    }
-}

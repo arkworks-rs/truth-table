@@ -237,7 +237,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             (Some(mgx), None) => Some(mgx + F::one()),
             (None, Some(ugx)) => Some(ugx + F::one()),
             (None, None) => Some(verifier.track_oracle(Oracle::new_multivariate(
-                input.col_left.log_size() + input.col_right.log_size(),
+                input.col_union.log_size(),
                 move |_| Ok(F::from(2)),
             ))),
         };
@@ -246,8 +246,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             fxs: vec![input.col_left.clone(), input.col_right.clone()],
             gxs: vec![input.col_union.clone()],
             mfxs: vec![None, None],
-            mgxs: vec![mgx],
+            mgxs: vec![mgx.clone()],
         };
+
         MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
 
         let diff_poly =
