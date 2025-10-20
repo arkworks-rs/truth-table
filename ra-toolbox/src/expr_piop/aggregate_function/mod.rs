@@ -178,7 +178,7 @@ where
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let AggregateFunctionPIOPVerifierInput {
@@ -190,7 +190,7 @@ where
 
         match aggregate.func.name() {
             "count" => {
-                let _zero_col_oracle = match input_col_oracle.activator_tracked_oracle() {
+                let zero_col_oracle = match input_col_oracle.activator_tracked_oracle() {
                     Some(activator_poly) => {
                         &(&aggregated_col_oracle.activated_data_tracked_oracle()
                             - &group_multiplicty_tracked_oracle)
@@ -201,7 +201,7 @@ where
                             - &group_multiplicty_tracked_oracle
                     },
                 };
-                // verifier.add_zerocheck_claim(zero_col_oracle.id());
+                verifier.add_zerocheck_claim(zero_col_oracle.id());
                 Ok(())
             },
             "sum" => todo!("AggregateFunctionExprPIOP::verify sum"),

@@ -129,6 +129,7 @@ where
             .output_grouping_table
             .fold_all_data_columns(&gpd_cols_fld_challs);
 
+      
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckProverInput {
             col: input_folded_col.clone(),

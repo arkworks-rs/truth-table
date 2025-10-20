@@ -22,7 +22,7 @@ use datafusion::{
     common::{Statistics, TableReference},
     logical_expr::{
         self as df, Case, ExprFunctionExt, ExprSchemable, JoinType, LogicalPlan,
-        LogicalPlanBuilder, expr_rewriter::normalize_cols,
+        LogicalPlanBuilder, Operator, expr_rewriter::normalize_cols,
     },
     prelude::{Column, Expr, SessionContext},
     scalar::ScalarValue,
@@ -933,11 +933,23 @@ fn build_aggregate_hint_output_plan(
         .map(|alias| Expr::Column(Column::from_name(alias.clone())))
         .collect();
 
-    let aggregate_values_plan = LogicalPlanBuilder::from(base_with_group_exprs.clone())
+    let activator_filter = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
+    let activated_base_for_agg = LogicalPlanBuilder::from(base_with_group_exprs.clone())
+        .filter(activator_filter)
+        .expect("failed to filter inactive rows for aggregate hint generation")
+        .build()
+        .expect("failed to build filtered aggregate base plan");
+
+    let aggregate_values_plan = LogicalPlanBuilder::from(activated_base_for_agg)
         .aggregate(group_by_exprs_for_agg, aggregate_plan.aggr_expr.clone())
         .expect("failed to build aggregate plan for hint generation")
         .build()
         .expect("failed to finalize aggregate hint plan");
+    let agg_has_activator = aggregate_values_plan
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
 
     let base_table_ref = TableReference::bare(BASE_ALIAS);
     let agg_table_ref = TableReference::bare(AGG_ALIAS);
@@ -1015,11 +1027,24 @@ fn build_aggregate_hint_output_plan(
         Some(base_table_ref.clone()),
         ACTIVATOR_COL_NAME.to_string(),
     ));
+    let output_activator_expr = if agg_has_activator {
+        Expr::Column(Column::new(
+            Some(agg_table_ref.clone()),
+            ACTIVATOR_COL_NAME.to_string(),
+        ))
+    } else {
+        Expr::Literal(ScalarValue::Boolean(Some(true)))
+    };
+    let combined_activator = Expr::BinaryExpr(datafusion_expr::expr::BinaryExpr::new(
+        Box::new(activator_column),
+        Operator::And,
+        Box::new(output_activator_expr),
+    ));
     let activator_case = Expr::Case(Case::new(
         None,
         vec![(
             Box::new(rank_column.eq(Expr::Literal(ScalarValue::UInt64(Some(1))))),
-            Box::new(activator_column),
+            Box::new(combined_activator),
         )],
         Some(Box::new(Expr::Literal(ScalarValue::Boolean(Some(false))))),
     ))
