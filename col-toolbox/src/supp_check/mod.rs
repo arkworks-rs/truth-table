@@ -10,7 +10,10 @@ pub(crate) mod utils;
 
 use super::no_dup_check::NoDupPIOP;
 use crate::{
-    inclusion_check::{InclusionCheckPIOP, utils::calc_inclusion_multiplicity},
+    inclusion_check::{
+        HintedInclusionCheckPIOP, HintedInclusionCheckProverInput,
+        HintedInclusionCheckVerifierInput, InclusionCheckPIOP, utils::calc_inclusion_multiplicity,
+    },
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
@@ -178,11 +181,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove_with_advice(
+        let hinted_inclusion_check_prover_input = HintedInclusionCheckProverInput {
+            included_cols: vec![prover_input.col.clone()],
+            super_col: prover_input.supp.clone(),
+            super_col_multiplicities: vec![prover_input.multiplicity.clone()],
+        };
+
+        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
             prover,
-            &vec![prover_input.col.clone()],
-            &prover_input.supp.clone(),
-            &vec![prover_input.multiplicity.clone()],
+            hinted_inclusion_check_prover_input,
         )?;
 
         let supp_no_dups_checker = TrackedCol::new(
@@ -205,11 +212,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify_with_advice(
+        let hinted_inclusion_check_verifier_input = HintedInclusionCheckVerifierInput {
+            included_tracked_col_oracles: vec![verifier_input.col.clone()],
+            super_tracked_col_oracle: verifier_input.supp.clone(),
+            super_col_multiplicities: vec![verifier_input.multiplicity.clone()],
+        };
+
+        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
             verifier,
-            &vec![verifier_input.col.clone()],
-            &verifier_input.supp.clone(),
-            &vec![verifier_input.multiplicity.clone()],
+            hinted_inclusion_check_verifier_input,
         )?;
 
         let supp_no_dups_checker = TrackedColOracle::new(
