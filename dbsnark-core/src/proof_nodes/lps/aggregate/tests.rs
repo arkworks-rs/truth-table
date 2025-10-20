@@ -68,13 +68,42 @@ async fn build_piop_tree2() {
     .await;
 }
 #[test]
-fn prove_aggregate() {
+fn prove_count_aggregate() {
     prove_and_verify_query(
         r#"
         SELECT
             l_suppkey,
             l_linenumber,
-            COUNT(l_discount)
+            COUNT(l_orderkey)
+        FROM lineitem
+        GROUP BY l_suppkey, l_linenumber
+    "#,
+        "lineitem",
+    );
+}
+
+#[test]
+fn prove_sum_aggregate() {
+    prove_and_verify_query(
+        r#"
+        SELECT
+            l_suppkey,
+            l_linenumber,
+            SUM(l_orderkey)
+        FROM lineitem
+        GROUP BY l_suppkey, l_linenumber
+    "#,
+        "lineitem",
+    );
+}
+#[test]
+fn prove_max_aggregate() {
+    prove_and_verify_query(
+        r#"
+        SELECT
+            l_suppkey,
+            l_linenumber,
+            MAX(l_orderkey)
         FROM lineitem
         GROUP BY l_suppkey, l_linenumber
     "#,

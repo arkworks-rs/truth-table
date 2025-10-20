@@ -31,19 +31,38 @@ use datafusion_expr::WindowFrame;
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{
-    AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPVerifierInput,
+    AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPProverOutput,
+    AggregatePIOPVerifierInput, AggregatePIOPVerifierOutput,
 };
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
-const GROUP_MULTIPLICITY_COL_NAME: &str = "__dbsnark_group_multiplicity";
+pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__dbsnark_group_multiplicity";
+pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__dbsnark_group_input_folded";
+pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__dbsnark_group_output_folded";
 
-fn grouping_multiplicity_field() -> Arc<Field> {
+pub(crate) fn grouping_multiplicity_field() -> Arc<Field> {
     Arc::new(Field::new(
         GROUP_MULTIPLICITY_COL_NAME,
         DataType::UInt64,
+        true,
+    ))
+}
+
+pub(crate) fn grouping_input_folded_field() -> Arc<Field> {
+    Arc::new(Field::new(
+        GROUP_INPUT_FOLDED_COL_NAME,
+        DataType::Binary,
+        true,
+    ))
+}
+
+pub(crate) fn grouping_output_folded_field() -> Arc<Field> {
+    Arc::new(Field::new(
+        GROUP_OUTPUT_FOLDED_COL_NAME,
+        DataType::Binary,
         true,
     ))
 }
@@ -443,13 +462,33 @@ where
             };
         let aggregate_piop_prover_output =
             AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
-
-        let grouping_multiplicity_poly =
-            aggregate_piop_prover_output.grouping_multiplicty_tracked_poly;
+        let AggregatePIOPProverOutput {
+            grouping_multiplicty_tracked_poly: grouping_multiplicity_poly,
+            input_folded_tracked_col,
+            output_folded_tracked_col,
+        } = aggregate_piop_prover_output;
+        debug_assert_eq!(
+            grouping_multiplicity_poly.log_size(),
+            input_folded_tracked_col.log_size(),
+            "folded input column log size mismatch with multiplicity"
+        );
+        debug_assert_eq!(
+            grouping_multiplicity_poly.log_size(),
+            output_folded_tracked_col.log_size(),
+            "folded output column log size mismatch with multiplicity"
+        );
         let multiplicity_log_size = grouping_multiplicity_poly.log_size();
         let multiplicity_field = grouping_multiplicity_field();
         let mut columns = IndexMap::new();
         columns.insert(multiplicity_field, grouping_multiplicity_poly);
+        columns.insert(
+            grouping_input_folded_field(),
+            input_folded_tracked_col.data_tracked_poly(),
+        );
+        columns.insert(
+            grouping_output_folded_field(),
+            output_folded_tracked_col.data_tracked_poly(),
+        );
         let auxiliary_table = TrackedTable::new(None, columns, multiplicity_log_size);
         piop_tree.add_table(
             self.node_id.clone(),
@@ -830,12 +869,33 @@ where
         let aggregate_piop_verifier_output =
             AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
 
-        let grouping_multiplicity_oracle =
-            aggregate_piop_verifier_output.grouping_multiplicty_tracked_oracle;
+        let AggregatePIOPVerifierOutput {
+            grouping_multiplicty_tracked_oracle: grouping_multiplicity_oracle,
+            input_folded_tracked_col_oracle,
+            output_folded_tracked_col_oracle,
+        } = aggregate_piop_verifier_output;
+        debug_assert_eq!(
+            grouping_multiplicity_oracle.log_size(),
+            input_folded_tracked_col_oracle.log_size(),
+            "folded input oracle log size mismatch with multiplicity"
+        );
+        debug_assert_eq!(
+            grouping_multiplicity_oracle.log_size(),
+            output_folded_tracked_col_oracle.log_size(),
+            "folded output oracle log size mismatch with multiplicity"
+        );
         let multiplicity_log_size = grouping_multiplicity_oracle.log_size();
         let multiplicity_field = grouping_multiplicity_field();
         let mut columns = IndexMap::new();
         columns.insert(multiplicity_field, grouping_multiplicity_oracle);
+        columns.insert(
+            grouping_input_folded_field(),
+            input_folded_tracked_col_oracle.data_tracked_oracle(),
+        );
+        columns.insert(
+            grouping_output_folded_field(),
+            output_folded_tracked_col_oracle.data_tracked_oracle(),
+        );
         let auxiliary_table = TrackedTableOracle::new(None, columns, multiplicity_log_size);
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),

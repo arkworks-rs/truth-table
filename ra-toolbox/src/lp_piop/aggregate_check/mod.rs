@@ -1,4 +1,7 @@
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -38,6 +41,8 @@ pub struct AggregatePIOPProverOutput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub grouping_multiplicty_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    pub input_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub output_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
 }
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for AggregatePIOPProverInput<F, MvPCS, UvPCS>
 where
@@ -76,6 +81,8 @@ pub struct AggregatePIOPVerifierOutput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+    pub input_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub output_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 pub struct AggregatePIOP<F, MvPCS, UvPCS>
 where
@@ -129,7 +136,6 @@ where
             .output_grouping_table
             .fold_all_data_columns(&gpd_cols_fld_challs);
 
-      
         // Invoke the support check PIOP to check
         let supp_check_input = SuppCheckProverInput {
             col: input_folded_col.clone(),
@@ -140,6 +146,8 @@ where
 
         Ok(AggregatePIOPProverOutput {
             grouping_multiplicty_tracked_poly: supp_check_output.super_set_multiplicity_tr_p,
+            input_folded_tracked_col: input_folded_col,
+            output_folded_tracked_col: output_folded_col,
         })
     }
 
@@ -180,6 +188,8 @@ where
             SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
         Ok(AggregatePIOPVerifierOutput {
             grouping_multiplicty_tracked_oracle: supp_check_output.super_set_multiplicity_tr_com,
+            input_folded_tracked_col_oracle: input_folded_col_oracle,
+            output_folded_tracked_col_oracle: output_folded_col_oracle,
         })
     }
 }

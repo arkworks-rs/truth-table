@@ -2,7 +2,13 @@
 // dbsnark-core/src/verifier/nodes/exprs/aggregate_function.rs
 
 use crate::{
-    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY,
+        id::NodeId,
+        lps::aggregate::{
+            GROUP_INPUT_FOLDED_COL_NAME, GROUP_MULTIPLICITY_COL_NAME, GROUP_OUTPUT_FOLDED_COL_NAME,
+        },
+    },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::proof_tree::VerifierProofTree,
 };
@@ -17,6 +23,7 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
     arrow::datatypes::SchemaRef, common::Statistics, logical_expr::Expr, prelude::SessionContext,
@@ -165,12 +172,36 @@ where
                 panic!("missing auxiliary table for aggregate node {}", self.name())
             });
 
-        let group_multiplicity_poly = auxiliary_table
-            .tracked_polys()
-            .into_iter()
-            .next()
-            .map(|(_, poly)| poly)
+        let mut multiplicity_poly = None;
+        let mut input_folded_entry = None;
+        let mut output_folded_entry = None;
+
+        for (field, poly) in auxiliary_table.tracked_polys() {
+            match field.name().as_str() {
+                GROUP_MULTIPLICITY_COL_NAME => multiplicity_poly = Some(poly.clone()),
+                GROUP_INPUT_FOLDED_COL_NAME => {
+                    input_folded_entry = Some((field.clone(), poly.clone()))
+                }
+                GROUP_OUTPUT_FOLDED_COL_NAME => {
+                    output_folded_entry = Some((field.clone(), poly.clone()))
+                }
+                _ => {}
+            }
+        }
+
+        let group_multiplicity_poly = multiplicity_poly
             .expect("auxiliary table missing multiplicity polynomial");
+        let (input_folded_field, input_folded_poly) = input_folded_entry
+            .expect("auxiliary table missing input folded column polynomial");
+        let (output_folded_field, output_folded_poly) = output_folded_entry
+            .expect("auxiliary table missing output folded column polynomial");
+
+        let input_folded_col = TrackedCol::new(input_folded_poly, None, Some(input_folded_field));
+        let output_folded_col = TrackedCol::new(
+            output_folded_poly,
+            None,
+            Some(output_folded_field),
+        );
 
         let output_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
@@ -198,6 +229,8 @@ where
 
         let piop_input = AggregateFunctionPIOPProverInput {
             aggregate: aggregate_expr,
+            input_folded_col,
+            output_folded_col,
             group_multiplicty_tracked_poly: group_multiplicity_poly,
             aggregated_col,
             input_col,
@@ -337,12 +370,34 @@ where
                     self.name()
                 )
             });
-        let group_multiplicity_oracle = auxiliary_table
-            .tracked_oracles()
-            .into_iter()
-            .next()
-            .map(|(_, oracle)| oracle)
+        let mut multiplicity_oracle = None;
+        let mut input_folded_oracle_entry = None;
+        let mut output_folded_oracle_entry = None;
+
+        for (field, oracle) in auxiliary_table.tracked_oracles() {
+            match field.name().as_str() {
+                GROUP_MULTIPLICITY_COL_NAME => multiplicity_oracle = Some(oracle.clone()),
+                GROUP_INPUT_FOLDED_COL_NAME => {
+                    input_folded_oracle_entry = Some((field.clone(), oracle.clone()))
+                }
+                GROUP_OUTPUT_FOLDED_COL_NAME => {
+                    output_folded_oracle_entry = Some((field.clone(), oracle.clone()))
+                }
+                _ => {}
+            }
+        }
+
+        let group_multiplicity_oracle = multiplicity_oracle
             .expect("auxiliary oracle table missing multiplicity oracle");
+        let (input_folded_field, input_folded_oracle) = input_folded_oracle_entry
+            .expect("auxiliary oracle table missing input folded column oracle");
+        let (output_folded_field, output_folded_oracle) = output_folded_oracle_entry
+            .expect("auxiliary oracle table missing output folded column oracle");
+
+        let input_folded_col_oracle =
+            TrackedColOracle::new(input_folded_oracle, None, Some(input_folded_field));
+        let output_folded_col_oracle =
+            TrackedColOracle::new(output_folded_oracle, None, Some(output_folded_field));
 
         let output_table = piop_tree
             .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
@@ -372,6 +427,8 @@ where
 
         let piop_input = AggregateFunctionPIOPVerifierInput {
             aggregate: aggregate_expr,
+            input_folded_col_oracle,
+            output_folded_col_oracle,
             group_multiplicty_tracked_oracle: group_multiplicity_oracle,
             aggregated_col_oracle,
             input_col_oracle,
