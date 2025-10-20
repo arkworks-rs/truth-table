@@ -10,6 +10,7 @@ ark-piop = { workspace = true, features = ["test-utils"] }
 ark-serialize = { workspace = true }
 datafusion = { workspace = true }
 datafusion-functions-window = "46.0.1"
+datafusion-functions-aggregate.workspace = true
 datafusion-expr = "46.0.1"
 thiserror = { workspace = true }
 tokio = { workspace = true }
