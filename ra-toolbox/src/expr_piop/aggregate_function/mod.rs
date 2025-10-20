@@ -10,6 +10,9 @@ use ark_piop::{
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use col_toolbox::{
+    inclusion_check::{
+        self, InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput,
+    },
     multiplicity_check::{
         MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
     },
@@ -145,21 +148,7 @@ where
         } = input;
 
         match aggregate.func.name() {
-            "count" => {
-                let zero_poly = match input_col.activator_tracked_poly() {
-                    Some(activator_poly) => {
-                        &(&aggregated_col.activated_data_tracked_poly()
-                            - &group_multiplicty_tracked_poly)
-                            * &activator_poly
-                    },
-                    None => {
-                        &aggregated_col.activated_data_tracked_poly()
-                            - &group_multiplicty_tracked_poly
-                    },
-                };
-                prover.add_mv_zerocheck_claim(zero_poly.id())?;
-                Ok(())
-            },
+            "count" => Ok(()),
             "sum" => {
                 let multiplicity_check_prover_input = MultiplicityCheckProverInput {
                     fxs: vec![input_folded_col],
@@ -195,17 +184,31 @@ where
                 //     aggregated_col.field_ref(),
                 // );
                 // let multiset_tracked_poly =
-                //     &input_col.data_tracked_poly() + &(&input_folded_col.data_tracked_poly() * r);
-                // let multiset_tracked_col = TrackedCol::new(
-                //     multiset_tracked_poly,
-                //     input_col.activator_tracked_poly(),
-                //     input_col.field_ref(),
+                //     &input_col.data_tracked_poly() + &(&input_folded_col.data_tracked_poly()
+                // * r); let multiset_tracked_col = TrackedCol::new( multiset_tracked_poly,
+                //   input_col.activator_tracked_poly(), input_col.field_ref(),
                 // );
                 // let supp_check_prover_input = SuppCheckProverInput {
                 //     col: multiset_tracked_col,
                 //     supp: support_tracked_col,
                 // };
                 // SuppCheckPIOP::prove(prover, supp_check_prover_input)?;
+
+                let super_data_poly = &input_folded_col.data_tracked_poly()
+                    + &(&(&aggregated_col.data_tracked_poly() - &input_col.data_tracked_poly())
+                        * r);
+                let super_activator = input_folded_col.activator_tracked_poly();
+                let super_tracked_col = TrackedCol::new(
+                    super_data_poly,
+                    super_activator,
+                    input_folded_col.field_ref(),
+                );
+                let inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_cols: vec![output_folded_col],
+                    super_col: super_tracked_col,
+                };
+                InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
+
                 Ok(())
             },
             "min" => todo!("AggregateFunctionExprPIOP::prove_inner min"),
@@ -252,21 +255,7 @@ where
         } = input;
 
         match aggregate.func.name() {
-            "count" => {
-                let zero_col_oracle = match input_col_oracle.activator_tracked_oracle() {
-                    Some(activator_poly) => {
-                        &(&aggregated_col_oracle.activated_data_tracked_oracle()
-                            - &group_multiplicty_tracked_oracle)
-                            * &activator_poly
-                    },
-                    None => {
-                        &aggregated_col_oracle.activated_data_tracked_oracle()
-                            - &group_multiplicty_tracked_oracle
-                    },
-                };
-                verifier.add_zerocheck_claim(zero_col_oracle.id());
-                Ok(())
-            },
+            "count" => Ok(()),
             "sum" => {
                 let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
                     fxs: vec![input_folded_col_oracle],
@@ -314,6 +303,22 @@ where
                 //     supp: support_tracked_col_oracle,
                 // };
                 // SuppCheckPIOP::verify(verifier, supp_check_verifier_input)?;
+
+                let super_data_oracle = &input_folded_col_oracle.data_tracked_oracle()
+                    + &(&(&aggregated_col_oracle.data_tracked_oracle()
+                        - &input_col_oracle.data_tracked_oracle())
+                        * r);
+                let super_activator_oracle = input_folded_col_oracle.activator_tracked_oracle();
+                let super_tracked_col_oracle = TrackedColOracle::new(
+                    super_data_oracle,
+                    super_activator_oracle,
+                    input_folded_col_oracle.field_ref(),
+                );
+                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![output_folded_col_oracle],
+                    super_tracked_col_oracle,
+                };
+                InclusionCheckPIOP::verify(verifier, inclusion_check_verifier_input)?;
                 Ok(())
             },
             "min" => todo!("AggregateFunctionExprPIOP::verify min"),
