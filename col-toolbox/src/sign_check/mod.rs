@@ -258,95 +258,63 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
-                for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_cols: vec![segment],
-                        super_col: TrackedCol::new(
-                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
-                }
+                let inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_cols: vec![chunk3, chunk2, chunk1, chunk0],
+                    super_col: TrackedCol::new(
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                    prover,
+                    inclusion_check_prover_input,
+                )?;
             },
             DataType::Int32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
-                let top_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_cols: vec![chunk3.clone()],
+                let inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_cols: vec![chunk3, chunk2, chunk1, chunk0],
                     super_col: TrackedCol::new(
-                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                         None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
                     prover,
-                    top_inclusion_check_prover_input,
+                    inclusion_check_prover_input,
                 )?;
-                for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_cols: vec![segment],
-                        super_col: TrackedCol::new(
-                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
-                }
             },
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
-                for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_cols: vec![segment],
-                        super_col: TrackedCol::new(
-                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
-                }
-            },
-            DataType::Int64 => {
-                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
-                let top_inclusion_check_prover_input = InclusionCheckProverInput {
-                    included_cols: vec![chunk3.clone()],
+                let inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_cols: vec![chunk3, chunk2, chunk1, chunk0],
                     super_col: TrackedCol::new(
-                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                         None,
                         None,
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
                     prover,
-                    top_inclusion_check_prover_input,
+                    inclusion_check_prover_input,
                 )?;
-                for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
-                        included_cols: vec![segment],
-                        super_col: TrackedCol::new(
-                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
-                }
+            },
+            DataType::Int64 => {
+                let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
+                let inclusion_check_prover_input = InclusionCheckProverInput {
+                    included_cols: vec![chunk3, chunk2, chunk1, chunk0],
+                    super_col: TrackedCol::new(
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                    prover,
+                    inclusion_check_prover_input,
+                )?;
             },
 
             _ => {
@@ -416,32 +384,30 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
-                for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracles: vec![segment],
-                        super_tracked_col_oracle: TrackedColOracle::new(
-                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                            })),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
-                }
+                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![chunk3, chunk2, chunk1, chunk0],
+                    super_tracked_col_oracle: TrackedColOracle::new(
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                        })),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                    verifier,
+                    inclusion_check_verifier_input,
+                )?;
             },
 
             DataType::Int32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int32(verifier, tracked_col_oracle)?;
-                let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracles: vec![chunk3.clone()],
+                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![chunk3, chunk2, chunk1, chunk0],
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
-                            Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         })),
                         None,
                         None,
@@ -449,55 +415,18 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
                     verifier,
-                    top_inclusion_check_verifier_input,
+                    inclusion_check_verifier_input,
                 )?;
-                for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracles: vec![segment],
-                        super_tracked_col_oracle: TrackedColOracle::new(
-                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                            })),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
-                }
             },
 
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint64(verifier, tracked_col_oracle)?;
-                for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracles: vec![segment],
-                        super_tracked_col_oracle: TrackedColOracle::new(
-                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                            })),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
-                }
-            },
-
-            DataType::Int64 => {
-                let (chunk3, chunk2, chunk1, chunk0) =
-                    Self::verify_non_neg_int64(verifier, tracked_col_oracle)?;
-                let top_inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                    included_tracked_col_oracles: vec![chunk3.clone()],
+                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![chunk3, chunk2, chunk1, chunk0],
                     super_tracked_col_oracle: TrackedColOracle::new(
-                        verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
-                            Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
                         })),
                         None,
                         None,
@@ -505,24 +434,27 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
                     verifier,
-                    top_inclusion_check_verifier_input,
+                    inclusion_check_verifier_input,
                 )?;
-                for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
-                        included_tracked_col_oracles: vec![segment],
-                        super_tracked_col_oracle: TrackedColOracle::new(
-                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
-                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
-                            })),
-                            None,
-                            None,
-                        ),
-                    };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
-                }
+            },
+
+            DataType::Int64 => {
+                let (chunk3, chunk2, chunk1, chunk0) =
+                    Self::verify_non_neg_int64(verifier, tracked_col_oracle)?;
+                let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![chunk3, chunk2, chunk1, chunk0],
+                    super_tracked_col_oracle: TrackedColOracle::new(
+                        verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                        })),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                    verifier,
+                    inclusion_check_verifier_input,
+                )?;
             },
 
             _ => {

@@ -88,22 +88,22 @@ const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
     //     sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
     //     tables: &["lineitem"],
     // },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
+    // QuerySpec {
+    //     sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
         sql: "SELECT l_suppkey, l_linenumber, MAX(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         tables: &["lineitem"],
     },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, MIN(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
+    // QuerySpec {
+    //     sql: "SELECT l_suppkey, l_linenumber, MIN(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+    //     tables: &["lineitem"],
+    // },
 ];
 
 struct CommonInputs {
