@@ -11,7 +11,9 @@ use ark_piop::{
     prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use col_toolbox::supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput};
+use col_toolbox::supp_check::{
+    HintedSuppCheckPIOP, HintedSuppCheckProverInput, HintedSuppCheckVerifierInput,
+};
 use datafusion::logical_expr::Aggregate;
 use derivative::Derivative;
 #[derive(Derivative)]
@@ -28,6 +30,7 @@ pub struct AggregatePIOPProverInput<
     pub aggregate: Aggregate,
     pub input_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub grouping_multiplicity_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
 #[derivative(
@@ -40,7 +43,6 @@ pub struct AggregatePIOPProverOutput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub grouping_multiplicty_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
     pub input_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
 }
@@ -68,6 +70,7 @@ pub struct AggregatePIOPVerifierInput<
     pub aggregate: Aggregate,
     pub input_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
 #[derivative(
@@ -80,7 +83,6 @@ pub struct AggregatePIOPVerifierOutput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
     pub input_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
@@ -137,15 +139,15 @@ where
             .fold_all_data_columns(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
-        let supp_check_input = SuppCheckProverInput {
+        let supp_check_input = HintedSuppCheckProverInput {
             col: input_folded_col.clone(),
             supp: output_folded_col.clone(),
+            multiplicity: input.grouping_multiplicity_tracked_poly.clone(),
         };
 
-        let supp_check_output = SuppCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, supp_check_input)?;
+        HintedSuppCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, supp_check_input)?;
 
         Ok(AggregatePIOPProverOutput {
-            grouping_multiplicty_tracked_poly: supp_check_output.super_set_multiplicity_tr_p,
             input_folded_tracked_col: input_folded_col,
             output_folded_tracked_col: output_folded_col,
         })
@@ -179,15 +181,14 @@ where
             .fold_all_data_columns(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
-        let supp_check_input = SuppCheckVerifierInput {
+        let supp_check_input = HintedSuppCheckVerifierInput {
             col: input_folded_col_oracle.clone(),
             supp: output_folded_col_oracle.clone(),
+            multiplicity: input.grouping_multiplicty_tracked_oracle.clone(),
         };
 
-        let supp_check_output =
-            SuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
+        HintedSuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
         Ok(AggregatePIOPVerifierOutput {
-            grouping_multiplicty_tracked_oracle: supp_check_output.super_set_multiplicity_tr_com,
             input_folded_tracked_col_oracle: input_folded_col_oracle,
             output_folded_tracked_col_oracle: output_folded_col_oracle,
         })

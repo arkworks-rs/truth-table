@@ -32,8 +32,8 @@ use datafusion_functions_aggregate::count::count_all;
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{
-    AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPProverOutput,
-    AggregatePIOPVerifierInput, AggregatePIOPVerifierOutput,
+    AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPProverOutput, AggregatePIOPVerifierInput,
+    AggregatePIOPVerifierOutput,
 };
 use std::sync::Arc;
 
@@ -211,12 +211,21 @@ where
 
         // Delegate to the shared helper so prover and verifier expose identical hints.
         let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
-        let multiplicity_plan = build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
 
-        IndexMap::from([
-            (OUTPUT_PLAN_KEY.to_string(), (output_plan, true)),
-            (MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true)),
-        ])
+        let mut plans = IndexMap::new();
+        plans.insert(OUTPUT_PLAN_KEY.to_string(), (output_plan, true));
+
+        let has_count = aggregate_plan.aggr_expr.iter().any(
+            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
+        );
+
+        if !has_count {
+            let multiplicity_plan =
+                build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
+            plans.insert(MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true));
+        }
+
+        plans
     }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
@@ -460,33 +469,73 @@ where
         let output_grouping_table =
             TrackedTable::new(None, output_grouping_columns, output_table.log_size());
 
+        let has_count = aggregate.aggr_expr.iter().any(
+            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
+        );
+
+        let grouping_multiplicity_tracked_poly = if has_count {
+            let count_field_idx = aggregate
+                .aggr_expr
+                .iter()
+                .position(|expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"))
+                .expect("expected at least one count aggregate");
+            let schema_idx = aggregate.group_expr.len() + count_field_idx;
+            let agg_schema = aggregate.schema.as_ref();
+            let count_field_name = agg_schema.field(schema_idx).name();
+            output_table
+                .tracked_polys()
+                .into_iter()
+                .find(|(field, _)| field.name() == count_field_name)
+                .map(|(_, poly)| poly)
+                .unwrap_or_else(|| {
+                    panic!("missing count aggregate column {count_field_name} in aggregate output")
+                })
+                .clone()
+        } else {
+            piop_tree
+                .tracked_table(&self.node_id, MULTIPLICITY_PLAN_KEY)
+                .and_then(|table| {
+                    table
+                        .tracked_polys()
+                        .into_iter()
+                        .find(|(field, _)| field.name() == GROUP_MULTIPLICITY_COL_NAME)
+                        .map(|(_, poly)| poly)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing grouping multiplicity polynomial for aggregate node {}",
+                        self.node_id
+                    )
+                })
+        };
+
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
                 aggregate,
                 input_grouping_table,
                 output_grouping_table,
+                grouping_multiplicity_tracked_poly: grouping_multiplicity_tracked_poly.clone(),
             };
         let aggregate_piop_prover_output =
             AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
         let AggregatePIOPProverOutput {
-            grouping_multiplicty_tracked_poly: grouping_multiplicity_poly,
             input_folded_tracked_col,
             output_folded_tracked_col,
         } = aggregate_piop_prover_output;
         debug_assert_eq!(
-            grouping_multiplicity_poly.log_size(),
+            grouping_multiplicity_tracked_poly.log_size(),
             input_folded_tracked_col.log_size(),
             "folded input column log size mismatch with multiplicity"
         );
         debug_assert_eq!(
-            grouping_multiplicity_poly.log_size(),
+            grouping_multiplicity_tracked_poly.log_size(),
             output_folded_tracked_col.log_size(),
             "folded output column log size mismatch with multiplicity"
         );
-        let multiplicity_log_size = grouping_multiplicity_poly.log_size();
+        let multiplicity_log_size = grouping_multiplicity_tracked_poly.log_size();
         let multiplicity_field = grouping_multiplicity_field();
         let mut columns = IndexMap::new();
-        columns.insert(multiplicity_field, grouping_multiplicity_poly);
+        columns.insert(multiplicity_field, grouping_multiplicity_tracked_poly);
         columns.insert(
             grouping_input_folded_field(),
             input_folded_tracked_col.data_tracked_poly(),
@@ -501,7 +550,6 @@ where
             "auxiliary".to_string(),
             auxiliary_table,
         );
-
         self.children()
             .iter()
             .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
@@ -637,12 +685,21 @@ where
 
         // Delegate to the shared helper so prover and verifier expose identical hints.
         let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
-        let multiplicity_plan = build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
 
-        IndexMap::from([
-            (OUTPUT_PLAN_KEY.to_string(), (output_plan, true)),
-            (MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true)),
-        ])
+        let mut plans = IndexMap::new();
+        plans.insert(OUTPUT_PLAN_KEY.to_string(), (output_plan, true));
+
+        let has_count = aggregate_plan.aggr_expr.iter().any(
+            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
+        );
+
+        if !has_count {
+            let multiplicity_plan =
+                build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
+            plans.insert(MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true));
+        }
+
+        plans
     }
 
     fn add_virtual_witness(
@@ -870,34 +927,73 @@ where
         let output_grouping_table_oracle =
             TrackedTableOracle::new(None, output_grouping_columns, output_table.log_size());
 
+        let has_count = aggregate.aggr_expr.iter().any(
+            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
+        );
+
+        let grouping_multiplicity_tracked_oracle = if has_count {
+            let count_field_idx = aggregate
+                .aggr_expr
+                .iter()
+                .position(|expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"))
+                .expect("expected at least one count aggregate");
+            let schema_idx = aggregate.group_expr.len() + count_field_idx;
+            let agg_schema = aggregate.schema.as_ref();
+            let count_field_name = agg_schema.field(schema_idx).name();
+            output_table
+                .tracked_oracles()
+                .iter()
+                .find(|(field, _)| field.name() == count_field_name)
+                .map(|(_, oracle)| oracle.clone())
+                .unwrap_or_else(|| {
+                    panic!("missing count aggregate column {count_field_name} in aggregate output")
+                })
+        } else {
+            piop_tree
+                .tracked_table_oracle(&self.node_id, MULTIPLICITY_PLAN_KEY)
+                .and_then(|table| {
+                    table
+                        .tracked_oracles()
+                        .into_iter()
+                        .find(|(field, _)| field.name() == GROUP_MULTIPLICITY_COL_NAME)
+                        .map(|(_, oracle)| oracle)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing grouping multiplicity oracle for aggregate node {}",
+                        self.node_id
+                    )
+                })
+        };
+
         let aggregate_piop_verifier_input: AggregatePIOPVerifierInput<F, MvPCS, UvPCS> =
             AggregatePIOPVerifierInput {
                 aggregate,
                 input_grouping_table_oracle,
                 output_grouping_table_oracle,
+                grouping_multiplicty_tracked_oracle: grouping_multiplicity_tracked_oracle.clone(),
             };
         let aggregate_piop_verifier_output =
             AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
 
         let AggregatePIOPVerifierOutput {
-            grouping_multiplicty_tracked_oracle: grouping_multiplicity_oracle,
             input_folded_tracked_col_oracle,
             output_folded_tracked_col_oracle,
         } = aggregate_piop_verifier_output;
         debug_assert_eq!(
-            grouping_multiplicity_oracle.log_size(),
+            grouping_multiplicity_tracked_oracle.log_size(),
             input_folded_tracked_col_oracle.log_size(),
             "folded input oracle log size mismatch with multiplicity"
         );
         debug_assert_eq!(
-            grouping_multiplicity_oracle.log_size(),
+            grouping_multiplicity_tracked_oracle.log_size(),
             output_folded_tracked_col_oracle.log_size(),
             "folded output oracle log size mismatch with multiplicity"
         );
-        let multiplicity_log_size = grouping_multiplicity_oracle.log_size();
+        let multiplicity_log_size = grouping_multiplicity_tracked_oracle.log_size();
         let multiplicity_field = grouping_multiplicity_field();
         let mut columns = IndexMap::new();
-        columns.insert(multiplicity_field, grouping_multiplicity_oracle);
+        columns.insert(multiplicity_field, grouping_multiplicity_tracked_oracle);
         columns.insert(
             grouping_input_folded_field(),
             input_folded_tracked_col_oracle.data_tracked_oracle(),
@@ -1265,10 +1361,7 @@ fn build_aggregate_multiplicity_hint_plan(
         );
     }
 
-    let multiplicity_field_name = agg_values_schema
-        .field(group_aliases.len())
-        .name()
-        .clone();
+    let multiplicity_field_name = agg_values_schema.field(group_aliases.len()).name().clone();
     final_exprs.push(
         Expr::Column(Column::new(
             Some(agg_table_ref.clone()),

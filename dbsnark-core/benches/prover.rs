@@ -63,29 +63,45 @@ impl QuerySpec {
 }
 
 const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
+    // l_extendedprice = 100.1",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+    //     tables: &["lineitem"],
+    // },
+    // QuerySpec {
+    //     sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
+    //     tables: &["lineitem"],
+    // },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem",
+        sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         tables: &["lineitem"],
     },
     QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+        sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         tables: &["lineitem"],
     },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+        sql: "SELECT l_suppkey, l_linenumber, MAX(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         tables: &["lineitem"],
     },
     QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    l_extendedprice = 100.1",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
+        sql: "SELECT l_suppkey, l_linenumber, MIN(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         tables: &["lineitem"],
     },
 ];
@@ -165,10 +181,7 @@ fn build_proof(
     let tracked_tree =
         ProverTrackedTree::from_arithmetized_tree(arith_tree, prover).expect("tracked tree");
     let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, prover);
-    let flattened = piop_tree.proof_tree().clone().flatten();
-    for node in flattened.values() {
-        node.prove_piop(prover, &mut piop_tree).expect("prove piop");
-    }
+    piop_tree.prove(prover).expect("prove piop tree");
     prover.build_proof().expect("build proof")
 }
 

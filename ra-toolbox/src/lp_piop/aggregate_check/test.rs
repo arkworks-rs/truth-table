@@ -159,6 +159,7 @@ fn aggregate_check_test_helper<
         aggregate: aggregate.clone(),
         input_grouping_table: input_grouping_table.clone(),
         output_grouping_table: output_grouping_table.clone(),
+        grouping_multiplicity_tracked_poly: todo!(),
     };
 
     AggregatePIOP::<F, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
@@ -174,6 +175,7 @@ fn aggregate_check_test_helper<
         aggregate,
         input_grouping_table_oracle: input_grouping_oracle,
         output_grouping_table_oracle: output_grouping_oracle,
+        grouping_multiplicty_tracked_oracle: todo!(),
     };
 
     AggregatePIOP::<F, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
