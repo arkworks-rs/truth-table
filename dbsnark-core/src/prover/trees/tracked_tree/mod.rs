@@ -17,7 +17,7 @@ use datafusion::{arrow::datatypes::FieldRef, logical_expr::LogicalPlan};
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 #[cfg(test)]
 pub mod tests;
 /// A data structure holding the arithmetized hint tables needed to prove a
@@ -145,11 +145,22 @@ where
         // Now, if a node was a TableScan and we have a saved oracle for it, use the
         // saved comitments to avoid recomputing them.
         for (node_id, arith_tables) in &node_arith_tables {
+            let node_name = node_id.to_string();
             let is_table_scan = matches!(node_id, NodeId::LP(LogicalPlan::TableScan(_)));
             for arith_table in arith_tables.values() {
+                let polynomials = arith_table.polynomials();
+                if polynomials.is_empty() {
+                    continue;
+                }
+
                 if let Some(schema) = arith_table.schema() {
                     if is_table_scan {
-                        for (field_ref, mle) in arith_table.polynomials() {
+                        debug!(
+                            "{} polynomials in {} will be loaded from the shared context",
+                            polynomials.len(),
+                            node_name
+                        );
+                        for (field_ref, mle) in polynomials.iter() {
                             let saved_commitment =
                                 prover_ctx
                                     .table_oracle(&schema)
@@ -158,7 +169,19 @@ where
                                     });
                             commitment_map.insert(mle.clone(), saved_commitment);
                         }
+                    } else {
+                        debug!(
+                            "{} polynomials in {} are scheduled for commitment",
+                            polynomials.len(),
+                            node_name
+                        );
                     }
+                } else {
+                    debug!(
+                        "{} polynomials in {} are scheduled for commitment",
+                        polynomials.len(),
+                        node_name
+                    );
                 }
             }
         }
