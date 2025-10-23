@@ -1,7 +1,7 @@
 use std::{
     fs::{File, create_dir_all},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use arrow::{
@@ -9,6 +9,7 @@ use arrow::{
     compute::concat as arrow_concat,
     datatypes::{DataType, Field, Schema},
 };
+use duckdb::Connection;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tpchgen::generators::*;
 use tpchgen_arrow::*;
@@ -200,4 +201,64 @@ pub fn bench_data_path(file: impl AsRef<Path>) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("bench-data")
         .join(file)
+}
+
+/// Description of a TPC-H query including the SQL text and required tables.
+#[derive(Clone, Copy, Debug)]
+pub struct TpchQuerySpec {
+    pub sql: &'static str,
+    pub tables: &'static [&'static str],
+}
+
+fn fetch_tpch_query_sql(number: u8) -> String {
+    let conn = Connection::open_in_memory().expect("open in-memory DuckDB");
+    conn.execute("INSTALL tpch", [])
+        .expect("install DuckDB tpch extension");
+    conn.execute("LOAD tpch", [])
+        .expect("load DuckDB tpch extension");
+    let mut stmt = conn
+        .prepare("SELECT query FROM tpch_queries() WHERE query_nr = ?")
+        .expect("prepare tpch query fetch");
+    let mut rows = stmt
+        .query([number as i64])
+        .expect("execute tpch query fetch");
+    let row = rows
+        .next()
+        .expect("fetch tpch query row")
+        .unwrap_or_else(|| panic!("TPC-H query {number} not found"));
+    row.get::<_, String>(0)
+        .expect("extract tpch query SQL text")
+}
+
+static TPCH_Q1_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q2_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q3_SQL: OnceLock<&'static str> = OnceLock::new();
+
+/// Return the [`TpchQuerySpec`] for the provided query number. Query SQL is
+/// loaded from DuckDB's TPCH extension on first use to avoid hardcoding.
+pub fn query_spec(number: u8) -> TpchQuerySpec {
+    match number {
+        1 => TpchQuerySpec {
+            sql: TPCH_Q1_SQL.get_or_init(|| {
+                let sql = fetch_tpch_query_sql(1);
+                Box::leak(sql.into_boxed_str())
+            }),
+            tables: &["lineitem"],
+        },
+        2 => TpchQuerySpec {
+            sql: TPCH_Q2_SQL.get_or_init(|| {
+                let sql = fetch_tpch_query_sql(2);
+                Box::leak(sql.into_boxed_str())
+            }),
+            tables: &["part", "supplier", "partsupp", "nation", "region"],
+        },
+        3 => TpchQuerySpec {
+            sql: TPCH_Q3_SQL.get_or_init(|| {
+                let sql = fetch_tpch_query_sql(3);
+                Box::leak(sql.into_boxed_str())
+            }),
+            tables: &["customer", "orders", "lineitem"],
+        },
+        _ => panic!("unsupported TPC-H query number: {number}"),
+    }
 }

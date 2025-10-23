@@ -62,50 +62,62 @@ impl QuerySpec {
     }
 }
 
-const PROVER_BENCH_QUERIES: &[QuerySpec] = &[
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
-    l_extendedprice = 100.1",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, MAX(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_suppkey, l_linenumber, MIN(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        tables: &["lineitem"],
-    },
+fn prover_bench_queries() -> &'static [QuerySpec] {
+    static CACHE: OnceLock<&'static [QuerySpec]> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut queries = vec![
+        //         QuerySpec {
+        //             sql: "SELECT l_partkey FROM lineitem",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_partkey FROM lineitem where l_quantity = 8 AND l_linenumber = 3 OR
+        // l_extendedprice = 100.1",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_suppkey, l_linenumber, MAX(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+        //             tables: &["lineitem"],
+        //         },
+        //         QuerySpec {
+        //             sql: "SELECT l_suppkey, l_linenumber, MIN(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
+        //             tables: &["lineitem"],
+        //         },
+            ];
 
-];
+        let tpch = tpch_data::query_spec(1);
+        queries.push(QuerySpec {
+            sql: tpch.sql,
+            tables: tpch.tables,
+        });
+
+        Box::leak(queries.into_boxed_slice())
+    })
+}
 
 struct CommonInputs {
     runtime: Runtime,
@@ -186,7 +198,7 @@ fn build_proof(
     prover.build_proof().expect("build proof")
 }
 
-#[divan::bench(args = PROVER_BENCH_QUERIES, max_time = 60)]
+#[divan::bench(args = prover_bench_queries(), max_time = 60)]
 fn prover_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
     bencher
         .with_inputs(move || {

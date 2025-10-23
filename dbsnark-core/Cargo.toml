@@ -22,12 +22,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 parquet = { version = "54", default-features = false, features = ["arrow"] }
 indexmap = { workspace = true }
+ark-test-curves.workspace = true
+tpch-data = { path = "../tpch-data", optional = true }
 
 [dev-dependencies]
 divan.workspace = true
 libc = "0.2"
 tpch-data = { path = "../tpch-data" }
-ark-test-curves.workspace = true
 
 
 [features]
@@ -43,7 +44,7 @@ parallel = [
     "ark-std/parallel",
 ]
 honest-prover = ["ra-toolbox/honest-prover", "ark-piop/honest-prover"]
-test-utils = []
+test-utils = ["tpch-data"]
 
 [[bench]]
 name = "prover"

@@ -336,4 +336,3 @@ where
         Ok(InclusionCheckVerifierOutput { super_col_m_comms })
     }
 }
-

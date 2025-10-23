@@ -1,8 +1,9 @@
 // Combined dbsnark-core/src/prover/nodes/exprs/cast.rs and
 // dbsnark-core/src/verifier/nodes/exprs/cast.rs
 
-use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+use crate::{
+    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    prover::trees::proof_tree::ProverProofTree,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -23,10 +24,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub relative_expr: Expr,
-    pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub node_id: NodeId,
     pub parent_node_id: NodeId,
+    pub expr: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverCastExprNode<F, MvPCS, UvPCS>
@@ -36,11 +36,11 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn node_id(&self) -> NodeId {
-        NodeId::Expr(self.relative_expr.clone())
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        self.inputs.iter().collect()
+        vec![&self.expr]
     }
 
     fn from_expr(
@@ -52,7 +52,25 @@ where
     where
         Self: Sized,
     {
-        todo!()
+        let child_expr = match &expr {
+            Expr::Cast(cast) => (*cast.expr).clone(),
+            _ => panic!("expected cast or try_cast expression"),
+        };
+
+        let node_id = NodeId::Expr(expr);
+        let child_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            child_expr,
+            &parent_logical_plan,
+        )
+        .root();
+
+        Self {
+            node_id,
+            parent_node_id: parent_logical_plan,
+            expr: child_node,
+        }
     }
 
     fn cost(

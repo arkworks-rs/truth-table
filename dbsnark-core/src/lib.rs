@@ -1,6 +1,8 @@
 pub mod proof_nodes;
 pub mod prover;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_display;
 pub mod verifier;
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;

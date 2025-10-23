@@ -29,7 +29,7 @@ type UvPCS = KZG10<Bls12_381>;
 #[ignore = "This test is for visualization purposes and may require manual inspection."]
 async fn display_graphviz() {
     display_graphviz_for(
-        "lineitem",
+        &["lineitem"],
         "SELECT l_partkey, l_extendedprice FROM lineitem where l_linenumber == 5 ",
     )
     .await;
@@ -40,21 +40,27 @@ async fn display_graphviz() {
     // .await;
 }
 
-async fn display_graphviz_for(table: &str, query: &str) {
+async fn display_graphviz_for(tables: &[&str], query: &str) {
     init_tracing_for_tests();
     let ctx = SessionContext::new();
     let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>().unwrap();
-    let plan = test_df_plan(&ctx, query, table).await.unwrap();
+    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
 
-    let table_oracle_path = test_data_path("lineitem.oracle");
-    let table_oracle_file = File::open(&table_oracle_path).expect("open table oracle commitment");
-    let mut reader = BufReader::new(table_oracle_file);
-    let table_serializable =
-        ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-            .expect("deserialize table oracle");
     let mut table_oracles = IndexMap::new();
-    if let Some(schema) = table_serializable.schema() {
-        table_oracles.insert(schema, table_serializable);
+    for table in tables {
+        let table_oracle_path = test_data_path(format!("{table}.oracle"));
+        if !table_oracle_path.exists() {
+            continue;
+        }
+        let table_oracle_file =
+            File::open(&table_oracle_path).expect("open table oracle commitment");
+        let mut reader = BufReader::new(table_oracle_file);
+        let table_serializable =
+            ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+                .expect("deserialize table oracle");
+        if let Some(schema) = table_serializable.schema() {
+            table_oracles.insert(schema, table_serializable);
+        }
     }
 
     let shared_ctx = SharedCtx::new(table_oracles);

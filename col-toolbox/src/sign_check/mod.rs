@@ -283,10 +283,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                    prover,
-                    top_inclusion_check_input,
-                )?;
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment],
@@ -329,10 +326,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                    prover,
-                    top_inclusion_check_input,
-                )?;
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment],
@@ -447,10 +441,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    top_inclusion_check_input,
-                )?;
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
                         included_tracked_col_oracles: vec![segment],
@@ -503,10 +494,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    top_inclusion_check_input,
-                )?;
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
                         included_tracked_col_oracles: vec![segment],

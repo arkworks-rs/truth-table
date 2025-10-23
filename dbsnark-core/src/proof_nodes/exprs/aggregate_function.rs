@@ -181,27 +181,24 @@ where
                 GROUP_MULTIPLICITY_COL_NAME => multiplicity_poly = Some(poly.clone()),
                 GROUP_INPUT_FOLDED_COL_NAME => {
                     input_folded_entry = Some((field.clone(), poly.clone()))
-                }
+                },
                 GROUP_OUTPUT_FOLDED_COL_NAME => {
                     output_folded_entry = Some((field.clone(), poly.clone()))
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
-        let group_multiplicity_poly = multiplicity_poly
-            .expect("auxiliary table missing multiplicity polynomial");
-        let (input_folded_field, input_folded_poly) = input_folded_entry
-            .expect("auxiliary table missing input folded column polynomial");
-        let (output_folded_field, output_folded_poly) = output_folded_entry
-            .expect("auxiliary table missing output folded column polynomial");
+        let group_multiplicity_poly =
+            multiplicity_poly.expect("auxiliary table missing multiplicity polynomial");
+        let (input_folded_field, input_folded_poly) =
+            input_folded_entry.expect("auxiliary table missing input folded column polynomial");
+        let (output_folded_field, output_folded_poly) =
+            output_folded_entry.expect("auxiliary table missing output folded column polynomial");
 
         let input_folded_col = TrackedCol::new(input_folded_poly, None, Some(input_folded_field));
-        let output_folded_col = TrackedCol::new(
-            output_folded_poly,
-            None,
-            Some(output_folded_field),
-        );
+        let output_folded_col =
+            TrackedCol::new(output_folded_poly, None, Some(output_folded_field));
 
         let output_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
@@ -379,16 +376,16 @@ where
                 GROUP_MULTIPLICITY_COL_NAME => multiplicity_oracle = Some(oracle.clone()),
                 GROUP_INPUT_FOLDED_COL_NAME => {
                     input_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                }
+                },
                 GROUP_OUTPUT_FOLDED_COL_NAME => {
                     output_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
 
-        let group_multiplicity_oracle = multiplicity_oracle
-            .expect("auxiliary oracle table missing multiplicity oracle");
+        let group_multiplicity_oracle =
+            multiplicity_oracle.expect("auxiliary oracle table missing multiplicity oracle");
         let (input_folded_field, input_folded_oracle) = input_folded_oracle_entry
             .expect("auxiliary oracle table missing input folded column oracle");
         let (output_folded_field, output_folded_oracle) = output_folded_oracle_entry

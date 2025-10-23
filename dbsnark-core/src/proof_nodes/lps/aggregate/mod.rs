@@ -268,7 +268,10 @@ where
 
         let mut aggregate_entries: IndexMap<
             String,
-            (Arc<Field>, ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>),
+            (
+                Arc<Field>,
+                ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
+            ),
         > = IndexMap::with_capacity(aggregate_col_count);
         let mut activator_entry = None;
         for (field, poly) in existing_output.tracked_polys() {
@@ -421,8 +424,7 @@ where
         let output_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .unwrap_or_else(|| panic!("missing output_plan table for aggregate node"));
-        let mut output_grouping_columns =
-            IndexMap::with_capacity(output_group_entries.len() + 1);
+        let mut output_grouping_columns = IndexMap::with_capacity(output_group_entries.len() + 1);
         for (field, poly) in output_group_entries {
             output_grouping_columns.insert(field, poly);
         }
@@ -696,10 +698,8 @@ where
             .map(|idx| agg_schema.field(group_col_count + idx).name().clone())
             .collect();
 
-        let mut aggregate_entries: IndexMap<
-            String,
-            (Arc<Field>, TrackedOracle<F, MvPCS, UvPCS>),
-        > = IndexMap::with_capacity(aggregate_col_count);
+        let mut aggregate_entries: IndexMap<String, (Arc<Field>, TrackedOracle<F, MvPCS, UvPCS>)> =
+            IndexMap::with_capacity(aggregate_col_count);
         let mut activator_entry = None;
         for (field, oracle) in existing_output.tracked_oracles() {
             if field.name() == ACTIVATOR_COL_NAME {
@@ -861,11 +861,8 @@ where
         {
             output_grouping_columns.insert(field, poly);
         }
-        let output_grouping_table_oracle = TrackedTableOracle::new(
-            None,
-            output_grouping_columns,
-            output_table.log_size(),
-        );
+        let output_grouping_table_oracle =
+            TrackedTableOracle::new(None, output_grouping_columns, output_table.log_size());
 
         let has_count = aggregate.aggr_expr.iter().any(
             |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
@@ -1105,8 +1102,7 @@ fn build_aggregate_hint_output_plan(
         .expect("failed to build sorted aggregate hint plan");
 
     let agg_schema = aggregate_plan.schema.as_ref();
-    let mut final_exprs =
-        Vec::with_capacity(aggregate_plan.aggr_expr.len() + 1);
+    let mut final_exprs = Vec::with_capacity(aggregate_plan.aggr_expr.len() + 1);
 
     for (agg_idx, _) in aggregate_plan.aggr_expr.iter().enumerate() {
         let schema_idx = group_aliases.len() + agg_idx;

@@ -7,23 +7,25 @@ use tpch_data::test_data_path;
 pub async fn test_df_plan(
     ctx: &SessionContext,
     query: &str,
-    table_name: &str,
+    table_names: &[&str],
 ) -> DFResult<LogicalPlan> {
-    let parquet_path = test_data_path(&format!("{}.parquet", table_name));
-    assert!(
-        parquet_path.exists(),
-        "Missing Parquet at {:?}",
-        parquet_path
-    );
+    for &table_name in table_names {
+        let parquet_path = test_data_path(&format!("{table_name}.parquet"));
+        assert!(
+            parquet_path.exists(),
+            "Missing Parquet at {:?}",
+            parquet_path
+        );
 
-    ctx.register_parquet(
-        table_name,
-        parquet_path
-            .to_str()
-            .expect("parquet path should be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await?;
+        ctx.register_parquet(
+            table_name,
+            parquet_path
+                .to_str()
+                .expect("parquet path should be valid UTF-8"),
+            ParquetReadOptions::default(),
+        )
+        .await?;
+    }
     let state = ctx.state();
     let plan = state.create_logical_plan(query).await?;
     // let plan = state.optimize(&plan).unwrap();
