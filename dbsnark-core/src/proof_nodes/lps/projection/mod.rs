@@ -14,9 +14,10 @@ use ark_piop::{
 };
 use datafusion::{
     logical_expr::{
-        LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder, expr_rewriter::normalize_cols,
+        self as df, LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder,
+        expr_rewriter::normalize_cols,
     },
-    prelude::SessionContext,
+    prelude::{SessionContext, col},
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -46,6 +47,34 @@ where
     pub node_id: NodeId,
     pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
 }
+
+fn build_projection_hint_plan(base_plan: LogicalPlan, projection: &df::Projection) -> LogicalPlan {
+    let base_schema = base_plan.schema();
+    let mut projection_exprs = projection.expr.clone();
+
+    let base_has_activator = base_schema
+        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        .is_ok();
+    let projection_includes_activator = projection
+        .schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+
+    if base_has_activator && !projection_includes_activator {
+        projection_exprs.push(col(ACTIVATOR_COL_NAME));
+    }
+
+    let normalized_exprs = normalize_cols(projection_exprs, &base_plan)
+        .expect("failed to normalize projection expressions for hint plan");
+
+    LogicalPlanBuilder::from(base_plan)
+        .project(normalized_exprs)
+        .expect("failed to attach projection expressions for hint plan")
+        .build()
+        .expect("failed to finalize projection hint plan")
+}
+
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -69,7 +98,23 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
+        let projection_plan = match self.node_id.to_lp() {
+            Some(Projection(p)) => p.clone(),
+            _ => panic!("expected projection logical plan"),
+        };
+
+        let base_plan = proof_tree
+            .node(&self.input_prover_node.node_id())
+            .and_then(|node| {
+                node.hint_generation_plans(proof_tree)
+                    .get(OUTPUT_PLAN_KEY)
+                    .map(|(plan, _)| plan.clone())
+            })
+            .expect("projection input missing OUTPUT_PLAN hint");
+
+        let output_plan = build_projection_hint_plan(base_plan, &projection_plan);
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, true))])
     }
 
     fn from_lp(
@@ -243,7 +288,23 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, (LogicalPlan, bool)> {
-        self.hint_generation_plans.clone()
+        let projection_plan = match self.node_id.to_lp() {
+            Some(Projection(p)) => p.clone(),
+            _ => panic!("expected projection logical plan"),
+        };
+
+        let base_plan = proof_tree
+            .node(&self.input_verifier_node.node_id())
+            .and_then(|node| {
+                node.hint_generation_plans(proof_tree)
+                    .get(OUTPUT_PLAN_KEY)
+                    .map(|(plan, _)| plan.clone())
+            })
+            .expect("projection input missing OUTPUT_PLAN hint");
+
+        let output_plan = build_projection_hint_plan(base_plan, &projection_plan);
+
+        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, true))])
     }
 
     fn from_lp(
