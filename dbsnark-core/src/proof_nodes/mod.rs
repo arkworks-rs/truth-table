@@ -1,4 +1,7 @@
-use datafusion::arrow::datatypes::FieldRef;
+use datafusion::{
+    arrow::datatypes::FieldRef,
+    logical_expr::{Expr, LogicalPlanBuilder},
+};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 
@@ -12,6 +15,7 @@ pub mod verifier;
 
 pub const OUTPUT_PLAN_KEY: &str = "output_plan";
 
+#[derive(Clone)]
 pub struct HintGenerationPlan {
     name: String,
     plan: LogicalPlan,
@@ -63,5 +67,33 @@ impl HintGenerationPlan {
 
     pub fn should_materialize(&self, field: &FieldRef) -> Option<&bool> {
         self.should_materialize.get(field)
+    }
+
+    pub fn project_materialized(&self) -> Option<LogicalPlan> {
+        let schema = self.plan.schema();
+        let projection_exprs: Vec<Expr> = schema
+            .iter()
+            .filter_map(|(qualifier, field)| {
+                self.should_materialize
+                    .get(field)
+                    .copied()
+                    .unwrap_or(false)
+                    .then(|| Expr::from((qualifier, field)))
+            })
+            .collect();
+
+        if projection_exprs.len() == schema.fields().len() {
+            return Some(self.plan.clone());
+        }
+
+        if projection_exprs.is_empty() {
+            return None;
+        }
+
+        LogicalPlanBuilder::from(self.plan.clone())
+            .project(projection_exprs)
+            .expect("failed to build projection for materialized columns")
+            .build()
+            .ok()
     }
 }

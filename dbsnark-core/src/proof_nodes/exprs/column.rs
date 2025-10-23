@@ -1,6 +1,7 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -42,7 +43,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let column_expr = match &self.node_id {
             NodeId::Expr(Expr::Column(column)) => column.clone(),
             _ => return IndexMap::new(),
@@ -74,8 +75,8 @@ where
                         .cloned()
                 })
             });
-        let (base_plan, _) = match base_entry {
-            Some(entry) => entry,
+        let base_plan = match base_entry {
+            Some(entry) => entry.plan().clone(),
             None => return IndexMap::new(),
         };
 
@@ -88,13 +89,16 @@ where
             projection_exprs.push(col(ACTIVATOR_COL_NAME));
         }
 
-        let output_plan = LogicalPlanBuilder::from(base_plan)
+        let output_plan = LogicalPlanBuilder::from(base_plan.clone())
             .project(projection_exprs)
             .unwrap()
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
 
     fn node_id(&self) -> NodeId {
@@ -219,7 +223,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let column_expr = match &self.node_id {
             NodeId::Expr(Expr::Column(column)) => column.clone(),
             _ => return IndexMap::new(),
@@ -251,8 +255,8 @@ where
                         .cloned()
                 })
             });
-        let (base_plan, _) = match base_entry {
-            Some(entry) => entry,
+        let base_plan = match base_entry {
+            Some(entry) => entry.plan().clone(),
             None => return IndexMap::new(),
         };
 
@@ -271,7 +275,10 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
     fn node_id(&self) -> NodeId {
         self.node_id.clone()

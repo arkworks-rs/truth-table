@@ -1,6 +1,7 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -117,14 +118,14 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let input_plan = proof_tree
             .node(&self.input_prover_node.node_id())
             .unwrap()
             .hint_generation_plans(&proof_tree)
             .get(OUTPUT_PLAN_KEY)
             .unwrap()
-            .0
+            .plan()
             .clone();
         // Determine activator's datatype from input schema
         let schema = input_plan.schema().clone();
@@ -201,7 +202,10 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
 
     fn cost(
@@ -374,14 +378,14 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let input_plan = proof_tree
             .node(&self.input_verifier_node.node_id())
             .unwrap()
             .hint_generation_plans(&proof_tree)
             .get(OUTPUT_PLAN_KEY)
             .unwrap()
-            .0
+            .plan()
             .clone();
         // Determine activator's datatype from input schema
         let schema = input_plan.schema().clone();
@@ -458,7 +462,10 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

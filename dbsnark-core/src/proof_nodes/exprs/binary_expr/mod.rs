@@ -1,3 +1,5 @@
+use crate::proof_nodes::HintGenerationPlan;
+
 use crate::{
     proof_nodes::{
         OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
@@ -70,7 +72,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         // Extract the binary expression from the node ID
         let bin_expr = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.clone(),
@@ -105,13 +107,13 @@ where
             .unwrap()
             .build()
             .unwrap();
-
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
-            (
-                output_plan,
-                Self::requires_materialized_witness(bin_expr.op),
-            ),
+            if Self::requires_materialized_witness(bin_expr.op) {
+                HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), output_plan)
+            } else {
+                HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan)
+            },
         )])
     }
 
@@ -295,7 +297,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         // Extract the binary expression from the node ID
         let bin_expr = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.clone(),
@@ -329,10 +331,11 @@ where
 
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
-            (
-                output_plan,
-                Self::requires_materialized_witness(bin_expr.op),
-            ),
+            if Self::requires_materialized_witness(bin_expr.op) {
+                HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), output_plan)
+            } else {
+                HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan)
+            },
         )])
     }
 
@@ -512,7 +515,7 @@ where
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .map(|(plan, _)| plan.clone()),
+                .and_then(|hint| Some(hint.plan().clone())),
             _ => None,
         })
 }
@@ -532,7 +535,7 @@ where
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .map(|(plan, _)| plan.clone()),
+                .and_then(|hint| Some(hint.plan().clone())),
             _ => None,
         })
 }

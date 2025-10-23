@@ -3,7 +3,7 @@
 
 use super::cost::ProvingCost;
 use crate::{
-    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
+    proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
 };
 use arithmetic::ctx::SharedCtx;
@@ -95,7 +95,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
     }
 

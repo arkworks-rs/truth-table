@@ -1,6 +1,7 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -191,7 +192,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         // Extract the logical aggregate plan represented by this node.
         let aggregate_plan = match &self.node_id {
             NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
@@ -203,15 +204,39 @@ where
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
-                    .map(|(plan, _)| plan.clone())
+                    .map(|hint| hint.plan().clone())
             })
             .expect("aggregate input missing OUTPUT_PLAN hint");
 
         // Delegate to the shared helper so prover and verifier expose identical hints.
         let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
+        let output_schema = output_plan.schema();
+        let group_col_count = aggregate_plan.group_expr.len();
+        let group_field_names: Vec<String> = aggregate_plan
+            .schema
+            .fields()
+            .iter()
+            .take(group_col_count)
+            .map(|field| field.name().clone())
+            .collect();
+
+        let should_materialize: IndexMap<FieldRef, bool> = output_schema
+            .fields()
+            .iter()
+            .map(|field_ref| {
+                let field_ref = field_ref.clone();
+                let should = !group_field_names
+                    .iter()
+                    .any(|name| name == field_ref.name());
+                (field_ref, should)
+            })
+            .collect();
 
         let mut plans = IndexMap::new();
-        plans.insert(OUTPUT_PLAN_KEY.to_string(), (output_plan, true));
+        plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new(OUTPUT_PLAN_KEY.to_string(), output_plan, should_materialize),
+        );
 
         let has_count = aggregate_plan.aggr_expr.iter().any(
             |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
@@ -220,9 +245,14 @@ where
         if !has_count {
             let multiplicity_plan =
                 build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
-            plans.insert(MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true));
+            plans.insert(
+                MULTIPLICITY_PLAN_KEY.to_string(),
+                HintGenerationPlan::new_materialized(
+                    MULTIPLICITY_PLAN_KEY.to_string(),
+                    multiplicity_plan,
+                ),
+            );
         }
-
         plans
     }
 
@@ -636,7 +666,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         // Extract the logical aggregate plan represented by this node.
         let aggregate_plan = match &self.node_id {
             NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
@@ -649,15 +679,39 @@ where
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
-                    .map(|(plan, _)| plan.clone())
+                    .map(|hint| hint.plan().clone())
             })
             .expect("missing aggregate input output plan");
 
         // Delegate to the shared helper so prover and verifier expose identical hints.
         let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
+        let output_schema = output_plan.schema();
+        let group_col_count = aggregate_plan.group_expr.len();
+        let group_field_names: Vec<String> = aggregate_plan
+            .schema
+            .fields()
+            .iter()
+            .take(group_col_count)
+            .map(|field| field.name().clone())
+            .collect();
+
+        let should_materialize: IndexMap<FieldRef, bool> = output_schema
+            .fields()
+            .iter()
+            .map(|field_ref| {
+                let field_ref = field_ref.clone();
+                let should = !group_field_names
+                    .iter()
+                    .any(|name| name == field_ref.name());
+                (field_ref, should)
+            })
+            .collect();
 
         let mut plans = IndexMap::new();
-        plans.insert(OUTPUT_PLAN_KEY.to_string(), (output_plan, true));
+        plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new(OUTPUT_PLAN_KEY.to_string(), output_plan, should_materialize),
+        );
 
         let has_count = aggregate_plan.aggr_expr.iter().any(
             |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
@@ -666,7 +720,13 @@ where
         if !has_count {
             let multiplicity_plan =
                 build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
-            plans.insert(MULTIPLICITY_PLAN_KEY.to_string(), (multiplicity_plan, true));
+            plans.insert(
+                MULTIPLICITY_PLAN_KEY.to_string(),
+                HintGenerationPlan::new_materialized(
+                    MULTIPLICITY_PLAN_KEY.to_string(),
+                    multiplicity_plan,
+                ),
+            );
         }
 
         plans
@@ -1102,7 +1162,16 @@ fn build_aggregate_hint_output_plan(
         .expect("failed to build sorted aggregate hint plan");
 
     let agg_schema = aggregate_plan.schema.as_ref();
-    let mut final_exprs = Vec::with_capacity(aggregate_plan.aggr_expr.len() + 1);
+    let mut final_exprs =
+        Vec::with_capacity(group_aliases.len() + aggregate_plan.aggr_expr.len() + 1);
+
+    for (idx, alias) in group_aliases.iter().enumerate() {
+        let field_name = agg_schema.field(idx).name().clone();
+        final_exprs.push(
+            Expr::Column(Column::new(Some(base_table_ref.clone()), alias.clone()))
+                .alias(field_name),
+        );
+    }
 
     for (agg_idx, _) in aggregate_plan.aggr_expr.iter().enumerate() {
         let schema_idx = group_aliases.len() + agg_idx;

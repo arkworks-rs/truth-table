@@ -146,52 +146,60 @@ where
 
         for node in &nodes {
             let trees = node.hint_generation_plans(&proof_tree);
-            for (label, (tree, should_materialize)) in trees {
-                if should_materialize {
+            for (label, hint_plan) in trees {
+                if let Some(projected_plan) = hint_plan.project_materialized() {
                     let ctx = ctx.clone();
                     let node = Arc::clone(node);
+                    let label_clone = label.clone();
                     futures.push(
-                    async move {
-                        // Optimize and materialize the hint plan tied to this
-                        // node/label pair.
-                        debug!(node = tree_label(&node), tree_label = %label, "executing hint tree");
-                        let tree = ctx.state().optimize(&tree).unwrap();
-                        let df = ctx.execute_logical_plan(tree).await?;
-                        // Collect per-partition batches and flatten them in partition order
-                        // so we keep a deterministic row ordering even when the executor
-                        // runs partitions in parallel.
-                        let batches = df
-                            .collect_partitioned()
-                            .await?
-                            .into_iter()
-                            .flatten()
-                            .collect::<Vec<_>>();
-
-                        if label == "output_tree"
-                            && node.as_any().downcast_ref::<ProverTableScanNode>().is_some()
-                        {
-                            let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                            assert!(
-                                rows != 0 && (rows & (rows - 1)) == 0,
-                                "TableScan rows not power-of-two: {}",
-                                rows
+                        async move {
+                            // Optimize and materialize the hint plan tied to this
+                            // node/label pair.
+                            debug!(
+                                node = tree_label(&node),
+                                tree_label = %label_clone,
+                                "executing hint tree"
                             );
+                            let optimized_plan = ctx.state().optimize(&projected_plan).unwrap();
+                            let df = ctx.execute_logical_plan(optimized_plan).await?;
+                            // Collect per-partition batches and flatten them in partition order
+                            // so we keep a deterministic row ordering even when the executor
+                            // runs partitions in parallel.
+                            let batches = df
+                                .collect_partitioned()
+                                .await?
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>();
+
+                            if label_clone == "output_tree"
+                                && node
+                                    .as_any()
+                                    .downcast_ref::<ProverTableScanNode>()
+                                    .is_some()
+                            {
+                                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+                                assert!(
+                                    rows != 0 && (rows & (rows - 1)) == 0,
+                                    "TableScan rows not power-of-two: {}",
+                                    rows
+                                );
+                            }
+
+                            let (rows, cols, activated) = rows_cols_activated(&batches);
+                            trace!(
+                                node = tree_label(&node),
+                                tree_label = %label_clone,
+                                rows,
+                                cols,
+                                activated_true = activated.unwrap_or(rows),
+                                "hint batches collected"
+                            );
+
+                            Ok((node_ptr_id(&node), label_clone, batches))
                         }
-
-                        let (rows, cols, activated) = rows_cols_activated(&batches);
-                        trace!(
-                            node = tree_label(&node),
-                            tree_label = %label,
-                            rows,
-                            cols,
-                            activated_true = activated.unwrap_or(rows),
-                            "hint batches collected"
-                        );
-
-                        Ok((node_ptr_id(&node), label, batches))
-                    }
-                    .boxed(),
-                );
+                        .boxed(),
+                    );
                 }
             }
         }

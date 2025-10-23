@@ -1,9 +1,7 @@
-// Combined dbsnark-core/src/prover/nodes/lps/sort.rs and
-// dbsnark-core/src/verifier/nodes/lps/sort.rs
-
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -15,7 +13,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr as df, prelude::SessionContext};
-use datafusion_expr::LogicalPlan;
+use datafusion_expr::{LogicalPlan, LogicalPlanBuilder};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -56,14 +54,14 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let input_node = proof_tree
             .node(&self.input_prover_node.node_id())
             .expect("missing input node for sort");
         let base_plan = input_node
             .hint_generation_plans(proof_tree)
             .get(OUTPUT_PLAN_KEY)
-            .map(|(plan, _)| plan.clone())
+            .map(|hint| hint.plan().clone())
             .expect("input node missing OUTPUT_PLAN hint");
 
         let sort_plan = match self.node_id.to_lp() {
@@ -71,7 +69,7 @@ where
             _ => panic!("expected sort logical plan"),
         };
 
-        let sorted_plan = df::LogicalPlanBuilder::from(base_plan)
+        let sorted_plan = LogicalPlanBuilder::from(base_plan)
             .sort_with_limit(sort_plan.expr.clone(), sort_plan.fetch)
             .expect("failed to append sort for hint plan")
             .build()
@@ -89,7 +87,10 @@ where
             .build()
             .expect("failed to build sorted projected hint plan");
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (sorted_projected, true))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_projected),
+        )])
     }
 
     fn from_lp(
@@ -202,7 +203,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 

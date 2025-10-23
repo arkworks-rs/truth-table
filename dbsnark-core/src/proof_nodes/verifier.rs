@@ -1,7 +1,7 @@
 //! Verifier-side proof tree nodes and trait definitions.
 pub use super::{exprs, lps};
 use crate::{
-    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
+    proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::ctx::SharedCtx;
@@ -67,7 +67,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
     }
 

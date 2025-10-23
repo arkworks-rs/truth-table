@@ -1,8 +1,8 @@
-// Combined dbsnark-core/src/prover/nodes/lps/extension.rs and
-// dbsnark-core/src/verifier/nodes/lps/extension.rs
-
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{
+        HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
+    },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::piop_tree::VerifierPIOPTree,
 };
@@ -50,7 +50,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 

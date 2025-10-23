@@ -92,8 +92,8 @@ where
                     entries.sort_by(|a, b| a.0.cmp(&b.0));
                     let lines: Vec<_> = entries
                         .into_iter()
-                        .filter_map(|(label, (_plan, should_materialize))| {
-                            if !should_materialize {
+                        .filter_map(|(label, hint_plan)| {
+                            if hint_plan.project_materialized().is_none() {
                                 return None;
                             }
                             let batches_opt = self.tree.batches_for(&node_kind, label.as_str());

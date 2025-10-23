@@ -1,3 +1,5 @@
+use crate::proof_nodes::HintGenerationPlan;
+
 use crate::{
     proof_nodes::{
         OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
@@ -14,8 +16,10 @@ use ark_piop::{
 };
 use datafusion::{
     logical_expr::{
-        self as df, LogicalPlan, LogicalPlan::Projection, LogicalPlanBuilder,
-        expr_rewriter::normalize_cols,
+        self as df, LogicalPlan,
+        LogicalPlan::Projection,
+        LogicalPlanBuilder,
+        expr_rewriter::{normalize_cols, unnormalize_cols},
     },
     prelude::{SessionContext, col},
 };
@@ -34,7 +38,7 @@ where
     pub expr_prover_nodes: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 pub struct VerifierProjectionNode<F, MvPCS, UvPCS>
 where
@@ -45,7 +49,7 @@ where
     pub expr_verifier_nodes: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 
 fn build_projection_hint_plan(base_plan: LogicalPlan, projection: &df::Projection) -> LogicalPlan {
@@ -67,6 +71,8 @@ fn build_projection_hint_plan(base_plan: LogicalPlan, projection: &df::Projectio
 
     let normalized_exprs = normalize_cols(projection_exprs, &base_plan)
         .expect("failed to normalize projection expressions for hint plan");
+    let normalized_exprs = unnormalize_cols(normalized_exprs);
+
 
     LogicalPlanBuilder::from(base_plan)
         .project(normalized_exprs)
@@ -97,7 +103,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let projection_plan = match self.node_id.to_lp() {
             Some(Projection(p)) => p.clone(),
             _ => panic!("expected projection logical plan"),
@@ -108,13 +114,16 @@ where
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
-                    .map(|(plan, _)| plan.clone())
+                    .map(|hint| hint.plan().clone())
             })
             .expect("projection input missing OUTPUT_PLAN hint");
 
         let output_plan = build_projection_hint_plan(base_plan, &projection_plan);
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, true))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
 
     fn from_lp(
@@ -287,7 +296,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let projection_plan = match self.node_id.to_lp() {
             Some(Projection(p)) => p.clone(),
             _ => panic!("expected projection logical plan"),
@@ -298,13 +307,16 @@ where
             .and_then(|node| {
                 node.hint_generation_plans(proof_tree)
                     .get(OUTPUT_PLAN_KEY)
-                    .map(|(plan, _)| plan.clone())
+                    .map(|hint| hint.plan().clone())
             })
             .expect("projection input missing OUTPUT_PLAN hint");
 
         let output_plan = build_projection_hint_plan(base_plan, &projection_plan);
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (output_plan, true))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
+        )])
     }
 
     fn from_lp(

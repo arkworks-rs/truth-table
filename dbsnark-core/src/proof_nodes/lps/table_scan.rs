@@ -1,9 +1,7 @@
-// Combined dbsnark-core/src/prover/nodes/lps/table_scan.rs and
-// dbsnark-core/src/verifier/nodes/lps/table_scan.rs
-
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -24,12 +22,12 @@ use std::sync::Arc;
 pub struct ProverTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 pub struct VerifierTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 
 // TODO: Add the table scan output comitments (the root ones) in the prover
@@ -51,7 +49,10 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), (plan.clone(), true));
+        hint_generation_plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
+        );
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -70,7 +71,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         self.hint_generation_plans.clone()
     }
 
@@ -130,7 +131,10 @@ where
     {
         let mut hint_generation_plans = IndexMap::new();
 
-        hint_generation_plans.insert(OUTPUT_PLAN_KEY.to_string(), (plan.clone(), true));
+        hint_generation_plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
+        );
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
@@ -149,7 +153,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         self.hint_generation_plans.clone()
     }
 

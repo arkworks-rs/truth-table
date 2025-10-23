@@ -1,8 +1,8 @@
-// Combined dbsnark-core/src/prover/nodes/lps/limit.rs and
-// dbsnark-core/src/verifier/nodes/lps/limit.rs
-
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{
+        HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
+    },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
@@ -29,7 +29,7 @@ where
     pub fetch: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverLimitNode<F, MvPCS, UvPCS>
@@ -49,7 +49,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         self.hint_generation_plans.clone()
     }
 
@@ -117,7 +117,7 @@ where
     pub fetch: Option<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
     pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, (LogicalPlan, bool)>,
+    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierLimitNode<F, MvPCS, UvPCS>
@@ -137,7 +137,7 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         self.hint_generation_plans.clone()
     }
 

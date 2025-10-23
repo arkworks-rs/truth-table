@@ -1,9 +1,7 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/literal.rs and
-// dbsnark-core/src/verifier/nodes/exprs/literal.rs
-
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -52,13 +50,13 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let literal_expr = match &self.node_id {
             NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
             _ => return IndexMap::new(),
         };
 
-        let (base_plan, _) = if let Some(entry) = first_tablescan_plan_prover(proof_tree) {
+        let base_plan = if let Some(entry) = first_tablescan_plan_prover(proof_tree) {
             entry
         } else {
             panic!("no tablescan plan found");
@@ -70,7 +68,10 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (literal_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), literal_plan),
+        )])
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
@@ -178,13 +179,13 @@ where
     fn hint_generation_plans(
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, (LogicalPlan, bool)> {
+    ) -> IndexMap<String, HintGenerationPlan> {
         let literal_expr = match &self.node_id {
             NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
             _ => return IndexMap::new(),
         };
 
-        let (base_plan, _) = if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
+        let base_plan = if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
             entry
         } else {
             panic!("no tablescan plan found");
@@ -196,7 +197,10 @@ where
             .build()
             .unwrap();
 
-        IndexMap::from([(OUTPUT_PLAN_KEY.to_string(), (literal_plan, false))])
+        IndexMap::from([(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), literal_plan),
+        )])
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -288,7 +292,7 @@ where
 
 fn first_tablescan_plan_prover<F, MvPCS, UvPCS>(
     proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-) -> Option<(LogicalPlan, bool)>
+) -> Option<LogicalPlan>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -301,14 +305,14 @@ where
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .cloned(),
+                .map(|hint| hint.plan().clone()),
             _ => None,
         })
 }
 
 fn first_tablescan_plan_verifier<F, MvPCS, UvPCS>(
     proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-) -> Option<(LogicalPlan, bool)>
+) -> Option<LogicalPlan>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -321,7 +325,7 @@ where
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .cloned(),
+                .map(|hint| hint.plan().clone()),
             _ => None,
         })
 }
