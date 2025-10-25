@@ -14,7 +14,12 @@ use ark_piop::{
 use ark_std::log2;
 use num_bigint::BigUint;
 
-use crate::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
+use crate::{
+    perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
+    rematerialize_check::{
+        RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
+    },
+};
 
 /// A tool to defragment a column by removing the non-activated rows and
 /// reducing the size of the underlying polynomial (as much as possible). It
@@ -87,12 +92,11 @@ where
             col.field_ref(),
         );
 
-        let perm_piop_prover_input = PermPIOPProverInput {
-            left_col: col.clone(),
-            right_col: new_col.clone(),
+        let rematerialize_check_prover_input = RematerializeCheckProverInput {
+            input_tracked_col: col.clone(),
+            output_tracked_col: new_col.clone(),
         };
-
-        PermPIOP::<F, MvPCS, UvPCS>::prove(tracker, perm_piop_prover_input)?;
+        RematerializeCheck::<F, MvPCS, UvPCS>::prove(tracker, rematerialize_check_prover_input)?;
         Ok(new_col)
     }
 
@@ -115,12 +119,14 @@ where
             tracked_col_oracle.field_ref().clone(),
         );
 
-        let perm_piop_verifier_input = PermPIOPVerifierInput {
-            left_tracked_col_oracle: tracked_col_oracle.clone(),
-            right_tracked_col_oracle: new_tracked_col_oracle.clone(),
+        let rematerialize_check_verifier_input = RematerializeCheckVerifierInput {
+            input_tracked_col_oracle: tracked_col_oracle.clone(),
+            output_tracked_col_oracle: new_tracked_col_oracle.clone(),
         };
-
-        PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
+        RematerializeCheck::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            rematerialize_check_verifier_input,
+        )?;
         Ok(new_tracked_col_oracle)
     }
 }

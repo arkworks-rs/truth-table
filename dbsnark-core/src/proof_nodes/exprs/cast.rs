@@ -2,10 +2,15 @@
 // dbsnark-core/src/verifier/nodes/exprs/cast.rs
 
 use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
+    proof_nodes::{
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    },
     prover::trees::proof_tree::ProverProofTree,
+    verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::ctx::SharedCtx;
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -13,9 +18,11 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
+    arrow::datatypes::{DataType, Field, Schema},
     logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
+use indexmap::IndexMap;
 use std::sync::Arc;
 #[derive(Clone)]
 pub struct ProverCastExprNode<F, MvPCS, UvPCS>
@@ -26,7 +33,7 @@ where
 {
     pub node_id: NodeId,
     pub parent_node_id: NodeId,
-    pub expr: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverCastExprNode<F, MvPCS, UvPCS>
@@ -40,7 +47,7 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        vec![&self.expr]
+        vec![&self.input]
     }
 
     fn from_expr(
@@ -69,7 +76,7 @@ where
         Self {
             node_id,
             parent_node_id: parent_logical_plan,
-            expr: child_node,
+            input: child_node,
         }
     }
 
@@ -96,14 +103,71 @@ where
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        let cast_expr = match self.node_id.to_expr() {
+            Some(Expr::Cast(cast)) => cast.clone(),
+            _ => panic!("expected cast expression"),
+        };
+
+        let child_table = match piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY) {
+            Some(table) => table.clone(),
+            None => return,
+        };
+
+        let target_type = cast_expr.data_type.clone();
+
+        let mut columns = IndexMap::with_capacity(child_table.tracked_polys().len());
+        for (field, poly) in child_table.tracked_polys() {
+            let new_field = if field.name() == ACTIVATOR_COL_NAME {
+                field.clone()
+            } else {
+                let base = field.as_ref();
+                let mut updated = Field::new(base.name(), target_type.clone(), base.is_nullable());
+                if !base.metadata().is_empty() {
+                    updated = updated.with_metadata(base.metadata().clone());
+                }
+                Arc::new(updated)
+            };
+            columns.insert(new_field, poly.clone());
+        }
+
+        let new_schema = child_table.schema().map(|schema| {
+            let fields: Vec<Field> = schema
+                .fields()
+                .iter()
+                .map(|f| {
+                    let base = f.as_ref();
+                    if base.name() == ACTIVATOR_COL_NAME {
+                        base.clone()
+                    } else {
+                        let mut updated =
+                            Field::new(base.name(), target_type.clone(), base.is_nullable());
+                        if !base.metadata().is_empty() {
+                            updated = updated.with_metadata(base.metadata().clone());
+                        }
+                        updated
+                    }
+                })
+                .collect();
+            let mut new_schema = Schema::new(fields);
+            if !schema.metadata().is_empty() {
+                new_schema = new_schema.with_metadata(schema.metadata().clone());
+            }
+            new_schema
+        });
+
+        let new_table = TrackedTable::new(new_schema, columns, child_table.log_size());
+
+        piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_string(), new_table);
     }
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        self.children()
+            .iter()
+            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
+        Ok(())
     }
 }
 
@@ -115,8 +179,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub relative_expr: Expr,
-    pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub parent_node_id: NodeId,
 }
 
@@ -131,7 +194,7 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        self.inputs.iter().collect()
+        vec![&self.input]
     }
 
     fn from_expr(
@@ -143,7 +206,25 @@ where
     where
         Self: Sized,
     {
-        todo!()
+        let child_expr = match &expr {
+            Expr::Cast(cast) => (*cast.expr).clone(),
+            _ => panic!("expected cast expression"),
+        };
+
+        let node_id = NodeId::Expr(expr.clone());
+        let child_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            child_expr,
+            &parent_logical_plan,
+        )
+        .root();
+
+        Self {
+            relative_expr: expr,
+            input: child_node,
+            parent_node_id: parent_logical_plan,
+        }
     }
 
     fn add_virtual_witness(
@@ -151,14 +232,72 @@ where
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        let cast_expr = match self.node_id().to_expr() {
+            Some(Expr::Cast(cast)) => cast.clone(),
+            _ => panic!("expected cast expression"),
+        };
+
+        let child_table =
+            match piop_tree.tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY) {
+                Some(table) => table.clone(),
+                None => return,
+            };
+
+        let target_type = cast_expr.data_type.clone();
+
+        let mut columns = IndexMap::with_capacity(child_table.tracked_oracles().len());
+        for (field, oracle) in child_table.tracked_oracles() {
+            let new_field = if field.name() == ACTIVATOR_COL_NAME {
+                field.clone()
+            } else {
+                let base = field.as_ref();
+                let mut updated = Field::new(base.name(), target_type.clone(), base.is_nullable());
+                if !base.metadata().is_empty() {
+                    updated = updated.with_metadata(base.metadata().clone());
+                }
+                Arc::new(updated)
+            };
+            columns.insert(new_field, oracle.clone());
+        }
+
+        let new_schema = child_table.schema().map(|schema| {
+            let fields: Vec<Field> = schema
+                .fields()
+                .iter()
+                .map(|f| {
+                    let base = f.as_ref();
+                    if base.name() == ACTIVATOR_COL_NAME {
+                        base.clone()
+                    } else {
+                        let mut updated =
+                            Field::new(base.name(), target_type.clone(), base.is_nullable());
+                        if !base.metadata().is_empty() {
+                            updated = updated.with_metadata(base.metadata().clone());
+                        }
+                        updated
+                    }
+                })
+                .collect();
+            let mut new_schema = Schema::new(fields);
+            if !schema.metadata().is_empty() {
+                new_schema = new_schema.with_metadata(schema.metadata().clone());
+            }
+            new_schema
+        });
+
+        let new_table = TrackedTableOracle::new(new_schema, columns, child_table.log_size());
+
+        piop_tree.add_tracked_table_oracle(self.node_id(), OUTPUT_PLAN_KEY.to_string(), new_table);
     }
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        self.children()
+            .iter()
+            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
+        Ok(())
     }
 
     fn ctx_lp_node(

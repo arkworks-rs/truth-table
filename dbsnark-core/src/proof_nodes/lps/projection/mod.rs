@@ -73,7 +73,6 @@ fn build_projection_hint_plan(base_plan: LogicalPlan, projection: &df::Projectio
         .expect("failed to normalize projection expressions for hint plan");
     let normalized_exprs = unnormalize_cols(normalized_exprs);
 
-
     LogicalPlanBuilder::from(base_plan)
         .project(normalized_exprs)
         .expect("failed to attach projection expressions for hint plan")

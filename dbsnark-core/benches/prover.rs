@@ -91,10 +91,10 @@ fn prover_bench_queries() -> &'static [QuerySpec] {
         //             sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
         //             tables: &["lineitem"],
         //         },
-        //         QuerySpec {
-        //             sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
-        //             tables: &["lineitem"],
-        //         },
+                QuerySpec {
+                    sql: "SELECT l_suppkey, l_linenumber, COUNT(l_orderkey) FROM  lineitem  where l_suppkey >= 100 GROUP BY l_suppkey, l_linenumber",
+                    tables: &["lineitem"],
+                },
         //         QuerySpec {
         //             sql: "SELECT l_suppkey, l_linenumber, SUM(l_orderkey) FROM lineitem GROUP BY l_suppkey, l_linenumber",
         //             tables: &["lineitem"],
@@ -109,11 +109,11 @@ fn prover_bench_queries() -> &'static [QuerySpec] {
         //         },
             ];
 
-        let tpch = tpch_data::query_spec(1);
-        queries.push(QuerySpec {
-            sql: tpch.sql,
-            tables: tpch.tables,
-        });
+        // let tpch = tpch_data::query_spec(1);
+        // queries.push(QuerySpec {
+        //     sql: tpch.sql,
+        //     tables: tpch.tables,
+        // });
 
         Box::leak(queries.into_boxed_slice())
     })

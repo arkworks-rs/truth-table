@@ -220,7 +220,7 @@ where
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
+        self.input_prover_node.clone()
     }
 
     fn add_virtual_witness(
@@ -584,6 +584,6 @@ where
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        todo!()
+        self.input_verifier_node.clone()
     }
 }

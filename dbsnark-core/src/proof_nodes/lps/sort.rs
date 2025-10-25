@@ -12,8 +12,14 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{logical_expr as df, prelude::SessionContext};
-use datafusion_expr::{LogicalPlan, LogicalPlanBuilder};
+use datafusion::{
+    logical_expr::{
+        self as df,
+        expr_rewriter::{normalize_sorts, unnormalize_col},
+    },
+    prelude::SessionContext,
+};
+use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -69,8 +75,17 @@ where
             _ => panic!("expected sort logical plan"),
         };
 
+        let normalized_sorts = normalize_sorts(sort_plan.expr.clone(), &base_plan)
+            .expect("failed to normalize sort expressions for hint plan")
+            .into_iter()
+            .map(|sort_expr| {
+                let expr = unnormalize_col(sort_expr.expr);
+                DFSortExpr::new(expr, sort_expr.asc, sort_expr.nulls_first)
+            })
+            .collect::<Vec<_>>();
+
         let sorted_plan = LogicalPlanBuilder::from(base_plan)
-            .sort_with_limit(sort_plan.expr.clone(), sort_plan.fetch)
+            .sort_with_limit(normalized_sorts.clone(), sort_plan.fetch)
             .expect("failed to append sort for hint plan")
             .build()
             .expect("failed to build sorted hint plan");

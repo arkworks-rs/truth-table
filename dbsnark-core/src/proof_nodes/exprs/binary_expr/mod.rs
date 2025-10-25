@@ -19,11 +19,11 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
+    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::datatypes::{Field, FieldRef},
+    arrow::datatypes::{DataType, Field, FieldRef},
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
-    prelude::col,
 };
 use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{
@@ -89,20 +89,11 @@ where
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
-        let mut projection_exprs =
+        let projection_exprs =
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
-        if base_table_scan_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        } else {
-            panic!("base plan missing activator column");
-        }
 
-        // Build the output plan
-        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
+        // Build the output plan with only the binary expression result.
+        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan.clone())
             .project(projection_exprs)
             .unwrap()
             .build()
@@ -185,26 +176,31 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
-            if !Self::requires_materialized_witness(bin_expr.op) {
-                let log_size = piop_tree
+            let (log_size, left_col) = {
+                let table = piop_tree
                     .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .log_size();
-                let left_col = piop_tree
-                    .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .tracked_col_by_ind(0)
-                    .clone();
-                let right_col = piop_tree
+                    .expect("missing left child output for binary expr");
+                (table.log_size(), table.tracked_col_by_ind(0).clone())
+            };
+            let right_col = {
+                let table = piop_tree
                     .tracked_table(&self.right_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .tracked_col_by_ind(0)
-                    .clone();
+                    .expect("missing right child output for binary expr");
+                table.tracked_col_by_ind(0).clone()
+            };
 
+            if !Self::requires_materialized_witness(bin_expr.op) {
                 piop_tree.add_table(
                     self.node_id.clone(),
                     OUTPUT_PLAN_KEY.to_string(),
                     Self::output_virtual_table(bin_expr, &left_col, &right_col, log_size),
+                );
+            } else {
+                Self::append_activator_to_materialized(
+                    piop_tree,
+                    &self.node_id,
+                    &left_col,
+                    &right_col,
                 );
             }
         }
@@ -279,6 +275,63 @@ where
                 | Operator::Or
         )
     }
+
+    fn append_activator_to_materialized(
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        node_id: &NodeId,
+        left_col: &TrackedCol<F, MvPCS, UvPCS>,
+        right_col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) {
+        let Some(existing_output) = piop_tree.tracked_table(node_id, OUTPUT_PLAN_KEY).cloned()
+        else {
+            return;
+        };
+
+        if existing_output
+            .tracked_polys()
+            .iter()
+            .any(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        {
+            return;
+        }
+
+        let Some(activator_poly) = Self::combine_activators(
+            left_col.activator_tracked_poly(),
+            right_col.activator_tracked_poly(),
+        ) else {
+            return;
+        };
+
+        let mut columns: IndexMap<_, _> = existing_output
+            .tracked_polys()
+            .iter()
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+            .collect();
+        columns.insert(
+            Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true)),
+            activator_poly,
+        );
+
+        let new_table = TrackedTable::new(
+            existing_output.schema(),
+            columns,
+            existing_output.log_size(),
+        );
+
+        piop_tree.add_table(node_id.clone(), OUTPUT_PLAN_KEY.to_string(), new_table);
+    }
+
+    fn combine_activators(
+        left: Option<ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>>,
+        right: Option<ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>>,
+    ) -> Option<ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>> {
+        match (left, right) {
+            (Some(l), Some(r)) => Some(&l * &r),
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        }
+    }
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierBinaryExprNode<F, MvPCS, UvPCS>
@@ -313,15 +366,9 @@ where
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
-        let mut projection_exprs =
+        let projection_exprs =
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
-        if base_table_scan_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
+
         // Build the output plan
         let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
             .project(projection_exprs)
@@ -389,22 +436,20 @@ where
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
-            if !Self::requires_materialized_witness(bin_expr.op) {
-                let log_size = piop_tree
+            let (log_size, left_col_oracle) = {
+                let table = piop_tree
                     .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .log_size();
-                let left_col_oracle = piop_tree
-                    .tracked_table_oracle(&self.left_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .tracked_col_oracle_by_ind(0)
-                    .clone();
-                let right_col_oracle = piop_tree
+                    .expect("missing left child output oracle for binary expr");
+                (table.log_size(), table.tracked_col_oracle_by_ind(0).clone())
+            };
+            let right_col_oracle = {
+                let table = piop_tree
                     .tracked_table_oracle(&self.right_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-                    .unwrap()
-                    .tracked_col_oracle_by_ind(0)
-                    .clone();
+                    .expect("missing right child output oracle for binary expr");
+                table.tracked_col_oracle_by_ind(0).clone()
+            };
 
+            if !Self::requires_materialized_witness(bin_expr.op) {
                 piop_tree.add_tracked_table_oracle(
                     self.node_id.clone(),
                     OUTPUT_PLAN_KEY.to_string(),
@@ -414,6 +459,13 @@ where
                         &right_col_oracle,
                         log_size,
                     ),
+                );
+            } else {
+                Self::append_activator_to_materialized_oracle(
+                    piop_tree,
+                    &self.node_id,
+                    &left_col_oracle,
+                    &right_col_oracle,
                 );
             }
         }
@@ -497,6 +549,65 @@ where
                 | Operator::NotEq
                 | Operator::Or
         )
+    }
+
+    fn append_activator_to_materialized_oracle(
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        node_id: &NodeId,
+        left_col: &TrackedColOracle<F, MvPCS, UvPCS>,
+        right_col: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) {
+        let Some(existing_output) = piop_tree
+            .tracked_table_oracle(node_id, OUTPUT_PLAN_KEY)
+            .cloned()
+        else {
+            return;
+        };
+
+        if existing_output
+            .tracked_oracles()
+            .iter()
+            .any(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        {
+            return;
+        }
+
+        let Some(activator_oracle) = Self::combine_oracle_activators(
+            left_col.activator_tracked_oracle(),
+            right_col.activator_tracked_oracle(),
+        ) else {
+            return;
+        };
+
+        let mut columns: IndexMap<_, _> = existing_output
+            .tracked_oracles()
+            .iter()
+            .map(|(field, oracle)| (field.clone(), oracle.clone()))
+            .collect();
+        columns.insert(
+            Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true)),
+            activator_oracle,
+        );
+
+        let new_table = TrackedTableOracle::new(
+            existing_output.schema(),
+            columns,
+            existing_output.log_size(),
+        );
+
+        piop_tree.add_tracked_table_oracle(node_id.clone(), OUTPUT_PLAN_KEY.to_string(), new_table);
+    }
+
+    fn combine_oracle_activators(
+        left: Option<TrackedOracle<F, MvPCS, UvPCS>>,
+        right: Option<TrackedOracle<F, MvPCS, UvPCS>>,
+    ) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
+        match (left, right) {
+            (Some(l), Some(r)) => Some(&l * &r),
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        }
     }
 }
 

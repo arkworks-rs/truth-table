@@ -26,7 +26,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub node_id: NodeId,
-    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub parent_node_id: NodeId,
 }
 
@@ -41,7 +41,7 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        self.inputs.iter().collect()
+        vec![&self.input]
     }
 
     fn from_expr(
@@ -68,7 +68,7 @@ where
         .root();
         Self {
             node_id,
-            inputs: vec![child],
+            input: child,
             parent_node_id: parent_logical_plan,
         }
     }
@@ -92,14 +92,12 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        if let Some(inner) = self.inputs.first() {
-            if let Some(table) = piop_tree.tracked_table(&inner.node_id(), OUTPUT_PLAN_KEY) {
-                piop_tree.add_table(
-                    self.node_id.clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    table.clone(),
-                );
-            }
+        if let Some(table) = piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY) {
+            piop_tree.add_table(
+                self.node_id.clone(),
+                OUTPUT_PLAN_KEY.to_string(),
+                table.clone(),
+            );
         }
     }
     fn prove_piop(
@@ -122,8 +120,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub relative_expr: Expr,
-    pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub parent_node_id: NodeId,
 }
 
@@ -138,7 +135,7 @@ where
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        self.inputs.iter().collect()
+        vec![&self.input]
     }
 
     fn from_expr(

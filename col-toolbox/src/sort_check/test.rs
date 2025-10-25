@@ -1,187 +1,217 @@
-// use arithmetic::col::{TrackedCol, TrackedColOracle};
-// use ark_ff::{Field, PrimeField};
-// use ark_piop::{
-//     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-//     errors::SnarkResult,
-//     pcs::{PCS, kzg10::KZG10, pst13::PST13},
-//     piop::PIOP,
-//     test_utils::test_prelude,
-//     to_field_vec,
-// };
-// use ark_std::{
-//     rand::{RngCore, SeedableRng},
-//     test_rng,
-// };
-// use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::PrimeField;
+use ark_piop::{
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    errors::{SnarkError, SnarkResult},
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    piop::PIOP,
+    test_utils::test_prelude,
+    to_field_vec,
+};
+use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use datafusion::arrow::datatypes::{DataType, Field};
+use std::sync::Arc;
 
-// use super::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
-// // Sets up randomized inputs for testing EqCheck
-// #[test]
-// fn perm_check_is_complete() -> SnarkResult<()> {
-//     // All activated tests
-//     perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//     )?;
+use super::{SortCheck, SortCheckProverInput, SortCheckVerifierInput};
 
-//     perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
-//         to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//     )?;
+#[test]
+fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 2, 3, 4], Fr),
+        None,
+        DataType::UInt64,
+        true,
+        true,
+    )?;
 
-//     perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
-//         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
-//         2,
-//         to_field_vec!([12, 3, 4, 20], Fr),
-//         to_field_vec!([1, 1, 1, 1], Fr),
-//     )?;
-//     perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
-//         to_field_vec!([0, 0, 0, 1, 0, 0, 1, 1], Fr),
-//         2,
-//         to_field_vec!([12, 3, 4, 20], Fr),
-//         to_field_vec!([1, 1, 0, 1], Fr),
-//     )?;
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 1, 2, 2], Fr),
+        None,
+        DataType::UInt64,
+        true,
+        false,
+    )?;
 
-//     Ok(())
-// }
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([4, 3, 2, 1], Fr),
+        None,
+        DataType::UInt64,
+        false,
+        true,
+    )?;
 
-// #[test]
-// fn perm_check_is_sound() -> SnarkResult<()> {
-//     permcheck_test_soundness_helper::<Fr, PST13<Bls12_381>,
-// KZG10<Bls12_381>>(         3,
-//         to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//         3,
-//         to_field_vec!([4, 8, 1, 20, 18, 2, 12, 3], Fr),
-//         vec![Fr::ONE; 2_usize.pow(3_u32)],
-//     )?;
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([4, 4, 2, 2], Fr),
+        None,
+        DataType::Int32,
+        false,
+        false,
+    )?;
 
-//     permcheck_test_soundness_helper::<Fr, PST13<Bls12_381>,
-// KZG10<Bls12_381>>(         3,
-//         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 9], Fr),
-//         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
-//         2,
-//         to_field_vec!([12, 2, 4, 20], Fr),
-//         to_field_vec!([1, 1, 1, 1], Fr),
-//     )?;
+    Ok(())
+}
 
-//     Ok(())
-// }
+#[test]
+fn sort_check_with_actv_is_complete() -> SnarkResult<()> {
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 6, 4, 2, 3, 20, 18, 9], Fr),
+        Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        true,
+        true,
+    )?;
 
-// fn permcheck_test_soundness_helper<
-//     Fr: PrimeField,
-//     MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-//     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
-// >(
-//     left_nv: usize,
-//     left_evals: Vec<Fr>,
-//     left_activator: Vec<Fr>,
-//     right_nv: usize,
-//     right_evals: Vec<Fr>,
-//     right_activator: Vec<Fr>,
-// ) -> SnarkResult<()> {
-//     let err = perm_check_test_helper::<Fr, MvPCS, UvPCS>(
-//         left_nv,
-//         left_evals,
-//         left_activator,
-//         right_nv,
-//         right_evals,
-//         right_activator,
-//     )
-//     .unwrap_err();
-//     #[cfg(feature = "honest-prover")]
-//     {
-//         assert!(matches!(
-//             err,
-//             ark_piop::errors::SnarkError::ProverError(
-//                 ark_piop::prover::errors::ProverError::HonestProverError(
-//                     ark_piop::prover::errors::HonestProverError::FalseClaim
-//                 )
-//             )
-//         ));
-//     }
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 6, 4, 2, 2, 20, 18, 9], Fr),
+        Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        true,
+        false,
+    )?;
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([100,2,4,80,70,85,90,50], Fr),
+        Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        false,
+        true,
+    )?;
+        sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([100,2,4,80,70,85,90,70], Fr),
+        Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        false,
+        false,
+    )?;
+    Ok(())
+}
 
-//     #[cfg(not(feature = "honest-prover"))]
-//     {
-//         assert!(matches!(
-//             err,
-//             ark_piop::errors::SnarkError::VerifierError(
-//
-// ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)
-// )         ));
-//     }
+#[test]
+fn sort_check_is_sound() -> SnarkResult<()> {
+    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([3, 1, 2, 4], Fr),
+        None,
+        DataType::Int16,
+        true,
+        true,
+    )?;
 
-//     Ok(())
-// }
+    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 1, 2, 0], Fr),
+        None,
+        DataType::Boolean,
+        false,
+        true,
+    )?;
 
-// fn perm_check_test_helper<
-//     Fr: PrimeField,
-//     MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-//     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
-// >(
-//     left_nv: usize,
-//     left_evals: Vec<Fr>,
-//     left_activator: Vec<Fr>,
-//     right_nv: usize,
-//     right_evals: Vec<Fr>,
-//     right_activator: Vec<Fr>,
-// ) -> SnarkResult<()> {
-//     let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([1, 3, 2, 0, 0, 0, 0, 0], Fr),
+        Some(to_field_vec!([1, 1, 1, 0, 0, 0, 0, 0], Fr)),
+        DataType::Utf8,
+        true,
+        true,
+    )?;
 
-//     /////////////////////////////////////////////////
-//     let left_mle = MLE::from_evaluations_vec(left_nv, left_evals);
-//     let left_tr_p = prover.track_and_commit_mat_mv_poly(&left_mle).unwrap();
-//     let left_activator_p = prover
-//         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(left_nv,
-// left_activator))         .unwrap();
-//     let left_col = TrackedCol::new(None, left_tr_p.clone(),
-// Some(left_activator_p.clone()));
-// ///////////////////////////////////////////// ////////     let right_mle =
-// MLE::from_evaluations_vec(right_nv, right_evals);     let right_tr_p =
-// prover.track_and_commit_mat_mv_poly(&right_mle).unwrap();
-//     let right_activator_p = prover
-//         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(right_nv,
-// right_activator))         .unwrap();
-//     let right_col = TrackedCol::new(None, right_tr_p.clone(),
-// Some(right_activator_p.clone()));
+    Ok(())
+}
 
-//     /////////////////////////////////////////////////////////
+fn sort_check_test_helper<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    data_evals: Vec<F>,
+    activator_evals: Option<Vec<F>>,
+    data_type: DataType,
+    ascending: bool,
+    strict: bool,
+) -> SnarkResult<()> {
+    assert!(data_evals.len().is_power_of_two());
+    let log_size = data_evals.len().trailing_zeros() as usize;
 
-//     let perm_piop_prover_input = PermPIOPProverInput {
-//         left_col,
-//         right_col,
-//     };
+    let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
+    let field_ref = Arc::new(Field::new("sort_col", data_type.clone(), false));
 
-//     PermPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover,
-// perm_piop_prover_input)?;     let proof = prover.build_proof()?;
-//     verifier.set_proof(proof);
-//     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
-//     let left_activatorm =
-// verifier.track_mv_com_by_id(left_activator_p.id())?;
-//     let left_tracked_col_oracle = TrackedColOracle::new(None, left_comm,
-// Some(left_activatorm), left_nv);
+    let data_poly =
+        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, data_evals))?;
+    let activator_poly = match activator_evals {
+        Some(vals) => {
+            Some(prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, vals))?)
+        },
+        None => None,
+    };
 
-//     let right_comm = verifier.track_mv_com_by_id(right_tr_p.id())?;
-//     let right_activatorm =
-// verifier.track_mv_com_by_id(right_activator_p.id())?;
-//     let right_tracked_col_oracle = TrackedColOracle::new(None, right_comm,
-// Some(right_activatorm), right_nv);     let perm_piop_verifier_input =
-// PermPIOPVerifierInput {         left_tracked_col_oracle,
-//         right_tracked_col_oracle,
-//     };
-//     PermPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier,
-// perm_piop_verifier_input)?;     verifier.verify()?;
-//     Ok(())
-// }
+    let tracked_col = TrackedCol::new(
+        data_poly.clone(),
+        activator_poly.clone(),
+        Some(field_ref.clone()),
+    );
+
+    let prover_input = SortCheckProverInput {
+        tracked_col,
+        ascending,
+        strict,
+    };
+    SortCheck::<F, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    let proof = prover.build_proof()?;
+    verifier.set_proof(proof);
+
+    let data_oracle = verifier.track_mv_com_by_id(data_poly.id())?;
+    let activator_oracle = match activator_poly {
+        Some(poly) => Some(verifier.track_mv_com_by_id(poly.id())?),
+        None => None,
+    };
+    let tracked_col_oracle = TrackedColOracle::new(data_oracle, activator_oracle, Some(field_ref));
+
+    let verifier_input = SortCheckVerifierInput {
+        tracked_col_oracle,
+        ascending,
+        strict,
+    };
+    SortCheck::<F, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    verifier.verify()?;
+
+    Ok(())
+}
+
+fn sort_check_soundness_helper<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    data_evals: Vec<F>,
+    activator_evals: Option<Vec<F>>,
+    data_type: DataType,
+    ascending: bool,
+    strict: bool,
+) -> SnarkResult<()> {
+    let err = sort_check_test_helper::<F, MvPCS, UvPCS>(
+        data_evals,
+        activator_evals,
+        data_type,
+        ascending,
+        strict,
+    )
+    .unwrap_err();
+
+    #[cfg(feature = "honest-prover")]
+    {
+        use ark_piop::prover::errors::{HonestProverError, ProverError};
+        assert!(matches!(
+            err,
+            SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim
+            ))
+        ));
+    }
+
+    #[cfg(not(feature = "honest-prover"))]
+    {
+        use ark_piop::verifier::errors::VerifierError;
+        assert!(matches!(
+            err,
+            SnarkError::VerifierError(VerifierError::VerifierCheckFailed(_))
+        ));
+    }
+
+    Ok(())
+}

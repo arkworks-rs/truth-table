@@ -4,7 +4,6 @@
 
 pub mod and_check;
 pub mod binary_check;
-pub mod contiguous_activator_check;
 pub mod defragger;
 pub mod fold_check;
 pub mod inclusion_check;
@@ -13,6 +12,9 @@ pub mod no_dup_check;
 pub mod no_zeros_check;
 pub mod or_check;
 pub mod perm_check;
+pub mod predicate_limit_check;
+pub mod prescribed_permutation_check;
+pub mod rematerialize_check;
 pub mod set_intersec;
 pub mod sign_check;
 pub mod sort_check;

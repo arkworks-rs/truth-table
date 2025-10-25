@@ -116,6 +116,7 @@ where
             ));
             columns.insert(activator_field, activator_poly);
         }
+
         TrackedTable::new(None, columns, log_size)
     }
 }

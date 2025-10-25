@@ -40,7 +40,7 @@ impl HintGenerationPlan {
     }
 
     pub fn new_virtual(name: String, plan: LogicalPlan) -> Self {
-        Self::new_with_mat_flag(name, plan, true)
+        Self::new_with_mat_flag(name, plan, false)
     }
 
     fn new_with_mat_flag(name: String, plan: LogicalPlan, materialized: bool) -> Self {
@@ -67,6 +67,10 @@ impl HintGenerationPlan {
 
     pub fn should_materialize(&self, field: &FieldRef) -> Option<&bool> {
         self.should_materialize.get(field)
+    }
+
+    pub fn field_materialization_iter(&self) -> impl Iterator<Item = (&FieldRef, &bool)> {
+        self.should_materialize.iter()
     }
 
     pub fn project_materialized(&self) -> Option<LogicalPlan> {

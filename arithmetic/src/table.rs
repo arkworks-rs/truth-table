@@ -145,9 +145,19 @@ where
         self.tracked_polys.clone()
     }
 
+    pub fn tracked_polys_iter(
+        &self,
+    ) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<F, MvPCS, UvPCS>)> {
+        self.tracked_polys.iter()
+    }
+
     /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
+    }
+
+    pub fn schema_ref(&self) -> Option<&Schema> {
+        self.schema.as_ref()
     }
 
     /// Returns the log size of the table

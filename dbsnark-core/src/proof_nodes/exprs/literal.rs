@@ -132,8 +132,14 @@ where
         }
 
         let constant_value = column_values.pop().unwrap_or_else(F::zero);
-
-        let tracked_poly = prover.track_mat_mv_cnst_poly(0, constant_value);
+        let log_size = {
+            let ctx_node = self.ctx_lp_node(piop_tree.proof_tree());
+            piop_tree
+                .tracked_table(&ctx_node.node_id(), OUTPUT_PLAN_KEY)
+                .map(|table| table.log_size())
+                .unwrap_or(0)
+        };
+        let tracked_poly = prover.track_mat_mv_cnst_poly(log_size, constant_value);
 
         let data_type = scalar.data_type();
 
@@ -149,7 +155,7 @@ where
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            0,
+            log_size,
         );
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
@@ -246,9 +252,14 @@ where
         }
 
         let constant_value = column_values.pop().unwrap_or_else(F::zero);
-
-        // TODO: Make the log size correct
-        let tracked_poly = verifier.track_mat_mv_cnst_oracle(0, constant_value);
+        let log_size = {
+            let ctx_node = self.ctx_lp_node(piop_tree.proof_tree());
+            piop_tree
+                .tracked_table_oracle(&ctx_node.node_id(), OUTPUT_PLAN_KEY)
+                .map(|table| table.log_size())
+                .unwrap_or(0)
+        };
+        let tracked_poly = verifier.track_mat_mv_cnst_oracle(log_size, constant_value);
 
         let data_type = scalar.data_type();
 
@@ -257,13 +268,14 @@ where
             data_type.clone(),
             scalar.is_null(),
         )]);
+
         let table = TrackedTableOracle::new(
             Some(schema),
             IndexMap::from([(
                 Arc::new(Field::new("literal", data_type, scalar.is_null())),
                 tracked_poly,
             )]),
-            0,
+            log_size,
         );
 
         piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
