@@ -16,12 +16,21 @@ use ark_piop::{
         errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
         structs::polynomial::TrackedPoly,
     },
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{
+        Verifier,
+        structs::oracle::{InnerOracle, TrackedOracle},
+    },
 };
 use derivative::Derivative;
 use std::{cmp::Ordering, marker::PhantomData};
 
-use crate::sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
+use crate::{
+    prescribed_permutation_check::{
+        PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
+        PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
+    },
+    sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
+};
 // Convinces the verifier that
 pub struct SortCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
@@ -121,10 +130,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let shifted_mle = Self::circular_shift_col(&new_col);
         let shifted_data_tracked_poly = prover.track_and_commit_mat_mv_poly(&shifted_mle)?;
         let shifted_col = TrackedCol::new(
-            shifted_data_tracked_poly,
+            shifted_data_tracked_poly.clone(),
             new_col.activator_tracked_poly(),
             new_col.field_ref(),
         );
+
+        let shift_permutation_mle =
+            shift_permutation_mle(new_col.data_tracked_poly().log_size(), 1, true);
+        let shift_permutation_tracked_poly = prover.track_mat_mv_poly(shift_permutation_mle);
+        let prescribed_permutation_check_prover_input = PrescribedPermutationPIOPProverInput {
+            left_tracked_poly: new_col.data_tracked_poly().clone(),
+            right_tracked_poly: shifted_data_tracked_poly.clone(),
+            permutation_tracked_poly: shift_permutation_tracked_poly,
+        };
+        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::prove(
+            prover,
+            prescribed_permutation_check_prover_input,
+        )?;
+
         let truncated_activator_mle = Self::truncate_activator_mle(prover, &new_col);
         let truncated_activator_tracked_poly =
             prover.track_and_commit_mat_mv_poly(&truncated_activator_mle)?;
@@ -133,9 +156,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(truncated_activator_tracked_poly),
             new_col.field_ref().clone(),
         );
-        // Rememeber to change the activator and do a contigous check
-        dbg!(diff_col.data_tracked_poly().evaluations());
-
+        // Remember to change the activator and do a contiguous check
         let sign_check_prover_input = match (input.ascending, input.strict) {
             (true, true) => SignCheckProverInput {
                 col: diff_col,
@@ -182,10 +203,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let shifted_data_id = verifier.peek_next_id();
         let shifted_data_tracked_oracle = verifier.track_mv_com_by_id(shifted_data_id)?;
         let shifted_col = TrackedColOracle::new(
-            shifted_data_tracked_oracle,
+            shifted_data_tracked_oracle.clone(),
             new_col.activator_tracked_oracle(),
             new_col.field_ref(),
         );
+
+        let shift_permutation_oracle =
+            shift_permutation_oracle::<F>(new_col.data_tracked_oracle().log_size(), 1, true);
+        let shift_permutation_tracked_oracle = verifier.track_oracle(shift_permutation_oracle);
+        let prescribed_permutation_check_verifier_input = PrescribedPermutationPIOPVerifierInput {
+            left_tracked_oracle: new_col.data_tracked_oracle().clone(),
+            right_tracked_oracle: shifted_data_tracked_oracle.clone(),
+            permutation_tracked_oracle: shift_permutation_tracked_oracle,
+        };
+        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            prescribed_permutation_check_verifier_input,
+        )?;
+
         let truncated_activator_id = verifier.peek_next_id();
         let truncated_activator_tracked_poly =
             verifier.track_mv_com_by_id(truncated_activator_id)?;

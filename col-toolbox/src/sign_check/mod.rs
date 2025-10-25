@@ -407,6 +407,22 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     inclusion_check_prover_input,
                 )?;
             },
+            DataType::Int16 => {
+                let inclusion_check_prover_input = InclusionCheckVerifierInput {
+                    included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
+                    super_tracked_col_oracle: TrackedColOracle::new(
+                        verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
+                            Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
+                        })),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                    verifier,
+                    inclusion_check_prover_input,
+                )?;
+            },
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
@@ -537,9 +553,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut chunk1_vals = Vec::with_capacity(evaluations.len());
         let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        for eval in evaluations.iter() {
-            let big = eval.into_bigint();
-            let n = big.as_ref()[0] as u32;
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_unsigned(eval, 32) as u32;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_u32_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
@@ -667,9 +682,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut chunk1_vals = Vec::with_capacity(evaluations.len());
         let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        for eval in evaluations.iter() {
-            let big = eval.into_bigint();
-            let n = big.as_ref()[0] as i32;
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_signed(eval, 32) as i32;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i32_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
@@ -797,9 +811,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut chunk1_vals = Vec::with_capacity(evaluations.len());
         let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        for eval in evaluations.iter() {
-            let big = eval.into_bigint();
-            let n = big.as_ref()[0] as u64;
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_unsigned(eval, 64) as u64;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_u64_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
@@ -927,9 +940,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let mut chunk1_vals = Vec::with_capacity(evaluations.len());
         let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        for eval in evaluations.iter() {
-            let big = eval.into_bigint();
-            let n = big.as_ref()[0] as i64;
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_signed(eval, 64) as i64;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i64_into_u16s(n);
             chunk3_vals.push(F::from(chunk3 as u64));
             chunk2_vals.push(F::from(chunk2 as u64));
@@ -1071,5 +1083,47 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let chunk2 = ((bits >> 32) & 0xFFFF) as u16;
         let chunk3 = ((bits >> 48) & 0xFFFF) as u16;
         [chunk3, chunk2, chunk1, chunk0]
+    }
+
+    fn field_low_bits_unsigned(value: F, bits: usize) -> u128 {
+        debug_assert!(bits <= 128);
+        if bits == 0 {
+            return 0;
+        }
+        let bigint = value.into_bigint();
+        let limbs = bigint.as_ref();
+        let mut acc: u128 = 0;
+        let mut shift = 0;
+        let mut remaining = bits;
+        for limb in limbs {
+            if remaining == 0 {
+                break;
+            }
+            let take = remaining.min(64);
+            let mask = if take == 64 {
+                u64::MAX
+            } else {
+                (1u64 << take) - 1
+            };
+            let part = (*limb & mask) as u128;
+            acc |= part << shift;
+            remaining -= take;
+            shift += 64;
+        }
+        acc
+    }
+
+    fn field_low_bits_signed(value: F, bits: usize) -> i128 {
+        debug_assert!(bits <= 128);
+        if bits == 0 {
+            return 0;
+        }
+        let unsigned = Self::field_low_bits_unsigned(value, bits);
+        let sign_bit = 1u128 << (bits - 1);
+        if unsigned & sign_bit != 0 {
+            (unsigned as i128) - (1i128 << bits)
+        } else {
+            unsigned as i128
+        }
     }
 }

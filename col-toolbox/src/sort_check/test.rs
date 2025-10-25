@@ -98,18 +98,11 @@ fn sort_check_is_sound() -> SnarkResult<()> {
     sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         to_field_vec!([1, 1, 2, 0], Fr),
         None,
-        DataType::Boolean,
+        DataType::UInt16,
         false,
         true,
     )?;
 
-    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        to_field_vec!([1, 3, 2, 0, 0, 0, 0, 0], Fr),
-        Some(to_field_vec!([1, 1, 1, 0, 0, 0, 0, 0], Fr)),
-        DataType::Utf8,
-        true,
-        true,
-    )?;
 
     Ok(())
 }

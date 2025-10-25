@@ -1,4 +1,4 @@
-use ark_ff::PrimeField;
+use ark_ff::{One, PrimeField, Zero};
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
@@ -7,11 +7,12 @@ use ark_piop::{
     test_utils::test_prelude,
     to_field_vec,
 };
+use ark_piop::verifier::structs::oracle::InnerOracle;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
 use super::{
-    PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
-    PrescribedPermutationPIOPVerifierInput,
+    shift_permutation_mle, shift_permutation_oracle, PrescribedPermutationPIOP,
+    PrescribedPermutationPIOPProverInput, PrescribedPermutationPIOPVerifierInput,
 };
 
 #[test]
@@ -67,9 +68,39 @@ fn prescribed_permutation_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
+#[test]
+fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
+    let log_size = 3usize;
+    let shift = 1usize;
+    let right = true;
+
+    let oracle = shift_permutation_oracle::<Fr>(log_size, shift, right);
+    let expected = shift_permutation_mle::<Fr>(log_size, shift, right).evaluations();
+    match oracle.inner() {
+        InnerOracle::Multivariate(eval_fn) => {
+            for idx in 0..(1 << log_size) {
+                let point: Vec<Fr> = (0..log_size)
+                    .map(|bit| {
+                        if (idx >> bit) & 1 == 1 {
+                            Fr::one()
+                        } else {
+                            Fr::zero()
+                        }
+                    })
+                    .collect();
+                let value = eval_fn(point.clone()).expect("oracle evaluation");
+                assert_eq!(value, expected[idx]);
+            }
+        },
+        _ => panic!("shift_permutation_oracle should be multivariate"),
+    }
+
+    Ok(())
+}
+
 fn prescribed_permutation_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
+   MvPCS: PCS<Fr, Poly = MLE<Fr>>,
     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
 >(
     left_vals: Vec<Fr>,
