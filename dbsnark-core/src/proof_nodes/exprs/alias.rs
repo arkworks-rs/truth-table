@@ -3,6 +3,7 @@ use crate::{
         OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -27,6 +28,17 @@ where
 {
     pub node_id: NodeId,
     pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub parent_node_id: NodeId,
+}
+#[derive(Clone)]
+pub struct VerifierAliasExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    pub node_id: NodeId,
+    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub parent_node_id: NodeId,
 }
 
@@ -112,18 +124,6 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct VerifierAliasExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    pub relative_expr: Expr,
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub parent_node_id: NodeId,
-}
-
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierAliasExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -131,7 +131,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn node_id(&self) -> NodeId {
-        NodeId::Expr(self.relative_expr.clone())
+        self.node_id.clone()
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -147,7 +147,24 @@ where
     where
         Self: Sized,
     {
-        todo!()
+        let alias = match expr.clone() {
+            Expr::Alias(alias) => alias,
+            _ => panic!("expected alias expression"),
+        };
+        let node_id = NodeId::Expr(expr.clone());
+        let input_expr = (*alias.expr).clone();
+        let child = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            input_expr,
+            &node_id.clone(),
+        )
+        .root();
+        Self {
+            node_id,
+            input: child,
+            parent_node_id: parent_logical_plan,
+        }
     }
 
     fn add_virtual_witness(
@@ -155,7 +172,14 @@ where
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        if let Some(table) = piop_tree.tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)
+        {
+            piop_tree.add_tracked_table_oracle(
+                self.node_id.clone(),
+                OUTPUT_PLAN_KEY.to_string(),
+                table.clone(),
+            );
+        }
     }
     fn verify_piop(
         &self,

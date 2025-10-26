@@ -25,6 +25,7 @@ use derivative::Derivative;
 use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::{
+    predicate_limit_check::{PredicateLimitCheck, PredicateLimitCheckProverInput},
     prescribed_permutation_check::{
         PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
         PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
@@ -127,6 +128,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             } else {
                 input.tracked_col.clone()
             };
+
         let shifted_mle = Self::circular_shift_col(&new_col);
         let shifted_data_tracked_poly = prover.track_and_commit_mat_mv_poly(&shifted_mle)?;
         let shifted_col = TrackedCol::new(
@@ -151,6 +153,28 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let truncated_activator_mle = Self::truncate_activator_mle(prover, &new_col);
         let truncated_activator_tracked_poly =
             prover.track_and_commit_mat_mv_poly(&truncated_activator_mle)?;
+
+        // TODO: Do the predicate limit check prover
+        // let (limit, new_col_activator) = match new_col.activator_tracked_poly() {
+        //     Some(actv) => (
+        //         actv.evaluations().iter().filter(|&&v| !v.is_zero()).count() -
+        // 1_usize,         actv,
+        //     ),
+        //     None => (
+        //         (1usize << new_col.data_tracked_poly().log_size()) - 1,
+        //         prover.track_mat_mv_cnst_poly(input.tracked_col.log_size(),
+        // F::one()),     ),
+        // };
+        // let predicate_limit_check_piop_prover_input = PredicateLimitCheckProverInput
+        // {     input_predicate: new_col_activator.clone(),
+        //     output_predicate: truncated_activator_tracked_poly.clone(),
+        //     limit,
+        // };
+        // PredicateLimitCheck::<F, MvPCS, UvPCS>::prove(
+        //     prover,
+        //     predicate_limit_check_piop_prover_input,
+        // )?;
+
         let diff_col = TrackedCol::new(
             &shifted_col.data_tracked_poly() - &new_col.data_tracked_poly(),
             Some(truncated_activator_tracked_poly),
@@ -224,6 +248,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let truncated_activator_id = verifier.peek_next_id();
         let truncated_activator_tracked_poly =
             verifier.track_mv_com_by_id(truncated_activator_id)?;
+
+        // TODO: Do the predicate limit check verification
+
         let diff_col_oracle = TrackedColOracle::new(
             &shifted_col.data_tracked_oracle() - &new_col.data_tracked_oracle(),
             Some(truncated_activator_tracked_poly),

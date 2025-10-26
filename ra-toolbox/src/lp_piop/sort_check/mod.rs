@@ -85,28 +85,10 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub sort: Sort,
-    pub sort_exprs: Vec<SortTrackedCol<F, MvPCS, UvPCS>>,
+    pub input_sort_exprs: Vec<SortTrackedCol<F, MvPCS, UvPCS>>,
+    pub output_sort_exprs: Vec<SortTrackedCol<F, MvPCS, UvPCS>>,
     pub input_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_table: TrackedTable<F, MvPCS, UvPCS>,
-}
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for SortPIOPProverInput<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
-        Self {
-            sort: self.sort.clone(),
-            sort_exprs: self
-                .sort_exprs
-                .iter()
-                .map(|expr| expr.deep_clone(new_prover.clone()))
-                .collect(),
-            input_table: self.input_table.deep_clone(new_prover.clone()),
-            output_table: self.output_table.deep_clone(new_prover),
-        }
-    }
 }
 #[derive(Derivative)]
 #[derivative(
@@ -121,9 +103,34 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub sort: Sort,
-    pub sort_exprs: Vec<SortTrackedColOracle<F, MvPCS, UvPCS>>,
+    pub input_sort_exprs: Vec<SortTrackedColOracle<F, MvPCS, UvPCS>>,
+    pub output_sort_exprs: Vec<SortTrackedColOracle<F, MvPCS, UvPCS>>,
     pub input_table: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_table: TrackedTableOracle<F, MvPCS, UvPCS>,
+}
+impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for SortPIOPProverInput<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+        Self {
+            sort: self.sort.clone(),
+            input_sort_exprs: self
+                .input_sort_exprs
+                .iter()
+                .map(|expr| expr.deep_clone(new_prover.clone()))
+                .collect(),
+            output_sort_exprs: self
+                .output_sort_exprs
+                .iter()
+                .map(|expr| expr.deep_clone(new_prover.clone()))
+                .collect(),
+            input_table: self.input_table.deep_clone(new_prover.clone()),
+            output_table: self.output_table.deep_clone(new_prover),
+        }
+    }
 }
 
 pub struct SortPIOP;
@@ -143,6 +150,7 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+
         Ok(())
     }
 

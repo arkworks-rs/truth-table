@@ -1,8 +1,11 @@
 #![cfg(feature = "test-utils")]
 
-use dbsnark_core::test_display::{
-    display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree,
-    display_prover_proof_tree, display_prover_tracked_tree,
+use dbsnark_core::{
+    test_display::{
+        display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree,
+        display_prover_proof_tree, display_prover_tracked_tree,
+    },
+    test_utils::helper::prove_and_verify_query,
 };
 use tpch_data::query_spec;
 
@@ -43,4 +46,10 @@ async fn tpch_q1_tracked_tree() {
 async fn tpch_q1_piop_tree() {
     let spec = spec();
     display_prover_piop_tree(spec.tables, spec.sql).await;
+}
+
+#[test]
+fn tpch_q1_prove_verify() {
+    let spec = spec();
+    prove_and_verify_query(spec.sql, spec.tables[0]);
 }

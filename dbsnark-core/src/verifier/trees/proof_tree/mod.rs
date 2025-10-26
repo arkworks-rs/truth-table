@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use crate::proof_nodes::{
-    exprs::verifier::{
-        VerifierAggregateFunctionExprNode, VerifierAliasExprNode, VerifierBinaryExprNode,
-        VerifierColumnExprNode, VerifierLiteralExprNode,
-    },
+    exprs::verifier as expr_verifier,
     id::NodeId,
-    lps::verifier::{
-        VerifierAggregateNode, VerifierFilterNode, VerifierProjectionNode, VerifierTableScanNode,
+    lps::{
+        sort::VerifierSortNode,
+        verifier::{
+            VerifierAggregateNode, VerifierFilterNode, VerifierProjectionNode,
+            VerifierTableScanNode,
+        },
     },
     verifier::VerifierNode,
 };
@@ -141,21 +142,18 @@ where
     {
         match expr.clone() {
             Expr::Alias(_) => Self::new(
-                Arc::new(<VerifierAliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                Arc::new(<expr_verifier::VerifierAliasExprNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
                     UvPCS,
                 >>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr,
-                    parent_node_id.clone(),
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
                 )),
                 verifier_ctx,
             ),
             Expr::Column(_) => Self::new(
                 Arc::new(
-                    <VerifierColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                    <expr_verifier::VerifierColumnExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
                         ctx,
                         verifier_ctx.clone(),
                         expr,
@@ -164,33 +162,9 @@ where
                 ),
                 verifier_ctx,
             ),
-            Expr::Literal(_) => Self::new(
+            Expr::ScalarVariable(..) => Self::new(
                 Arc::new(
-                    <VerifierLiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
-                        ctx,
-                        verifier_ctx.clone(),
-                        expr,
-                        parent_node_id.clone(),
-                    ),
-                ),
-                verifier_ctx,
-            ),
-            Expr::BinaryExpr(_) => Self::new(
-                Arc::new(<VerifierBinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
-                    F,
-                    MvPCS,
-                    UvPCS,
-                >>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr,
-                    parent_node_id.clone(),
-                )),
-                verifier_ctx,
-            ),
-            Expr::AggregateFunction(_) => Self::new(
-                Arc::new(
-                    <VerifierAggregateFunctionExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    <expr_verifier::VerifierScalarVariableExprNode<F, MvPCS, UvPCS> as VerifierNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -200,7 +174,317 @@ where
                 ),
                 verifier_ctx,
             ),
-            _ => todo!(),
+            Expr::Literal(_) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierLiteralExprNode as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::BinaryExpr(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierBinaryExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Like(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierLikeExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::SimilarTo(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierSimilarToExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Not(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierNotExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsNotNull(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsNotNullExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsNull(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsNullExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsTrue(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsTrueExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsFalse(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsFalseExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsUnknown(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsUnknownExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsNotTrue(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsNotTrueExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsNotFalse(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsNotFalseExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::IsNotUnknown(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierIsNotUnknownExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Negative(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierNegativeExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Between(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierBetweenExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Case(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierCaseExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Cast(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierCastExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::TryCast(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierTryCastExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::ScalarFunction(_) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierScalarFunctionExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(
+                        ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::AggregateFunction(_) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierAggregateFunctionExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(
+                        ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::WindowFunction(_) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierWindowFunctionExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(
+                        ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::InList(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierInListExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Exists(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierExistsExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::InSubquery(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierInSubqueryExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::ScalarSubquery(_) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierScalarSubqueryExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    >>::from_expr(
+                        ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::Wildcard { .. } => Self::new(
+                Arc::new(<expr_verifier::VerifierWildcardExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::GroupingSet(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierGroupingSetExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::Placeholder(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierPlaceholderExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
+            Expr::OuterReferenceColumn(..) => Self::new(
+                Arc::new(
+                    <expr_verifier::VerifierOuterReferenceColumnExprNode<F, MvPCS, UvPCS>
+                        as VerifierNode<F, MvPCS, UvPCS>>::from_expr(
+                        ctx,
+                        verifier_ctx.clone(),
+                        expr,
+                        parent_node_id.clone(),
+                    ),
+                ),
+                verifier_ctx,
+            ),
+            Expr::Unnest(_) => Self::new(
+                Arc::new(<expr_verifier::VerifierUnnestExprNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_expr(
+                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
+                )),
+                verifier_ctx,
+            ),
         }
     }
 
@@ -265,7 +549,19 @@ where
                 verifier_ctx,
             ),
             df::LogicalPlan::Window(_w) => todo!(),
-            df::LogicalPlan::Sort(_s) => todo!(),
+            df::LogicalPlan::Sort(_s) => Self::new(
+                Arc::new(<VerifierSortNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_lp(
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
             df::LogicalPlan::Repartition(_r) => todo!(),
             df::LogicalPlan::Analyze(_a) => todo!(),
             df::LogicalPlan::Distinct(_d) => todo!(),
