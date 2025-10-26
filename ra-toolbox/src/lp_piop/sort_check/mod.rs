@@ -11,9 +11,10 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
-    verifier::Verifier,
+    prover::{Prover, structs::polynomial::TrackedPoly},
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
+use col_toolbox::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
 use datafusion::logical_expr::Sort;
 use derivative::Derivative;
 
@@ -155,17 +156,294 @@ where
     type VerifierOutput = ();
     type VerifierInput = SortPIOPVerifierInput<F, MvPCS, UvPCS>;
 
+    #[cfg(feature = "honest-prover")]
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        // TODO
+        Ok(())
+    }
+
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _input: Self::ProverInput,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+        let SortPIOPProverInput {
+            sort: _,
+            input_sort_exprs,
+            output_sort_exprs,
+            input_table,
+            output_table,
+        } = input;
+
+        assert_eq!(
+            input_sort_exprs.len(),
+            output_sort_exprs.len(),
+            "sort expressions mismatch between input and output"
+        );
+        let num_table_cols = input_table.num_data_tracked_cols();
+        assert!(
+            num_table_cols > 0,
+            "input table must expose at least one data column"
+        );
+        assert_eq!(
+            num_table_cols,
+            output_table.num_data_tracked_cols(),
+            "input and output tables must expose the same number of data columns"
+        );
+
+        let row_fold_challenges: Vec<F> = (0..num_table_cols)
+            .map(|_| {
+                prover
+                    .get_and_append_challenge(b"sort-row-fold")
+                    .expect("failed to draw folding challenge")
+            })
+            .collect();
+
+        let input_row_fingerprint = input_table.fold_all_data_columns(&row_fold_challenges);
+        let output_row_fingerprint = output_table.fold_all_data_columns(&row_fold_challenges);
+
+        let key_components_len = 1 + input_sort_exprs.len();
+        let key_fold_challenges: Vec<F> = (0..key_components_len)
+            .map(|_| {
+                prover
+                    .get_and_append_challenge(b"sort-key-fold")
+                    .expect("failed to draw key folding challenge")
+            })
+            .collect();
+
+        let mut input_key_components = Vec::with_capacity(key_components_len);
+        input_key_components.push(input_row_fingerprint);
+        input_key_components.extend(input_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        let mut input_key_col =
+            linear_combine_tracked_cols(input_key_components, &key_fold_challenges);
+        input_key_col =
+            apply_activator_to_tracked_col(input_key_col, input_table.activator_tracked_poly());
+
+        let mut output_key_components = Vec::with_capacity(key_components_len);
+        output_key_components.push(output_row_fingerprint);
+        output_key_components.extend(output_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        let mut output_key_col =
+            linear_combine_tracked_cols(output_key_components, &key_fold_challenges);
+        output_key_col =
+            apply_activator_to_tracked_col(output_key_col, output_table.activator_tracked_poly());
+
+        let perm_input = PermPIOPProverInput {
+            left_col: input_key_col,
+            right_col: output_key_col,
+        };
+
+        PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_input)?;
+
         Ok(())
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _input: Self::VerifierInput,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
+        let SortPIOPVerifierInput {
+            sort: _,
+            input_sort_exprs,
+            output_sort_exprs,
+            input_table,
+            output_table,
+        } = input;
+
+        assert_eq!(
+            input_sort_exprs.len(),
+            output_sort_exprs.len(),
+            "sort expressions mismatch between input and output"
+        );
+        let num_table_cols = input_table.num_data_tracked_col_oracles();
+        assert!(
+            num_table_cols > 0,
+            "input table must expose at least one data column oracle"
+        );
+        assert_eq!(
+            num_table_cols,
+            output_table.num_data_tracked_col_oracles(),
+            "input and output tables must expose the same number of data column oracles"
+        );
+
+        let row_fold_challenges: Vec<F> = (0..num_table_cols)
+            .map(|_| {
+                verifier
+                    .get_and_append_challenge(b"sort-row-fold")
+                    .expect("failed to draw folding challenge")
+            })
+            .collect();
+
+        let input_row_fingerprint = input_table.fold_all_data_columns(&row_fold_challenges);
+        let output_row_fingerprint = output_table.fold_all_data_columns(&row_fold_challenges);
+
+        let key_components_len = 1 + input_sort_exprs.len();
+        let key_fold_challenges: Vec<F> = (0..key_components_len)
+            .map(|_| {
+                verifier
+                    .get_and_append_challenge(b"sort-key-fold")
+                    .expect("failed to draw key folding challenge")
+            })
+            .collect();
+
+        let mut input_key_components = Vec::with_capacity(key_components_len);
+        input_key_components.push(input_row_fingerprint);
+        input_key_components.extend(input_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        let mut input_key_col =
+            linear_combine_tracked_col_oracles(input_key_components, &key_fold_challenges);
+        input_key_col = apply_activator_to_tracked_col_oracle(
+            input_key_col,
+            input_table.activator_tracked_poly(),
+        );
+
+        let mut output_key_components = Vec::with_capacity(key_components_len);
+        output_key_components.push(output_row_fingerprint);
+        output_key_components.extend(output_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        let mut output_key_col =
+            linear_combine_tracked_col_oracles(output_key_components, &key_fold_challenges);
+        output_key_col = apply_activator_to_tracked_col_oracle(
+            output_key_col,
+            output_table.activator_tracked_poly(),
+        );
+
+        let perm_input = PermPIOPVerifierInput {
+            left_tracked_col_oracle: input_key_col,
+            right_tracked_col_oracle: output_key_col,
+        };
+
+        PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_input)?;
+
         Ok(())
     }
+}
+
+fn linear_combine_tracked_cols<F, MvPCS, UvPCS>(
+    cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
+    challenges: &[F],
+) -> TrackedCol<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    assert!(!cols.is_empty(), "expected at least one column to combine");
+    assert_eq!(
+        cols.len(),
+        challenges.len(),
+        "challenge count must match column count"
+    );
+
+    let mut cols_iter = cols.into_iter();
+    let mut activator = None;
+
+    let first = cols_iter.next().expect("non-empty iterator");
+    let mut combined_poly: TrackedPoly<F, MvPCS, UvPCS> = first.data_tracked_poly();
+    combined_poly *= challenges[0];
+    activator = first.activator_tracked_poly();
+
+    for (col, chall) in cols_iter.zip(challenges.iter().skip(1)) {
+        if let Some(ref existing) = activator {
+            if let Some(col_act) = col.activator_tracked_poly() {
+                existing.assert_same_tracker(&col_act);
+            }
+        } else {
+            activator = col.activator_tracked_poly();
+        }
+        let mut term = col.data_tracked_poly();
+        term *= *chall;
+        combined_poly += &term;
+    }
+
+    TrackedCol::new(combined_poly, activator, None)
+}
+
+fn linear_combine_tracked_col_oracles<F, MvPCS, UvPCS>(
+    cols: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
+    challenges: &[F],
+) -> TrackedColOracle<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    assert!(
+        !cols.is_empty(),
+        "expected at least one column oracle to combine"
+    );
+    assert_eq!(
+        cols.len(),
+        challenges.len(),
+        "challenge count must match column oracle count"
+    );
+
+    let mut cols_iter = cols.into_iter();
+    let mut activator = None;
+
+    let first = cols_iter.next().expect("non-empty iterator");
+    let mut combined_oracle: TrackedOracle<F, MvPCS, UvPCS> = first.data_tracked_oracle();
+    combined_oracle *= challenges[0];
+    activator = first.activator_tracked_oracle();
+
+    for (col, chall) in cols_iter.zip(challenges.iter().skip(1)) {
+        if let Some(ref existing) = activator {
+            if let Some(col_act) = col.activator_tracked_oracle() {
+                existing.assert_same_tracker(&col_act);
+            }
+        } else {
+            activator = col.activator_tracked_oracle();
+        }
+        let mut term = col.data_tracked_oracle();
+        term *= *chall;
+        combined_oracle += &term;
+    }
+
+    TrackedColOracle::new(combined_oracle, activator, None)
+}
+
+fn apply_activator_to_tracked_col<F, MvPCS, UvPCS>(
+    col: TrackedCol<F, MvPCS, UvPCS>,
+    override_activator: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+) -> TrackedCol<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    let field_ref = col.field_ref();
+    let data_poly = col.data_tracked_poly();
+    let existing_activator = col.activator_tracked_poly();
+
+    if let (Some(new_act), Some(existing)) = (&override_activator, &existing_activator) {
+        existing.assert_same_tracker(new_act);
+    }
+
+    let final_activator = match override_activator {
+        Some(act) => Some(act),
+        None => existing_activator,
+    };
+
+    TrackedCol::new(data_poly, final_activator, field_ref)
+}
+
+fn apply_activator_to_tracked_col_oracle<F, MvPCS, UvPCS>(
+    col: TrackedColOracle<F, MvPCS, UvPCS>,
+    override_activator: Option<TrackedOracle<F, MvPCS, UvPCS>>,
+) -> TrackedColOracle<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    let field_ref = col.field_ref();
+    let data_oracle = col.data_tracked_oracle();
+    let existing_activator = col.activator_tracked_oracle();
+
+    if let (Some(new_act), Some(existing)) = (&override_activator, &existing_activator) {
+        existing.assert_same_tracker(new_act);
+    }
+
+    let final_activator = match override_activator {
+        Some(act) => Some(act),
+        None => existing_activator,
+    };
+
+    TrackedColOracle::new(data_oracle, final_activator, field_ref)
 }
