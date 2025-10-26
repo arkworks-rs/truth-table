@@ -133,9 +133,18 @@ where
     }
 }
 
-pub struct SortPIOP;
+pub struct SortPIOP<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    _field: std::marker::PhantomData<F>,
+    _mvpcs: std::marker::PhantomData<MvPCS>,
+    _uvpcs: std::marker::PhantomData<UvPCS>,
+}
 
-impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for SortPIOP
+impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for SortPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -150,7 +159,6 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         _input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-
         Ok(())
     }
 
