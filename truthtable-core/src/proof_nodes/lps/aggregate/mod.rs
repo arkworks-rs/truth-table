@@ -39,10 +39,10 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__dbsnark_group_multiplicity";
+pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__truthtable_group_multiplicity";
 const MULTIPLICITY_PLAN_KEY: &str = "multiplicity";
-pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__dbsnark_group_input_folded";
-pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__dbsnark_group_output_folded";
+pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__truthtable_group_input_folded";
+pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__truthtable_group_output_folded";
 
 pub(crate) fn grouping_multiplicity_field() -> Arc<Field> {
     Arc::new(Field::new(
@@ -1087,11 +1087,11 @@ fn build_aggregate_hint_output_plan(
     base_plan: LogicalPlan,
     aggregate_plan: &df::Aggregate,
 ) -> LogicalPlan {
-    const BASE_ALIAS: &str = "__dbsnark_aggr_base";
-    const AGG_ALIAS: &str = "__dbsnark_aggr_values";
-    const POS_COL: &str = "__dbsnark_aggr_pos";
-    const RN_COL: &str = "__dbsnark_aggr_rank";
-    const GROUP_EXPR_PREFIX: &str = "__dbsnark_aggr_group_expr_";
+    const BASE_ALIAS: &str = "__truthtable_aggr_base";
+    const AGG_ALIAS: &str = "__truthtable_aggr_values";
+    const POS_COL: &str = "__truthtable_aggr_pos";
+    const RN_COL: &str = "__truthtable_aggr_rank";
+    const GROUP_EXPR_PREFIX: &str = "__truthtable_aggr_group_expr_";
 
     let base_schema = base_plan.schema().clone();
 
@@ -1277,11 +1277,11 @@ fn build_aggregate_multiplicity_hint_plan(
     base_plan: LogicalPlan,
     aggregate_plan: &df::Aggregate,
 ) -> LogicalPlan {
-    const BASE_ALIAS: &str = "__dbsnark_aggr_base";
-    const AGG_ALIAS: &str = "__dbsnark_aggr_values";
-    const POS_COL: &str = "__dbsnark_aggr_pos";
-    const RN_COL: &str = "__dbsnark_aggr_rank";
-    const GROUP_EXPR_PREFIX: &str = "__dbsnark_aggr_group_expr_";
+    const BASE_ALIAS: &str = "__truthtable_aggr_base";
+    const AGG_ALIAS: &str = "__truthtable_aggr_values";
+    const POS_COL: &str = "__truthtable_aggr_pos";
+    const RN_COL: &str = "__truthtable_aggr_rank";
+    const GROUP_EXPR_PREFIX: &str = "__truthtable_aggr_group_expr_";
 
     let base_schema = base_plan.schema().clone();
 

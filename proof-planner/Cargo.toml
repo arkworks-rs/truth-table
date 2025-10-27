@@ -11,7 +11,7 @@ datafusion-expr = { workspace = true }
 itertools = { workspace = true }
 tokio = { workspace = true }
 tpch-data = { path = "../tpch-data" }
-dbsnark-core = { path = "../dbsnark-core" }
+truthtable-core = { path = "../truthtable-core" }
 arithmetic = { path = "../arithmetic" }
 ark-ff = { workspace = true }
 ark-piop = { workspace = true }

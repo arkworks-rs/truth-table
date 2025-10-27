@@ -8,7 +8,7 @@ use datafusion::{
     optimizer::Analyzer,
     prelude::SessionContext,
 };
-use dbsnark_core::{
+use truthtable_core::{
     prover::trees::proof_tree::ProverProofTree, verifier::trees::proof_tree::VerifierProofTree,
 };
 

@@ -3,7 +3,7 @@
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use dbsnark_core::{
+use truthtable_core::{
     test_display::{
         display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree,
         display_prover_proof_tree, display_prover_tracked_tree,

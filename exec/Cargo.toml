@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dbsnark-core = { path = "../dbsnark-core" }
+truthtable-core = { path = "../truthtable-core" }
 proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
 ark-std = { workspace = true }
@@ -44,7 +44,7 @@ parallel = [
     "arithmetic/parallel",
     "ark-std/parallel",
 
-    "dbsnark-core/parallel",
+    "truthtable-core/parallel",
 ]
-honest-prover = ["ark-piop/honest-prover", "dbsnark-core/honest-prover"]
-test-utils = ["dbsnark-core/test-utils"]
+honest-prover = ["ark-piop/honest-prover", "truthtable-core/honest-prover"]
+test-utils = ["truthtable-core/test-utils"]

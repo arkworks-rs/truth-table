@@ -1,5 +1,5 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/cast.rs and
-// dbsnark-core/src/verifier/nodes/exprs/cast.rs
+// Combined truthtable-core/src/prover/nodes/exprs/cast.rs and
+// truthtable-core/src/verifier/nodes/exprs/cast.rs
 
 use crate::{
     proof_nodes::{

@@ -13,7 +13,7 @@ use datafusion::{
     logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
-use dbsnark_core::{
+use truthtable_core::{
     proof_nodes::id::NodeId,
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,

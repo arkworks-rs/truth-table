@@ -1,5 +1,5 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/case.rs and
-// dbsnark-core/src/verifier/nodes/exprs/case.rs
+// Combined truthtable-core/src/prover/nodes/exprs/case.rs and
+// truthtable-core/src/verifier/nodes/exprs/case.rs
 
 use crate::proof_nodes::{
     cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,

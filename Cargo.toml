@@ -8,7 +8,7 @@ members = [
     "ra-toolbox",
     "tpch-data",
     "exec",
-    "dbsnark-core",
+    "truthtable-core",
     "proof-planner",
 ]
 

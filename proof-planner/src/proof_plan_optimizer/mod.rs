@@ -2,7 +2,7 @@ use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::arithmetic::mat_poly::{lde::LDE, mle::MLE};
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{catalog::Session, logical_expr::LogicalPlan, prelude::SessionContext};
-use dbsnark_core::{
+use truthtable_core::{
     proof_nodes::id::NodeId, prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
 };

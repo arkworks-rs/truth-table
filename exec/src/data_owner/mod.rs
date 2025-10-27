@@ -13,7 +13,7 @@ use ark_piop::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use dbsnark_core::{
+use truthtable_core::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,

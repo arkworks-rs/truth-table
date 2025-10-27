@@ -1,5 +1,5 @@
-// Combined dbsnark-core/src/prover/nodes/exprs/aggregate_function.rs and
-// dbsnark-core/src/verifier/nodes/exprs/aggregate_function.rs
+// Combined truthtable-core/src/prover/nodes/exprs/aggregate_function.rs and
+// truthtable-core/src/verifier/nodes/exprs/aggregate_function.rs
 
 use crate::{
     proof_nodes::{
