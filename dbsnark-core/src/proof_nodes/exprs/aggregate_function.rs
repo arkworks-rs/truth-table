@@ -256,14 +256,7 @@ where
                 )
             });
         let input_col: TrackedCol<F, MvPCS, UvPCS> = input_table.tracked_col_by_ind(0);
-        dbg!(
-            output_folded_col
-                .activator_tracked_poly()
-                .unwrap()
-                .evaluations()
-                .iter()
-                .sum::<F>()
-        );
+
         let piop_input = AggregateFunctionPIOPProverInput {
             aggregate: aggregate_expr,
             input_folded_col,

@@ -6,6 +6,7 @@ use crate::{
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -22,12 +23,10 @@ use std::sync::Arc;
 pub struct ProverTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 pub struct VerifierTableScanNode {
     pub plan: LogicalPlan,
     pub node_id: NodeId,
-    pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
 }
 
 // TODO: Add the table scan output comitments (the root ones) in the prover
@@ -47,16 +46,15 @@ where
     where
         Self: Sized,
     {
-        let mut hint_generation_plans = IndexMap::new();
-
-        hint_generation_plans.insert(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
+        debug_assert!(
+            plan.schema()
+                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+                .is_ok(),
+            "table scan plan missing activator column"
         );
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
-            hint_generation_plans,
         }
     }
 
@@ -72,7 +70,13 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        self.hint_generation_plans.clone()
+        let mut hint_generation_plans = IndexMap::new();
+
+        hint_generation_plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), self.plan.clone()),
+        );
+        hint_generation_plans
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -129,16 +133,15 @@ where
     where
         Self: Sized,
     {
-        let mut hint_generation_plans = IndexMap::new();
-
-        hint_generation_plans.insert(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
+        debug_assert!(
+            plan.schema()
+                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+                .is_ok(),
+            "table scan plan missing activator column"
         );
         Self {
             plan: plan.clone(),
             node_id: NodeId::LP(plan),
-            hint_generation_plans,
         }
     }
 
@@ -154,7 +157,13 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        self.hint_generation_plans.clone()
+        let mut hint_generation_plans = IndexMap::new();
+
+        hint_generation_plans.insert(
+            OUTPUT_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), self.plan.clone()),
+        );
+        hint_generation_plans
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {

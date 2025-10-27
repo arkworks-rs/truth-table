@@ -200,11 +200,8 @@ fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
             verifier.set_proof(proof);
             let verifier_proof_tree =
                 VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan, &NodeId::None);
-            let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
-                verifier_proof_tree.clone(),
-                shared_ctx,
-                &mut verifier,
-            );
+            let verifier_tracked_tree =
+                VerifierTrackedTree::from_proof_tree(verifier_proof_tree.clone(), &mut verifier);
             let mut verifier_piop_tree =
                 VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
             let flattened = verifier_piop_tree.proof_tree().clone().flatten();

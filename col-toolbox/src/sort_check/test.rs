@@ -69,14 +69,14 @@ fn sort_check_with_actv_is_complete() -> SnarkResult<()> {
         false,
     )?;
     sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        to_field_vec!([100,2,4,80,70,85,90,50], Fr),
+        to_field_vec!([100, 2, 4, 80, 70, 85, 90, 50], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
         false,
         true,
     )?;
-        sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        to_field_vec!([100,2,4,80,70,85,90,70], Fr),
+    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        to_field_vec!([100, 2, 4, 80, 70, 85, 90, 70], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
         false,
@@ -102,7 +102,6 @@ fn sort_check_is_sound() -> SnarkResult<()> {
         false,
         true,
     )?;
-
 
     Ok(())
 }

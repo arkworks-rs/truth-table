@@ -24,7 +24,7 @@ use datafusion::{
     prelude::{SessionContext, col},
 };
 use indexmap::IndexMap;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 #[cfg(test)]
 mod tests;
@@ -36,6 +36,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub expr_prover_nodes: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub activator_expr_indexes: Vec<usize>,
     pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
     pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
@@ -47,6 +48,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     pub expr_verifier_nodes: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    pub activator_expr_indexes: Vec<usize>,
     pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
     pub hint_generation_plans: IndexMap<String, HintGenerationPlan>,
@@ -142,6 +144,20 @@ where
         // Build the node id for this projection node
         let node_id = NodeId::LP(plan.clone());
 
+        let activator_expr_indexes: Vec<usize> = projection
+            .schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, field)| {
+                if field.name() == ACTIVATOR_COL_NAME {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
         let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
@@ -173,6 +189,7 @@ where
 
         Self {
             expr_prover_nodes,
+            activator_expr_indexes,
             input_prover_node,
             node_id,
             hint_generation_plans,
@@ -217,6 +234,18 @@ where
             Some(tables) => tables,
             None => return,
         };
+
+        let activator_indexes: HashSet<_> = self.activator_expr_indexes.iter().copied().collect();
+        let expr_tables: Vec<_> = expr_tables
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| !activator_indexes.contains(idx))
+            .map(|(_, table)| table)
+            .collect();
+
+        if expr_tables.is_empty() {
+            return;
+        }
 
         let table_size = expr_tables[0].size();
         let table_log_size = expr_tables[0].log_size();
@@ -336,6 +365,20 @@ where
 
         let node_id = NodeId::LP(plan.clone());
 
+        let activator_expr_indexes: Vec<usize> = projection
+            .schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, field)| {
+                if field.name() == ACTIVATOR_COL_NAME {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
         let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
@@ -366,6 +409,7 @@ where
 
         Self {
             expr_verifier_nodes,
+            activator_expr_indexes,
             input_verifier_node,
             node_id,
             hint_generation_plans,
@@ -402,6 +446,18 @@ where
             Some(tables) => tables,
             None => return,
         };
+
+        let activator_indexes: HashSet<_> = self.activator_expr_indexes.iter().copied().collect();
+        let expr_tables: Vec<_> = expr_tables
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| !activator_indexes.contains(idx))
+            .map(|(_, table)| table)
+            .collect();
+
+        if expr_tables.is_empty() {
+            return;
+        }
 
         let table_log_size = expr_tables[0].log_size();
         if expr_tables

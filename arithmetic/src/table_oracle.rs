@@ -266,8 +266,10 @@ where
 #[derivative(
     Clone(bound = "MvPCS: PCS<F>"),
     PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "MvPCS: PCS<F>"),
     Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>")
+    PartialEq(bound = "UvPCS: PCS<F>"),
+    Debug(bound = "UvPCS: PCS<F>")
 )]
 /// An abstraction of an oracle to an arithmetized table in dbSNARK
 /// An arithmetic table might not be tracked and can be serialized and

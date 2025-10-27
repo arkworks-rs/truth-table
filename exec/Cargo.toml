@@ -19,6 +19,7 @@ bincode = "1"
 either.workspace = true
 clap = { version = "4", features = ["derive"] }
 rayon = { workspace = true, optional = true }
+indexmap = { workspace = true }
 [dev-dependencies]
 ark-test-curves.workspace = true
 divan.workspace = true
@@ -45,8 +46,5 @@ parallel = [
 
     "dbsnark-core/parallel",
 ]
-honest-prover = [
-    "ark-piop/honest-prover",
-    "dbsnark-core/honest-prover",
-]
+honest-prover = ["ark-piop/honest-prover", "dbsnark-core/honest-prover"]
 test-utils = ["dbsnark-core/test-utils"]

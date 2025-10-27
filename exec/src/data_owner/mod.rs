@@ -5,30 +5,22 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use arithmetic::{
-    ctx::SharedCtx,
-    table_oracle::{ArithTableOracle, TrackedTableOracle},
-};
+use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
-    test_utils::{bench_prelude, test_prelude},
+    test_utils::test_prelude,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    logical_expr::LogicalPlanBuilder,
-    prelude::{ParquetReadOptions, SessionContext},
-};
+use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use dbsnark_core::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree,
-        hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree,
-        proof_tree::ProverProofTree,
-        tracked_tree::{self, ProverTrackedTree},
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
     },
 };
+use proof_planner::create_prover_proof_tree;
 use tokio::runtime::Runtime;
 
 type F = Fr;
@@ -61,21 +53,11 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
         .await
         .context("failed to register parquet")?;
 
-        let logical_plan = ctx
-            .table(&table_name)
-            .await
-            .context("failed to build logical plan")?
-            .into_unoptimized_plan();
+        let query = format!("SELECT * FROM {table_name}");
 
         let (mut prover, mut verifier) =
             test_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
-        let prover_ctx = SharedCtx::default();
-        let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            &ctx,
-            prover_ctx,
-            &logical_plan,
-            &NodeId::None,
-        );
+        let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, &query).await;
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
@@ -179,7 +161,7 @@ pub fn commit_parquet_serializes_oracle(parquet_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::commit_parquet_serializes_oracle;
-    use tpch_data::{bench_data_path, test_data_path};
+    use tpch_data::test_data_path;
 
     #[test]
     #[ignore = "Takes too long"]

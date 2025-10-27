@@ -80,14 +80,14 @@ pub mod helper {
 
     pub async fn prove_and_verify_query(
         ctx: &SessionContext,
-        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        prover_proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
         verifier_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
     ) {
         init_tracing_for_tests();
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().expect("prepare prover and verifier");
 
-        let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
+        let hint_tree = ProverHintTree::from_proof_tree(&ctx, prover_proof_tree.clone())
             .await
             .expect("build prover hint tree");
         let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
@@ -106,46 +106,26 @@ pub mod helper {
             }
         }
         let arith_snapshot = arith_tree.arithmetized_tables().clone();
+        // Sync
         let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
             .expect("build tracked tree");
+        // Not Sync
         let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-
         piop_tree.prove(&mut prover).expect("prove piop tree");
         let mv_param = prover.mv_pcs_prover_param();
         let proof = prover.build_proof().expect("construct proof");
 
-        let mut table_oracle_map = IndexMap::new();
-        for (node_id, tables) in arith_snapshot {
-            if matches!(node_id, NodeId::LP(LogicalPlan::TableScan(_))) {
-                for arith_table in tables.values() {
-                    let Some(schema) = arith_table.schema() else {
-                        continue;
-                    };
-                    let mut commitments = IndexMap::new();
-                    for (field_ref, poly) in arith_table.polynomials() {
-                        let commitment = MvPCS::commit(Arc::clone(&mv_param), poly)
-                            .expect("commit table column");
-                        commitments.insert(field_ref.clone(), commitment);
-                    }
-                    let oracle = ArithTableOracle::<F, MvPCS, UvPCS>::new(
-                        Some(schema.clone()),
-                        commitments,
-                        arith_table.log_size(),
-                    );
-                    table_oracle_map.insert(schema, oracle);
-                }
-            }
-        }
-        let verifier_ctx = SharedCtx::new(table_oracle_map);
-
         verifier.set_proof(proof);
+        // Sync
         let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
             verifier_proof_tree.clone(),
-            verifier_ctx.clone(),
             &mut verifier,
         );
+        // Not Sync
+
         let mut verifier_piop_tree =
             VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
+
         verifier_piop_tree
             .verify(&mut verifier)
             .expect("verify piop tree");

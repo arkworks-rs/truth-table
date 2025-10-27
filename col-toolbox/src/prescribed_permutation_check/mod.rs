@@ -51,9 +51,10 @@ pub fn shift_permutation_mle<F: PrimeField>(log_size: usize, shift: usize, right
     MLE::from_evaluations_vec(log_size, evals)
 }
 
-/// Builds an oracle representing the cyclic permutation shift without materialising
-/// the dense MLE. Everything that only depends on `log_size`, `shift`, and `right`
-/// is pre-computed up front so that the closure only performs point-dependent work.
+/// Builds an oracle representing the cyclic permutation shift without
+/// materialising the dense MLE. Everything that only depends on `log_size`,
+/// `shift`, and `right` is pre-computed up front so that the closure only
+/// performs point-dependent work.
 pub fn shift_permutation_oracle<F: PrimeField>(
     log_size: usize,
     shift: usize,
@@ -61,7 +62,11 @@ pub fn shift_permutation_oracle<F: PrimeField>(
 ) -> Oracle<F> {
     // Domain size of the Boolean hypercube (2^log_size) and normalized shift.
     let domain_size = 1usize << log_size;
-    let shift_mod = if domain_size == 0 { 0 } else { shift % domain_size };
+    let shift_mod = if domain_size == 0 {
+        0
+    } else {
+        shift % domain_size
+    };
 
     // Pre-compute the weights of the sparse range polynomial Σ x_i · 2^i.
     let mut weights = Vec::with_capacity(log_size);
@@ -132,7 +137,8 @@ pub fn shift_permutation_oracle<F: PrimeField>(
 }
 
 /// Evaluates a polynomial that outputs 1 when `vars` encodes an integer that is
-/// greater than or equal to the threshold defined by `threshold_bits` (LSB first).
+/// greater than or equal to the threshold defined by `threshold_bits` (LSB
+/// first).
 fn evaluate_ge_bits<F: PrimeField>(vars: &[F], threshold_bits: &[bool]) -> F {
     let one = F::one();
     let mut prefix_equal = F::one();

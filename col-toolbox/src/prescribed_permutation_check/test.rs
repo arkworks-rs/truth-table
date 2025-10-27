@@ -6,13 +6,13 @@ use ark_piop::{
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
+    verifier::structs::oracle::InnerOracle,
 };
-use ark_piop::verifier::structs::oracle::InnerOracle;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
 use super::{
-    shift_permutation_mle, shift_permutation_oracle, PrescribedPermutationPIOP,
-    PrescribedPermutationPIOPProverInput, PrescribedPermutationPIOPVerifierInput,
+    PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
+    PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
 };
 
 #[test]
@@ -34,7 +34,6 @@ fn prescribed_permutation_is_complete() -> SnarkResult<()> {
         to_field_vec!([11, 9], Fr),
         to_field_vec!([1, 0], Fr),
     )?;
-
 
     Ok(())
 }
@@ -100,7 +99,7 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
 
 fn prescribed_permutation_test_helper<
     Fr: PrimeField,
-   MvPCS: PCS<Fr, Poly = MLE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
     UvPCS: PCS<Fr, Poly = LDE<Fr>>,
 >(
     left_vals: Vec<Fr>,

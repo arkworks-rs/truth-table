@@ -5,8 +5,9 @@ use datafusion::{
     logical_expr::LogicalPlan,
     optimizer::{
         analyzer::{
-            function_rewrite::ApplyFunctionRewrites,
-            resolve_grouping_function::ResolveGroupingFunction, AnalyzerRule,
+            expand_wildcard_rule::ExpandWildcardRule, function_rewrite::ApplyFunctionRewrites,
+            inline_table_scan::InlineTableScan, resolve_grouping_function::ResolveGroupingFunction,
+            type_coercion::TypeCoercion, AnalyzerRule,
         },
         Analyzer,
     },
@@ -18,7 +19,10 @@ use self::type_coercion::CustomizedTypeCoercion;
 pub(crate) fn logical_plan_analyzer_rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
     vec![
         Arc::new(ApplyFunctionRewrites::default()),
+        Arc::new(InlineTableScan::new()),
+        Arc::new(ExpandWildcardRule::new()),
         Arc::new(ResolveGroupingFunction::new()),
+        // Arc::new(TypeCoercion::new()),
         Arc::new(CustomizedTypeCoercion::new()),
     ]
 }

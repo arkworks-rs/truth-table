@@ -3,7 +3,11 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::{execution::SessionState, prelude::SessionContext};
+use datafusion::{
+    execution::{session_state::SessionStateBuilder, SessionState},
+    optimizer::Analyzer,
+    prelude::SessionContext,
+};
 use dbsnark_core::{
     prover::trees::proof_tree::ProverProofTree, verifier::trees::proof_tree::VerifierProofTree,
 };
@@ -17,6 +21,21 @@ use crate::{
 pub mod logical_plan_analyzer;
 pub mod logical_plan_optimizer;
 pub mod proof_plan_optimizer;
+
+/// Create a new `SessionContext` configured with the custom logical-plan
+/// analyzer.
+pub fn new_session_context_with_custom_analyzer() -> SessionContext {
+    let base_ctx = SessionContext::new();
+    let base_state = base_ctx.state();
+    let mut builder = SessionStateBuilder::new_from_existing(base_state.clone());
+
+    let mut analyzer = Analyzer::with_rules(logical_plan_analyzer_rules());
+    analyzer.function_rewrites = base_state.analyzer().function_rewrites.clone();
+    builder.analyzer().replace(analyzer);
+
+    let state = builder.build();
+    SessionContext::new_with_state(state)
+}
 
 pub async fn create_prover_proof_tree<F, MvPCS, UvPCS>(
     df_session_ctx: &SessionContext,

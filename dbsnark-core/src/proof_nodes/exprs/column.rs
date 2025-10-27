@@ -80,14 +80,20 @@ where
             None => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![Expr::Column(column_expr)];
-        if base_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
+        let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
+        // if base_plan
+        //     .schema()
+        //     .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        //     .is_ok()
+        //     && !projection_exprs.iter().any(|expr| {
+        //         matches!(
+        //             expr,
+        //             Expr::Column(col) if col.name() == ACTIVATOR_COL_NAME
+        //         )
+        //     })
+        // {
+        //     projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        // }
 
         let output_plan = LogicalPlanBuilder::from(base_plan.clone())
             .project(projection_exprs)
@@ -260,14 +266,20 @@ where
             None => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![Expr::Column(column_expr)];
-        if base_plan
-            .schema()
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .is_ok()
-        {
-            projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        }
+        let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
+        // if base_plan
+        //     .schema()
+        //     .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        //     .is_ok()
+        //     && !projection_exprs.iter().any(|expr| {
+        //         matches!(
+        //             expr,
+        //             Expr::Column(col) if col.name() == ACTIVATOR_COL_NAME
+        //         )
+        //     })
+        // {
+        //     projection_exprs.push(col(ACTIVATOR_COL_NAME));
+        // }
 
         let output_plan = LogicalPlanBuilder::from(base_plan)
             .project(projection_exprs)

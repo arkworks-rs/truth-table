@@ -3,11 +3,12 @@
 // are a permutation of the activated elements of another column.
 #[cfg(test)]
 mod test;
+use crate::sign_check::{self, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
+    errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{
@@ -24,8 +25,6 @@ use ark_poly::Polynomial;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef};
 use derivative::Derivative;
 use std::{marker::PhantomData, sync::Arc};
-use ark_piop::errors::SnarkError;
-use crate::sign_check::{self, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
 // Convinces the verifier that
 pub struct PredicateLimitCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
@@ -101,13 +100,11 @@ where
         let log_size = predicate.log_size();
         let total_len = 1usize << log_size;
 
-
         let cutoff_idx = if limit == 0 {
             None
         } else {
             Self::nth_non_zero_index(predicate, limit)
         };
-
 
         let mut mask = vec![F::zero(); total_len];
         if let Some(idx) = cutoff_idx {

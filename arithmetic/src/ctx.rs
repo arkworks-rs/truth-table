@@ -4,10 +4,20 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::arrow::datatypes::Schema;
+use derivative::Derivative;
 use indexmap::IndexMap;
+use serde::de;
 
 use crate::table_oracle::ArithTableOracle;
-#[derive(Clone)]
+#[derive(Derivative)]
+#[derivative(
+    Clone(bound = "MvPCS: PCS<F>"),
+    PartialEq(bound = "MvPCS: PCS<F>"),
+    Debug(bound = "MvPCS: PCS<F>"),
+    Clone(bound = "UvPCS: PCS<F>"),
+    PartialEq(bound = "UvPCS: PCS<F>"),
+    Debug(bound = "UvPCS: PCS<F>")
+)]
 pub struct SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,

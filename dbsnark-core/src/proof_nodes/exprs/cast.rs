@@ -121,11 +121,9 @@ where
         };
 
         if let Some(Expr::Literal(scalar)) = self.input.node_id().to_expr() {
-            dbg!(cast_expr.data_type.clone());
             let scalar = scalar
                 .cast_to(&cast_expr.data_type)
                 .expect("failed to cast literal value for cast expression");
-            dbg!(scalar.clone());
             let array = scalar
                 .to_array()
                 .expect("failed to convert scalar into arrow array");
@@ -141,7 +139,6 @@ where
             }
 
             let constant_value = column_values.pop().unwrap_or_else(F::zero);
-            dbg!(&constant_value);
             let log_size = {
                 let ctx_node = self.ctx_lp_node(piop_tree.proof_tree());
                 piop_tree
