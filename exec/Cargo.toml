@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 dbsnark-core = { path = "../dbsnark-core" }
+proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
+ark-std = { workspace = true }
 ark-piop = { workspace = true, features = ["test-utils"] }
 ark-ff.workspace = true
 ark-serialize = { workspace = true }
@@ -16,6 +18,35 @@ anyhow = "1"
 bincode = "1"
 either.workspace = true
 clap = { version = "4", features = ["derive"] }
+rayon = { workspace = true, optional = true }
 [dev-dependencies]
+ark-test-curves.workspace = true
 divan.workspace = true
 tpch-data = { path = "../tpch-data" }
+
+# [[bench]]
+# name = "prover"
+# harness = false
+# [[bench]]
+# name = "verifier"
+# harness = false
+
+[features]
+default = ["std", "parallel"]
+std = []
+parallel = [
+    "std",
+    "rayon",
+    "ark-ff/parallel",
+    "ark-serialize/parallel",
+    "ark-piop/parallel",
+    "arithmetic/parallel",
+    "ark-std/parallel",
+
+    "dbsnark-core/parallel",
+]
+honest-prover = [
+    "ark-piop/honest-prover",
+    "dbsnark-core/honest-prover",
+]
+test-utils = ["dbsnark-core/test-utils"]

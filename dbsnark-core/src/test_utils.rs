@@ -1,8 +1,13 @@
+use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
+    common::Column,
     error::{Result, Result as DFResult},
-    logical_expr::{LogicalPlan, LogicalPlanBuilder},
+    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
+    optimizer::{Optimizer, OptimizerContext, OptimizerRule},
     prelude::{ParquetReadOptions, SessionContext},
+    scalar::ScalarValue,
 };
+use datafusion_expr::expr::BinaryExpr as DFBinaryExpr;
 use tpch_data::test_data_path;
 pub async fn test_df_plan(
     ctx: &SessionContext,
@@ -27,8 +32,22 @@ pub async fn test_df_plan(
         .await?;
     }
     let state = ctx.state();
-    let plan = state.create_logical_plan(query).await?;
-    // let plan = state.optimize(&plan).unwrap();
+    let mut plan = state.create_logical_plan(query).await?;
+    let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![];
+
+    let optimizer = Optimizer::with_rules(rules);
+
+    let config = OptimizerContext::new().with_max_passes(16);
+
+    let plan = optimizer.optimize(plan.clone(), &config, observer)?;
+
+    fn observer(plan: &LogicalPlan, rule: &dyn OptimizerRule) {
+        println!(
+            "After applying rule '{}':\n{}",
+            rule.name(),
+            plan.display_indent()
+        )
+    }
     Ok(plan)
 }
 use std::sync::Arc;
@@ -51,7 +70,6 @@ use ark_piop::{
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use indexmap::IndexMap;
-use tokio::runtime::Runtime;
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
@@ -60,46 +78,17 @@ type UvPCS = KZG10<Bls12_381>;
 pub mod helper {
     use super::*;
 
-    pub fn prove_and_verify_query(sql: &str, table: &str) {
+    pub async fn prove_and_verify_query(
+        ctx: &SessionContext,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+        verifier_proof_tree: VerifierProofTree<F, MvPCS, UvPCS>,
+    ) {
         init_tracing_for_tests();
-
-        let runtime = Runtime::new().expect("create tokio runtime");
-        let ctx = SessionContext::new();
-
-        let parquet_path = test_data_path(format!("{table}.parquet"));
-        assert!(
-            parquet_path.exists(),
-            "missing parquet for {table} at {}",
-            parquet_path.display()
-        );
-
-        runtime.block_on(async {
-            ctx.register_parquet(
-                table,
-                parquet_path
-                    .to_str()
-                    .expect("parquet path should be valid UTF-8"),
-                ParquetReadOptions::default(),
-            )
-            .await
-            .expect("register parquet table");
-        });
-
-        let logical_plan =
-            runtime.block_on(async { ctx.state().create_logical_plan(sql).await.unwrap() });
-
         let (mut prover, mut verifier) =
             bench_prelude::<F, MvPCS, UvPCS>().expect("prepare prover and verifier");
 
-        let prover_ctx = SharedCtx::default();
-        let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            &ctx,
-            prover_ctx.clone(),
-            &logical_plan,
-            &NodeId::None,
-        );
-        let hint_tree = runtime
-            .block_on(ProverHintTree::from_proof_tree(&ctx, proof_tree.clone()))
+        let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree.clone())
+            .await
             .expect("build prover hint tree");
         let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
             .expect("build arithmetized tree");
@@ -150,8 +139,6 @@ pub mod helper {
         let verifier_ctx = SharedCtx::new(table_oracle_map);
 
         verifier.set_proof(proof);
-        let verifier_proof_tree =
-            VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan, &NodeId::None);
         let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
             verifier_proof_tree.clone(),
             verifier_ctx.clone(),

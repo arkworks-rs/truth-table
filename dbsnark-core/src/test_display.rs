@@ -1,8 +1,11 @@
 use crate::{
     proof_nodes::id::NodeId,
     prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+        arithmetized_tree::ProverArithmetizedTree,
+        hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree,
+        proof_tree::{self, ProverProofTree},
+        tracked_tree::ProverTrackedTree,
     },
     test_utils::test_df_plan,
 };
@@ -23,13 +26,8 @@ type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
-pub async fn display_prover_proof_tree(tables: &[&str], query: &str) {
+pub async fn display_prover_proof_tree(proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) {
     init_tracing_for_tests();
-    let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
-    let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
     proof_tree
         .arena()
         .values()
@@ -38,15 +36,13 @@ pub async fn display_prover_proof_tree(tables: &[&str], query: &str) {
     println!("{}", proof_tree.display_graphviz());
 }
 
-pub async fn display_prover_hint_tree(tables: &[&str], query: &str) {
+pub async fn display_prover_hint_tree(
+    ctx: &SessionContext,
+    proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+) {
     init_tracing_for_tests();
-    let ctx = SessionContext::new();
 
-    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
-    let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+    let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();
     hint_tree.arena().keys().for_each(|v| println!("{}", v));
@@ -54,13 +50,11 @@ pub async fn display_prover_hint_tree(tables: &[&str], query: &str) {
     println!("{}", hint_tree.display_graphviz());
 }
 
-pub async fn display_prover_arithmetized_tree(tables: &[&str], query: &str) {
-    let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
-    let prover_ctx = SharedCtx::default();
-    let proof_tree: ProverProofTree<F, MvPCS, UvPCS> =
-        ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+pub async fn display_prover_arithmetized_tree(
+    ctx: &SessionContext,
+    proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+) {
+    let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();
     let arith_tree = ProverArithmetizedTree::from_hint_tree(hint_tree).unwrap();
@@ -72,30 +66,11 @@ pub async fn display_prover_arithmetized_tree(tables: &[&str], query: &str) {
     println!("{}", arith_tree.display_graphviz());
 }
 
-pub async fn display_prover_tracked_tree(tables: &[&str], query: &str) {
-    let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
-
-    let mut table_oracles = IndexMap::new();
-    for table in tables {
-        let oracle_path = test_data_path(format!("{table}.oracle"));
-        if !oracle_path.exists() {
-            continue;
-        }
-        let table_oracle_file = File::open(&oracle_path).expect("open table oracle commitment");
-        let mut reader = BufReader::new(table_oracle_file);
-        let table_serializable =
-            ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-                .expect("deserialize table oracle");
-        if let Some(schema) = table_serializable.schema() {
-            table_oracles.insert(schema, table_serializable);
-        }
-    }
-
-    let prover_ctx = SharedCtx::new(table_oracles);
-
-    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+pub async fn display_prover_tracked_tree(
+    ctx: &SessionContext,
+    proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+) {
+    let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();
@@ -106,12 +81,11 @@ pub async fn display_prover_tracked_tree(tables: &[&str], query: &str) {
     println!("{}", tracked_tree.display_graphviz());
 }
 
-pub async fn display_prover_piop_tree(tables: &[&str], query: &str) {
-    let ctx = SessionContext::new();
-    let plan = test_df_plan(&ctx, query, tables).await.unwrap();
-    let prover_ctx = SharedCtx::default();
-    let proof_tree = ProverProofTree::from_lp(&ctx, prover_ctx, &plan, &NodeId::None);
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+pub async fn display_prover_piop_tree(
+    ctx: &SessionContext,
+    proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+) {
+    let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree).unwrap();

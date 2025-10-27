@@ -174,6 +174,31 @@ where
             output_table,
         } = input;
 
+        #[cfg(feature = "honest-prover")]
+        {
+            eprintln!("SortPIOP input table preview:");
+            for (field, poly) in input_table.tracked_polys_iter() {
+                let preview: Vec<String> = poly
+                    .evaluations()
+                    .iter()
+                    .take(5)
+                    .map(|v| format!("{:?}", v.into_bigint()))
+                    .collect();
+                eprintln!("  {}: {:?}", field.name(), preview);
+            }
+
+            eprintln!("SortPIOP output table preview:");
+            for (field, poly) in output_table.tracked_polys_iter() {
+                let preview: Vec<String> = poly
+                    .evaluations()
+                    .iter()
+                    .take(5)
+                    .map(|v| format!("{:?}", v.into_bigint()))
+                    .collect();
+                eprintln!("  {}: {:?}", field.name(), preview);
+            }
+        }
+
         assert_eq!(
             input_sort_exprs.len(),
             output_sort_exprs.len(),

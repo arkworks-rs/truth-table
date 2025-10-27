@@ -46,9 +46,3 @@ parallel = [
 honest-prover = ["ra-toolbox/honest-prover", "ark-piop/honest-prover"]
 test-utils = ["tpch-data"]
 
-[[bench]]
-name = "prover"
-harness = false
-[[bench]]
-name = "verifier"
-harness = false

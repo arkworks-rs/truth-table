@@ -1,0 +1,21 @@
+[package]
+name = "proof-planner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ark-serialize = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-expr = { workspace = true }
+itertools = { workspace = true }
+tokio = { workspace = true }
+tpch-data = { path = "../tpch-data" }
+dbsnark-core = { path = "../dbsnark-core" }
+arithmetic = { path = "../arithmetic" }
+ark-ff = { workspace = true }
+ark-piop = { workspace = true }
+indexmap = { workspace = true }
+[dev-dependencies]
+
+ark-test-curves = { workspace = true }

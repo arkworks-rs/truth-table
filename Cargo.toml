@@ -9,6 +9,7 @@ members = [
     "tpch-data",
     "exec",
     "dbsnark-core",
+    "proof-planner",
 ]
 
 # Add dependencies here
@@ -34,6 +35,8 @@ rand_chacha = { version = "0.9.0", default-features = false }
 datafusion = { version = "46.0.0", default-features = false, features = [
     "serde",
 ] }
+datafusion-expr = { version = "46.0.0" }
+datafusion-common = { version = "46.0.0" }
 datafusion-functions-aggregate = "46.0.1"
 tokio = { version = "^1.41.0", features = ["rt", "macros", "rt-multi-thread"] }
 merlin = { version = "3.0.0", default-features = false }

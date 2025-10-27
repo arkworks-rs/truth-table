@@ -145,10 +145,14 @@ where
             .aggr_expr
             .iter()
             .map(|expr| {
-                if !matches!(expr, Expr::AggregateFunction(_)) {
+                let is_valid_aggregate = match expr {
+                    Expr::AggregateFunction(_) => true,
+                    Expr::Alias(alias) => matches!(alias.expr.as_ref(), Expr::AggregateFunction(_)),
+                    _ => false,
+                };
+                if !is_valid_aggregate {
                     panic!(
-                        "expected aggregate expression to be AggregateFunction, got
-        {expr}"
+                        "expected aggregate expression to be AggregateFunction (optionally wrapped in an alias), got {expr}"
                     );
                 }
                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
@@ -199,6 +203,7 @@ where
             _ => panic!("expected aggregate logical plan"),
         };
 
+        // The base plan is taken from the input proof tree node's OUTPUT_PLAN hint.
         let base_plan = proof_tree
             .node(&self.input_proof_tree_root.node_id())
             .and_then(|node| {
@@ -534,21 +539,42 @@ where
         );
         let multiplicity_log_size = grouping_multiplicity_tracked_poly.log_size();
         let multiplicity_field = grouping_multiplicity_field();
-        let mut columns = IndexMap::new();
-        columns.insert(multiplicity_field, grouping_multiplicity_tracked_poly);
-        columns.insert(
+        let mut auxiliary_out_columns = IndexMap::new();
+        let mut auxiliary_in_columns = IndexMap::new();
+        auxiliary_in_columns.insert(
             grouping_input_folded_field(),
             input_folded_tracked_col.data_tracked_poly(),
         );
-        columns.insert(
+        if input_folded_tracked_col.activator_tracked_poly().is_some() {
+            auxiliary_in_columns.insert(
+                Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Binary, true)),
+                input_folded_tracked_col.activator_tracked_poly().unwrap(),
+            );
+        }
+        auxiliary_out_columns.insert(multiplicity_field, grouping_multiplicity_tracked_poly);
+        auxiliary_out_columns.insert(
             grouping_output_folded_field(),
             output_folded_tracked_col.data_tracked_poly(),
         );
-        let auxiliary_table = TrackedTable::new(None, columns, multiplicity_log_size);
+        if output_folded_tracked_col.activator_tracked_poly().is_some() {
+            auxiliary_out_columns.insert(
+                Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Binary, true)),
+                output_folded_tracked_col.activator_tracked_poly().unwrap(),
+            );
+        }
+        let auxiliary_in_table =
+            TrackedTable::new(None, auxiliary_in_columns, multiplicity_log_size);
+        let auxiliary_out_table =
+            TrackedTable::new(None, auxiliary_out_columns, multiplicity_log_size);
         piop_tree.add_table(
             self.node_id.clone(),
-            "auxiliary".to_string(),
-            auxiliary_table,
+            "auxiliary_in".to_string(),
+            auxiliary_in_table,
+        );
+        piop_tree.add_table(
+            self.node_id.clone(),
+            "auxiliary_out".to_string(),
+            auxiliary_out_table,
         );
         self.children()
             .iter()
@@ -616,10 +642,15 @@ where
             .collect();
 
         for expr in &aggregate.aggr_expr {
-            if !matches!(expr, Expr::AggregateFunction(_)) {
+            let is_valid_aggregate = match expr {
+                Expr::AggregateFunction(_) => true,
+                Expr::Alias(alias) => matches!(alias.expr.as_ref(), Expr::AggregateFunction(_)),
+                _ => false,
+            };
+
+            if !is_valid_aggregate {
                 panic!(
-                    "expected aggregate expression to be AggregateFunction, got
-        {expr}"
+                    "expected aggregate expression to be AggregateFunction (optionally wrapped in an alias), got {expr}"
                 );
             }
         }
@@ -989,21 +1020,42 @@ where
         );
         let multiplicity_log_size = grouping_multiplicity_tracked_oracle.log_size();
         let multiplicity_field = grouping_multiplicity_field();
-        let mut columns = IndexMap::new();
-        columns.insert(multiplicity_field, grouping_multiplicity_tracked_oracle);
-        columns.insert(
+        let mut auxiliary_out_columns = IndexMap::new();
+        let mut auxiliary_in_columns = IndexMap::new();
+        auxiliary_in_columns.insert(
             grouping_input_folded_field(),
             input_folded_tracked_col_oracle.data_tracked_oracle(),
         );
-        columns.insert(
+        if let Some(activator) = input_folded_tracked_col_oracle.activator_tracked_oracle() {
+            auxiliary_in_columns.insert(
+                Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Binary, true)),
+                activator,
+            );
+        }
+        auxiliary_out_columns.insert(multiplicity_field, grouping_multiplicity_tracked_oracle);
+        auxiliary_out_columns.insert(
             grouping_output_folded_field(),
             output_folded_tracked_col_oracle.data_tracked_oracle(),
         );
-        let auxiliary_table = TrackedTableOracle::new(None, columns, multiplicity_log_size);
+        if let Some(activator) = output_folded_tracked_col_oracle.activator_tracked_oracle() {
+            auxiliary_out_columns.insert(
+                Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Binary, true)),
+                activator,
+            );
+        }
+        let auxiliary_in_table =
+            TrackedTableOracle::new(None, auxiliary_in_columns, multiplicity_log_size);
+        let auxiliary_out_table =
+            TrackedTableOracle::new(None, auxiliary_out_columns, multiplicity_log_size);
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
-            "auxiliary".to_string(),
-            auxiliary_table,
+            "auxiliary_in".to_string(),
+            auxiliary_in_table,
+        );
+        piop_tree.add_tracked_table_oracle(
+            self.node_id.clone(),
+            "auxiliary_out".to_string(),
+            auxiliary_out_table,
         );
 
         self.children()

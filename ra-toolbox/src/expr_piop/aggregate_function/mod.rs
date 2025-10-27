@@ -1,4 +1,5 @@
 use crate::expr_piop::impl_expr_piop_deep_clone;
+use std::collections::BTreeMap;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{PrimeField, Zero};
 use ark_piop::{
@@ -149,8 +150,79 @@ where
 
         match aggregate.func.name() {
             // Some wirings need to be done for the count
-            "count" => Ok(()),
+            "count" => {
+                dbg!(
+                    input_folded_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .sum::<F>()
+                );
+                dbg!(
+                    output_folded_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, j)| j.is_one())
+                        .collect::<Vec<(usize, &F)>>(),
+                );
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[0]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[7]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[9]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[211]);
+
+                Ok(())
+            },
             "sum" => {
+                dbg!(
+                    input_folded_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .sum::<F>()
+                );
+                dbg!(
+                    output_folded_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .sum::<F>()
+                );
+                dbg!(
+                    input_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .sum::<F>()
+                );
+                dbg!(
+                    aggregated_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .sum::<F>()
+                );
+                dbg!(
+                    output_folded_col
+                        .activator_tracked_poly()
+                        .unwrap()
+                        .evaluations()
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, j)| j.is_one())
+                        .collect::<Vec<(usize, &F)>>(),
+                );
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[0]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[7]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[9]);
+                dbg!(aggregated_col.data_tracked_poly().evaluations()[211]);
                 let multiplicity_check_prover_input = MultiplicityCheckProverInput {
                     fxs: vec![input_folded_col],
                     gxs: vec![output_folded_col],
