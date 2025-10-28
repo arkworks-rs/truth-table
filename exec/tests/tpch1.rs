@@ -150,18 +150,18 @@ GROUP BY
 
 #[tokio::test]
 async fn tpch_q1_prove_verify() {
-    // let spec = spec();
-    let sql = "SELECT
-    l_returnflag,
-    l_linestatus,
-    SUM(l_discount+2) AS sum_disc_price
-FROM
-    lineitem
-GROUP BY
-    l_returnflag,
-    l_linestatus
-";
-    exec::test_utils::prove_and_verify_query(sql, "lineitem", None)
+    let spec = spec();
+    //     let sql = "SELECT
+    //     l_returnflag,
+    //     l_linestatus,
+    //     SUM(l_discount+2) AS sum_disc_price
+    // FROM
+    //     lineitem
+    // GROUP BY
+    //     l_returnflag,
+    //     l_linestatus
+    // ";
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables[0], None)
         .await
         .expect("prove and verify tpch q1");
 }
