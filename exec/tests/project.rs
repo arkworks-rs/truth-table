@@ -1,3 +1,4 @@
+#![cfg(feature = "test-utils")]
 
 mod support;
 use support::end_to_end_tests;
