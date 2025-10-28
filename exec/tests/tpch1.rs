@@ -123,15 +123,23 @@ async fn tpch_q1_tracked_tree() {
 async fn tpch_q1_piop_tree() {
     let spec = spec();
 
-    let sql = "SELECT
+    let sql = "        SELECT
     l_returnflag,
     l_linestatus,
-    SUM(l_discount + 2) AS sum_disc_price
+    SUM(l_quantity) AS sum_qty,
+    SUM(l_extendedprice) AS sum_base_price,
+    SUM(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    SUM(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge
 FROM
     lineitem
+WHERE
+    l_shipdate <= CAST('1998-09-02' AS DATE)
 GROUP BY
     l_returnflag,
     l_linestatus
+ORDER BY
+    l_returnflag,
+    l_linestatus;
 ";
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
@@ -151,17 +159,27 @@ GROUP BY
 #[tokio::test]
 async fn tpch_q1_prove_verify() {
     let spec = spec();
-    //     let sql = "SELECT
-    //     l_returnflag,
-    //     l_linestatus,
-    //     SUM(l_discount+2) AS sum_disc_price
-    // FROM
-    //     lineitem
-    // GROUP BY
-    //     l_returnflag,
-    //     l_linestatus
-    // ";
-    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables[0], None)
+    let sql = "
+        SELECT
+    l_returnflag,
+    l_linestatus,
+    SUM(l_quantity) AS sum_qty,
+    SUM(l_extendedprice) AS sum_base_price,
+    SUM(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    SUM(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge
+FROM
+    lineitem
+WHERE
+    l_shipdate <= CAST('1998-09-02' AS DATE)
+GROUP BY
+    l_returnflag,
+    l_linestatus
+ORDER BY
+    l_returnflag,
+    l_linestatus;
+    ";
+    // dbg!(&spec.sql);
+    exec::test_utils::prove_and_verify_query(sql, spec.tables[0], None)
         .await
         .expect("prove and verify tpch q1");
 }

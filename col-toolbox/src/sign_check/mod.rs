@@ -273,7 +273,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     )?;
                 }
             },
-            DataType::Int32 => {
+            DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
                 let top_inclusion_check_input = InclusionCheckProverInput {
                     included_cols: vec![chunk3.clone()],
@@ -444,7 +444,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 }
             },
 
-            DataType::Int32 => {
+            DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int32(verifier, tracked_col_oracle)?;
                 let top_inclusion_check_input = InclusionCheckVerifierInput {

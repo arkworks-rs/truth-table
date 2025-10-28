@@ -93,8 +93,8 @@ impl_col_adapter_map!(TimestampMillisecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampMicrosecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(TimestampNanosecondArray, |v| F::from(v as i128));
 // Date
-impl_col_adapter_map!(Date32Array, |v| F::from(v as i128));
-impl_col_adapter_map!(Date64Array, |v| F::from(v as i128));
+impl_col_adapter_map!(Date32Array, |v| F::from(v));
+impl_col_adapter_map!(Date64Array, |v| F::from(v));
 // Time
 impl_col_adapter_map!(Time32SecondArray, |v| F::from(v as i128));
 impl_col_adapter_map!(Time32MillisecondArray, |v| F::from(v as i128));

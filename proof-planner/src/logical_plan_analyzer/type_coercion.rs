@@ -270,16 +270,33 @@ impl<'a> CustomizedTypeCoercionRewriter<'a> {
         right: Expr,
         right_schema: &DFSchema,
     ) -> Result<(Expr, Expr)> {
-        let (left_type, _right_type) = BinaryTypeCoercer::new(
+        let (left_type, right_type) = BinaryTypeCoercer::new(
             &left.get_type(left_schema)?,
             &op,
             &right.get_type(right_schema)?,
         )
         .get_input_types()?;
+        let target_type = match (&left_type, &right_type) {
+            (DataType::Decimal128(p1, s1), DataType::Decimal128(p2, s2)) => {
+                if s2 > s1 || p2 > p1 {
+                    DataType::Decimal128(*p2, *s2)
+                } else {
+                    DataType::Decimal128(*p1, *s1)
+                }
+            },
+            (DataType::Decimal256(p1, s1), DataType::Decimal256(p2, s2)) => {
+                if s2 > s1 || p2 > p1 {
+                    DataType::Decimal256(*p2, *s2)
+                } else {
+                    DataType::Decimal256(*p1, *s1)
+                }
+            },
+            _ => left_type.clone(),
+        };
         Ok((
-            left.cast_to(&left_type, left_schema)?,
-            // DIFFERENCE from DataFusion: force the right side to match the coerced left type
-            right.cast_to(&left_type, right_schema)?,
+            left.cast_to(&target_type, left_schema)?,
+            // DIFFERENCE from DataFusion: force the right side to match the shared target type
+            right.cast_to(&target_type, right_schema)?,
         ))
     }
 }

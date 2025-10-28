@@ -151,13 +151,17 @@ where
             // Some wirings need to be done for the count
             "count" => Ok(()),
             "sum" => {
+                dbg!("Hi");
                 let multiplicity_check_prover_input = MultiplicityCheckProverInput {
                     fxs: vec![input_folded_col],
                     gxs: vec![output_folded_col],
                     mfxs: vec![Some(input_col.activated_data_tracked_poly())],
                     mgxs: vec![Some(aggregated_col.activated_data_tracked_poly())],
                 };
+                dbg!(input_col.field_ref());
+                dbg!(aggregated_col.field_ref());
                 MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
+                dbg!("Bye");
                 Ok(())
             },
             "max" => Self::prove_max_min(
