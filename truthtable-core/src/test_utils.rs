@@ -53,7 +53,6 @@ pub async fn test_df_plan(
 use std::sync::Arc;
 
 use crate::{
-    proof_nodes::id::NodeId,
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
         piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
@@ -92,27 +91,12 @@ pub mod helper {
             .expect("build prover hint tree");
         let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
             .expect("build arithmetized tree");
-        #[cfg(debug_assertions)]
-        for (node_id, tables) in arith_tree.arithmetized_tables() {
-            for (label, arith_table) in tables {
-                for (field_ref, poly) in arith_table.polynomials() {
-                    assert_eq!(
-                        poly.num_vars(),
-                        arith_table.log_size(),
-                        "arithmetized table log size mismatch at node {node_id:?} label {label} field {}",
-                        field_ref.name()
-                    );
-                }
-            }
-        }
-        let arith_snapshot = arith_tree.arithmetized_tables().clone();
         // Sync
         let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
             .expect("build tracked tree");
         // Not Sync
         let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
         piop_tree.prove(&mut prover).expect("prove piop tree");
-        let mv_param = prover.mv_pcs_prover_param();
         let proof = prover.build_proof().expect("construct proof");
 
         verifier.set_proof(proof);

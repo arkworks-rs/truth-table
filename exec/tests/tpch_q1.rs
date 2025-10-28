@@ -164,34 +164,7 @@ GROUP BY
     l_returnflag,
     l_linestatus
 ";
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-
-    let prover_ctx = new_session_context_with_custom_analyzer();
-    prover_ctx
-        .register_parquet(
-            "lineitem",
-            lineitem_path
-                .to_str()
-                .expect("lineitem path to be valid UTF-8"),
-            ParquetReadOptions::default(),
-        )
+    exec::test_utils::prove_and_verify_query(sql, "lineitem", None)
         .await
-        .expect("register lineitem table for prover");
-
-    let verifier_ctx = new_session_context_with_custom_analyzer();
-    verifier_ctx
-        .register_parquet(
-            "lineitem",
-            lineitem_path
-                .to_str()
-                .expect("lineitem path to be valid UTF-8"),
-            ParquetReadOptions::default(),
-        )
-        .await
-        .expect("register lineitem table for verifier");
-
-    let prover_proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&prover_ctx, sql).await;
-    let verifier_proof_tree =
-        create_verifier_proof_tree::<F, MvPCS, UvPCS>(&verifier_ctx, sql).await;
-    prove_and_verify_query(&verifier_ctx, prover_proof_tree, verifier_proof_tree).await;
+        .expect("prove and verify tpch q1");
 }

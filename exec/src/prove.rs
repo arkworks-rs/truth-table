@@ -30,6 +30,7 @@ pub struct ProveBuilder {
     query: Option<String>,
     parquet_path: Option<PathBuf>,
     oracle_path: Option<PathBuf>,
+    pk_path: Option<PathBuf>,
     output_path: Option<PathBuf>,
 }
 
@@ -39,6 +40,7 @@ impl ProveBuilder {
             query: None,
             parquet_path: None,
             oracle_path: None,
+            pk_path: None,
             output_path: None,
         }
     }
@@ -55,6 +57,11 @@ impl ProveBuilder {
 
     pub fn with_oracle_path(mut self, path: PathBuf) -> Self {
         self.oracle_path = Some(path);
+        self
+    }
+
+    pub fn with_pk_path(mut self, path: PathBuf) -> Self {
+        self.pk_path = Some(path);
         self
     }
 
@@ -78,6 +85,7 @@ impl ProveBuilder {
             query,
             parquet_path,
             oracle_path,
+            pk_path: self.pk_path,
             output_path,
         })
     }
@@ -87,6 +95,7 @@ pub struct ProveRunner {
     query: String,
     parquet_path: PathBuf,
     oracle_path: PathBuf,
+    pk_path: Option<PathBuf>,
     output_path: PathBuf,
 }
 
@@ -127,7 +136,10 @@ impl ProveRunner {
         let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
             .context("failed to arithmetize")?;
 
-        let pk_path = resolve_pk_path(&self.oracle_path, oracle.log_size())?;
+        let pk_path = match &self.pk_path {
+            Some(path) => path.clone(),
+            None => resolve_pk_path(&self.oracle_path, oracle.log_size())?,
+        };
 
         let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
             .with_context(|| format!("read proving key {}", pk_path.display()))?;

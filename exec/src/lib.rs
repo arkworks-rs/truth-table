@@ -4,4 +4,5 @@ pub mod data_owner;
 pub mod prove;
 pub mod setup;
 pub mod structs;
+pub mod test_utils;
 pub mod verify;
