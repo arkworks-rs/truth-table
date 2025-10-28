@@ -1,4 +1,11 @@
+mod align_agg_input_to_output;
+mod align_binary_operands;
+mod common;
+
 use std::sync::Arc;
+
+use align_agg_input_to_output::AlignAggInputToOutput;
+use align_binary_operands::AlignBinaryOperands;
 
 use datafusion::{
     config::ConfigOptions,
@@ -21,7 +28,8 @@ pub(crate) fn logical_plan_analyzer_rules() -> Vec<Arc<dyn AnalyzerRule + Send +
         Arc::new(ExpandWildcardRule::new()),
         Arc::new(ResolveGroupingFunction::new()),
         Arc::new(TypeCoercion::new()),
-        // Arc::new(CustomizedTypeCoercion::new()),
+        Arc::new(AlignBinaryOperands::new()),
+        Arc::new(AlignAggInputToOutput::new()),
     ]
 }
 
