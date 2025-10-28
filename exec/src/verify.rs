@@ -1,0 +1,179 @@
+use std::{
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result, anyhow};
+use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
+use ark_piop::{
+    pcs::{kzg10::KZG10, pst13::PST13},
+    verifier::Verifier,
+};
+use ark_serialize::CanonicalDeserialize;
+use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use indexmap::IndexMap;
+use proof_planner::create_verifier_proof_tree_with_ctx;
+use truthtable_core::verifier::trees::{
+    piop_tree::VerifierPIOPTree, tracked_tree::VerifierTrackedTree,
+};
+
+use crate::structs::{Artifact, TTVk};
+
+type F = Fr;
+type MvPCS = PST13<Bls12_381>;
+type UvPCS = KZG10<Bls12_381>;
+type Proof = ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>;
+
+pub struct VerifyBuilder {
+    query: Option<String>,
+    parquet_path: Option<PathBuf>,
+    oracle_path: Option<PathBuf>,
+    proof_path: Option<PathBuf>,
+    vk_path: Option<PathBuf>,
+}
+
+impl VerifyBuilder {
+    pub fn new() -> Self {
+        Self {
+            query: None,
+            parquet_path: None,
+            oracle_path: None,
+            proof_path: None,
+            vk_path: None,
+        }
+    }
+
+    pub fn with_query(mut self, query: String) -> Self {
+        self.query = Some(query);
+        self
+    }
+
+    pub fn with_parquet_path(mut self, path: PathBuf) -> Self {
+        self.parquet_path = Some(path);
+        self
+    }
+
+    pub fn with_oracle_path(mut self, path: PathBuf) -> Self {
+        self.oracle_path = Some(path);
+        self
+    }
+
+    pub fn with_proof_path(mut self, path: PathBuf) -> Self {
+        self.proof_path = Some(path);
+        self
+    }
+
+    pub fn with_vk_path(mut self, path: PathBuf) -> Self {
+        self.vk_path = Some(path);
+        self
+    }
+
+    pub fn build(self) -> Result<VerifyRunner> {
+        let query = self.query.context("query string is required")?;
+        let parquet_path = self
+            .parquet_path
+            .context("parquet path is required for verify")?;
+        let oracle_path = self
+            .oracle_path
+            .context("oracle-path is required for verify")?;
+        let proof_path = self
+            .proof_path
+            .context("proof path is required for verify")?;
+        let vk_path = self.vk_path.context("vk-path is required for verify")?;
+
+        Ok(VerifyRunner {
+            query,
+            parquet_path,
+            oracle_path,
+            proof_path,
+            vk_path,
+        })
+    }
+}
+
+pub struct VerifyRunner {
+    query: String,
+    parquet_path: PathBuf,
+    oracle_path: PathBuf,
+    proof_path: PathBuf,
+    vk_path: PathBuf,
+}
+
+impl VerifyRunner {
+    pub async fn run(&self) -> Result<()> {
+        let table_name = self
+            .parquet_path
+            .file_stem()
+            .ok_or_else(|| anyhow!("parquet path must have a file name"))?
+            .to_string_lossy()
+            .to_string();
+
+        let ctx = SessionContext::new();
+        ctx.register_parquet(
+            &table_name,
+            self.parquet_path
+                .to_str()
+                .context("parquet path must be valid UTF-8")?,
+            ParquetReadOptions::default(),
+        )
+        .await
+        .context("failed to register parquet")?;
+
+        let oracle = load_oracle(&self.oracle_path)?;
+        let shared_ctx = shared_ctx_from_oracle(&oracle)?;
+
+        let verifier_proof_tree =
+            create_verifier_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, &self.query, shared_ctx)
+                .await;
+
+        let proof = load_proof(&self.proof_path)?;
+        let tt_vk = TTVk::<F, MvPCS, UvPCS>::load(&self.vk_path)
+            .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
+        let snark_vk = tt_vk.into_inner();
+        let mut verifier = Verifier::<F, MvPCS, UvPCS>::new_from_vk(snark_vk);
+        verifier.set_proof(proof);
+
+        let verifier_tracked_tree =
+            VerifierTrackedTree::from_proof_tree(verifier_proof_tree, &mut verifier);
+        let mut verifier_piop_tree =
+            VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
+        let flattened = verifier_piop_tree.proof_tree().clone().flatten();
+        for node in flattened.values() {
+            node.verify_piop(&mut verifier, &mut verifier_piop_tree)
+                .context("verify piop")?;
+        }
+
+        verifier.verify().context("verify proof")?;
+        println!("proof verified successfully");
+
+        Ok(())
+    }
+}
+
+fn load_oracle(path: &Path) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
+    let file = File::open(path)
+        .with_context(|| format!("failed to open oracle file {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+        .context("failed to deserialize oracle")
+}
+
+fn load_proof(path: &Path) -> Result<Proof> {
+    let file = File::open(path)
+        .with_context(|| format!("failed to open proof file {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    Proof::deserialize_uncompressed(&mut reader).context("failed to deserialize proof")
+}
+
+fn shared_ctx_from_oracle(
+    oracle: &ArithTableOracle<F, MvPCS, UvPCS>,
+) -> Result<SharedCtx<F, MvPCS, UvPCS>> {
+    let schema = oracle
+        .schema()
+        .ok_or_else(|| anyhow!("oracle does not provide a schema"))?;
+    let mut table_oracles = IndexMap::new();
+    table_oracles.insert(schema, oracle.clone());
+    Ok(SharedCtx::new(table_oracles))
+}

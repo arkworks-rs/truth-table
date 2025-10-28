@@ -5,7 +5,6 @@
 */target
 cargo-system-config.toml
 Cargo.lock
-*.srs
 # Test coverage (grcov)
 default.profraw
 /.pre-commit-config.yaml
@@ -310,3 +309,7 @@ TSWLatexianTemp*
 !/tpch-data/test-data/
 !/tpch-data/test-data/*.parquet
 *.tbl
+
+*.srs
+*.pk
+*.vk

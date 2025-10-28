@@ -117,10 +117,8 @@ pub mod helper {
 
         verifier.set_proof(proof);
         // Sync
-        let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
-            verifier_proof_tree.clone(),
-            &mut verifier,
-        );
+        let verifier_tracked_tree =
+            VerifierTrackedTree::from_proof_tree(verifier_proof_tree.clone(), &mut verifier);
         // Not Sync
 
         let mut verifier_piop_tree =

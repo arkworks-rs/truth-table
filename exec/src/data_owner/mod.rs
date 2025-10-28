@@ -13,6 +13,8 @@ use ark_piop::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use proof_planner::create_prover_proof_tree;
+use tokio::runtime::Runtime;
 use truthtable_core::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
     prover::trees::{
@@ -20,8 +22,6 @@ use truthtable_core::{
         piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
     },
 };
-use proof_planner::create_prover_proof_tree;
-use tokio::runtime::Runtime;
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;

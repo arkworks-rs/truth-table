@@ -17,9 +17,10 @@ ark-test-curves.workspace = true
 anyhow = "1"
 bincode = "1"
 either.workspace = true
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 rayon = { workspace = true, optional = true }
 indexmap = { workspace = true }
+async-trait = "0.1"
 [dev-dependencies]
 ark-test-curves.workspace = true
 divan.workspace = true

@@ -152,7 +152,6 @@ where
             let mut tables_for_node = IndexMap::with_capacity(schema_map.len());
 
             for (label, df_schema) in schema_map {
-
                 let arrow_schema_ref = Arc::clone(df_schema.inner());
                 let schema_owned = Some(arrow_schema_ref.as_ref().clone());
 
@@ -167,7 +166,6 @@ where
                     });
                     log_size = Some(base_oracle.log_size());
                     for field_ref in arrow_schema_ref.fields().iter() {
-
                         let field_ref = field_ref.clone();
                         let commitment = base_oracle
                             .comitments()
@@ -187,7 +185,6 @@ where
                     }
                 } else {
                     for field_ref in arrow_schema_ref.fields().iter() {
-
                         let field_ref = field_ref.clone();
                         let expected_id = verifier.peek_next_id();
                         let tracked = verifier

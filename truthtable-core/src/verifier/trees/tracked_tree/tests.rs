@@ -86,9 +86,7 @@ async fn display_graphviz_for(tables: &[&str], query: &str) {
 
     verifier.set_proof(proof);
     let verifier_proof_tree = VerifierProofTree::from_lp(&ctx, verifier_ctx, &plan, &NodeId::None);
-    let verifier_tracked_tree = VerifierTrackedTree::from_proof_tree(
-        verifier_proof_tree.clone(),
-        &mut verifier,
-    );
+    let verifier_tracked_tree =
+        VerifierTrackedTree::from_proof_tree(verifier_proof_tree.clone(), &mut verifier);
     println!("{}", verifier_tracked_tree.display_graphviz());
 }

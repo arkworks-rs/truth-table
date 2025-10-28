@@ -13,13 +13,6 @@ use datafusion::{
     logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
-use truthtable_core::{
-    proof_nodes::id::NodeId,
-    prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
-    },
-};
 use indexmap::IndexMap;
 use std::{
     fs::File,
@@ -28,6 +21,13 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use tokio::runtime::Runtime;
+use truthtable_core::{
+    proof_nodes::id::NodeId,
+    prover::trees::{
+        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
+    },
+};
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;

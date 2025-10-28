@@ -1,3 +1,4 @@
+pub mod errors;
 pub mod proof_nodes;
 pub mod prover;
 #[cfg(any(test, feature = "test-utils"))]

@@ -17,6 +17,7 @@ use datafusion::{
     logical_expr::{LogicalPlan, LogicalPlanBuilder},
     prelude::{ParquetReadOptions, SessionContext},
 };
+use tokio::runtime::Runtime;
 use truthtable_core::{
     proof_nodes::id::NodeId,
     prover::trees::{
@@ -28,7 +29,6 @@ use truthtable_core::{
         tracked_tree::VerifierTrackedTree,
     },
 };
-use tokio::runtime::Runtime;
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
