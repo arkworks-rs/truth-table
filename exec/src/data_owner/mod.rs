@@ -66,11 +66,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
         let tracked_tree =
             ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
         let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-        let flattened = piop_tree.proof_tree().clone().flatten();
-        for node in flattened.values() {
-            node.prove_piop(&mut prover, &mut piop_tree)
-                .context("prove piop")?;
-        }
+        piop_tree.prove(&mut prover).context("prove piop tree")?;
         let proof = prover.build_proof().context("build proof")?;
         verifier.set_proof(proof);
 

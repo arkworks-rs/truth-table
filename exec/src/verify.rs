@@ -139,11 +139,9 @@ impl VerifyRunner {
             VerifierTrackedTree::from_proof_tree(verifier_proof_tree, &mut verifier);
         let mut verifier_piop_tree =
             VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
-        let flattened = verifier_piop_tree.proof_tree().clone().flatten();
-        for node in flattened.values() {
-            node.verify_piop(&mut verifier, &mut verifier_piop_tree)
-                .context("verify piop")?;
-        }
+        verifier_piop_tree
+            .verify(&mut verifier)
+            .context("verify piop tree")?;
 
         match verifier.verify() {
             Ok(()) => {
