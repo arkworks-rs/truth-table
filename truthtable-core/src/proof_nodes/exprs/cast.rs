@@ -421,3 +421,65 @@ where
             .ctx_lp_node(proof_tree)
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_cast_expression() {
+        use arrow_cast::cast::can_cast_types;
+        use arrow_schema::DataType;
+
+        fn all_types() -> Vec<DataType> {
+            vec![
+                DataType::Boolean,
+                DataType::Int8,
+                DataType::Int16,
+                DataType::Int32,
+                DataType::Int64,
+                DataType::UInt8,
+                DataType::UInt16,
+                DataType::UInt32,
+                DataType::UInt64,
+                DataType::Float16,
+                DataType::Float32,
+                DataType::Float64,
+                DataType::Utf8,
+                DataType::LargeUtf8,
+                DataType::Binary,
+                DataType::LargeBinary,
+                DataType::Date32,
+                DataType::Date64,
+                DataType::Time32(arrow_schema::TimeUnit::Second),
+                DataType::Time64(arrow_schema::TimeUnit::Microsecond),
+                DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+                DataType::Interval(arrow_schema::IntervalUnit::MonthDayNano),
+                DataType::Decimal128(38, 18),
+                DataType::Decimal256(76, 38),
+                DataType::Duration(arrow_schema::TimeUnit::Microsecond),
+                DataType::List(
+                    Box::new(arrow_schema::Field::new("item", DataType::Int32, true)).into(),
+                ),
+                DataType::FixedSizeList(
+                    Box::new(arrow_schema::Field::new("item", DataType::Int32, true)).into(),
+                    3,
+                ),
+                DataType::Struct(vec![arrow_schema::Field::new("a", DataType::Int32, true)].into()),
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                // add more as needed
+            ]
+        }
+
+        let types = all_types();
+        for (i, from) in types.iter().enumerate() {
+            for to in &types {
+                if can_cast_types(from, to) {
+                    println!("{from:?} -> {to:?}");
+                }
+            }
+            if i + 1 < types.len() {
+                println!("---");
+            }
+        }
+    }
+}

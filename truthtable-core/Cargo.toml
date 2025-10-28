@@ -24,7 +24,8 @@ parquet = { version = "54", default-features = false, features = ["arrow"] }
 indexmap = { workspace = true }
 ark-test-curves.workspace = true
 tpch-data = { path = "../tpch-data", optional = true }
-
+arrow-cast = "57"
+arrow-schema = "57"
 [dev-dependencies]
 divan.workspace = true
 libc = "0.2"

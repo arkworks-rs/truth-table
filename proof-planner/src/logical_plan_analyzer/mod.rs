@@ -13,8 +13,6 @@ use datafusion::{
     },
 };
 
-mod type_coercion;
-use self::type_coercion::CustomizedTypeCoercion;
 
 pub(crate) fn logical_plan_analyzer_rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
     vec![
@@ -22,8 +20,8 @@ pub(crate) fn logical_plan_analyzer_rules() -> Vec<Arc<dyn AnalyzerRule + Send +
         Arc::new(InlineTableScan::new()),
         Arc::new(ExpandWildcardRule::new()),
         Arc::new(ResolveGroupingFunction::new()),
-        // Arc::new(TypeCoercion::new()),
-        Arc::new(CustomizedTypeCoercion::new()),
+        Arc::new(TypeCoercion::new()),
+        // Arc::new(CustomizedTypeCoercion::new()),
     ]
 }
 
