@@ -28,8 +28,8 @@ type Proof = ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>;
 
 pub struct VerifyBuilder {
     query: Option<String>,
-    parquet_path: Option<PathBuf>,
-    oracle_path: Option<PathBuf>,
+    parquet_paths: Option<Vec<PathBuf>>,
+    oracle_paths: Option<Vec<PathBuf>>,
     proof_path: Option<PathBuf>,
     vk_path: Option<PathBuf>,
 }
@@ -38,8 +38,8 @@ impl VerifyBuilder {
     pub fn new() -> Self {
         Self {
             query: None,
-            parquet_path: None,
-            oracle_path: None,
+            parquet_paths: None,
+            oracle_paths: None,
             proof_path: None,
             vk_path: None,
         }
@@ -50,14 +50,22 @@ impl VerifyBuilder {
         self
     }
 
-    pub fn with_parquet_path(mut self, path: PathBuf) -> Self {
-        self.parquet_path = Some(path);
+    pub fn with_parquet_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.parquet_paths = Some(paths);
         self
     }
 
-    pub fn with_oracle_path(mut self, path: PathBuf) -> Self {
-        self.oracle_path = Some(path);
+    pub fn with_parquet_path(self, path: PathBuf) -> Self {
+        self.with_parquet_paths(vec![path])
+    }
+
+    pub fn with_oracle_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.oracle_paths = Some(paths);
         self
+    }
+
+    pub fn with_oracle_path(self, path: PathBuf) -> Self {
+        self.with_oracle_paths(vec![path])
     }
 
     pub fn with_proof_path(mut self, path: PathBuf) -> Self {
@@ -72,12 +80,23 @@ impl VerifyBuilder {
 
     pub fn build(self) -> Result<VerifyRunner> {
         let query = self.query.context("query string is required")?;
-        let parquet_path = self
-            .parquet_path
-            .context("parquet path is required for verify")?;
-        let oracle_path = self
-            .oracle_path
-            .context("oracle-path is required for verify")?;
+        let parquet_paths = self
+            .parquet_paths
+            .filter(|paths| !paths.is_empty())
+            .context("at least one parquet path is required for verify")?;
+        let oracle_paths = self
+            .oracle_paths
+            .filter(|paths| !paths.is_empty())
+            .context("at least one oracle path is required for verify")?;
+
+        if parquet_paths.len() != oracle_paths.len() {
+            return Err(anyhow!(
+                "number of parquet paths ({}) must match number of oracle paths ({})",
+                parquet_paths.len(),
+                oracle_paths.len()
+            ));
+        }
+
         let proof_path = self
             .proof_path
             .context("proof path is required for verify")?;
@@ -85,8 +104,8 @@ impl VerifyBuilder {
 
         Ok(VerifyRunner {
             query,
-            parquet_path,
-            oracle_path,
+            parquet_paths,
+            oracle_paths,
             proof_path,
             vk_path,
         })
@@ -95,34 +114,39 @@ impl VerifyBuilder {
 
 pub struct VerifyRunner {
     query: String,
-    parquet_path: PathBuf,
-    oracle_path: PathBuf,
+    parquet_paths: Vec<PathBuf>,
+    oracle_paths: Vec<PathBuf>,
     proof_path: PathBuf,
     vk_path: PathBuf,
 }
 
 impl VerifyRunner {
     pub async fn run(&self) -> Result<()> {
-        let table_name = self
-            .parquet_path
-            .file_stem()
-            .ok_or_else(|| anyhow!("parquet path must have a file name"))?
-            .to_string_lossy()
-            .to_string();
-
         let ctx = SessionContext::new();
-        ctx.register_parquet(
-            &table_name,
-            self.parquet_path
-                .to_str()
-                .context("parquet path must be valid UTF-8")?,
-            ParquetReadOptions::default(),
-        )
-        .await
-        .context("failed to register parquet")?;
+        for parquet_path in &self.parquet_paths {
+            let table_name = parquet_path
+                .file_stem()
+                .ok_or_else(|| anyhow!("parquet path must have a file name"))?
+                .to_string_lossy()
+                .to_string();
 
-        let oracle = load_oracle(&self.oracle_path)?;
-        let shared_ctx = shared_ctx_from_oracle(&oracle)?;
+            ctx.register_parquet(
+                &table_name,
+                parquet_path
+                    .to_str()
+                    .context("parquet path must be valid UTF-8")?,
+                ParquetReadOptions::default(),
+            )
+            .await
+            .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
+        }
+
+        let oracles: Vec<_> = self
+            .oracle_paths
+            .iter()
+            .map(|path| load_oracle(path))
+            .collect::<Result<Vec<_>>>()?;
+        let shared_ctx = shared_ctx_from_oracles(&oracles)?;
 
         let verifier_proof_tree =
             create_verifier_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, &self.query, shared_ctx)
@@ -171,13 +195,15 @@ fn load_proof(path: &Path) -> Result<Proof> {
     Proof::deserialize_uncompressed(&mut reader).context("failed to deserialize proof")
 }
 
-fn shared_ctx_from_oracle(
-    oracle: &ArithTableOracle<F, MvPCS, UvPCS>,
+fn shared_ctx_from_oracles(
+    oracles: &[ArithTableOracle<F, MvPCS, UvPCS>],
 ) -> Result<SharedCtx<F, MvPCS, UvPCS>> {
-    let schema = oracle
-        .schema()
-        .ok_or_else(|| anyhow!("oracle does not provide a schema"))?;
     let mut table_oracles = IndexMap::new();
-    table_oracles.insert(schema, oracle.clone());
+    for oracle in oracles {
+        let schema = oracle
+            .schema()
+            .ok_or_else(|| anyhow!("oracle does not provide a schema"))?;
+        table_oracles.insert(schema, oracle.clone());
+    }
     Ok(SharedCtx::new(table_oracles))
 }

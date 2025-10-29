@@ -1,15 +1,9 @@
 mod support;
 use support::end_to_end_tests;
 
-end_to_end_tests!("lineitem" => [
-    aggregate_count_by_flag => r#"SELECT
-    l_returnflag,
-    COUNT(*)
-FROM
-    lineitem
-GROUP BY
-    l_returnflag
+end_to_end_tests!(&["lineitem", "supplier"] => [
+    aggregate_count_by_flag => r#"SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 "#,
-
-
 ]);

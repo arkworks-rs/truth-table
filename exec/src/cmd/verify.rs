@@ -38,8 +38,8 @@ impl Runnable for Verify {
     async fn run(self) -> Result<()> {
         let runner = VerifyBuilder::new()
             .with_query(self.query.query.clone())
-            .with_parquet_path(self.parquet.parquet.clone())
-            .with_oracle_path(self.oracle.oracle.clone())
+            .with_parquet_paths(self.parquet.parquet.clone())
+            .with_oracle_paths(self.oracle.oracle.clone())
             .with_proof_path(self.proof.clone())
             .with_vk_path(self.vk_path.clone())
             .build()?;

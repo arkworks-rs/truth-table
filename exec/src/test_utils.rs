@@ -14,21 +14,28 @@ use tpch_data::{bench_data_path, test_data_path};
 /// Executes an end-to-end proving and verification pipeline for the provided
 /// query by delegating to the CLI runners defined in `prove` and `verify`.
 /// The helper resolves the TPCH parquet and oracle assets for the supplied
-/// `table_name`, generating them on the fly when missing.
+/// `table_names`, generating them on the fly when missing.
 pub async fn prove_and_verify_query(
     query: &str,
-    table_name: &str,
+    table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
     init_tracing_for_tests();
-    let parquet_path = resolve_parquet_path(table_name)?;
+    let parquet_paths = table_names
+        .iter()
+        .map(|name| resolve_parquet_path(name))
+        .collect::<Result<Vec<_>>>()?;
     let (pk_path, vk_path) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE)?;
-    let oracle_path = resolve_oracle_path(&parquet_path, &pk_path).await?;
+    let mut oracle_paths = Vec::with_capacity(parquet_paths.len());
+    for parquet_path in &parquet_paths {
+        let oracle = resolve_oracle_path(parquet_path, &pk_path).await?;
+        oracle_paths.push(oracle);
+    }
 
     let proof_path = ProveBuilder::new()
         .with_query(query.to_owned())
-        .with_parquet_path(parquet_path.to_path_buf())
-        .with_oracle_path(oracle_path.clone())
+        .with_parquet_paths(parquet_paths.clone())
+        .with_oracle_paths(oracle_paths.clone())
         .with_pk_path(pk_path)
         .with_output_path(proof_output_path.clone())
         .build()?
@@ -37,8 +44,8 @@ pub async fn prove_and_verify_query(
 
     VerifyBuilder::new()
         .with_query(query.to_owned())
-        .with_parquet_path(parquet_path.to_path_buf())
-        .with_oracle_path(oracle_path)
+        .with_parquet_paths(parquet_paths)
+        .with_oracle_paths(oracle_paths)
         .with_proof_path(proof_path)
         .with_vk_path(vk_path)
         .build()?

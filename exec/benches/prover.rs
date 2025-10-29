@@ -123,10 +123,10 @@ fn run_prove_iteration(inputs: ProverBenchInputs) {
             query: spec.query.to_owned(),
         },
         parquet: ParquetArg {
-            parquet: parquet_path.clone(),
+            parquet: vec![parquet_path.clone()],
         },
         oracle: OracleArg {
-            oracle: oracle_path.clone(),
+            oracle: vec![oracle_path.clone()],
         },
         output_path: Some(proof_path.clone()),
         timed: false,

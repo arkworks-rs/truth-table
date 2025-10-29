@@ -28,8 +28,8 @@ type UvPCS = KZG10<Bls12_381>;
 
 pub struct ProveBuilder {
     query: Option<String>,
-    parquet_path: Option<PathBuf>,
-    oracle_path: Option<PathBuf>,
+    parquet_paths: Option<Vec<PathBuf>>,
+    oracle_paths: Option<Vec<PathBuf>>,
     pk_path: Option<PathBuf>,
     output_path: Option<PathBuf>,
 }
@@ -38,8 +38,8 @@ impl ProveBuilder {
     pub fn new() -> Self {
         Self {
             query: None,
-            parquet_path: None,
-            oracle_path: None,
+            parquet_paths: None,
+            oracle_paths: None,
             pk_path: None,
             output_path: None,
         }
@@ -50,14 +50,22 @@ impl ProveBuilder {
         self
     }
 
-    pub fn with_parquet_path(mut self, path: PathBuf) -> Self {
-        self.parquet_path = Some(path);
+    pub fn with_parquet_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.parquet_paths = Some(paths);
         self
     }
 
-    pub fn with_oracle_path(mut self, path: PathBuf) -> Self {
-        self.oracle_path = Some(path);
+    pub fn with_parquet_path(self, path: PathBuf) -> Self {
+        self.with_parquet_paths(vec![path])
+    }
+
+    pub fn with_oracle_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.oracle_paths = Some(paths);
         self
+    }
+
+    pub fn with_oracle_path(self, path: PathBuf) -> Self {
+        self.with_oracle_paths(vec![path])
     }
 
     pub fn with_pk_path(mut self, path: PathBuf) -> Self {
@@ -72,19 +80,29 @@ impl ProveBuilder {
 
     pub fn build(self) -> Result<ProveRunner> {
         let query = self.query.context("query string is required")?;
-        let parquet_path = self
-            .parquet_path
-            .context("parquet path is required for prove")?;
-        let oracle_path = self
-            .oracle_path
-            .context("oracle-path is required for prove")?;
+        let parquet_paths = self
+            .parquet_paths
+            .filter(|paths| !paths.is_empty())
+            .context("at least one parquet path is required for prove")?;
+        let oracle_paths = self
+            .oracle_paths
+            .filter(|paths| !paths.is_empty())
+            .context("at least one oracle path is required for prove")?;
+
+        if parquet_paths.len() != oracle_paths.len() {
+            return Err(anyhow!(
+                "number of parquet paths ({}) must match number of oracle paths ({})",
+                parquet_paths.len(),
+                oracle_paths.len()
+            ));
+        }
 
         let output_path = resolve_output_path(self.output_path)?;
 
         Ok(ProveRunner {
             query,
-            parquet_path,
-            oracle_path,
+            parquet_paths,
+            oracle_paths,
             pk_path: self.pk_path,
             output_path,
         })
@@ -93,38 +111,43 @@ impl ProveBuilder {
 
 pub struct ProveRunner {
     query: String,
-    parquet_path: PathBuf,
-    oracle_path: PathBuf,
+    parquet_paths: Vec<PathBuf>,
+    oracle_paths: Vec<PathBuf>,
     pk_path: Option<PathBuf>,
     output_path: PathBuf,
 }
 
 impl ProveRunner {
     pub async fn run(&self) -> Result<PathBuf> {
-        let table_name = self
-            .parquet_path
-            .file_stem()
-            .ok_or_else(|| anyhow!("parquet path must have a file name"))?
-            .to_string_lossy()
-            .to_string();
-
         let ctx = SessionContext::new();
-        ctx.register_parquet(
-            &table_name,
-            self.parquet_path
-                .to_str()
-                .context("parquet path must be valid UTF-8")?,
-            ParquetReadOptions::default(),
-        )
-        .await
-        .context("failed to register parquet")?;
-
-        let oracle = load_oracle(&self.oracle_path)?;
-        let schema = oracle
-            .schema()
-            .ok_or_else(|| anyhow!("oracle {} missing schema", self.oracle_path.display()))?;
         let mut table_oracles = IndexMap::new();
-        table_oracles.insert(schema, oracle.clone());
+        let mut oracle_log_size: Option<usize> = None;
+
+        for (parquet_path, oracle_path) in self.parquet_paths.iter().zip(self.oracle_paths.iter()) {
+            let table_name = parquet_path
+                .file_stem()
+                .ok_or_else(|| anyhow!("parquet path must have a file name"))?
+                .to_string_lossy()
+                .to_string();
+
+            ctx.register_parquet(
+                &table_name,
+                parquet_path
+                    .to_str()
+                    .context("parquet path must be valid UTF-8")?,
+                ParquetReadOptions::default(),
+            )
+            .await
+            .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
+
+            let oracle = load_oracle(oracle_path)?;
+            let schema = oracle
+                .schema()
+                .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
+
+            table_oracles.insert(schema, oracle.clone());
+        }
+
         let shared_ctx = SharedCtx::new(table_oracles);
 
         let proof_tree =
@@ -138,7 +161,7 @@ impl ProveRunner {
 
         let pk_path = match &self.pk_path {
             Some(path) => path.clone(),
-            None => resolve_pk_path(&self.oracle_path, oracle.log_size())?,
+            None => resolve_pk_path(&self.oracle_paths[0])?,
         };
 
         let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
@@ -165,9 +188,9 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
         .context("failed to deserialize oracle")
 }
 
-fn resolve_pk_path(oracle_path: &Path, log_size: usize) -> Result<PathBuf> {
+fn resolve_pk_path(oracle_path: &Path) -> Result<PathBuf> {
     const DEFAULT_PK_PREFIX: &str = "tt_proving_key";
-    let file_name = format!("{DEFAULT_PK_PREFIX}_{log_size}.pk");
+    let file_name = format!("{DEFAULT_PK_PREFIX}_16.pk");
 
     let mut candidates = Vec::new();
     if let Some(parent) = oracle_path.parent() {

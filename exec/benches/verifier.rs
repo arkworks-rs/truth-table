@@ -89,10 +89,10 @@ fn prepare_verifier_inputs(spec: BenchQuery) -> VerifierBenchInputs {
             query: spec.query.to_owned(),
         },
         parquet: ParquetArg {
-            parquet: parquet_path.clone(),
+            parquet: vec![parquet_path.clone()],
         },
         oracle: OracleArg {
-            oracle: oracle_path.clone(),
+            oracle: vec![oracle_path.clone()],
         },
         output_path: Some(proof_path.clone()),
         timed: false,
@@ -135,10 +135,10 @@ fn run_verify_iteration(inputs: VerifierBenchInputs) {
             query: spec.query.to_owned(),
         },
         parquet: ParquetArg {
-            parquet: parquet_path,
+            parquet: vec![parquet_path],
         },
         oracle: OracleArg {
-            oracle: oracle_path,
+            oracle: vec![oracle_path],
         },
         proof: proof_path.clone(),
         vk_path,

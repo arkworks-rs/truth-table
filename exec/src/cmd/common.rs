@@ -3,16 +3,28 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug, Clone)]
 pub struct ParquetArg {
-    /// Path to input parquet file
-    #[arg(long = "parquet-path", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
-    pub parquet: PathBuf,
+    /// Path(s) to input parquet file(s)
+    #[arg(
+        long = "parquet-path",
+        value_name = "FILE",
+        value_hint = clap::ValueHint::FilePath,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub parquet: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OracleArg {
-    /// Path to oracle file
-    #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
-    pub oracle: PathBuf,
+    /// Path(s) to oracle file(s)
+    #[arg(
+        long,
+        value_name = "FILE",
+        value_hint = clap::ValueHint::FilePath,
+        num_args = 1..,
+        action = clap::ArgAction::Append
+    )]
+    pub oracle: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]

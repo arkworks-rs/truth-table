@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::Args;
 
 use super::{Runnable, common::ParquetArg};
@@ -27,8 +27,14 @@ pub struct Commit {
 #[async_trait::async_trait]
 impl Runnable for Commit {
     async fn run(self) -> Result<()> {
+        if self.parquet.parquet.len() != 1 {
+            return Err(anyhow!(
+                "commit command expects exactly one --parquet-path argument"
+            ));
+        }
+        let parquet_path = self.parquet.parquet[0].clone();
         let runner = CommitBuilder::new()
-            .with_parquet_path(self.parquet.parquet.clone())
+            .with_parquet_path(parquet_path)
             .with_pk_path(self.pk_path.clone())
             .with_output_path(self.output_path.clone())
             .build()?;
