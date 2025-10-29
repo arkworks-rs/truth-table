@@ -23,6 +23,12 @@ fn esc_html(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn escape_edge_label(raw: &str) -> String {
+    raw.replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
 /// Display helper that renders a Treeviz DOT tree for a `ProverPIOPTree`
 /// tree.
 pub struct DisplayableProverPIOPTree<'a, F, MvPCS, UvPCS>
@@ -134,9 +140,16 @@ where
             };
             out.push_str(&label);
 
-            for child in node.children() {
+            let children = node.children();
+            let edge_labels = node.child_edge_labels();
+            for (idx, child) in children.into_iter().enumerate() {
                 let cid = node_ptr_id(child);
-                out.push_str(&format!("  n{} -> n{};\n", id, cid));
+                if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
+                    let escaped = escape_edge_label(label);
+                    out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, cid, escaped));
+                } else {
+                    out.push_str(&format!("  n{} -> n{};\n", id, cid));
+                }
                 q.push_back(Arc::clone(child));
             }
         }

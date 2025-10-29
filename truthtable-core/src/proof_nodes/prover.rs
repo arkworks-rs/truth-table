@@ -77,6 +77,12 @@ where
         }
     }
 
+    /// Optional human-readable labels for each child edge.
+    /// Default implementation leaves every edge unlabeled.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        self.children().into_iter().map(|_| None).collect()
+    }
+
     /// A human-readable name for this node
     fn name(&self) -> String {
         self.node_id().to_string()

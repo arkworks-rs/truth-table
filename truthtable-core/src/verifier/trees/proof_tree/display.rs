@@ -54,9 +54,16 @@ where
             let label = escape_label(&raw_label);
             out.push_str(&format!("  n{} [label=\"{}\"];\n", id, label));
 
-            for child in node.children() {
+            let children = node.children();
+            let edge_labels = node.child_edge_labels();
+            for (idx, child) in children.into_iter().enumerate() {
                 let child_id = node_ptr_id(child);
-                out.push_str(&format!("  n{} -> n{};\n", id, child_id));
+                if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
+                    let escaped = escape_label(label);
+                    out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, child_id, escaped));
+                } else {
+                    out.push_str(&format!("  n{} -> n{};\n", id, child_id));
+                }
                 queue.push_back(Arc::clone(child));
             }
         }

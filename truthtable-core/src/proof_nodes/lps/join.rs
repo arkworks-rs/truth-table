@@ -172,6 +172,23 @@ where
         }
     }
 
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        let mut labels = Vec::with_capacity(
+            2 + self.on_proof_tree_roots.len() * 2
+                + usize::from(self.filter_proof_tree_root.is_some()),
+        );
+        labels.push(Some("left".to_string()));
+        labels.push(Some("right".to_string()));
+        for (idx, _) in self.on_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("on[{idx}].lhs")));
+            labels.push(Some(format!("on[{idx}].rhs")));
+        }
+        if self.filter_proof_tree_root.is_some() {
+            labels.push(Some("filter".to_string()));
+        }
+        labels
+    }
+
     fn name(&self) -> String {
         self.node_id().to_string()
     }
@@ -335,6 +352,23 @@ where
             child.append_sorted_descendants(out);
             out.push(Arc::clone(child));
         }
+    }
+
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        let mut labels = Vec::with_capacity(
+            2 + self.on_proof_tree_roots.len() * 2
+                + usize::from(self.filter_proof_tree_root.is_some()),
+        );
+        labels.push(Some("left".to_string()));
+        labels.push(Some("right".to_string()));
+        for (idx, _) in self.on_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("on[{idx}].lhs")));
+            labels.push(Some(format!("on[{idx}].rhs")));
+        }
+        if self.filter_proof_tree_root.is_some() {
+            labels.push(Some("filter".to_string()));
+        }
+        labels
     }
 
     fn name(&self) -> String {
