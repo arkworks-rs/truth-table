@@ -233,31 +233,130 @@ fn fetch_tpch_query_sql(number: u8) -> String {
 static TPCH_Q1_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q2_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q3_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q4_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q5_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q6_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q7_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q8_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q9_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q10_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q11_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q12_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q13_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q14_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q15_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q16_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q17_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q18_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q19_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q20_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q21_SQL: OnceLock<&'static str> = OnceLock::new();
+static TPCH_Q22_SQL: OnceLock<&'static str> = OnceLock::new();
+
+fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'static str {
+    lock.get_or_init(|| {
+        let sql = fetch_tpch_query_sql(number);
+        Box::leak(sql.into_boxed_str())
+    })
+}
 
 /// Return the [`TpchQuerySpec`] for the provided query number. Query SQL is
 /// loaded from DuckDB's TPCH extension on first use to avoid hardcoding.
 pub fn query_spec(number: u8) -> TpchQuerySpec {
     match number {
         1 => TpchQuerySpec {
-            sql: TPCH_Q1_SQL.get_or_init(|| {
-                let sql = fetch_tpch_query_sql(1);
-                Box::leak(sql.into_boxed_str())
-            }),
+            sql: cached_tpch_sql(&TPCH_Q1_SQL, 1),
             tables: &["lineitem"],
         },
         2 => TpchQuerySpec {
-            sql: TPCH_Q2_SQL.get_or_init(|| {
-                let sql = fetch_tpch_query_sql(2);
-                Box::leak(sql.into_boxed_str())
-            }),
+            sql: cached_tpch_sql(&TPCH_Q2_SQL, 2),
             tables: &["part", "supplier", "partsupp", "nation", "region"],
         },
         3 => TpchQuerySpec {
-            sql: TPCH_Q3_SQL.get_or_init(|| {
-                let sql = fetch_tpch_query_sql(3);
-                Box::leak(sql.into_boxed_str())
-            }),
+            sql: cached_tpch_sql(&TPCH_Q3_SQL, 3),
             tables: &["customer", "orders", "lineitem"],
+        },
+        4 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q4_SQL, 4),
+            tables: &["orders", "lineitem"],
+        },
+        5 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q5_SQL, 5),
+            tables: &[
+                "customer", "orders", "lineitem", "nation", "region", "supplier",
+            ],
+        },
+        6 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q6_SQL, 6),
+            tables: &["lineitem"],
+        },
+        7 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q7_SQL, 7),
+            tables: &["customer", "orders", "lineitem", "nation", "supplier"],
+        },
+        8 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q8_SQL, 8),
+            tables: &[
+                "customer", "orders", "lineitem", "nation", "region", "part", "supplier",
+            ],
+        },
+        9 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q9_SQL, 9),
+            tables: &[
+                "nation", "orders", "lineitem", "part", "supplier", "partsupp",
+            ],
+        },
+        10 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q10_SQL, 10),
+            tables: &["customer", "orders", "lineitem", "nation"],
+        },
+        11 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q11_SQL, 11),
+            tables: &["partsupp", "supplier", "nation"],
+        },
+        12 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q12_SQL, 12),
+            tables: &["orders", "lineitem"],
+        },
+        13 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q13_SQL, 13),
+            tables: &["customer", "orders"],
+        },
+        14 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q14_SQL, 14),
+            tables: &["lineitem", "part"],
+        },
+        15 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q15_SQL, 15),
+            tables: &["lineitem", "supplier"],
+        },
+        16 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q16_SQL, 16),
+            tables: &["part", "partsupp"],
+        },
+        17 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q17_SQL, 17),
+            tables: &["part", "lineitem"],
+        },
+        18 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q18_SQL, 18),
+            tables: &["customer", "orders", "lineitem"],
+        },
+        19 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q19_SQL, 19),
+            tables: &["part", "lineitem"],
+        },
+        20 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q20_SQL, 20),
+            tables: &["supplier", "nation", "partsupp", "lineitem"],
+        },
+        21 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q21_SQL, 21),
+            tables: &["supplier", "nation", "lineitem", "orders"],
+        },
+        22 => TpchQuerySpec {
+            sql: cached_tpch_sql(&TPCH_Q22_SQL, 22),
+            tables: &["customer", "orders"],
         },
         _ => panic!("unsupported TPC-H query number: {number}"),
     }

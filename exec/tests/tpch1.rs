@@ -12,10 +12,6 @@ use truthtable_core::test_display::{
     display_prover_proof_tree, display_prover_tracked_tree,
 };
 
-fn spec() -> tpch_data::TpchQuerySpec {
-    query_spec(1)
-}
-
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
@@ -23,7 +19,7 @@ type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_proof_tree() {
-    let spec = spec();
+    let spec = query_spec(1);
     let sql = "SELECT
     l_returnflag,
     l_linestatus,
@@ -52,7 +48,7 @@ GROUP BY
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_hint_tree() {
-    let spec = spec();
+    let spec = query_spec(1);
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
     ctx.register_parquet(
@@ -71,7 +67,7 @@ async fn tpch_q1_hint_tree() {
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_arithmetized_tree() {
-    let spec = spec();
+    let spec = query_spec(1);
 
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
@@ -91,7 +87,7 @@ async fn tpch_q1_arithmetized_tree() {
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_tracked_tree() {
-    let spec = spec();
+    let spec = query_spec(1);
 
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
@@ -111,7 +107,7 @@ async fn tpch_q1_tracked_tree() {
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_piop_tree() {
-    let spec = spec();
+    let spec = query_spec(1);
 
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
@@ -130,7 +126,15 @@ async fn tpch_q1_piop_tree() {
 
 #[tokio::test]
 async fn tpch_q1_prove_verify() {
-    let spec = spec();
+    let spec = query_spec(1);
+
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables[0], None)
+        .await
+        .expect("prove and verify tpch q1");
+}
+#[tokio::test]
+async fn tpch_q6_prove_verify() {
+    let spec = query_spec(6);
 
     exec::test_utils::prove_and_verify_query(spec.sql, spec.tables[0], None)
         .await
