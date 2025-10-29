@@ -1,238 +1,165 @@
-#![allow(clippy::needless_borrows_for_generic_args)]
-
-use ark_piop::prover::structs::proof::Proof;
-use indexmap::IndexMap;
-use std::{fs::File, hash::Hash, io::BufReader};
-
-use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
-use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    prover::Prover,
-    test_utils::bench_prelude,
-    verifier::Verifier,
+use std::{
+    fmt,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
 };
-use ark_serialize::CanonicalDeserialize;
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::{
-    logical_expr::{LogicalPlan, LogicalPlanBuilder},
-    prelude::{ParquetReadOptions, SessionContext},
+
+use divan::black_box;
+use exec::{
+    cmd::{
+        Runnable,
+        common::{OracleArg, ParquetArg, QueryArg},
+        prove::Prove,
+        verify::Verify,
+    },
+    test_utils::{resolve_key_paths, resolve_oracle_path},
 };
+use tempfile::TempDir;
 use tokio::runtime::Runtime;
-use truthtable_core::{
-    proof_nodes::id::NodeId,
-    prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
-    },
-    verifier::trees::{
-        piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree,
-        tracked_tree::VerifierTrackedTree,
-    },
-};
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
-type ProofForBench = Proof<F, MvPCS, UvPCS>;
+use tpch_data::{bench_data_path, query_spec};
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
-struct QuerySpec {
-    sql: &'static str,
+#[derive(Clone, Copy)]
+struct BenchQuery {
+    name: &'static str,
+    query: &'static str,
     tables: &'static [&'static str],
 }
 
-impl std::fmt::Display for QuerySpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.tables.is_empty() {
-            write!(f, "{}", self.sql)
-        } else {
-            write!(f, "{} [{}]", self.sql, self.tables.join(", "))
-        }
+impl BenchQuery {
+    fn primary_table(&self) -> &str {
+        self.tables
+            .first()
+            .expect("bench queries must reference at least one table")
     }
 }
 
-impl QuerySpec {
-    fn short_label(&self) -> String {
-        let mut words = self.sql.split_whitespace();
-        let first = words.next().unwrap_or("");
-        let last = words.last().unwrap_or(first);
-        let tables = if self.tables.is_empty() {
-            String::new()
-        } else {
-            format!(" [{}]", self.tables.join(", "))
-        };
-        format!("{} ... {}{}", first, last, tables)
+impl fmt::Display for BenchQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
-const VERIFIER_BENCH_QUERIES: &[QuerySpec] = &[
-    QuerySpec {
-        sql: "SELECT l_orderkey FROM lineitem where l_linenumber = 3",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_linenumber >= 5",
-        tables: &["lineitem"],
-    },
-    QuerySpec {
-        sql: "SELECT l_partkey FROM lineitem where l_suppkey >= 100",
-        tables: &["lineitem"],
-    },
-];
+const DUMMY_QUERY: &str =
+    "SELECT COUNT(*) FROM lineitem WHERE l_shipmode = 'AIR' OR l_shipmode = 'FOB'";
+const DUMMY_TABLES: &[&str] = &["lineitem"];
 
-struct CommonInputs {
-    runtime: Runtime,
-    ctx: SessionContext,
-    logical_plan: LogicalPlan,
-    prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+fn verifier_bench_queries() -> &'static [BenchQuery] {
+    static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
+    QUERIES.get_or_init(|| {
+        let tpch = query_spec(1);
+        let queries = vec![
+            BenchQuery {
+                name: "tpch_q1",
+                query: tpch.sql,
+                tables: tpch.tables,
+            },
+            BenchQuery {
+                name: "lineitem_dummy",
+                query: DUMMY_QUERY,
+                tables: DUMMY_TABLES,
+            },
+        ];
+        Box::leak(queries.into_boxed_slice())
+    })
 }
 
-struct VerifierInputs {
-    spec: QuerySpec,
-    proof: ProofForBench,
-    verifier_template: Verifier<F, MvPCS, UvPCS>,
-    ctx: SessionContext,
-    logical_plan: LogicalPlan,
-    shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
+struct VerifierBenchInputs {
+    spec: BenchQuery,
+    runtime: Arc<Runtime>,
+    parquet_path: PathBuf,
+    oracle_path: PathBuf,
+    vk_path: PathBuf,
+    proof_path: PathBuf,
+    _temp_dir: TempDir,
 }
 
-fn prepare_common_inputs(spec: QuerySpec) -> CommonInputs {
-    let runtime = Runtime::new().expect("tokio runtime");
-    let ctx = SessionContext::new();
+fn prepare_verifier_inputs(spec: BenchQuery) -> VerifierBenchInputs {
+    let runtime = Arc::new(Runtime::new().expect("failed to create tokio runtime"));
+    let (pk_path, vk_path) = resolve_key_paths(exec::setup::DEFAULT_BENCH_LOG_SIZE)
+        .expect("resolve proving/verifying keys for bench");
+    let parquet_path = parquet_path_for_table(spec.primary_table());
+    let oracle_path = runtime
+        .block_on(resolve_oracle_path(&parquet_path, &pk_path))
+        .expect("resolve oracle path for bench");
+    let temp_dir = TempDir::new().expect("create temporary directory for proofs");
+    let proof_path = temp_dir.path().join("bench_proof.bin");
 
-    runtime.block_on(async {
-        for &table in spec.tables {
-            register_tpch_table(&ctx, table).await;
-        }
-    });
+    let prove_cmd = Prove {
+        query: QueryArg {
+            query: spec.query.to_owned(),
+        },
+        parquet: ParquetArg {
+            parquet: parquet_path.clone(),
+        },
+        oracle: OracleArg {
+            oracle: oracle_path.clone(),
+        },
+        output_path: Some(proof_path.clone()),
+        timed: false,
+    };
+    runtime
+        .block_on(prove_cmd.run())
+        .expect("generate proof artifact for verifier bench");
 
-    let logical_plan =
-        runtime.block_on(async { ctx.state().create_logical_plan(spec.sql).await.unwrap() });
-
-    let table_oracle_path = tpch_data::bench_data_path(spec.tables.join("_") + ".oracle");
-    let table_oracle_file = File::open(&table_oracle_path).expect("open table oracle commitment");
-    let mut reader = BufReader::new(table_oracle_file);
-    let table_serializable =
-        ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
-            .expect("deserialize table oracle");
-    let mut table_oracles = IndexMap::new();
-    if let Some(schema) = table_serializable.schema() {
-        table_oracles.insert(schema, table_serializable);
-    }
-
-    let prover_ctx = SharedCtx::new(table_oracles);
-
-    CommonInputs {
+    VerifierBenchInputs {
+        spec,
         runtime,
-        ctx,
-        logical_plan,
-        prover_ctx,
+        parquet_path,
+        oracle_path,
+        vk_path,
+        proof_path,
+        _temp_dir: temp_dir,
     }
 }
 
-fn build_proof(
-    runtime: &Runtime,
-    ctx: &SessionContext,
-    logical_plan: &LogicalPlan,
-    prover_ctx: &SharedCtx<F, MvPCS, UvPCS>,
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-) -> ProofForBench {
-    let proof_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-        ctx,
-        prover_ctx.clone(),
-        logical_plan,
-        &NodeId::None,
-    );
-    let hint_tree = runtime
-        .block_on(ProverHintTree::from_proof_tree(ctx, proof_tree.clone()))
-        .expect("hint tree");
-    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
-        .expect("arithmetized tree");
-    let tracked_tree =
-        ProverTrackedTree::from_arithmetized_tree(arith_tree, prover).expect("tracked tree");
-    let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, prover);
-    let flattened = piop_tree.proof_tree().clone().flatten();
-
-    for (idx, node) in flattened.values().enumerate() {
-        // if idx == 4 {
-        //     dbg!(node.name());
-        //     continue;
-        // }
-        node.prove_piop(prover, &mut piop_tree).expect("prove piop");
-    }
-    prover.build_proof().expect("build proof")
-}
-
-#[divan::bench(args = VERIFIER_BENCH_QUERIES, max_time = 60)]
-fn verifier_pipeline(bencher: divan::Bencher, spec: QuerySpec) {
+#[divan::bench(args = verifier_bench_queries(), max_time = 60)]
+fn verify_command(bencher: divan::Bencher, spec: BenchQuery) {
     bencher
-        .with_inputs(move || {
-            let CommonInputs {
-                runtime,
-                ctx,
-                logical_plan,
-                prover_ctx,
-            } = prepare_common_inputs(spec);
-            let (mut prover, verifier_template) =
-                bench_prelude::<F, MvPCS, UvPCS>().expect("bench prelude");
-
-            let proof = build_proof(&runtime, &ctx, &logical_plan, &prover_ctx, &mut prover);
-            drop(runtime);
-
-            VerifierInputs {
-                spec,
-                proof,
-                verifier_template,
-                ctx,
-                logical_plan,
-                shared_ctx: prover_ctx,
-            }
-        })
-        .bench_local_values(|inputs| {
-            let VerifierInputs {
-                spec: _,
-                proof,
-                verifier_template,
-                ctx,
-                logical_plan,
-                shared_ctx,
-            } = inputs;
-            let mut verifier = verifier_template.clone();
-            verifier.set_proof(proof);
-            let verifier_proof_tree =
-                VerifierProofTree::from_lp(&ctx, shared_ctx.clone(), &logical_plan, &NodeId::None);
-            let verifier_tracked_tree =
-                VerifierTrackedTree::from_proof_tree(verifier_proof_tree.clone(), &mut verifier);
-            let mut verifier_piop_tree =
-                VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
-            let flattened = verifier_piop_tree.proof_tree().clone().flatten();
-            for (idx, node) in flattened.values().enumerate() {
-                // if idx == 4 {
-                //     dbg!(node.name());
-                //     continue;
-                // }
-                node.verify_piop(&mut verifier, &mut verifier_piop_tree)
-                    .expect("verify piop");
-            }
-            verifier.verify().expect("verify proof");
-        });
+        .with_inputs(move || prepare_verifier_inputs(spec))
+        .bench_local_values(|inputs| run_verify_iteration(inputs));
 }
 
-async fn register_tpch_table(ctx: &SessionContext, table: &str) {
-    let parquet_path = tpch_data::bench_data_path(format!("{table}.parquet"));
+fn run_verify_iteration(inputs: VerifierBenchInputs) {
+    let VerifierBenchInputs {
+        spec,
+        runtime,
+        parquet_path,
+        oracle_path,
+        vk_path,
+        proof_path,
+        ..
+    } = inputs;
+
+    let verify_cmd = Verify {
+        query: QueryArg {
+            query: spec.query.to_owned(),
+        },
+        parquet: ParquetArg {
+            parquet: parquet_path,
+        },
+        oracle: OracleArg {
+            oracle: oracle_path,
+        },
+        proof: proof_path.clone(),
+        vk_path,
+        timed: false,
+    };
+
+    runtime
+        .block_on(verify_cmd.run())
+        .expect("execute verify command for benchmark");
+
+    black_box(&proof_path);
+}
+
+fn parquet_path_for_table(table: &str) -> PathBuf {
+    let path = bench_data_path(format!("{table}.parquet"));
     assert!(
-        parquet_path.exists(),
-        "missing bench parquet {}",
-        parquet_path.display()
+        path.exists(),
+        "missing bench parquet {}. Run `cargo run --bin download-data --package tpch-data` to fetch it.",
+        path.display()
     );
-    ctx.register_parquet(
-        table,
-        parquet_path
-            .to_str()
-            .expect("parquet path should be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register parquet");
+    path
 }
 
 fn main() {

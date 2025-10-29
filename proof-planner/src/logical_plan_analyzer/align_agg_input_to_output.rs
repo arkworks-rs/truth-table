@@ -1,14 +1,8 @@
-use datafusion::arrow::datatypes::DataType;
 use datafusion::{
-    config::ConfigOptions,
-    optimizer::analyzer::AnalyzerRule,
+    arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
 use datafusion_common::{tree_node::Transformed, DFSchema, Result};
-use datafusion_expr::{
-    expr::AggregateFunction as AggregateExpr,
-    logical_plan::LogicalPlan,
-    Expr,
-};
+use datafusion_expr::{expr::AggregateFunction as AggregateExpr, logical_plan::LogicalPlan, Expr};
 
 use super::common::cast_expression_to_type;
 
@@ -26,11 +20,7 @@ impl AnalyzerRule for AlignAggInputToOutput {
         "align_agg_input_to_output"
     }
 
-    fn analyze(
-        &self,
-        plan: LogicalPlan,
-        _config: &ConfigOptions,
-    ) -> Result<LogicalPlan> {
+    fn analyze(&self, plan: LogicalPlan, _config: &ConfigOptions) -> Result<LogicalPlan> {
         plan.transform_up_with_subqueries(align_plan_node)
             .map(|res| res.data)
     }
@@ -57,11 +47,8 @@ fn align_plan_node(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
                     .field(group_field_count + position)
                     .data_type()
                     .clone();
-                let (aligned_expr, expr_changed) = align_aggregate_expr(
-                    expr,
-                    target_type,
-                    input_schema.as_ref(),
-                )?;
+                let (aligned_expr, expr_changed) =
+                    align_aggregate_expr(expr, target_type, input_schema.as_ref())?;
                 changed |= expr_changed;
                 new_aggr_expr.push(aligned_expr);
             }
@@ -73,7 +60,7 @@ fn align_plan_node(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
             } else {
                 Ok(Transformed::no(LogicalPlan::Aggregate(aggregate)))
             }
-        }
+        },
         other => Ok(Transformed::no(other)),
     }
 }
@@ -93,15 +80,14 @@ fn align_aggregate_expr(
                 return Ok((Expr::AggregateFunction(agg), false));
             };
 
-            let rewritten =
-                cast_expression_to_type(first_arg.clone(), &target_type, input_schema)?;
+            let rewritten = cast_expression_to_type(first_arg.clone(), &target_type, input_schema)?;
             let changed = rewritten != *first_arg;
             if changed {
                 *first_arg = rewritten;
             }
 
             Ok((Expr::AggregateFunction(agg), changed))
-        }
+        },
         other => Ok((other, false)),
     }
 }
@@ -116,16 +102,11 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion_common::Result;
     use datafusion_expr::{
-        expr::Cast,
-        expr_fn::{col},
-        logical_plan::builder::table_scan,
-        Expr, LogicalPlan,
+        expr::Cast, expr_fn::col, logical_plan::builder::table_scan, Expr, LogicalPlan,
     };
     use datafusion_functions_aggregate::expr_fn::{avg, count, sum};
 
-    use crate::logical_plan_analyzer::{
-        analyze_logical_plan, logical_plan_analyzer_rules,
-    };
+    use crate::logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
 
     fn expect_aggregate(plan: &LogicalPlan) -> &datafusion_expr::logical_plan::Aggregate {
         match plan {
@@ -136,11 +117,7 @@ mod tests {
 
     #[test]
     fn casts_sum_input_to_output_type() -> Result<()> {
-        let schema = Schema::new(vec![Field::new(
-            "a",
-            DataType::Decimal128(10, 2),
-            false,
-        )]);
+        let schema = Schema::new(vec![Field::new("a", DataType::Decimal128(10, 2), false)]);
         let plan = table_scan(Some("t"), &schema, None)?
             .aggregate(Vec::<Expr>::new(), vec![sum(col("a"))])?
             .build()?;
@@ -159,7 +136,7 @@ mod tests {
             Some(Expr::Cast(Cast { data_type, expr })) => {
                 assert_eq!(data_type, &target_type);
                 assert!(!matches!(expr.as_ref(), Expr::Cast(_)));
-            }
+            },
             other => panic!("expected casted argument, found {other:?}"),
         }
 
@@ -188,7 +165,7 @@ mod tests {
         match aggregate_expr.params.args.first() {
             Some(Expr::Cast(Cast { data_type, .. })) => {
                 assert_eq!(data_type, &DataType::Float64);
-            }
+            },
             other => panic!("expected casted argument, found {other:?}"),
         }
 
@@ -212,7 +189,7 @@ mod tests {
         };
 
         match aggregate_expr.params.args.first() {
-            Some(Expr::Column(_)) => {}
+            Some(Expr::Column(_)) => {},
             other => panic!("expected original argument, found {other:?}"),
         }
 

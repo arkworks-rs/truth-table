@@ -17,7 +17,7 @@ type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
 pub const DEFAULT_TEST_LOG_SIZE: usize = 16;
-pub const DEFAULT_PROVER_LOG_SIZE: usize = 20;
+pub const DEFAULT_BENCH_LOG_SIZE: usize = 20;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_proving_key";
 const DEFAULT_VK_FILE: &str = "tt_verifying_key";
@@ -116,8 +116,8 @@ fn parse_log_size(label: Option<String>) -> Result<usize> {
         Some(raw) => {
             let normalized = raw.trim().to_ascii_lowercase();
             match normalized.as_str() {
-                "small" => Ok(DEFAULT_TEST_LOG_SIZE),
-                "medium" => Ok(DEFAULT_PROVER_LOG_SIZE),
+                "small" | "test" => Ok(DEFAULT_TEST_LOG_SIZE),
+                "medium" | "bench" => Ok(DEFAULT_BENCH_LOG_SIZE),
                 "large" => Ok(23),
                 other => other
                     .parse::<usize>()

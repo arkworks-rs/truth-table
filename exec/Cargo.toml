@@ -26,13 +26,15 @@ tpch-data = { path = "../tpch-data" }
 ark-test-curves.workspace = true
 divan.workspace = true
 tpch-data = { path = "../tpch-data" }
+tempfile = "3"
 
-# [[bench]]
-# name = "prover"
-# harness = false
-# [[bench]]
-# name = "verifier"
-# harness = false
+[[bench]]
+name = "prover"
+harness = false
+
+[[bench]]
+name = "verifier"
+harness = false
 
 [features]
 default = ["std", "parallel"]

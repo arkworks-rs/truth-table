@@ -46,7 +46,7 @@ pub async fn prove_and_verify_query(
         .await
 }
 
-fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
+pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
     let expected_pk = cwd.join(default_pk_filename(log_size));
     let expected_vk = cwd.join(default_vk_filename(log_size));
@@ -68,7 +68,7 @@ fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
     Ok((expected_pk, expected_vk))
 }
 
-async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
+pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
     let table_name = parquet_path
         .file_stem()
         .ok_or_else(|| anyhow!("parquet path must include a file name"))?
@@ -95,7 +95,7 @@ async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<Path
     Ok(oracle_path)
 }
 
-fn resolve_parquet_path(table_name: &str) -> Result<PathBuf> {
+pub fn resolve_parquet_path(table_name: &str) -> Result<PathBuf> {
     let candidate = test_data_path(format!("{table_name}.parquet"));
     if candidate.exists() {
         return Ok(candidate);

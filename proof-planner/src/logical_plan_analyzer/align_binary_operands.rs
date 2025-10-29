@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use datafusion::arrow::datatypes::DataType;
+use super::common::cast_expression_to_type;
 use datafusion::{
-    config::ConfigOptions,
-    optimizer::analyzer::AnalyzerRule,
+    arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
 use datafusion_common::{
     tree_node::{Transformed, TreeNode},
@@ -12,10 +11,9 @@ use datafusion_common::{
 use datafusion_expr::{
     expr::{BinaryExpr, Exists, InSubquery},
     logical_plan::{LogicalPlan, Subquery},
+    utils::merge_schema,
     Expr, ExprSchemable, Operator,
 };
-use datafusion_expr::utils::merge_schema;
-use super::common::cast_expression_to_type;
 
 #[derive(Debug, Default)]
 pub(crate) struct AlignBinaryOperands;
@@ -31,28 +29,19 @@ impl AnalyzerRule for AlignBinaryOperands {
         "align_binary_operands"
     }
 
-    fn analyze(
-        &self,
-        plan: LogicalPlan,
-        _config: &ConfigOptions,
-    ) -> Result<LogicalPlan> {
+    fn analyze(&self, plan: LogicalPlan, _config: &ConfigOptions) -> Result<LogicalPlan> {
         let empty_schema = DFSchema::empty();
         plan.transform_up_with_subqueries(|plan| align_plan(&empty_schema, plan))
             .map(|res| res.data)
     }
 }
 
-fn align_plan(
-    external_schema: &DFSchema,
-    plan: LogicalPlan,
-) -> Result<Transformed<LogicalPlan>> {
+fn align_plan(external_schema: &DFSchema, plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
     let mut schema = merge_schema(&plan.inputs());
 
     if let LogicalPlan::TableScan(scan) = &plan {
-        let source_schema = DFSchema::try_from_qualified_schema(
-            scan.table_name.clone(),
-            &scan.source.schema(),
-        )?;
+        let source_schema =
+            DFSchema::try_from_qualified_schema(scan.table_name.clone(), &scan.source.schema())?;
         schema.merge(&source_schema);
     }
 
@@ -74,9 +63,7 @@ impl<'a> AlignBinaryOperandsRewriter<'a> {
     }
 }
 
-impl<'a> datafusion_common::tree_node::TreeNodeRewriter
-    for AlignBinaryOperandsRewriter<'a>
-{
+impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsRewriter<'a> {
     type Node = Expr;
 
     fn f_up(&mut self, expr: Expr) -> Result<Transformed<Expr>> {
@@ -85,22 +72,15 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter
                 subquery,
                 outer_ref_columns,
             }) => {
-                let new_plan = align_plan(
-                    self.schema,
-                    Arc::unwrap_or_clone(subquery),
-                )?
-                .data;
+                let new_plan = align_plan(self.schema, Arc::unwrap_or_clone(subquery))?.data;
                 Ok(Transformed::yes(Expr::ScalarSubquery(Subquery {
                     subquery: Arc::new(new_plan),
                     outer_ref_columns,
                 })))
-            }
+            },
             Expr::Exists(Exists { subquery, negated }) => {
-                let new_plan = align_plan(
-                    self.schema,
-                    Arc::unwrap_or_clone(subquery.subquery.clone()),
-                )?
-                .data;
+                let new_plan =
+                    align_plan(self.schema, Arc::unwrap_or_clone(subquery.subquery.clone()))?.data;
                 Ok(Transformed::yes(Expr::Exists(Exists {
                     subquery: Subquery {
                         subquery: Arc::new(new_plan),
@@ -108,17 +88,14 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter
                     },
                     negated,
                 })))
-            }
+            },
             Expr::InSubquery(InSubquery {
                 expr: input_expr,
                 subquery,
                 negated,
             }) => {
-                let new_plan = align_plan(
-                    self.schema,
-                    Arc::unwrap_or_clone(subquery.subquery.clone()),
-                )?
-                .data;
+                let new_plan =
+                    align_plan(self.schema, Arc::unwrap_or_clone(subquery.subquery.clone()))?.data;
                 Ok(Transformed::yes(Expr::InSubquery(InSubquery::new(
                     input_expr,
                     Subquery {
@@ -127,24 +104,17 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter
                     },
                     negated,
                 ))))
-            }
+            },
             Expr::BinaryExpr(binary) => align_binary_expr(binary, self.schema),
             _ => Ok(Transformed::no(expr)),
         }
     }
 }
 
-fn align_binary_expr(
-    mut binary: BinaryExpr,
-    schema: &DFSchema,
-) -> Result<Transformed<Expr>> {
+fn align_binary_expr(mut binary: BinaryExpr, schema: &DFSchema) -> Result<Transformed<Expr>> {
     if !matches!(
         binary.op,
-        Operator::Plus
-            | Operator::Minus
-            | Operator::Multiply
-            | Operator::Divide
-            | Operator::Modulo
+        Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide | Operator::Modulo
     ) {
         return Ok(Transformed::no(Expr::BinaryExpr(binary)));
     }
@@ -157,8 +127,7 @@ fn align_binary_expr(
     }
 
     let left_column_decimal = extract_decimal_column_type(binary.left.as_ref(), schema);
-    let right_column_decimal =
-        extract_decimal_column_type(binary.right.as_ref(), schema);
+    let right_column_decimal = extract_decimal_column_type(binary.right.as_ref(), schema);
 
     let mut changed = false;
 
@@ -166,14 +135,14 @@ fn align_binary_expr(
         (Some(target_type), None) => {
             changed |= align_operand(&mut binary.left, &target_type, schema)?;
             changed |= align_operand(&mut binary.right, &target_type, schema)?;
-        }
+        },
         (None, Some(target_type)) => {
             changed |= align_operand(&mut binary.left, &target_type, schema)?;
             changed |= align_operand(&mut binary.right, &target_type, schema)?;
-        }
+        },
         (Some(_), Some(_)) | (None, None) => {
             return Ok(Transformed::no(Expr::BinaryExpr(binary)));
-        }
+        },
     }
 
     if changed {
@@ -183,13 +152,8 @@ fn align_binary_expr(
     }
 }
 
-fn align_operand(
-    expr: &mut Box<Expr>,
-    target_type: &DataType,
-    schema: &DFSchema,
-) -> Result<bool> {
-    let new_expr =
-        cast_expression_to_type((**expr).clone(), target_type, schema)?;
+fn align_operand(expr: &mut Box<Expr>, target_type: &DataType, schema: &DFSchema) -> Result<bool> {
+    let new_expr = cast_expression_to_type((**expr).clone(), target_type, schema)?;
     if new_expr != **expr {
         *expr = Box::new(new_expr);
         Ok(true)
@@ -205,26 +169,25 @@ fn is_decimal_type(data_type: &DataType) -> bool {
     )
 }
 
-fn extract_decimal_column_type(
-    expr: &Expr,
-    schema: &DFSchema,
-) -> Option<DataType> {
+fn extract_decimal_column_type(expr: &Expr, schema: &DFSchema) -> Option<DataType> {
     match expr {
-        Expr::Column(col) => schema
-            .field_from_column(col)
-            .ok()
-            .and_then(|field| match field.data_type() {
-                DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => {
-                    Some(field.data_type().clone())
-                }
-                _ => None,
-            }),
+        Expr::Column(col) => {
+            schema
+                .field_from_column(col)
+                .ok()
+                .and_then(|field| match field.data_type() {
+                    DataType::Decimal128(..) | DataType::Decimal256(..) => {
+                        Some(field.data_type().clone())
+                    },
+                    _ => None,
+                })
+        },
         Expr::Cast(cast) => extract_decimal_column_type(&cast.expr, schema),
         Expr::TryCast(cast) => extract_decimal_column_type(&cast.expr, schema),
         Expr::Alias(alias) => extract_decimal_column_type(&alias.expr, schema),
         Expr::OuterReferenceColumn(data_type, _) if is_decimal_type(data_type) => {
             Some(data_type.clone())
-        }
+        },
         _ => None,
     }
 }
@@ -232,8 +195,7 @@ fn extract_decimal_column_type(
 #[cfg(test)]
 mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion_common::Result;
-    use datafusion_common::ScalarValue;
+    use datafusion_common::{Result, ScalarValue};
     use datafusion_expr::{
         expr::Cast,
         expr_fn::{binary_expr, col},
@@ -255,11 +217,7 @@ mod tests {
 
     #[test]
     fn aligns_literal_with_decimal_column() -> Result<()> {
-        let schema = Schema::new(vec![Field::new(
-            "a",
-            DataType::Decimal128(10, 2),
-            true,
-        )]);
+        let schema = Schema::new(vec![Field::new("a", DataType::Decimal128(10, 2), true)]);
         let plan = table_scan(Some("t"), &schema, None)?
             .project(vec![binary_expr(
                 col("a"),
@@ -278,7 +236,7 @@ mod tests {
             Expr::Cast(Cast { data_type, .. }) => match data_type {
                 DataType::Decimal128(_, scale) | DataType::Decimal256(_, scale) => {
                     assert_eq!(*scale, 2);
-                }
+                },
                 other => panic!("expected decimal cast, found {other:?}"),
             },
             other => panic!("expected cast on right operand, found {other:?}"),
@@ -289,11 +247,7 @@ mod tests {
 
     #[test]
     fn aligns_decimal_when_column_on_right() -> Result<()> {
-        let schema = Schema::new(vec![Field::new(
-            "a",
-            DataType::Decimal128(6, 3),
-            false,
-        )]);
+        let schema = Schema::new(vec![Field::new("a", DataType::Decimal128(6, 3), false)]);
         let plan = table_scan(Some("t"), &schema, None)?
             .project(vec![binary_expr(
                 Expr::Literal(ScalarValue::Int32(Some(10))),
@@ -312,7 +266,7 @@ mod tests {
             Expr::Cast(Cast { data_type, .. }) => match data_type {
                 DataType::Decimal128(_, scale) | DataType::Decimal256(_, scale) => {
                     assert_eq!(*scale, 3);
-                }
+                },
                 other => panic!("expected decimal cast, found {other:?}"),
             },
             other => panic!("expected cast on left operand, found {other:?}"),
