@@ -3,7 +3,6 @@ resolver = "3"
 edition = "2024"
 members = [
     "col-toolbox",
-    "col-toolbox-bench",
     "arithmetic",
     "ra-toolbox",
     "tpch-data",
