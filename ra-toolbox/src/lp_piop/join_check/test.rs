@@ -1,9 +1,9 @@
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
-use ark_ff::PrimeField;
 use ark_ec::pairing::Pairing;
+use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -20,7 +20,6 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::lp_piop::join_check::{InnerJoinPIOP, InnerJoinProverInput, InnerJoinVerifierInput};
-
 
 struct InnerJoinTestInput<E: Pairing> {
     pub nv_left_table: usize,
@@ -303,7 +302,7 @@ fn inner_join_is_complete() -> SnarkResult<()> {
 #[test]
 fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     // Left has 4 rows; activate first of each key. Right activates second of each
-    // key. Output has 2 rows joining the active pairs per key.
+    // // key. Output has 2 rows joining the active pairs per key.
     let input = InnerJoinTestInput {
         // Left table (4 rows): keys [1,1,2,2], payload [5,6,7,8]
         nv_left_table: 2,
@@ -319,7 +318,8 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
             to_field_vec!([1, 1, 2, 2], Fr),
             to_field_vec!([9, 10, 11, 12], Fr),
         ],
-        // Output table (4 rows, activate 2): keys [1,1,2,2], left [5,5,7,7], right [10,10,12,12]
+        // Output table (4 rows, activate 2): keys [1,1,2,2], left [5,5,7,7],
+        // right [10,10,12,12]
         // Activator marks rows 0 and 2 as active.
         nv_out_table: 2,
         activator_out_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
@@ -351,8 +351,8 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     };
 
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input)?;
-    // Second scenario: left activator effectively all-ones -> use None; right
-    // selects first of each key
+    // Second scenario: left activator effectively
+    // all-ones -> use None; right // selects first of each key
     let input2 = InnerJoinTestInput {
         nv_left_table: 2,
         activator_left_table: None, // all rows active
@@ -432,8 +432,8 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         left_table_multiplicity_data: to_field_vec!([0, 2, 0, 2], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input3)?;
-    // Fourth scenario: right has 8 rows with activator; left has 4 rows, no
-    // activator
+    // Fourth scenario: right has 8 rows with
+    // activator; left has 4 rows, no activator
     let input4 = InnerJoinTestInput {
         nv_left_table: 2, // 4 rows
         activator_left_table: None,
@@ -473,22 +473,17 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input4)?;
 
-    // // Fifth scenario: both have activators on same domain (2 rows), selecting
-    // the same row let input5 = InnerJoinTestInput {
+    // Fifth scenario: both have activators on same domain (2 rows), selecting
+    // the same row
+    // let input5 = InnerJoinTestInput {
     //     nv_left_table: 1,
     //     activator_left_table: Some(to_field_vec!([1, 0], Fr)),
-    //     data_left_table: vec![
-    //         to_field_vec!([1, 2], Fr),
-    //         to_field_vec!([5, 6], Fr),
-    //     ],
-    //     nv_right_table: 1,
+    //     data_left_table: vec![to_field_vec!([1, 2], Fr), to_field_vec!([5, 6],
+    // Fr)],     nv_right_table: 1,
     //     activator_right_table: Some(to_field_vec!([1, 0], Fr)),
-    //     data_right_table: vec![
-    //         to_field_vec!([1, 2], Fr),
-    //         to_field_vec!([9, 10], Fr),
-    //     ],
-    //     nv_out_table: 1, // must match both left/right activator domains
-    //     activator_out_table: Some(to_field_vec!([1, 0], Fr)),
+    //     data_right_table: vec![to_field_vec!([1, 2], Fr), to_field_vec!([9, 10],
+    // Fr)],     nv_out_table: 1, // must match both left/right activator
+    // domains     activator_out_table: Some(to_field_vec!([1, 0], Fr)),
     //     data_out_table: vec![
     //         to_field_vec!([1, 1], Fr),
     //         to_field_vec!([5, 5], Fr),
@@ -514,8 +509,9 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     // inner_join_test_helper::<Bls12_381, PST13<Bls12_381>,
     // KZG10<Bls12_381>>(input5)?;
 
-    // // Sixth scenario: no activators on tables; activator only on output domain
-    // (8) let input6 = InnerJoinTestInput {
+    // Sixth scenario: no activators on tables; activator only on output domain
+    // (8)
+    // let input6 = InnerJoinTestInput {
     //     nv_left_table: 2,
     //     activator_left_table: None,
     //     data_left_table: vec![
@@ -555,46 +551,47 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     // inner_join_test_helper::<Bls12_381, PST13<Bls12_381>,
     // KZG10<Bls12_381>>(input6)?;
 
-    // // Seventh scenario: both have activators on 4-row domain; output selects 2
-    // active rows let input7 = InnerJoinTestInput {
-    //     nv_left_table: 2,
-    //     activator_left_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
-    //     data_left_table: vec![
-    //         to_field_vec!([1, 1, 2, 2], Fr),
-    //         to_field_vec!([50, 60, 70, 80], Fr),
-    //     ],
-    //     nv_right_table: 2,
-    //     activator_right_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
-    //     data_right_table: vec![
-    //         to_field_vec!([1, 1, 2, 2], Fr),
-    //         to_field_vec!([900, 910, 1000, 1010], Fr),
-    //     ],
-    //     nv_out_table: 2,
-    //     activator_out_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
-    //     data_out_table: vec![
-    //         to_field_vec!([1, 1, 2, 2], Fr),
-    //         to_field_vec!([50, 50, 70, 70], Fr),
-    //         to_field_vec!([900, 900, 1000, 1000], Fr),
-    //     ],
-    //     nv_left_keysupp: 1,
-    //     activator_left_keysupp: None,
-    //     data_left_keysupp: to_field_vec!([1, 2], Fr),
-    //     nv_right_keysupp: 1,
-    //     activator_right_keysupp: None,
-    //     data_right_keysupp: to_field_vec!([1, 2], Fr),
-    //     nv_out_keysupp: 1,
-    //     activator_out_keysupp: None,
-    //     data_out_keysupp: to_field_vec!([1, 2], Fr),
-    //     nv_all_keysupp: 1,
-    //     activator_all_keysupp: None,
-    //     data_all_keysupp: to_field_vec!([1, 2], Fr),
-    //     join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
-    //     join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
-    //     right_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
-    //     left_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
-    // };
-    // inner_join_test_helper::<Bls12_381, PST13<Bls12_381>,
-    // KZG10<Bls12_381>>(input7)?;
+    // Seventh scenario: both have activators on 4-row domain; output selects 2
+    // active rows
+
+    let input7 = InnerJoinTestInput {
+        nv_left_table: 2,
+        activator_left_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
+        data_left_table: vec![
+            to_field_vec!([1, 1, 2, 2], Fr),
+            to_field_vec!([50, 60, 70, 80], Fr),
+        ],
+        nv_right_table: 2,
+        activator_right_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
+        data_right_table: vec![
+            to_field_vec!([1, 1, 2, 2], Fr),
+            to_field_vec!([900, 910, 1000, 1010], Fr),
+        ],
+        nv_out_table: 2,
+        activator_out_table: Some(to_field_vec!([1, 0, 1, 0], Fr)),
+        data_out_table: vec![
+            to_field_vec!([1, 1, 2, 2], Fr),
+            to_field_vec!([50, 50, 70, 70], Fr),
+            to_field_vec!([900, 900, 1000, 1000], Fr),
+        ],
+        nv_left_keysupp: 1,
+        activator_left_keysupp: None,
+        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        nv_right_keysupp: 1,
+        activator_right_keysupp: None,
+        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        nv_out_keysupp: 1,
+        activator_out_keysupp: None,
+        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        nv_all_keysupp: 1,
+        activator_all_keysupp: None,
+        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
+        join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
+        right_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
+        left_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
+    };
+    inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input7)?;
 
     Ok(())
 }
@@ -690,12 +687,21 @@ fn inner_join_test_helper<
         })
         .collect::<SnarkResult<Vec<_>>>()?;
 
-    let (left_table_columns, left_table_field_order) =
-        assemble_table_columns("left_table", &data_left_table_polys, &activator_left_table_poly);
-    let (right_table_columns, right_table_field_order) =
-        assemble_table_columns("right_table", &data_right_table_polys, &activator_right_table_poly);
-    let (out_table_columns, out_table_field_order) =
-        assemble_table_columns("out_table", &data_out_table_polys, &activator_out_table_poly);
+    let (left_table_columns, left_table_field_order) = assemble_table_columns(
+        "left_table",
+        &data_left_table_polys,
+        &activator_left_table_poly,
+    );
+    let (right_table_columns, right_table_field_order) = assemble_table_columns(
+        "right_table",
+        &data_right_table_polys,
+        &activator_right_table_poly,
+    );
+    let (out_table_columns, out_table_field_order) = assemble_table_columns(
+        "out_table",
+        &data_out_table_polys,
+        &activator_out_table_poly,
+    );
 
     // keysupp prep
     let activator_left_keysupp_poly = match &input.activator_left_keysupp {
@@ -760,21 +766,9 @@ fn inner_join_test_helper<
 
     let inner_join_prover_input: InnerJoinProverInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinProverInput {
-            left_table: TrackedTable::new(
-                None,
-                left_table_columns,
-                input.nv_left_table,
-            ),
-            right_table: TrackedTable::new(
-                None,
-                right_table_columns,
-                input.nv_right_table,
-            ),
-            out_table: TrackedTable::new(
-                None,
-                out_table_columns,
-                input.nv_out_table,
-            ),
+            left_table: TrackedTable::new(None, left_table_columns, input.nv_left_table),
+            right_table: TrackedTable::new(None, right_table_columns, input.nv_right_table),
+            out_table: TrackedTable::new(None, out_table_columns, input.nv_out_table),
             // keysupps
             left_key_support: TrackedCol::new(
                 data_left_keysupp_poly,

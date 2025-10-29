@@ -190,18 +190,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         ];
         let folded = &(&input.join_left_source.data_tracked_poly() * r_vec[0])
             + &(&input.join_right_source.data_tracked_poly() * r_vec[1]);
-        let folded_sources = TrackedCol::new(
-            folded,
-            input.join_left_source.activator_tracked_poly(),
-            None,
-        );
+        let folded_sources =
+            TrackedCol::new(folded, input.out_table.activator_tracked_poly(), None);
 
         // NoDupCheck on source_L + r(source_R)
         let no_dup_prover_input = NoDupCheckProverInput {
             col: folded_sources.clone(),
         };
         NoDupPIOP::prove(prover, no_dup_prover_input)?;
-        let alpha_vec = (0..(input.right_table.num_total_tracked_cols() + 1))
+        let alpha_vec = (0..(input.right_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
 
@@ -222,14 +219,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let mut output_right_indices = vec![0];
         output_right_indices.extend_from_slice(
-            &(1..(input.right_table.num_total_tracked_cols()))
-                .map(|i| i + input.left_table.num_total_tracked_cols() - 1)
+            &(1..(input.right_table.num_data_tracked_cols()))
+                .map(|i| i + input.left_table.num_data_tracked_cols() - 1)
                 .collect::<Vec<usize>>(),
         );
         let output_right_table_folded_col = input
             .out_table
             .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
-
         let output_right_folded_col = TrackedCol::new(
             &output_right_table_folded_col.data_tracked_poly().clone()
                 + &input.join_right_source.data_tracked_poly(),
@@ -246,7 +242,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
 
-        let beta_vec = (0..(input.left_table.num_total_tracked_cols() + 1))
+        let beta_vec = (0..(input.left_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
@@ -266,7 +262,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         );
 
         let output_left_indices =
-            (0..(input.left_table.num_total_tracked_cols())).collect::<Vec<usize>>();
+            (0..(input.left_table.num_data_tracked_cols())).collect::<Vec<usize>>();
         let output_left_table_folded_col = input
             .out_table
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
@@ -367,8 +363,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let folded_sources_cm = TrackedColOracle::new(
             folded,
             input
-                .join_left_source_comm
-                .activator_tracked_oracle()
+                .out_tracked_table_oracle
+                .activator_tracked_poly()
                 .clone(),
             None,
         );
@@ -379,7 +375,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         // Folding of key_out and source_R
         let alpha_vec = (0..(input
             .right_tracked_table_oracle
-            .num_total_tracked_col_oracles()
+            .num_data_tracked_col_oracles()
             + 1))
             .map(|_| verifier.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
@@ -410,11 +406,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         output_right_indices.extend_from_slice(
             &(1..(input
                 .right_tracked_table_oracle
-                .num_total_tracked_col_oracles()))
+                .num_data_tracked_col_oracles()))
                 .map(|i| {
                     i + input
                         .left_tracked_table_oracle
-                        .num_total_tracked_col_oracles()
+                        .num_data_tracked_col_oracles()
                         - 1
                 })
                 .collect::<Vec<usize>>(),
@@ -440,7 +436,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
         MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
 
-        let beta_vec = (0..(input.left_tracked_table_oracle.num_total_tracked_col_oracles() + 1))
+        let beta_vec = (0..(input
+            .left_tracked_table_oracle
+            .num_data_tracked_col_oracles()
+            + 1))
             .map(|_| verifier.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
 
@@ -458,18 +457,25 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let left_ind_oracle = verifier.track_oracle(Oracle::new_multivariate(nv, left_ind_closure));
 
         let input_left_folded_tracked_col_oracle = TrackedColOracle::new(
-            &input_left_table_folded_tracked_col_oracle.data_tracked_oracle().clone() + &(left_ind_oracle),
+            &input_left_table_folded_tracked_col_oracle
+                .data_tracked_oracle()
+                .clone()
+                + &(left_ind_oracle),
             input_left_table_folded_tracked_col_oracle.activator_tracked_oracle(),
             None,
         );
-        let output_left_indices =
-            (0..(input.left_tracked_table_oracle.num_total_tracked_col_oracles())).collect::<Vec<usize>>();
+        let output_left_indices = (0..(input
+            .left_tracked_table_oracle
+            .num_data_tracked_col_oracles()))
+            .collect::<Vec<usize>>();
         let output_left_table_folded_tracked_col_oracle = input
             .out_tracked_table_oracle
             .fold(&output_left_indices, &beta_vec[0..&beta_vec.len() - 1]);
 
         let output_left_folded_tracked_col_oracle = TrackedColOracle::new(
-            &output_left_table_folded_tracked_col_oracle.data_tracked_oracle().clone()
+            &output_left_table_folded_tracked_col_oracle
+                .data_tracked_oracle()
+                .clone()
                 + &(input.join_left_source_comm.data_tracked_oracle()),
             output_left_table_folded_tracked_col_oracle.activator_tracked_oracle(),
             None,
