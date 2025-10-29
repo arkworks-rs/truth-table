@@ -23,8 +23,17 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub alias: String,
-    pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub input_proof_tree_root: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    pub node_id: NodeId,
+}
+pub struct VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    pub input_proof_tree_root: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    pub node_id: NodeId,
 }
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverSubqueryAliasNode<F, MvPCS, UvPCS>
 where
@@ -33,7 +42,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
-        vec![&self.input]
+        vec![&self.input_proof_tree_root]
     }
 
     fn hint_generation_plans(
@@ -45,18 +54,36 @@ where
 
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        // Get the subquery_alias logical plan
+        let subquery_alias = match &plan {
+            LogicalPlan::SubqueryAlias(subquery_alias) => subquery_alias,
+            _ => panic!("expected subquery alias logical plan"),
+        };
+        // Get the node id of the current node
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the input proof tree
+        let input_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &subquery_alias.input,
+            &node_id,
+        )
+        .root();
+        Self {
+            input_proof_tree_root,
+            node_id,
+        }
     }
 
     fn node_id(&self) -> NodeId {
-        todo!()
+        self.node_id.clone()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
@@ -101,15 +128,6 @@ where
     }
 }
 
-pub struct VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    pub alias: String,
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-}
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -117,7 +135,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
-        vec![&self.input]
+        vec![&self.input_proof_tree_root]
     }
 
     fn hint_generation_plans(
@@ -129,14 +147,32 @@ where
 
     fn from_lp(
         ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        // Get the subquery_alias logical plan
+        let subquery_alias = match &plan {
+            LogicalPlan::SubqueryAlias(subquery_alias) => subquery_alias,
+            _ => panic!("expected subquery alias logical plan"),
+        };
+        // Get the node id of the current node
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the input proof tree
+        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            verifier_ctx.clone(),
+            &subquery_alias.input,
+            &node_id,
+        )
+        .root();
+        Self {
+            input_proof_tree_root,
+            node_id,
+        }
     }
 
     fn node_id(&self) -> NodeId {

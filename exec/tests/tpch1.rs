@@ -20,15 +20,9 @@ type UvPCS = KZG10<Bls12_381>;
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_proof_tree() {
     let spec = query_spec(1);
-    let sql = "SELECT
-    l_returnflag,
-    l_linestatus,
-    SUM(l_discount + 2) AS sum_disc_price
-FROM
-    lineitem
-GROUP BY
-    l_returnflag,
-    l_linestatus
+    let sql = "SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 ";
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");

@@ -582,7 +582,21 @@ where
             df::LogicalPlan::Analyze(_a) => todo!(),
             df::LogicalPlan::Distinct(_d) => todo!(),
             df::LogicalPlan::Subquery(_sq) => todo!(),
-            df::LogicalPlan::SubqueryAlias(_sqa) => todo!(),
+            df::LogicalPlan::SubqueryAlias(_sqa) => Self::new(
+                Arc::new(
+                    <crate::proof_nodes::lps::subquery_alias::ProverSubqueryAliasNode<
+                        F,
+                        MvPCS,
+                        UvPCS,
+                    > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                        ctx,
+                        prover_ctx.clone(),
+                        plan.clone(),
+                        parent_node_id.clone(),
+                    ),
+                ),
+                prover_ctx,
+            ),
             df::LogicalPlan::Union(_u) => todo!(),
             df::LogicalPlan::Extension(_ext) => todo!(),
             df::LogicalPlan::Join(_j) => Self::new(
