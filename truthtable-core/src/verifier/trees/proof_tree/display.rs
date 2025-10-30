@@ -4,7 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::proof_nodes::{id::NodeId, verifier::VerifierNode};
+use crate::proof_nodes::{
+    exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -45,7 +47,7 @@ where
                 NodeId::LP(ref plan) => (String::from("LogicalPlan"), plan.display().to_string()),
                 NodeId::Expr(ref expr) => (
                     format!("Expr ({})", expr_variant_name(expr)),
-                    expr.to_string(),
+                    expr_detail(expr),
                 ),
                 NodeId::None => ("None".to_string(), "None".to_string()),
             };
@@ -129,5 +131,12 @@ fn expr_variant_name(expr: &Expr) -> &'static str {
         Expr::Placeholder(_) => "Placeholder",
         Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
         Expr::Unnest(_) => "Unnest",
+    }
+}
+
+fn expr_detail(expr: &Expr) -> String {
+    match expr {
+        Expr::Column(column) => format_column_detail(column),
+        _ => expr.to_string(),
     }
 }

@@ -1,4 +1,6 @@
-use crate::proof_nodes::{id::NodeId, prover::ProverNode};
+use crate::proof_nodes::{
+    exprs::column::format_column_detail, id::NodeId, prover::ProverNode,
+};
 use datafusion::logical_expr::Expr;
 use std::{
     collections::{HashSet, VecDeque},
@@ -45,7 +47,7 @@ where
                 NodeId::LP(ref plan) => (String::from("LogicalPlan"), plan.display().to_string()),
                 NodeId::Expr(ref expr) => (
                     format!("Expr ({})", expr_variant_name(expr)),
-                    expr.to_string(),
+                    expr_detail(expr),
                 ),
                 NodeId::None => ("None".to_string(), "None".to_string()),
             };
@@ -129,5 +131,12 @@ fn expr_variant_name(expr: &Expr) -> &'static str {
         Expr::Placeholder(_) => "Placeholder",
         Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
         Expr::Unnest(_) => "Unnest",
+    }
+}
+
+fn expr_detail(expr: &Expr) -> String {
+    match expr {
+        Expr::Column(column) => format_column_detail(column),
+        _ => expr.to_string(),
     }
 }

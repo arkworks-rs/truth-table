@@ -1,4 +1,6 @@
-use crate::proof_nodes::prover::ProverNode;
+use crate::proof_nodes::{
+    exprs::column::format_column_detail, prover::ProverNode,
+};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
@@ -73,7 +75,10 @@ where
                     "LogicalPlan",
                     format!("{} | {}", logical_plan_variant_name(plan), plan.display()),
                 ),
-                NodeId::Expr(expr) => ("Expr", format!("{} | {}", expr_variant_name(expr), expr)),
+                NodeId::Expr(expr) => (
+                    "Expr",
+                    format!("{} | {}", expr_variant_name(expr), expr_detail(expr)),
+                ),
                 NodeId::None => ("None", "None".to_string()),
             };
 
@@ -179,6 +184,13 @@ fn expr_variant_name(expr: &Expr) -> &'static str {
         Expr::Placeholder(_) => "Placeholder",
         Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
         Expr::Unnest(_) => "Unnest",
+    }
+}
+
+fn expr_detail(expr: &Expr) -> String {
+    match expr {
+        Expr::Column(column) => format_column_detail(column),
+        _ => expr.to_string(),
     }
 }
 
