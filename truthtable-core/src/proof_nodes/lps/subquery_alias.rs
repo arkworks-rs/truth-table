@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
         verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
@@ -12,7 +12,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{logical_expr as df, prelude::SessionContext};
+use datafusion::prelude::SessionContext;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        todo!()
+        IndexMap::new()
     }
 
     fn from_lp(
@@ -117,7 +117,17 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        // Subquery alias wraps its input without modifying the data, so reuse the
+        // child's output plan table as this node's output plan.
+        if let Some(input_tables) =
+            piop_tree.tracked_table(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+        {
+            piop_tree.add_table(
+                self.node_id.clone(),
+                OUTPUT_PLAN_KEY.to_string(),
+                input_tables.clone(),
+            );
+        }
     }
     fn prove_piop(
         &self,
@@ -195,7 +205,17 @@ where
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
+        // Mirror the prover behaviour: expose the child's output plan as this node's
+        // output.
+        if let Some(input_table_oracle) =
+            piop_tree.tracked_table_oracle(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+        {
+            piop_tree.add_tracked_table_oracle(
+                self.node_id.clone(),
+                OUTPUT_PLAN_KEY.to_string(),
+                input_table_oracle.clone(),
+            );
+        }
     }
     fn verify_piop(
         &self,

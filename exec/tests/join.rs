@@ -2,7 +2,9 @@ mod support;
 use datafusion::prelude::ParquetReadOptions;
 use proof_planner::{create_prover_proof_tree, new_session_context_with_custom_analyzer};
 use support::end_to_end_tests;
-use truthtable_core::test_display::display_prover_proof_tree;
+use truthtable_core::test_display::{
+    display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree, display_prover_proof_tree, display_prover_tracked_tree
+};
 
 end_to_end_tests!(&["lineitem", "supplier"] => [
     aggregate_count_by_flag => r#"SELECT l_suppkey, s_name
@@ -17,7 +19,7 @@ type UvPCS = ark_piop::pcs::kzg10::KZG10<ark_test_curves::bls12_381::Bls12_381>;
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
-async fn tpch_q1_proof_tree() {
+async fn display_join_prover_proof_tree() {
     let sql = "SELECT l_suppkey, s_name
 FROM lineitem l
 JOIN supplier s ON l.l_suppkey = s.s_suppkey;
@@ -45,4 +47,132 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
     .expect("register lineitem table");
     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
     display_prover_proof_tree(&proof_tree).await;
+}
+
+#[tokio::test]
+#[ignore = "Visualization-focused test"]
+async fn display_join_prover_hint_tree() {
+    let sql = "SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+";
+    let ctx = new_session_context_with_custom_analyzer();
+    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
+    let supplier_path = tpch_data::test_data_path("supplier.parquet");
+    ctx.register_parquet(
+        "lineitem",
+        lineitem_path
+            .to_str()
+            .expect("lineitem path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    ctx.register_parquet(
+        "supplier",
+        supplier_path
+            .to_str()
+            .expect("supplier path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
+    display_prover_hint_tree(&ctx, proof_tree).await;
+}
+
+#[tokio::test]
+#[ignore = "Visualization-focused test"]
+async fn display_join_prover_arithmetized_tree() {
+    let sql = "SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+";
+    let ctx = new_session_context_with_custom_analyzer();
+    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
+    let supplier_path = tpch_data::test_data_path("supplier.parquet");
+    ctx.register_parquet(
+        "lineitem",
+        lineitem_path
+            .to_str()
+            .expect("lineitem path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    ctx.register_parquet(
+        "supplier",
+        supplier_path
+            .to_str()
+            .expect("supplier path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
+    display_prover_arithmetized_tree(&ctx, proof_tree).await;
+}
+
+#[tokio::test]
+#[ignore = "Visualization-focused test"]
+async fn display_join_prover_tracked_tree() {
+    let sql = "SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+";
+    let ctx = new_session_context_with_custom_analyzer();
+    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
+    let supplier_path = tpch_data::test_data_path("supplier.parquet");
+    ctx.register_parquet(
+        "lineitem",
+        lineitem_path
+            .to_str()
+            .expect("lineitem path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    ctx.register_parquet(
+        "supplier",
+        supplier_path
+            .to_str()
+            .expect("supplier path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
+    display_prover_tracked_tree(&ctx, proof_tree).await;
+}
+
+#[tokio::test]
+#[ignore = "Visualization-focused test"]
+async fn display_join_prover_piop_tree() {
+    let sql = "SELECT l_suppkey, s_name
+FROM lineitem l
+JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+";
+    let ctx = new_session_context_with_custom_analyzer();
+    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
+    let supplier_path = tpch_data::test_data_path("supplier.parquet");
+    ctx.register_parquet(
+        "lineitem",
+        lineitem_path
+            .to_str()
+            .expect("lineitem path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    ctx.register_parquet(
+        "supplier",
+        supplier_path
+            .to_str()
+            .expect("supplier path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register lineitem table");
+    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
+    display_prover_piop_tree(&ctx, proof_tree).await;
 }

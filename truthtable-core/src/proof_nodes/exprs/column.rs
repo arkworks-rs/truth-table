@@ -58,7 +58,14 @@ where
                     .iter()
                     .find_map(|(node_id, node)| match node_id {
                         NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                            if &scan_plan.table_name == relation =>
+                            if relation.resolved_eq(&scan_plan.table_name) =>
+                        {
+                            node.hint_generation_plans(proof_tree)
+                                .get(OUTPUT_PLAN_KEY)
+                                .cloned()
+                        },
+                        NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
+                            if relation.resolved_eq(&alias_plan.alias) =>
                         {
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
@@ -164,7 +171,12 @@ where
                 .iter()
                 .find_map(|(node_id, tables)| match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                        if &scan_plan.table_name == relation =>
+                        if relation.resolved_eq(&scan_plan.table_name) =>
+                    {
+                        tables.get(OUTPUT_PLAN_KEY)
+                    },
+                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
+                        if relation.resolved_eq(&alias_plan.alias) =>
                     {
                         tables.get(OUTPUT_PLAN_KEY)
                     },
@@ -244,7 +256,14 @@ where
                     .iter()
                     .find_map(|(node_id, node)| match node_id {
                         NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                            if &scan_plan.table_name == relation =>
+                            if relation.resolved_eq(&scan_plan.table_name) =>
+                        {
+                            node.hint_generation_plans(proof_tree)
+                                .get(OUTPUT_PLAN_KEY)
+                                .cloned()
+                        },
+                        NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
+                            if relation.resolved_eq(&alias_plan.alias) =>
                         {
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
@@ -331,7 +350,12 @@ where
                 .iter()
                 .find_map(|(node_id, tables)| match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                        if &scan_plan.table_name == relation =>
+                        if relation.resolved_eq(&scan_plan.table_name) =>
+                    {
+                        tables.get(OUTPUT_PLAN_KEY)
+                    },
+                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
+                        if relation.resolved_eq(&alias_plan.alias) =>
                     {
                         tables.get(OUTPUT_PLAN_KEY)
                     },

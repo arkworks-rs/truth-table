@@ -2,7 +2,10 @@ use crate::proof_nodes::prover::ProverNode;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
-use crate::proof_nodes::{id::NodeId, lps::prover::ProverTableScanNode};
+use crate::proof_nodes::{
+    id::NodeId,
+    lps::{join::ProverJoinNode, prover::ProverTableScanNode},
+};
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
 use std::{fmt, sync::Arc};
@@ -14,10 +17,12 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::{
-        array::{Array, BooleanArray},
+        array::{Array, ArrayRef, BooleanArray, BooleanBuilder},
+        datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    error::Result as DFResult,
+    arrow::compute::concat,
+    error::{DataFusionError, Result as DFResult},
     prelude::SessionContext,
 };
 
@@ -165,12 +170,20 @@ where
                             // Collect per-partition batches and flatten them in partition order
                             // so we keep a deterministic row ordering even when the executor
                             // runs partitions in parallel.
-                            let batches = df
+                            let mut batches = df
                                 .collect_partitioned()
                                 .await?
                                 .into_iter()
                                 .flatten()
                                 .collect::<Vec<_>>();
+
+                            if node
+                                .as_any()
+                                .downcast_ref::<ProverJoinNode<F, MvPCS, UvPCS>>()
+                                .is_some()
+                            {
+                                batches = add_activator_and_pad_power_of_two(batches)?;
+                            }
 
                             if label_clone == "output_tree"
                                 && node
@@ -374,4 +387,100 @@ fn rows_cols_activated(batches: &[RecordBatch]) -> (usize, usize, Option<usize>)
     } else {
         (rows, cols, None)
     }
+}
+
+fn add_activator_and_pad_power_of_two(
+    batches: Vec<RecordBatch>,
+) -> DFResult<Vec<RecordBatch>> {
+    if batches.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut new_batches = Vec::new();
+    let mut total_rows = 0usize;
+    let mut last_nonempty: Option<RecordBatch> = None;
+    let mut out_schema: Option<Arc<Schema>> = None;
+    let mut activator_index: Option<usize> = None;
+
+    for batch in batches {
+        let batch_rows = batch.num_rows();
+        if out_schema.is_none() {
+            let mut fields: Vec<Field> = batch
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| (**f).clone())
+                .collect();
+            if !fields.iter().any(|f| f.name() == ACTIVATOR_COL_NAME) {
+                fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
+            }
+            let schema = Arc::new(Schema::new(fields));
+            activator_index = schema
+                .fields()
+                .iter()
+                .position(|f| f.name() == ACTIVATOR_COL_NAME);
+            out_schema = Some(schema);
+        }
+
+        let schema = Arc::clone(out_schema.as_ref().unwrap());
+        let act_idx = activator_index.expect("activator field missing");
+
+        let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
+        if cols.len() == schema.fields().len() {
+            // Replace existing activator column with `true`
+            let mut builder = BooleanBuilder::with_capacity(batch_rows);
+            for _ in 0..batch_rows {
+                builder.append_value(true);
+            }
+            cols[act_idx] = Arc::new(builder.finish());
+        } else {
+            let mut builder = BooleanBuilder::with_capacity(batch_rows);
+            for _ in 0..batch_rows {
+                builder.append_value(true);
+            }
+            cols.insert(act_idx, Arc::new(builder.finish()));
+        }
+
+        let new_batch = RecordBatch::try_new(schema.clone(), cols)?;
+        if batch_rows > 0 {
+            total_rows += batch_rows;
+            last_nonempty = Some(new_batch.clone());
+        }
+        new_batches.push(new_batch);
+    }
+
+    if total_rows == 0 {
+        return Ok(new_batches);
+    }
+
+    if !total_rows.is_power_of_two() {
+        let target = total_rows.next_power_of_two();
+        let pad = target - total_rows;
+        let last_batch = last_nonempty.expect("expected non-empty batch");
+        let schema = out_schema.unwrap();
+        let act_idx = activator_index.expect("activator index missing");
+        let last_row_idx = last_batch.num_rows() - 1;
+
+        let mut pad_cols: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
+        for (col_idx, field) in schema.fields().iter().enumerate() {
+            if col_idx == act_idx && field.name() == ACTIVATOR_COL_NAME {
+                let mut builder = BooleanBuilder::with_capacity(pad);
+                for _ in 0..pad {
+                    builder.append_value(false);
+                }
+                pad_cols.push(Arc::new(builder.finish()));
+            } else {
+                let single = last_batch.column(col_idx).slice(last_row_idx, 1);
+                let repeats: Vec<&dyn Array> = (0..pad).map(|_| single.as_ref()).collect();
+                let concatenated = concat(&repeats)
+                    .map_err(|e| DataFusionError::ArrowError(e, None))?;
+                pad_cols.push(concatenated);
+            }
+        }
+
+        let pad_batch = RecordBatch::try_new(schema.clone(), pad_cols)?;
+        new_batches.push(pad_batch);
+    }
+
+    Ok(new_batches)
 }

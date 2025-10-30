@@ -93,15 +93,6 @@ where
         display::DisplayableVerifierPIOPTree::new(self)
     }
 
-    pub fn add_tracked_table_oracle(
-        &mut self,
-        node_id: NodeId,
-        label: String,
-        table: TrackedTableOracle<F, MvPCS, UvPCS>,
-    ) {
-        self.arena.entry(node_id).or_default().insert(label, table);
-    }
-
     pub fn tracked_table_oracle(
         &self,
         node_id: &NodeId,
@@ -110,6 +101,15 @@ where
         self.arena
             .get(node_id)
             .and_then(|by_label| by_label.get(label))
+    }
+
+    pub fn add_tracked_table_oracle(
+        &mut self,
+        node_id: NodeId,
+        label: String,
+        table: TrackedTableOracle<F, MvPCS, UvPCS>,
+    ) {
+        self.arena.entry(node_id).or_default().insert(label, table);
     }
 
     /// Build a virtualized plan from an arithmetized plan.

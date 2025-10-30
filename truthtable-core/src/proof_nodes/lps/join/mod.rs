@@ -1,6 +1,8 @@
+mod hints;
+
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
         verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
@@ -17,6 +19,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_expr::LogicalPlan;
+use hints::{build_join_hint_generation_plans, build_verifier_join_hint_generation_plans};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -75,7 +78,15 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        todo!()
+        let _ = proof_tree;
+
+        let plan = self
+            .node_id
+            .to_lp()
+            .cloned()
+            .expect("join node id should contain logical plan");
+
+        build_join_hint_generation_plans(plan)
     }
 
     fn from_lp(
@@ -87,14 +98,11 @@ where
     where
         Self: Sized,
     {
-        // Get the join logical plan
         let join = match &plan {
             LogicalPlan::Join(join) => join,
             _ => panic!("expected join logical plan"),
         };
-        // Get the node id of the current node
         let node_id = NodeId::LP(plan.clone());
-        // Recursively build the left proof tree
         let left_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
@@ -103,7 +111,6 @@ where
         )
         .root();
 
-        // Recursively build the right proof tree
         let right_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
@@ -183,7 +190,7 @@ where
             labels.push(Some(format!("on[{idx}].lhs")));
             labels.push(Some(format!("on[{idx}].rhs")));
         }
-        if self.filter_proof_tree_root.is_some() {
+        if let Some(_) = &self.filter_proof_tree_root {
             labels.push(Some("filter".to_string()));
         }
         labels
@@ -210,10 +217,9 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        todo!()
     }
     fn prove_piop(
         &self,
@@ -223,16 +229,6 @@ where
         todo!()
     }
 }
-
-// TODO: Compute the following witnesses:
-// pub left_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub right_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub out_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub all_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
-// pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
-// pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
-// pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierJoinNode<F, MvPCS, UvPCS>
 where
@@ -257,7 +253,15 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        todo!()
+        let _ = proof_tree;
+
+        let plan = self
+            .node_id
+            .to_lp()
+            .cloned()
+            .expect("join node id should contain logical plan");
+
+        build_verifier_join_hint_generation_plans(plan)
     }
 
     fn from_lp(
@@ -269,14 +273,11 @@ where
     where
         Self: Sized,
     {
-        // Get the join logical plan
         let join = match &plan {
             LogicalPlan::Join(join) => join,
             _ => panic!("expected join logical plan"),
         };
-        // Get the node id of the current node
         let node_id = NodeId::LP(plan.clone());
-        // Recursively build the left proof tree
         let left_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             verifier_ctx.clone(),
@@ -285,7 +286,6 @@ where
         )
         .root();
 
-        // Recursively build the right proof tree
         let right_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             verifier_ctx.clone(),
@@ -344,7 +344,7 @@ where
     }
 
     fn node_id(&self) -> NodeId {
-        todo!()
+        self.node_id.clone()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
@@ -365,7 +365,7 @@ where
             labels.push(Some(format!("on[{idx}].lhs")));
             labels.push(Some(format!("on[{idx}].rhs")));
         }
-        if self.filter_proof_tree_root.is_some() {
+        if let Some(_) = &self.filter_proof_tree_root {
             labels.push(Some("filter".to_string()));
         }
         labels
@@ -377,11 +377,11 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        todo!()
     }
+
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
@@ -392,18 +392,8 @@ where
 
     fn ctx_lp_node(
         &self,
-        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
 }
-
-// TODO: Compute the following witnesses:
-// pub left_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub right_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub out_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub all_key_support: TrackedCol<F, MvPCS, UvPCS>,
-// pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
-// pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
-// pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
-// pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,

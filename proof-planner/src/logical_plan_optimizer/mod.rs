@@ -2,11 +2,14 @@ use std::sync::Arc;
 
 use datafusion::{
     logical_expr::LogicalPlan,
-    optimizer::{Optimizer, OptimizerContext, OptimizerRule},
+    optimizer::{
+        extract_equijoin_predicate::ExtractEquijoinPredicate, Optimizer, OptimizerContext,
+        OptimizerRule,
+    },
 };
 
 pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
-    let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![];
+    let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![Arc::new(ExtractEquijoinPredicate)];
 
     let optimizer = Optimizer::with_rules(rules);
 
