@@ -1,7 +1,5 @@
 use super::{ProverHintTree, rows_cols_activated};
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, prover::ProverNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, prover::ProverNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

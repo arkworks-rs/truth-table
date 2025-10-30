@@ -18,10 +18,10 @@ use ark_piop::{
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, BooleanArray, BooleanBuilder},
+        compute::concat,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    arrow::compute::concat,
     error::{DataFusionError, Result as DFResult},
     prelude::SessionContext,
 };
@@ -389,9 +389,7 @@ fn rows_cols_activated(batches: &[RecordBatch]) -> (usize, usize, Option<usize>)
     }
 }
 
-fn add_activator_and_pad_power_of_two(
-    batches: Vec<RecordBatch>,
-) -> DFResult<Vec<RecordBatch>> {
+fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec<RecordBatch>> {
     if batches.is_empty() {
         return Ok(Vec::new());
     }
@@ -472,8 +470,8 @@ fn add_activator_and_pad_power_of_two(
             } else {
                 let single = last_batch.column(col_idx).slice(last_row_idx, 1);
                 let repeats: Vec<&dyn Array> = (0..pad).map(|_| single.as_ref()).collect();
-                let concatenated = concat(&repeats)
-                    .map_err(|e| DataFusionError::ArrowError(e, None))?;
+                let concatenated =
+                    concat(&repeats).map_err(|e| DataFusionError::ArrowError(e, None))?;
                 pad_cols.push(concatenated);
             }
         }

@@ -1,7 +1,5 @@
 use super::ProverPIOPTree;
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, prover::ProverNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, prover::ProverNode};
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 use ark_ff::PrimeField;
 use ark_piop::{

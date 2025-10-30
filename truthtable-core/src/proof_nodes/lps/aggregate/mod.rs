@@ -15,7 +15,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
@@ -277,23 +277,24 @@ where
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
+        // First get the actual aggregate logical plan
+        let aggregate_plan = match self.node_id.to_lp() {
+            Some(LogicalPlan::Aggregate(agg)) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        };
+
         // Fetch the current output table tracked by this aggregate node
         // This should contain only the materialized columns; i.e. the new activator and
         // the aggregate expression columns
         // It remains to attach the grouping expression columns at the front
-        let Some(existing_output) = piop_tree
+        let Some(existing_materialized_output_table) = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .cloned()
         else {
             panic!("missing output plan table for the current aggregate node");
         };
-
         // Separate aggregate value columns and the activator from the current output
         // table.
-        let aggregate_plan = match self.node_id.to_lp() {
-            Some(LogicalPlan::Aggregate(agg)) => agg,
-            _ => panic!("expected aggregate logical plan"),
-        };
         let group_col_count = aggregate_plan.group_expr.len();
         let aggregate_col_count = aggregate_plan.aggr_expr.len();
         let agg_schema = aggregate_plan.schema.as_ref();
@@ -301,15 +302,10 @@ where
             .map(|idx| agg_schema.field(group_col_count + idx).name().clone())
             .collect();
 
-        let mut aggregate_entries: IndexMap<
-            String,
-            (
-                Arc<Field>,
-                ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-            ),
-        > = IndexMap::with_capacity(aggregate_col_count);
+        let mut aggregate_entries: IndexMap<String, (FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+            IndexMap::with_capacity(aggregate_col_count);
         let mut activator_entry = None;
-        for (field, poly) in existing_output.tracked_polys() {
+        for (field, poly) in existing_materialized_output_table.tracked_polys() {
             if field.name() == ACTIVATOR_COL_NAME {
                 activator_entry = Some((field.clone(), poly.clone()));
             } else if aggr_field_names.iter().any(|name| name == field.name()) {
@@ -341,7 +337,8 @@ where
                 columns.insert(agg_field, agg_poly);
                 columns.insert(activator_field.clone(), activator_poly.clone());
 
-                let agg_child_table = TrackedTable::new(None, columns, existing_output.log_size());
+                let agg_child_table =
+                    TrackedTable::new(None, columns, existing_materialized_output_table.log_size());
 
                 piop_tree.add_table(
                     aggr_node.node_id(),
@@ -351,11 +348,48 @@ where
             }
         }
 
-        // Rebuild the output table so only aggregate columns and the activator
-        // remain materialized on this node.
+        // Rebuild the output table so grouping columns, aggregate columns and the
+        // activator are materialized on this node.
+        let mut group_entries: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+            Vec::with_capacity(group_col_count);
+        for (idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
+            let group_table = piop_tree
+                .tracked_table(&group_node.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for group expr {}",
+                        group_node.name()
+                    )
+                });
+            assert_eq!(
+                group_table.log_size(),
+                existing_materialized_output_table.log_size(),
+                "group expression table log size mismatch for aggregate output"
+            );
+
+            let (field_ref, group_poly) = group_table
+                .tracked_polys()
+                .iter()
+                .find_map(|(field, poly)| {
+                    (field.name() != ACTIVATOR_COL_NAME)
+                        .then(|| (field.clone(), poly.clone()))
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "group expr {} did not produce a data column",
+                        group_node.name()
+                    )
+                });
+
+            group_entries.push((field_ref, group_poly));
+        }
+
         let mut combined_columns = IndexMap::with_capacity(
-            aggregate_entries.len() + usize::from(activator_entry.is_some()),
+            group_entries.len() + aggregate_entries.len() + usize::from(activator_entry.is_some()),
         );
+        for (field, poly) in group_entries {
+            combined_columns.insert(field, poly);
+        }
         for field_name in &aggr_field_names {
             if let Some((field, poly)) = aggregate_entries.get(field_name) {
                 combined_columns.insert(field.clone(), poly.clone());
@@ -372,7 +406,7 @@ where
         let updated_table = TrackedTable::new(
             Some(Schema::new(schema_fields)),
             combined_columns,
-            existing_output.log_size(),
+            existing_materialized_output_table.log_size(),
         );
 
         piop_tree.add_table(
@@ -835,9 +869,46 @@ where
             }
         }
 
+        let mut group_entries: Vec<(FieldRef, TrackedOracle<F, MvPCS, UvPCS>)> =
+            Vec::with_capacity(group_col_count);
+        for (idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
+            let group_table = piop_tree
+                .tracked_table_oracle(&group_node.node_id(), OUTPUT_PLAN_KEY)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing output_plan table for group expr {}",
+                        group_node.name()
+                    )
+                });
+            assert_eq!(
+                group_table.log_size(),
+                existing_output.log_size(),
+                "group expression table log size mismatch for aggregate output"
+            );
+
+            let (field_ref, group_oracle) = group_table
+                .tracked_oracles()
+                .iter()
+                .find_map(|(field, oracle)| {
+                    (field.name() != ACTIVATOR_COL_NAME)
+                        .then(|| (field.clone(), oracle.clone()))
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "group expr {} did not produce a data column",
+                        group_node.name()
+                    )
+                });
+
+            group_entries.push((field_ref, group_oracle));
+        }
+
         let mut combined_columns = IndexMap::with_capacity(
-            aggregate_entries.len() + usize::from(activator_entry.is_some()),
+            group_entries.len() + aggregate_entries.len() + usize::from(activator_entry.is_some()),
         );
+        for (field, oracle) in group_entries {
+            combined_columns.insert(field, oracle);
+        }
         for field_name in &aggr_field_names {
             if let Some((field, oracle)) = aggregate_entries.get(field_name) {
                 combined_columns.insert(field.clone(), oracle.clone());

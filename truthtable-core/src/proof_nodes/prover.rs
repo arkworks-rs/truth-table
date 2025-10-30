@@ -112,10 +112,21 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
     );
 
+    fn add_virtual_witness_recursive(
+        &self,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+    ) {
+        for child in self.children() {
+            child.add_virtual_witness_recursive(piop_tree, prover);
+        }
+        self.add_virtual_witness(piop_tree, prover);
+    }
+
     fn prove_piop(
         &self,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

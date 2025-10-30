@@ -1,6 +1,4 @@
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, prover::ProverNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, prover::ProverNode};
 use datafusion::logical_expr::Expr;
 use std::{
     collections::{HashSet, VecDeque},
@@ -62,7 +60,10 @@ where
                 let child_id = node_ptr_id(child);
                 if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
                     let escaped = escape_label(label);
-                    out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, child_id, escaped));
+                    out.push_str(&format!(
+                        "  n{} -> n{} [label=\"{}\"];\n",
+                        id, child_id, escaped
+                    ));
                 } else {
                     out.push_str(&format!("  n{} -> n{};\n", id, child_id));
                 }

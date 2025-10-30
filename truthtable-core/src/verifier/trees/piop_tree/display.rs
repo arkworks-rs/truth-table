@@ -1,7 +1,5 @@
 use super::VerifierPIOPTree;
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode};
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::PrimeField;
 use ark_piop::{

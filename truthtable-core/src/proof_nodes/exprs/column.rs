@@ -172,30 +172,11 @@ where
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        let table = if let Some(relation) = column_expr.relation.as_ref() {
-            piop_tree
-                .arena()
-                .iter()
-                .find_map(|(node_id, tables)| match node_id {
-                    NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                        if relation.resolved_eq(&scan_plan.table_name) =>
-                    {
-                        tables.get(OUTPUT_PLAN_KEY)
-                    },
-                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
-                        if relation.resolved_eq(&alias_plan.alias) =>
-                    {
-                        tables.get(OUTPUT_PLAN_KEY)
-                    },
-                    _ => None,
-                })
-                .expect("table scan not found for relation")
-        } else {
-            let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            piop_tree
-                .tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
-                .unwrap()
-        };
+
+        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
+        let table = piop_tree
+            .tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap();
         let col = table
             .tracked_col_by_name(&column_expr.name)
             .unwrap_or_else(|| panic!("column {} not found in table", &column_expr.name));
@@ -351,32 +332,10 @@ where
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        let table = if let Some(relation) = column_expr.relation.as_ref() {
-            dbg!(1, column_expr.name.as_str());
-            piop_tree
-                .arena()
-                .iter()
-                .find_map(|(node_id, tables)| match node_id {
-                    NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                        if relation.resolved_eq(&scan_plan.table_name) =>
-                    {
-                        tables.get(OUTPUT_PLAN_KEY)
-                    },
-                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
-                        if relation.resolved_eq(&alias_plan.alias) =>
-                    {
-                        tables.get(OUTPUT_PLAN_KEY)
-                    },
-                    _ => None,
-                })
-                .expect("table scan not found for relation")
-        } else {
-            dbg!(2, column_expr.name.as_str());
-            let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-            piop_tree
-                .tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
-                .unwrap()
-        };
+        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
+        let table = piop_tree
+            .tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap();
         let col = table
             .tracked_col_oracle_by_name(&column_expr.name)
             .expect("column not found in table");
@@ -407,11 +366,11 @@ where
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         self.children()
             .iter()
-            .try_for_each(|child| child.verify_piop(_verifier, _piop_tree))?;
+            .try_for_each(|child| child.verify_piop(_verifier, piop_tree))?;
         Ok(())
     }
 

@@ -131,13 +131,10 @@ where
         }
 
         let mut piop_tree = VerifierPIOPTree::new(proof_tree.clone(), ordered_tables);
-        let node_ids: Vec<_> = piop_tree.arena.keys().cloned().collect();
-        for node_id in node_ids {
-            let prover_node = flattened_proof_tree
-                .get(&node_id)
-                .expect("missing node in proof tree");
-            prover_node.add_virtual_witness(&mut piop_tree, verifier);
-        }
+        piop_tree
+            .inner_proof_tree
+            .root()
+            .add_virtual_witness_recursive(&mut piop_tree, verifier);
         piop_tree
     }
 

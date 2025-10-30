@@ -83,10 +83,21 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
     );
 
+    fn add_virtual_witness_recursive(
+        &self,
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    ) {
+        for child in self.children() {
+            child.add_virtual_witness_recursive(piop_tree, verifier);
+        }
+        self.add_virtual_witness(piop_tree, verifier);
+    }
+
     fn verify_piop(
         &self,
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

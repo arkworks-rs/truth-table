@@ -81,7 +81,7 @@ pub async fn display_prover_tracked_tree(
     println!("{}", tracked_tree.display_graphviz());
 }
 
-pub async fn display_prover_piop_tree(
+pub async fn display_proverpiop_tree(
     ctx: &SessionContext,
     proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 ) {

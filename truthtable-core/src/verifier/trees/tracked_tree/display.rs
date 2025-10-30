@@ -1,6 +1,4 @@
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,

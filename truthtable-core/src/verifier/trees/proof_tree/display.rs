@@ -4,9 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::proof_nodes::{
-    exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode,
-};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, verifier::VerifierNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -62,7 +60,10 @@ where
                 let child_id = node_ptr_id(child);
                 if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
                     let escaped = escape_label(label);
-                    out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, child_id, escaped));
+                    out.push_str(&format!(
+                        "  n{} -> n{} [label=\"{}\"];\n",
+                        id, child_id, escaped
+                    ));
                 } else {
                     out.push_str(&format!("  n{} -> n{};\n", id, child_id));
                 }

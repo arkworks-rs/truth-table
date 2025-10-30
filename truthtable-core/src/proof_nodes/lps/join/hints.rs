@@ -6,12 +6,7 @@ use datafusion::{
     prelude::Column,
 };
 use datafusion_expr::{
-    expr::WildcardOptions,
-    logical_plan::builder::LogicalPlanBuilder,
-    Expr,
-    LogicalPlan,
-    col,
-    lit,
+    Expr, LogicalPlan, col, expr::WildcardOptions, lit, logical_plan::builder::LogicalPlanBuilder,
 };
 use datafusion_functions_aggregate::expr_fn::count;
 use datafusion_functions_window::expr_fn::row_number;
@@ -26,9 +21,7 @@ pub const SOURCE_INDEX_COL: &str = "__truthtable_join_source_index";
 pub const OUTPUT_INDEX_COL: &str = "__truthtable_join_output_index";
 pub const OUTPUT_KEY_SUPPORT_COL: &str = "__truthtable_join_output_key_support";
 
-pub fn build_join_hint_generation_plans(
-    plan: LogicalPlan,
-) -> IndexMap<String, HintGenerationPlan> {
+pub fn build_join_hint_generation_plans(plan: LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let mut plans = IndexMap::new();
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
@@ -61,14 +54,13 @@ fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerati
     let mut support_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
         let hint_name = format!("support_hints[{idx}]");
-        let hint_plan =
-            build_support_hint_plan_for_pair(plan, join, idx, left_expr, right_expr)
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "failed to build support hint plan for join equality {}: {}",
-                        idx, err
-                    )
-                });
+        let hint_plan = build_support_hint_plan_for_pair(plan, join, idx, left_expr, right_expr)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to build support hint plan for join equality {}: {}",
+                    idx, err
+                )
+            });
         support_plans.insert(
             hint_name.clone(),
             HintGenerationPlan::new_materialized(hint_name, hint_plan),
@@ -86,8 +78,7 @@ fn build_support_hint_plan_for_pair(
     right_expr: &Expr,
 ) -> DFResult<LogicalPlan> {
     let left_alias = format!("__truthtable_join_on{}_left_value", idx);
-    let left_counts =
-        build_value_count_plan(&(*join.left).clone(), left_expr, &left_alias)?;
+    let left_counts = build_value_count_plan(&(*join.left).clone(), left_expr, &left_alias)?;
     let left_support_plan = LogicalPlanBuilder::from(left_counts)
         .project(vec![
             lit("left_support").alias(SUPPORT_ROLE_COL),
@@ -97,8 +88,7 @@ fn build_support_hint_plan_for_pair(
         .build()?;
 
     let right_alias = format!("__truthtable_join_on{}_right_value", idx);
-    let right_counts =
-        build_value_count_plan(&(*join.right).clone(), right_expr, &right_alias)?;
+    let right_counts = build_value_count_plan(&(*join.right).clone(), right_expr, &right_alias)?;
     let right_support_plan = LogicalPlanBuilder::from(right_counts)
         .project(vec![
             lit("right_support").alias(SUPPORT_ROLE_COL),
@@ -247,9 +237,7 @@ fn annotate_input_with_index(
                 options: Box::new(WildcardOptions::default()),
             }];
             exprs.push(value_expr.clone().alias(value_alias.to_string()));
-            exprs.push(
-                (col(&row_number_alias) - lit(1_i64)).alias(index_alias.to_string()),
-            );
+            exprs.push((col(&row_number_alias) - lit(1_i64)).alias(index_alias.to_string()));
             exprs
         })?
         .build()
@@ -278,7 +266,10 @@ fn build_output_key_support_plan(plan: &LogicalPlan) -> LogicalPlan {
         .expect("join node missing equality conditions for output key support");
 
     build_output_key_support_plan_for_expr(join, left_expr).unwrap_or_else(|err| {
-        panic!("failed to build output key support hint plan for join: {}", err)
+        panic!(
+            "failed to build output key support hint plan for join: {}",
+            err
+        )
     })
 }
 

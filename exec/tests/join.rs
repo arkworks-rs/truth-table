@@ -3,7 +3,8 @@ use datafusion::prelude::ParquetReadOptions;
 use proof_planner::{create_prover_proof_tree, new_session_context_with_custom_analyzer};
 use support::end_to_end_tests;
 use truthtable_core::test_display::{
-    display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree, display_prover_proof_tree, display_prover_tracked_tree
+    display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree,
+    display_prover_proof_tree, display_prover_tracked_tree,
 };
 
 end_to_end_tests!(&["lineitem", "supplier"] => [
