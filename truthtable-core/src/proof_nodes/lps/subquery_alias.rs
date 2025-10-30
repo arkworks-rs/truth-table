@@ -109,7 +109,7 @@ where
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
+        self.input_proof_tree_root.clone()
     }
 
     fn add_virtual_witness(
@@ -134,7 +134,7 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 
@@ -152,7 +152,7 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        todo!()
+        IndexMap::new()
     }
 
     fn from_lp(
@@ -186,7 +186,7 @@ where
     }
 
     fn node_id(&self) -> NodeId {
-        todo!()
+        self.node_id.clone()
     }
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
@@ -222,13 +222,13 @@ where
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        todo!()
+        self.input_proof_tree_root.clone()
     }
 }

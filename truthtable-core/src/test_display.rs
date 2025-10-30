@@ -81,10 +81,11 @@ pub async fn display_prover_tracked_tree(
     println!("{}", tracked_tree.display_graphviz());
 }
 
-pub async fn display_proverpiop_tree(
+pub async fn display_prover_piop_tree(
     ctx: &SessionContext,
     proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
 ) {
+    init_tracing_for_tests();
     let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();

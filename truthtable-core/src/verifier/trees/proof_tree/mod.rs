@@ -4,10 +4,11 @@ use crate::proof_nodes::{
     exprs::verifier as expr_verifier,
     id::NodeId,
     lps::{
+        join::VerifierJoinNode,
         sort::VerifierSortNode,
         verifier::{
             VerifierAggregateNode, VerifierFilterNode, VerifierProjectionNode,
-            VerifierTableScanNode,
+            VerifierSubqueryAliasNode, VerifierTableScanNode,
         },
     },
     verifier::VerifierNode,
@@ -566,10 +567,38 @@ where
             df::LogicalPlan::Analyze(_a) => todo!(),
             df::LogicalPlan::Distinct(_d) => todo!(),
             df::LogicalPlan::Subquery(_sq) => todo!(),
-            df::LogicalPlan::SubqueryAlias(_sqa) => todo!(),
+            df::LogicalPlan::SubqueryAlias(_sqa) => {
+                Self::new(
+                    Arc::new(
+                        <VerifierSubqueryAliasNode<F, MvPCS, UvPCS> as VerifierNode<
+                            F,
+                            MvPCS,
+                            UvPCS,
+                        >>::from_lp(
+                            ctx,
+                            verifier_ctx.clone(),
+                            plan.clone(),
+                            parent_node_id.clone(),
+                        ),
+                    ),
+                    verifier_ctx,
+                )
+            },
             df::LogicalPlan::Union(_u) => todo!(),
             df::LogicalPlan::Extension(_ext) => todo!(),
-            df::LogicalPlan::Join(_j) => todo!(),
+            df::LogicalPlan::Join(_j) => Self::new(
+                Arc::new(<VerifierJoinNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_lp(
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
             df::LogicalPlan::Limit(l) => todo!(),
             _ => panic!(),
         }

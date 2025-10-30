@@ -210,9 +210,12 @@ where
 
     fn ctx_lp_node(
         &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
+        proof_tree
+            .node(&self.node_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
     }
 
     fn add_virtual_witness(
@@ -226,7 +229,7 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 
@@ -387,13 +390,16 @@ where
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn ctx_lp_node(
         &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        todo!()
+        proof_tree
+            .node(&self.node_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
     }
 }
