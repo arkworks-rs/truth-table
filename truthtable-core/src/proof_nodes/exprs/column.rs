@@ -33,7 +33,14 @@ pub struct VerifierColumnExprNode {
     pub parent_node_id: NodeId,
     pub node_id: NodeId,
 }
-
+/// Human-friendly detail string for a column expression, including its table
+/// reference when present.
+pub fn format_column_detail(column: &datafusion::common::Column) -> String {
+    match column.relation.as_ref() {
+        Some(relation) => format!("{} (table_ref = {})", column.flat_name(), relation),
+        None => column.flat_name(),
+    }
+}
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where
     F: PrimeField,
@@ -345,6 +352,7 @@ where
             _ => todo!(),
         };
         let table = if let Some(relation) = column_expr.relation.as_ref() {
+            dbg!(1, column_expr.name.as_str());
             piop_tree
                 .arena()
                 .iter()
@@ -363,6 +371,7 @@ where
                 })
                 .expect("table scan not found for relation")
         } else {
+            dbg!(2, column_expr.name.as_str());
             let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
             piop_tree
                 .tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
