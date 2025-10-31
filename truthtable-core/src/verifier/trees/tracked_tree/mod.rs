@@ -2,7 +2,7 @@ use crate::{
     proof_nodes::{id::NodeId, lps::verifier::VerifierTableScanNode, verifier::VerifierNode},
     verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
+use arithmetic::{ACTIVATOR_COL_NAME, ctx::SharedCtx, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -200,7 +200,8 @@ where
                         match log_size {
                             Some(existing) => {
                                 assert_eq!(
-                                    existing, num_vars,
+                                    existing,
+                                    num_vars,
                                     "inconsistent log size within table for node {} (label {}, field {})",
                                     node_id,
                                     label,

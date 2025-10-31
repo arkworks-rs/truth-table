@@ -371,8 +371,7 @@ where
                 .tracked_polys()
                 .iter()
                 .find_map(|(field, poly)| {
-                    (field.name() != ACTIVATOR_COL_NAME)
-                        .then(|| (field.clone(), poly.clone()))
+                    (field.name() != ACTIVATOR_COL_NAME).then(|| (field.clone(), poly.clone()))
                 })
                 .unwrap_or_else(|| {
                     panic!(
@@ -890,8 +889,7 @@ where
                 .tracked_oracles()
                 .iter()
                 .find_map(|(field, oracle)| {
-                    (field.name() != ACTIVATOR_COL_NAME)
-                        .then(|| (field.clone(), oracle.clone()))
+                    (field.name() != ACTIVATOR_COL_NAME).then(|| (field.clone(), oracle.clone()))
                 })
                 .unwrap_or_else(|| {
                     panic!(

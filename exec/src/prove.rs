@@ -190,7 +190,7 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
 
 fn resolve_pk_path(oracle_path: &Path) -> Result<PathBuf> {
     const DEFAULT_PK_PREFIX: &str = "tt_proving_key";
-    let file_name = format!("{DEFAULT_PK_PREFIX}_18.pk");
+    let file_name = format!("{DEFAULT_PK_PREFIX}_16.pk");
 
     let mut candidates = Vec::new();
     if let Some(parent) = oracle_path.parent() {

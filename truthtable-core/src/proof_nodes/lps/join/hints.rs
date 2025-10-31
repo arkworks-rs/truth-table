@@ -148,15 +148,15 @@ fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGeneratio
 
     let mut source_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
-        let (left_plan, right_plan, combined_plan) =
-            build_source_hint_plans_for_pair(join, idx, left_expr, right_expr).unwrap_or_else(
-                |err| {
-                    panic!(
-                        "failed to build source hint plan for join equality {}: {}",
-                        idx, err
-                    )
-                },
-            );
+        let (left_plan, right_plan, combined_plan) = build_source_hint_plans_for_pair(
+            join, idx, left_expr, right_expr,
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to build source hint plan for join equality {}: {}",
+                idx, err
+            )
+        });
 
         let left_hint_name = format!("left_source_hints[{idx}]");
         source_plans.insert(

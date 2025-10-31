@@ -32,6 +32,7 @@ enum Commands {
     Commit(cmd::commit::Commit),
     Prove(cmd::prove::Prove),
     Verify(cmd::verify::Verify),
+    DataGen(cmd::data_gen::DataGen),
 }
 
 async fn dispatch<C>(cmd: C) -> Result<()>
@@ -59,6 +60,7 @@ async fn main() -> Result<()> {
         Commands::Commit(cmd) => dispatch(cmd).await?,
         Commands::Prove(cmd) => dispatch(cmd).await?,
         Commands::Verify(cmd) => dispatch(cmd).await?,
+        Commands::DataGen(cmd) => dispatch(cmd).await?,
     }
 
     Ok(())
