@@ -53,30 +53,50 @@ fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerati
 
     let mut support_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
-        let hint_name = format!("support_hints[{idx}]");
-        let hint_plan = build_support_hint_plan_for_pair(plan, join, idx, left_expr, right_expr)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to build support hint plan for join equality {}: {}",
-                    idx, err
-                )
-            });
+        let (left_plan, right_plan, output_plan, combined_plan) =
+            build_support_hint_plans_for_pair(plan, join, idx, left_expr, right_expr)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "failed to build support hint plan for join equality {}: {}",
+                        idx, err
+                    )
+                });
+
+        let left_hint_name = format!("left_support_hints[{idx}]");
         support_plans.insert(
-            hint_name.clone(),
-            HintGenerationPlan::new_materialized(hint_name, hint_plan),
+            left_hint_name.clone(),
+            HintGenerationPlan::new_materialized(left_hint_name, left_plan),
+        );
+
+        let right_hint_name = format!("right_support_hints[{idx}]");
+        support_plans.insert(
+            right_hint_name.clone(),
+            HintGenerationPlan::new_materialized(right_hint_name, right_plan),
+        );
+
+        let output_hint_name = format!("output_support_hints[{idx}]");
+        support_plans.insert(
+            output_hint_name.clone(),
+            HintGenerationPlan::new_materialized(output_hint_name, output_plan),
+        );
+
+        let combined_hint_name = format!("support_hints[{idx}]");
+        support_plans.insert(
+            combined_hint_name.clone(),
+            HintGenerationPlan::new_materialized(combined_hint_name, combined_plan),
         );
     }
 
     support_plans
 }
 
-fn build_support_hint_plan_for_pair(
+fn build_support_hint_plans_for_pair(
     plan: &LogicalPlan,
     join: &Join,
     idx: usize,
     left_expr: &Expr,
     right_expr: &Expr,
-) -> DFResult<LogicalPlan> {
+) -> DFResult<(LogicalPlan, LogicalPlan, LogicalPlan, LogicalPlan)> {
     let left_alias = format!("__truthtable_join_on{}_left_value", idx);
     let left_counts = build_value_count_plan(&(*join.left).clone(), left_expr, &left_alias)?;
     let left_support_plan = LogicalPlanBuilder::from(left_counts)
@@ -107,10 +127,17 @@ fn build_support_hint_plan_for_pair(
         ])?
         .build()?;
 
-    LogicalPlanBuilder::from(left_support_plan)
-        .union(right_support_plan)?
-        .union(output_support_plan)?
-        .build()
+    let combined_plan = LogicalPlanBuilder::from(left_support_plan.clone())
+        .union(right_support_plan.clone())?
+        .union(output_support_plan.clone())?
+        .build()?;
+
+    Ok((
+        left_support_plan,
+        right_support_plan,
+        output_support_plan,
+        combined_plan,
+    ))
 }
 
 fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
@@ -121,29 +148,44 @@ fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGeneratio
 
     let mut source_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
-        let hint_name = format!("source_hints[{idx}]");
-        let hint_plan = build_source_hint_plan_for_pair(join, idx, left_expr, right_expr)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to build source hint plan for join equality {}: {}",
-                    idx, err
-                )
-            });
+        let (left_plan, right_plan, combined_plan) =
+            build_source_hint_plans_for_pair(join, idx, left_expr, right_expr).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "failed to build source hint plan for join equality {}: {}",
+                        idx, err
+                    )
+                },
+            );
+
+        let left_hint_name = format!("left_source_hints[{idx}]");
         source_plans.insert(
-            hint_name.clone(),
-            HintGenerationPlan::new_materialized(hint_name, hint_plan),
+            left_hint_name.clone(),
+            HintGenerationPlan::new_materialized(left_hint_name, left_plan),
+        );
+
+        let right_hint_name = format!("right_source_hints[{idx}]");
+        source_plans.insert(
+            right_hint_name.clone(),
+            HintGenerationPlan::new_materialized(right_hint_name, right_plan),
+        );
+
+        let combined_hint_name = format!("source_hints[{idx}]");
+        source_plans.insert(
+            combined_hint_name.clone(),
+            HintGenerationPlan::new_materialized(combined_hint_name, combined_plan),
         );
     }
 
     source_plans
 }
 
-fn build_source_hint_plan_for_pair(
+fn build_source_hint_plans_for_pair(
     join: &Join,
     idx: usize,
     left_expr: &Expr,
     right_expr: &Expr,
-) -> DFResult<LogicalPlan> {
+) -> DFResult<(LogicalPlan, LogicalPlan, LogicalPlan)> {
     let left_value_alias = format!("__truthtable_join_on{}_left_value", idx);
     let right_value_alias = format!("__truthtable_join_on{}_right_value", idx);
     let left_index_alias = format!("__truthtable_join_on{}_left_index", idx);
@@ -203,9 +245,11 @@ fn build_source_hint_plan_for_pair(
         ])?
         .build()?;
 
-    LogicalPlanBuilder::from(left_projection)
-        .union(right_projection)?
-        .build()
+    let combined_plan = LogicalPlanBuilder::from(left_projection.clone())
+        .union(right_projection.clone())?
+        .build()?;
+
+    Ok((left_projection, right_projection, combined_plan))
 }
 
 fn build_value_count_plan(

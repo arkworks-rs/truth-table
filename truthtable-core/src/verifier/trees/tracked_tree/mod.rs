@@ -2,7 +2,7 @@ use crate::{
     proof_nodes::{id::NodeId, lps::verifier::VerifierTableScanNode, verifier::VerifierNode},
     verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle};
+use arithmetic::{ctx::SharedCtx, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -158,6 +158,7 @@ where
                 let mut columns: IndexMap<FieldRef, _> =
                     IndexMap::with_capacity(arrow_schema_ref.fields().len());
                 let mut log_size: Option<usize> = None;
+                let mut activator_seen = false;
 
                 if is_table_scan {
                     let schema_ref = arrow_schema_ref.as_ref();
@@ -186,6 +187,9 @@ where
                 } else {
                     for field_ref in arrow_schema_ref.fields().iter() {
                         let field_ref = field_ref.clone();
+                        if field_ref.name() == ACTIVATOR_COL_NAME && activator_seen {
+                            continue;
+                        }
                         let expected_id = verifier.peek_next_id();
                         let tracked = verifier
                             .track_mv_com_by_id(expected_id)
@@ -197,13 +201,18 @@ where
                             Some(existing) => {
                                 assert_eq!(
                                     existing, num_vars,
-                                    "inconsistent log size within table for node {}",
-                                    node_id
+                                    "inconsistent log size within table for node {} (label {}, field {})",
+                                    node_id,
+                                    label,
+                                    field_ref.name()
                                 );
                             },
                             None => {
                                 log_size = Some(num_vars);
                             },
+                        }
+                        if field_ref.name() == ACTIVATOR_COL_NAME {
+                            activator_seen = true;
                         }
                         columns.insert(field_ref, tracked);
                     }

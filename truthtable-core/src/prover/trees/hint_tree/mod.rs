@@ -236,8 +236,26 @@ where
         for node in nodes {
             let node_id = node.node_id();
             let ptr_id = node_ptr_id(&node);
-            let entry = by_id.remove(&ptr_id).unwrap_or_default();
-            results_by_node_id.insert(node_id, entry);
+            let mut entry = by_id.remove(&ptr_id).unwrap_or_default();
+            if entry.len() <= 1 {
+                results_by_node_id.insert(node_id, entry);
+                continue;
+            }
+
+            let mut ordered_entry = IndexMap::with_capacity(entry.len());
+            let hint_plan_order = node.hint_generation_plans(&proof_tree);
+            for label in hint_plan_order.keys() {
+                if let Some(batches) = entry.remove(label) {
+                    ordered_entry.insert(label.clone(), batches);
+                }
+            }
+            // Preserve any additional labels that might have been produced but not present
+            // in the plan order (e.g. dynamic hints) in their existing insertion order.
+            for (label, batches) in entry {
+                ordered_entry.insert(label, batches);
+            }
+
+            results_by_node_id.insert(node_id, ordered_entry);
         }
 
         Ok(Self::new(proof_tree, results_by_node_id))
