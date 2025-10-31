@@ -19,11 +19,8 @@ type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_proof_tree() {
-    let spec = query_spec(1);
-    let sql = "SELECT l_suppkey, s_name
-FROM lineitem l
-JOIN supplier s ON l.l_suppkey = s.s_suppkey;
-";
+    let spec = query_spec(5);
+
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
     ctx.register_parquet(
@@ -35,8 +32,52 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
     )
     .await
     .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
-    display_prover_proof_tree(&proof_tree).await;
+    let customer_path = tpch_data::test_data_path("customer.parquet");
+    ctx.register_parquet(
+        "customer",
+        customer_path
+            .to_str()
+            .expect("customer path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register customer table");
+    let nation_path = tpch_data::test_data_path("nation.parquet");
+    ctx.register_parquet(
+        "nation",
+        nation_path.to_str().expect("nation path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register nation table");
+    let supplier_path = tpch_data::test_data_path("supplier.parquet");
+    ctx.register_parquet(
+        "supplier",
+        supplier_path
+            .to_str()
+            .expect("supplier path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register supplier table");
+    let region_path = tpch_data::test_data_path("region.parquet");
+    ctx.register_parquet(
+        "region",
+        region_path.to_str().expect("region path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register region table");
+    let orders_path = tpch_data::test_data_path("orders.parquet");
+    ctx.register_parquet(
+        "orders",
+        orders_path.to_str().expect("orders path to be valid UTF-8"),
+        ParquetReadOptions::default(),
+    )
+    .await
+    .expect("register orders table");
+    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
+    // display_prover_proof_tree(&proof_tree).await;
 }
 
 #[tokio::test]
@@ -128,7 +169,7 @@ async fn tpch_q1_prove_verify() {
 }
 #[tokio::test]
 async fn tpch_q6_prove_verify() {
-    let spec = query_spec(1);
+    let spec = query_spec(5);
     dbg!(spec.sql);
     // exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
     //     .await

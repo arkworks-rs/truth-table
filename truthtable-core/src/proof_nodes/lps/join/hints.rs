@@ -21,30 +21,60 @@ pub const SOURCE_INDEX_COL: &str = "__truthtable_join_source_index";
 pub const OUTPUT_INDEX_COL: &str = "__truthtable_join_output_index";
 pub const OUTPUT_KEY_SUPPORT_COL: &str = "__truthtable_join_output_key_support";
 
+pub const LEFT_SUPPORT_HINT_PREFIX: &str = "left_support_hints";
+pub const RIGHT_SUPPORT_HINT_PREFIX: &str = "right_support_hints";
+pub const OUTPUT_SUPPORT_HINT_PREFIX: &str = "output_support_hints";
+pub const COMBINED_SUPPORT_HINT_PREFIX: &str = "support_hints";
+pub const LEFT_SOURCE_HINT_PREFIX: &str = "left_source_hints";
+pub const RIGHT_SOURCE_HINT_PREFIX: &str = "right_source_hints";
+pub const COMBINED_SOURCE_HINT_PREFIX: &str = "source_hints";
+pub const OUTPUT_KEY_SUPPORT_HINT: &str = "output_key_support";
+
+const SUPPORT_ROLE_LEFT: &str = "left_support";
+const SUPPORT_ROLE_RIGHT: &str = "right_support";
+const SUPPORT_ROLE_OUTPUT: &str = "output_support";
+const SOURCE_ROLE_LEFT: &str = "left_source";
+const SOURCE_ROLE_RIGHT: &str = "right_source";
+
+fn hint_label(prefix: &str, idx: usize) -> String {
+    format!("{prefix}[{idx}]")
+}
+
+fn materialized_hint(name: String, plan: LogicalPlan) -> HintGenerationPlan {
+    HintGenerationPlan::new_materialized(name, plan)
+}
+
+fn value_alias(base: &str, idx: usize) -> String {
+    format!("__truthtable_join_on{idx}_{base}")
+}
+
+/// Build every hinted plan needed by the join prover (output, support, source indices, key support).
 pub fn build_join_hint_generation_plans(plan: LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let mut plans = IndexMap::new();
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
+        materialized_hint(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
     );
     plans.extend(build_support_hint_plans(&plan));
     plans.extend(build_source_hint_plans(&plan));
     plans.insert(
-        "output_key_support".to_string(),
-        HintGenerationPlan::new_materialized(
-            "output_key_support".to_string(),
+        OUTPUT_KEY_SUPPORT_HINT.to_string(),
+        materialized_hint(
+            OUTPUT_KEY_SUPPORT_HINT.to_string(),
             build_output_key_support_plan(&plan),
         ),
     );
     plans
 }
 
+/// Verifier side consumes the exact same hint plans.
 pub fn build_verifier_join_hint_generation_plans(
     plan: LogicalPlan,
 ) -> IndexMap<String, HintGenerationPlan> {
     build_join_hint_generation_plans(plan)
 }
 
+/// Build per-equality support plans (left/right/input combined) that track key multiplicities.
 fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let join = match plan {
         LogicalPlan::Join(join) => join,
@@ -62,34 +92,35 @@ fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerati
                     )
                 });
 
-        let left_hint_name = format!("left_support_hints[{idx}]");
+        let left_hint_name = hint_label(LEFT_SUPPORT_HINT_PREFIX, idx);
         support_plans.insert(
             left_hint_name.clone(),
-            HintGenerationPlan::new_materialized(left_hint_name, left_plan),
+            materialized_hint(left_hint_name, left_plan),
         );
 
-        let right_hint_name = format!("right_support_hints[{idx}]");
+        let right_hint_name = hint_label(RIGHT_SUPPORT_HINT_PREFIX, idx);
         support_plans.insert(
             right_hint_name.clone(),
-            HintGenerationPlan::new_materialized(right_hint_name, right_plan),
+            materialized_hint(right_hint_name, right_plan),
         );
 
-        let output_hint_name = format!("output_support_hints[{idx}]");
+        let output_hint_name = hint_label(OUTPUT_SUPPORT_HINT_PREFIX, idx);
         support_plans.insert(
             output_hint_name.clone(),
-            HintGenerationPlan::new_materialized(output_hint_name, output_plan),
+            materialized_hint(output_hint_name, output_plan),
         );
 
-        let combined_hint_name = format!("support_hints[{idx}]");
+        let combined_hint_name = hint_label(COMBINED_SUPPORT_HINT_PREFIX, idx);
         support_plans.insert(
             combined_hint_name.clone(),
-            HintGenerationPlan::new_materialized(combined_hint_name, combined_plan),
+            materialized_hint(combined_hint_name, combined_plan),
         );
     }
 
     support_plans
 }
 
+/// Build the three support plans for a single equality predicate along with their union.
 fn build_support_hint_plans_for_pair(
     plan: &LogicalPlan,
     join: &Join,
@@ -97,31 +128,31 @@ fn build_support_hint_plans_for_pair(
     left_expr: &Expr,
     right_expr: &Expr,
 ) -> DFResult<(LogicalPlan, LogicalPlan, LogicalPlan, LogicalPlan)> {
-    let left_alias = format!("__truthtable_join_on{}_left_value", idx);
+    let left_alias = value_alias("left_value", idx);
     let left_counts = build_value_count_plan(&(*join.left).clone(), left_expr, &left_alias)?;
     let left_support_plan = LogicalPlanBuilder::from(left_counts)
         .project(vec![
-            lit("left_support").alias(SUPPORT_ROLE_COL),
+            lit(SUPPORT_ROLE_LEFT).alias(SUPPORT_ROLE_COL),
             col(&left_alias).alias(SUPPORT_VALUE_COL),
             col(SUPPORT_COUNT_COL).alias(SUPPORT_COUNT_COL),
         ])?
         .build()?;
 
-    let right_alias = format!("__truthtable_join_on{}_right_value", idx);
+    let right_alias = value_alias("right_value", idx);
     let right_counts = build_value_count_plan(&(*join.right).clone(), right_expr, &right_alias)?;
     let right_support_plan = LogicalPlanBuilder::from(right_counts)
         .project(vec![
-            lit("right_support").alias(SUPPORT_ROLE_COL),
+            lit(SUPPORT_ROLE_RIGHT).alias(SUPPORT_ROLE_COL),
             col(&right_alias).alias(SUPPORT_VALUE_COL),
             col(SUPPORT_COUNT_COL).alias(SUPPORT_COUNT_COL),
         ])?
         .build()?;
 
-    let combined_alias = format!("__truthtable_join_on{}_output_value", idx);
+    let combined_alias = value_alias("output_value", idx);
     let output_counts = build_output_key_count_plan(join, left_expr, &combined_alias)?;
     let output_support_plan = LogicalPlanBuilder::from(output_counts)
         .project(vec![
-            lit("output_support").alias(SUPPORT_ROLE_COL),
+            lit(SUPPORT_ROLE_OUTPUT).alias(SUPPORT_ROLE_COL),
             col(&combined_alias).alias(SUPPORT_VALUE_COL),
             col(SUPPORT_COUNT_COL).alias(SUPPORT_COUNT_COL),
         ])?
@@ -140,6 +171,7 @@ fn build_support_hint_plans_for_pair(
     ))
 }
 
+/// Build per-equality source plans connecting join outputs back to their originating rows.
 fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let join = match plan {
         LogicalPlan::Join(join) => join,
@@ -158,38 +190,39 @@ fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGeneratio
             )
         });
 
-        let left_hint_name = format!("left_source_hints[{idx}]");
+        let left_hint_name = hint_label(LEFT_SOURCE_HINT_PREFIX, idx);
         source_plans.insert(
             left_hint_name.clone(),
-            HintGenerationPlan::new_materialized(left_hint_name, left_plan),
+            materialized_hint(left_hint_name, left_plan),
         );
 
-        let right_hint_name = format!("right_source_hints[{idx}]");
+        let right_hint_name = hint_label(RIGHT_SOURCE_HINT_PREFIX, idx);
         source_plans.insert(
             right_hint_name.clone(),
-            HintGenerationPlan::new_materialized(right_hint_name, right_plan),
+            materialized_hint(right_hint_name, right_plan),
         );
 
-        let combined_hint_name = format!("source_hints[{idx}]");
+        let combined_hint_name = hint_label(COMBINED_SOURCE_HINT_PREFIX, idx);
         source_plans.insert(
             combined_hint_name.clone(),
-            HintGenerationPlan::new_materialized(combined_hint_name, combined_plan),
+            materialized_hint(combined_hint_name, combined_plan),
         );
     }
 
     source_plans
 }
 
+/// Build the source index plans for one predicate: left-only, right-only, and the union.
 fn build_source_hint_plans_for_pair(
     join: &Join,
     idx: usize,
     left_expr: &Expr,
     right_expr: &Expr,
 ) -> DFResult<(LogicalPlan, LogicalPlan, LogicalPlan)> {
-    let left_value_alias = format!("__truthtable_join_on{}_left_value", idx);
-    let right_value_alias = format!("__truthtable_join_on{}_right_value", idx);
-    let left_index_alias = format!("__truthtable_join_on{}_left_index", idx);
-    let right_index_alias = format!("__truthtable_join_on{}_right_index", idx);
+    let left_value_alias = value_alias("left_value", idx);
+    let right_value_alias = value_alias("right_value", idx);
+    let left_index_alias = value_alias("left_index", idx);
+    let right_index_alias = value_alias("right_index", idx);
 
     let left_with_idx = annotate_input_with_index(
         &(*join.left).clone(),
@@ -222,15 +255,15 @@ fn build_source_hint_plans_for_pair(
         )?
         .build()?;
 
-    let output_row_number_alias = format!("__truthtable_join_on{}_output_row_number", idx);
+    let output_row_number_alias = value_alias("output_row_number", idx);
     let join_with_output_idx = LogicalPlanBuilder::from(join_plan)
         .window(vec![row_number().alias(output_row_number_alias.clone())])?
         .build()?;
 
     let left_projection = LogicalPlanBuilder::from(join_with_output_idx.clone())
         .project(vec![
-            (col(&output_row_number_alias) - lit(1_i64)).alias(OUTPUT_INDEX_COL.to_string()),
-            lit("left_source").alias(SOURCE_ROLE_COL),
+            (col(&output_row_number_alias) - lit(1_i64)).alias(OUTPUT_INDEX_COL),
+            lit(SOURCE_ROLE_LEFT).alias(SOURCE_ROLE_COL),
             col(&left_index_alias).alias(SOURCE_INDEX_COL),
             col(&left_value_alias).alias(SOURCE_VALUE_COL),
         ])?
@@ -238,8 +271,8 @@ fn build_source_hint_plans_for_pair(
 
     let right_projection = LogicalPlanBuilder::from(join_with_output_idx)
         .project(vec![
-            (col(&output_row_number_alias) - lit(1_i64)).alias(OUTPUT_INDEX_COL.to_string()),
-            lit("right_source").alias(SOURCE_ROLE_COL),
+            (col(&output_row_number_alias) - lit(1_i64)).alias(OUTPUT_INDEX_COL),
+            lit(SOURCE_ROLE_RIGHT).alias(SOURCE_ROLE_COL),
             col(&right_index_alias).alias(SOURCE_INDEX_COL),
             col(&right_value_alias).alias(SOURCE_VALUE_COL),
         ])?
@@ -252,6 +285,7 @@ fn build_source_hint_plans_for_pair(
     Ok((left_projection, right_projection, combined_plan))
 }
 
+/// Count occurrences of `expr` within `input`, returning `(value, count)` pairs.
 fn build_value_count_plan(
     input: &LogicalPlan,
     expr: &Expr,
@@ -266,6 +300,7 @@ fn build_value_count_plan(
         .build()
 }
 
+/// Annotate an input plan with the zero-based row index aligned to the row-number window.
 fn annotate_input_with_index(
     input: &LogicalPlan,
     value_expr: &Expr,
@@ -298,6 +333,7 @@ fn expr_to_column(expr: &Expr) -> DFResult<Column> {
     }
 }
 
+/// Track the distinct values that participate in the output key support relation.
 fn build_output_key_support_plan(plan: &LogicalPlan) -> LogicalPlan {
     let join = match plan {
         LogicalPlan::Join(join) => join,

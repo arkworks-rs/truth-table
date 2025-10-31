@@ -51,13 +51,16 @@ where
 {
     let df_session_state: SessionState = df_session_ctx.state();
     let unoptimized_logical_plan = df_session_state.create_logical_plan(query).await.unwrap();
-
+    println!("{}", unoptimized_logical_plan.display_graphviz());
     let analyzed_logical_plan = analyze_logical_plan(
         unoptimized_logical_plan.clone(),
         logical_plan_analyzer_rules(),
     );
 
+    println!("{}", analyzed_logical_plan.display_graphviz());
+
     let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
+    println!("{}", optimized_logical_plan.display_graphviz());
     let shared_ctx = default_shared_ctx::<F, MvPCS, UvPCS>();
     build_prover_proof_tree(
         df_session_ctx,
