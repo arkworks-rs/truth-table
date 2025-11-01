@@ -18,7 +18,7 @@ use std::sync::Arc;
 use super::{MultiColSortCheckPIOP, MultiColSortCheckProverInput, MultiColSortCheckVerifierInput};
 
 #[test]
-fn contig_lex_sort_check_is_complete() -> SnarkResult<()> {
+fn contig_lex_sort_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
         vec![],
@@ -62,7 +62,7 @@ fn contig_lex_sort_check_is_complete() -> SnarkResult<()> {
 }
 
 #[test]
-fn contig_lex_sort_check_is_sound() -> SnarkResult<()> {
+fn contig_lex_sort_is_sound() -> SnarkResult<()> {
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
         vec![],
