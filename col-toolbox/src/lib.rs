@@ -4,7 +4,7 @@
 
 pub mod and_check;
 pub mod binary_check;
-pub mod contig_multi_col_sort_check;
+pub mod contig_lex_sort_check;
 pub mod defragger;
 pub mod fold_check;
 pub mod inclusion_check;

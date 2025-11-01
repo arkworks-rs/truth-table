@@ -18,29 +18,91 @@ use std::sync::Arc;
 use super::{MultiColSortCheckPIOP, MultiColSortCheckProverInput, MultiColSortCheckVerifierInput};
 
 #[test]
-fn contig_multi_col_sort_check_is_complete() -> SnarkResult<()> {
+fn contig_lex_sort_check_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        vec![to_field_vec!([1,2,3,4], Fr)],
+        vec![to_field_vec!([1, 2, 3, 4], Fr)],
         vec![],
-        vec![to_field_vec!([2,3,4,1], Fr)],
+        vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
         DataType::UInt32,
         true,
         false,
-    )
+    )?;
+
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([1, 2, 3, 4], Fr)],
+        vec![],
+        vec![to_field_vec!([2, 3, 4, 1], Fr)],
+        None,
+        DataType::UInt32,
+        true,
+        true,
+    )?;
+
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([4, 3, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
+        DataType::UInt32,
+        false,
+        false,
+    )?;
+
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([4, 3, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
+        DataType::UInt32,
+        false,
+        true,
+    )?;
+    Ok(())
 }
 
 #[test]
-fn contig_multi_col_sort_check_is_sound() -> SnarkResult<()> {
+fn contig_lex_sort_check_is_sound() -> SnarkResult<()> {
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        todo!("tracked column value vectors"),
-        todo!("tie-indicator column value vectors"),
-        todo!("shift column value vectors"),
-        todo!("optional shared activator values"),
-        todo!("DataType for all columns"),
-        todo!("ascending flag"),
-        todo!("strict flag"),
-    )
+        vec![to_field_vec!([1, 2, 3, 4], Fr)],
+        vec![],
+        vec![to_field_vec!([2, 3, 4, 1], Fr)],
+        None,
+        DataType::UInt32,
+        false,
+        false,
+    )?;
+
+    multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([1, 2, 3, 4], Fr)],
+        vec![],
+        vec![to_field_vec!([2, 3, 4, 1], Fr)],
+        None,
+        DataType::UInt32,
+        false,
+        true,
+    )?;
+
+    multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([4, 3, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
+        DataType::UInt32,
+        true,
+        false,
+    )?;
+
+    multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([4, 3, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
+        DataType::UInt32,
+        true,
+        true,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn multi_col_sort_check_test_helper<
