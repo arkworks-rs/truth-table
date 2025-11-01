@@ -85,8 +85,6 @@ where
             tracked_col,
             selector_col,
         } = input;
-        dbg!(&selector_col.data_tracked_poly().evaluations());
-        dbg!(&selector_col.activator_tracked_poly());
 
         BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(
             prover,
@@ -99,9 +97,6 @@ where
         let tracked_data = tracked_col.data_tracked_poly();
         let selector_data = selector_col.data_tracked_poly();
 
-        dbg!(&activator);
-        dbg!(&tracked_data.evaluations());
-        dbg!(&selector_data.evaluations());
 
         let zero_poly = match activator.as_ref() {
             Some(act) => &(&tracked_data * &selector_data) * act,

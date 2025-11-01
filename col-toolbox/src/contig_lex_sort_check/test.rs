@@ -60,12 +60,29 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([1, 2, 3, 4, 5, 6, 7, 8], Fr)],
+        vec![],
+        vec![to_field_vec!([2, 3, 4, 5, 6, 7, 8, 1], Fr)],
+        Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
+        DataType::UInt32,
+        true,
+        false,
+    )?;
+
+
+    Ok(())
+}
+
 #[test]
 fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
-            to_field_vec!([97, 70, 32, 12, 140, 250, 99, 30], Fr),
+            to_field_vec!([97, 70, 32, 12, 140, 140, 99, 30], Fr),
         ],
         vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
         vec![

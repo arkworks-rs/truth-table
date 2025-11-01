@@ -139,7 +139,7 @@ where
                 is_last_col: i == num_cols - 1,
             };
             let local_single_col_sort_check_prover_output =
-                local_single_col_sort_check::LocalSingleColSortCheckPIOP::prove(
+                LocalSingleColSortCheckPIOP::prove(
                     prover,
                     local_single_col_sort_check_prover_input,
                 )?;
