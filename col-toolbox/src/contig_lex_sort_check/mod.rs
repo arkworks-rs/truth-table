@@ -32,7 +32,7 @@ mod test;
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiColSortCheckProverInput<
+pub struct ContigLexSortCheckProverInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
@@ -40,11 +40,11 @@ pub struct MultiColSortCheckProverInput<
     pub tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub tie_indicator_tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub shift_tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub ascending: bool,
-    pub strict: bool,
+    pub ascending: Vec<bool>,
+    pub strict: Vec<bool>,
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for MultiColSortCheckProverInput<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ContigLexSortCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -67,15 +67,15 @@ where
                 .iter()
                 .map(|col| col.deep_clone(prover.clone()))
                 .collect(),
-            ascending: self.ascending,
-            strict: self.strict,
+            ascending: self.ascending.clone(),
+            strict: self.strict.clone(),
         }
     }
 }
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiColSortCheckVerifierInput<
+pub struct ContigLexSortCheckVerifierInput<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
@@ -83,25 +83,25 @@ pub struct MultiColSortCheckVerifierInput<
     pub tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub tie_indicator_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub shift_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub ascending: bool,
-    pub strict: bool,
+    pub ascending: Vec<bool>,
+    pub strict: Vec<bool>,
 }
 
-pub struct MultiColSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
+pub struct ContigLexSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     PhantomData<F>,
     PhantomData<MvPCS>,
     PhantomData<UvPCS>,
 );
 
-impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for MultiColSortCheckPIOP<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    type ProverInput = MultiColSortCheckProverInput<F, MvPCS, UvPCS>;
+    type ProverInput = ContigLexSortCheckProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();
-    type VerifierInput = MultiColSortCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = ContigLexSortCheckVerifierInput<F, MvPCS, UvPCS>;
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
@@ -113,9 +113,29 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let activator_tracked_poly = input.tracked_cols[0].activator_tracked_poly();
-        let num_cols = input.tracked_cols.len();
-        let num_vars = input.tracked_cols[0].data_tracked_poly().log_size();
+        let ContigLexSortCheckProverInput {
+            tracked_cols,
+            tie_indicator_tracked_cols,
+            shift_tracked_cols,
+            ascending,
+            strict,
+        } = input;
+
+        let activator_tracked_poly = tracked_cols[0].activator_tracked_poly();
+        let num_cols = tracked_cols.len();
+        let num_vars = tracked_cols[0].data_tracked_poly().log_size();
+
+        assert_eq!(
+            ascending.len(),
+            num_cols,
+            "ascending flags length must match number of tracked columns"
+        );
+        assert_eq!(
+            strict.len(),
+            num_cols,
+            "strict flags length must match number of tracked columns"
+        );
+
         let mut current_diff_col: Option<TrackedCol<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_cols {
@@ -124,19 +144,19 @@ where
             } else {
                 let zero_expr_check_prover_input = ZeroExprCheckProverInput {
                     tracked_col: current_diff_col.clone().unwrap(),
-                    selector_col: input.tie_indicator_tracked_cols[i - 1].clone(),
+                    selector_col: tie_indicator_tracked_cols[i - 1].clone(),
                 };
 
                 ZeroExprCheckPIOP::prove(prover, zero_expr_check_prover_input)?;
-                input.tie_indicator_tracked_cols[i - 1].clone()
+                tie_indicator_tracked_cols[i - 1].clone()
             };
 
             let local_single_col_sort_check_prover_input = LocalSingleColSortCheckProverInput {
-                tracked_col: input.tracked_cols[i].clone(),
+                tracked_col: tracked_cols[i].clone(),
                 tie_indicator_col,
-                shift_col: input.shift_tracked_cols[i].clone(),
-                ascending: input.ascending,
-                strict: input.strict,
+                shift_col: shift_tracked_cols[i].clone(),
+                ascending: ascending[i],
+                strict: strict[i],
                 is_last_col: i == num_cols - 1,
             };
             let local_single_col_sort_check_prover_output = LocalSingleColSortCheckPIOP::prove(
@@ -153,11 +173,29 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let activator_tracked_oracle = input.tracked_col_oracles[0].activator_tracked_oracle();
-        let num_col_oracles = input.tracked_col_oracles.len();
-        let num_vars = input.tracked_col_oracles[0]
-            .data_tracked_oracle()
-            .log_size();
+        let ContigLexSortCheckVerifierInput {
+            tracked_col_oracles,
+            tie_indicator_tracked_col_oracles,
+            shift_tracked_col_oracles,
+            ascending,
+            strict,
+        } = input;
+
+        let activator_tracked_oracle = tracked_col_oracles[0].activator_tracked_oracle();
+        let num_col_oracles = tracked_col_oracles.len();
+        let num_vars = tracked_col_oracles[0].data_tracked_oracle().log_size();
+
+        assert_eq!(
+            ascending.len(),
+            num_col_oracles,
+            "ascending flags length must match number of tracked column oracles"
+        );
+        assert_eq!(
+            strict.len(),
+            num_col_oracles,
+            "strict flags length must match number of tracked column oracles"
+        );
+
         let mut current_diff_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_col_oracles {
@@ -170,18 +208,18 @@ where
             } else {
                 let zero_expr_check_verifier_input = ZeroExprCheckVerifierInput {
                     tracked_col_oracle: current_diff_col_oracle.clone().unwrap(),
-                    selector_col_oracle: input.tie_indicator_tracked_col_oracles[i - 1].clone(),
+                    selector_col_oracle: tie_indicator_tracked_col_oracles[i - 1].clone(),
                 };
                 ZeroExprCheckPIOP::verify(verifier, zero_expr_check_verifier_input)?;
-                Some(input.tie_indicator_tracked_col_oracles[i - 1].clone())
+                Some(tie_indicator_tracked_col_oracles[i - 1].clone())
             };
 
             let local_single_col_sort_check_verifier_input = LocalSingleColSortCheckVerifierInput {
-                tracked_col_oracle: input.tracked_col_oracles[i].clone(),
+                tracked_col_oracle: tracked_col_oracles[i].clone(),
                 tie_indicator_col_oracle,
-                shift_col_oracle: input.shift_tracked_col_oracles[i].clone(),
-                ascending: input.ascending,
-                strict: input.strict,
+                shift_col_oracle: shift_tracked_col_oracles[i].clone(),
+                ascending: ascending[i],
+                strict: strict[i],
                 is_last_col_oracle: i == num_col_oracles - 1,
             };
             let local_single_col_sort_check_verifier_output = LocalSingleColSortCheckPIOP::verify(
@@ -195,7 +233,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> MultiColSortCheckPIOP<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
