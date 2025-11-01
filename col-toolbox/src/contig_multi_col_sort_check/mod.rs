@@ -20,9 +20,15 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 
 use crate::{
-    local_single_col_sort_check::{self, LocalSingleColSortCheckProverInput},
-    zero_expr_check::{ZeroExprCheckPIOP, ZeroExprCheckProverInput},
+    local_single_col_sort_check::{
+        self, LocalSingleColSortCheckPIOP, LocalSingleColSortCheckProverInput,
+        LocalSingleColSortCheckVerifierInput,
+    },
+    zero_expr_check::{ZeroExprCheckPIOP, ZeroExprCheckProverInput, ZeroExprCheckVerifierInput},
 };
+
+#[cfg(test)]
+mod test;
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
@@ -145,9 +151,48 @@ where
 
     fn verify_inner(
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _input: Self::VerifierInput,
+        input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let _ = verifier;
+        let activator_tracked_oracle = input.tracked_col_oracles[0].activator_tracked_oracle();
+        let num_col_oracles = input.tracked_col_oracles.len();
+        let num_vars = input.tracked_col_oracles[0]
+            .data_tracked_oracle()
+            .log_size();
+        let mut current_diff_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>> = None;
+
+        for i in 0..num_col_oracles {
+            let tie_indicator_col_oracle = if i == 0 {
+                Some(Self::first_tie_indicator_col_oracle(
+                    verifier,
+                    num_vars,
+                    activator_tracked_oracle.clone(),
+                ))
+            } else {
+                let zero_expr_check_verifier_input = ZeroExprCheckVerifierInput {
+                    tracked_col_oracle: current_diff_col_oracle.clone().unwrap(),
+                    selector_col_oracle: Some(
+                        input.tie_indicator_tracked_col_oracles[i - 1].clone(),
+                    ),
+                };
+                ZeroExprCheckPIOP::verify(verifier, zero_expr_check_verifier_input)?;
+                Some(input.tie_indicator_tracked_col_oracles[i].clone())
+            };
+
+            let local_single_col_sort_check_verifier_input = LocalSingleColSortCheckVerifierInput {
+                tracked_col_oracle: input.tracked_col_oracles[i].clone(),
+                tie_indicator_col_oracle,
+                shift_col_oracle: input.shift_tracked_col_oracles[i].clone(),
+                ascending: input.ascending,
+                strict: input.strict,
+                is_last_col_oracle: i == num_col_oracles - 1,
+            };
+            let local_single_col_sort_check_verifier_output = LocalSingleColSortCheckPIOP::verify(
+                verifier,
+                local_single_col_sort_check_verifier_input,
+            )?;
+            current_diff_col_oracle =
+                Some(local_single_col_sort_check_verifier_output.diff_col_oracle);
+        }
         Ok(())
     }
 }

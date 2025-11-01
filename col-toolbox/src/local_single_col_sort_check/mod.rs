@@ -59,7 +59,7 @@ pub struct LocalSingleColSortCheckVerifierInput<
     pub shift_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub ascending: bool,
     pub strict: bool,
-    pub is_last_col: bool,
+    pub is_last_col_oracle: bool,
 }
 
 #[derive(Derivative)]
@@ -149,7 +149,7 @@ where
             shift_col_oracle,
             ascending,
             strict,
-            is_last_col,
+            is_last_col_oracle,
         } = input;
 
         let tie_indicator_col_oracle = tie_indicator_col_oracle.expect(
@@ -165,7 +165,7 @@ where
             tracked_col_oracle.field_ref(),
         );
 
-        let sign = match (is_last_col, ascending, strict) {
+        let sign = match (is_last_col_oracle, ascending, strict) {
             (true, true, true) => Sign::Positive,
             (true, true, false) => Sign::NoneNegative,
             (true, false, true) => Sign::Negative,

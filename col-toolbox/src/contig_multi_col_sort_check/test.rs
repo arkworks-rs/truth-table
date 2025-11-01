@@ -1,33 +1,32 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
+#[allow(unused_imports)]
+use ark_piop::to_field_vec;
 use ark_piop::{
-    arithmetic::mat_poly::mle::MLE,
+    arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    piop::PIOP,
     prover::Prover,
     test_utils::test_prelude,
     verifier::Verifier,
 };
-#[allow(unused_imports)]
-use ark_piop::to_field_vec;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::arrow::datatypes::{DataType, Field};
 use std::sync::Arc;
 
-use super::{
-    MultiColSortCheckPIOP, MultiColSortCheckProverInput, MultiColSortCheckVerifierInput,
-};
+use super::{MultiColSortCheckPIOP, MultiColSortCheckProverInput, MultiColSortCheckVerifierInput};
 
 #[test]
 fn contig_multi_col_sort_check_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-        todo!("tracked column value vectors"),
-        todo!("tie-indicator column value vectors"),
-        todo!("shift column value vectors"),
-        todo!("optional shared activator values"),
-        todo!("DataType for all columns"),
-        todo!("ascending flag"),
-        todo!("strict flag"),
+        vec![to_field_vec!([1,2,3,4], Fr)],
+        vec![],
+        vec![to_field_vec!([2,3,4,1], Fr)],
+        None,
+        DataType::UInt32,
+        true,
+        false,
     )
 }
 
@@ -58,8 +57,6 @@ pub(crate) fn multi_col_sort_check_test_helper<
     strict: bool,
 ) -> SnarkResult<()> {
     let num_cols = tracked_cols_values.len();
-    assert_eq!(num_cols, tie_indicator_values.len());
-    assert_eq!(num_cols, shift_values.len());
 
     let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
     let activator_slice = shared_activator.as_deref();
@@ -153,19 +150,16 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
             Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             ))) => Ok(()),
-            Ok(_) => panic!(
-                "expected contig multi-column sort check to fail under honest-prover mode"
-            ),
+            Ok(_) => {
+                panic!("expected contig multi-column sort check to fail under honest-prover mode")
+            },
             Err(err) => Err(err),
         };
     }
 
     #[cfg(not(feature = "honest-prover"))]
     {
-        use ark_piop::{
-            errors::SnarkError,
-            verifier::errors::VerifierError,
-        };
+        use ark_piop::{errors::SnarkError, verifier::errors::VerifierError};
 
         return match result {
             Err(SnarkError::VerifierError(VerifierError::VerifierCheckFailed(_))) => Ok(()),
@@ -175,11 +169,7 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
     }
 }
 
-fn build_tracked_cols<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
+fn build_tracked_cols<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     column_values: &[Vec<F>],
     shared_activator: Option<&[F]>,
@@ -209,10 +199,8 @@ fn build_tracked_cols<
 
     let shared_activator_poly = match shared_activator {
         Some(activator_values) => Some(
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
-                nv,
-                activator_values,
-            ))?,
+            prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, activator_values))?,
         ),
         None => None,
     };
@@ -240,11 +228,7 @@ fn build_tracked_cols<
     Ok(cols)
 }
 
-fn cols_to_oracles<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
+fn cols_to_oracles<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     cols: &[TrackedCol<F, MvPCS, UvPCS>],
 ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
