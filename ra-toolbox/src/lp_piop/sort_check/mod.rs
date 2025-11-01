@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod test;
-
 use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
@@ -174,10 +171,6 @@ where
             })
             .collect();
 
-        // Hash every row (across all data columns) into a single fingerprint so we can
-        // reason about row movement without tracking each column separately.
-        // Mirror the prover’s row hashing so the verifier checks against the same
-        // fingerprints.
         let input_row_fingerprint = input
             .input_table
             .fold_all_data_columns(&row_fold_challenges);
@@ -194,9 +187,6 @@ where
             })
             .collect();
 
-        // Mix the row fingerprint with each sort expression using the same random
-        // challenges so the permutation gadget can work with a single column
-        // per table.
         let mut input_key_components = Vec::with_capacity(key_components_len);
         input_key_components.push(input_row_fingerprint);
         input_key_components.extend(
@@ -231,9 +221,6 @@ where
             left_col: input_key_col,
             right_col: output_key_col,
         };
-
-        // If the hashed key columns match as a multiset, the output is a permutation
-        // of the input that respects the requested ordering.
 
         PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_input)?;
 
