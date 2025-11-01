@@ -23,12 +23,14 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
+    common::DFSchema,
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
 };
 use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{
     BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput,
 };
+use std::collections::HashSet;
 use std::sync::Arc;
 mod virtual_ops;
 #[derive(Clone)]
@@ -79,21 +81,39 @@ where
             _ => panic!("expected binary expression"),
         };
 
-        // Get a base plan to compute the expr, which is the first tablescan plan we
-        // find. We might run into a problem in join scenarios where the left
-        // and right nodes come from different base plans.
-        let Some(base_table_scan_plan) = first_tablescan_plan_prover(proof_tree) else {
-            panic!("no tablescan plan found");
-        };
+        let output_alias = proof_tree
+            .node(&self.parent_node_id)
+            .map(|parent| parent.node_id())
+            .and_then(|node_id| match node_id.to_expr() {
+                Some(Expr::Alias(alias)) => Some(alias.name.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "binary_expr".to_string());
+
+        // Track the column aliases referenced by the expression so we can pick a plan
+        // that exposes them (e.g. a projection that renamed the column).
+        let mut referenced_columns = HashSet::new();
+        collect_expr_column_names(bin_expr.left.as_ref(), &mut referenced_columns);
+        collect_expr_column_names(bin_expr.right.as_ref(), &mut referenced_columns);
+
+        // Prefer an existing logical plan that already contains the referenced columns
+        // and fall back to the raw table scan when none is found.
+        let base_plan = find_plan_with_columns_prover(
+            proof_tree,
+            &self.node_id,
+            &referenced_columns,
+        )
+        .or_else(|| first_tablescan_plan_prover(proof_tree))
+        .unwrap_or_else(|| panic!("no base plan found for binary expression"));
 
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
         let projection_exprs =
-            vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
+            vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias(&output_alias)];
 
         // Build the output plan with only the binary expression result.
-        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan.clone())
+        let output_plan = LogicalPlanBuilder::from(base_plan.clone())
             .project(projection_exprs)
             .unwrap()
             .build()
@@ -353,21 +373,34 @@ where
             Expr::BinaryExpr(b) => b.clone(),
             _ => panic!("expected binary expression"),
         };
-        // Get a base plan to compute the expr, which is the first tablescan plan we
-        // find. We might run into a problem in join scenarios where the left
-        // and right nodes come from different base plans.
-        let Some(base_table_scan_plan) = first_tablescan_plan_verifier(proof_tree) else {
-            panic!("no tablescan plan found");
-        };
+        let output_alias = proof_tree
+            .node(&self.parent_node_id)
+            .map(|parent| parent.node_id())
+            .and_then(|node_id| match node_id.to_expr() {
+                Some(Expr::Alias(alias)) => Some(alias.name.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "binary_expr".to_string());
+        let mut referenced_columns = HashSet::new();
+        collect_expr_column_names(bin_expr.left.as_ref(), &mut referenced_columns);
+        collect_expr_column_names(bin_expr.right.as_ref(), &mut referenced_columns);
+
+        let base_plan = find_plan_with_columns_verifier(
+            proof_tree,
+            &self.node_id,
+            &referenced_columns,
+        )
+        .or_else(|| first_tablescan_plan_verifier(proof_tree))
+        .unwrap_or_else(|| panic!("no base plan found for binary expression"));
 
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
-        let projection_exprs =
-            vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
+        let projection_exprs = vec![Expr::BinaryExpr(*Box::new(bin_expr.clone()))
+            .alias(&output_alias)];
 
         // Build the output plan
-        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
+        let output_plan = LogicalPlanBuilder::from(base_plan)
             .project(projection_exprs)
             .unwrap()
             .build()
@@ -603,6 +636,82 @@ where
             (None, None) => None,
         }
     }
+}
+
+fn collect_expr_column_names(expr: &Expr, columns: &mut HashSet<String>) {
+    match expr {
+        Expr::Column(col) => {
+            columns.insert(col.name.clone());
+        },
+        Expr::BinaryExpr(bin) => {
+            collect_expr_column_names(bin.left.as_ref(), columns);
+            collect_expr_column_names(bin.right.as_ref(), columns);
+        },
+        _ => {},
+    }
+}
+
+fn schema_contains_columns(schema: &DFSchema, column_names: &HashSet<String>) -> bool {
+    !column_names.is_empty()
+        && column_names
+            .iter()
+            .all(|name| schema.field_with_unqualified_name(name).is_ok())
+}
+
+fn find_plan_with_columns_prover<F, MvPCS, UvPCS>(
+    proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    current_node_id: &NodeId,
+    column_names: &HashSet<String>,
+) -> Option<LogicalPlan>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    if column_names.is_empty() {
+        return None;
+    }
+
+    for (node_id, node) in proof_tree.arena().iter() {
+        if node_id == current_node_id {
+            continue;
+        }
+        if let Some(hint) = node.hint_generation_plans(proof_tree).get(OUTPUT_PLAN_KEY) {
+            let plan = hint.plan();
+            if schema_contains_columns(plan.schema().as_ref(), column_names) {
+                return Some(plan.clone());
+            }
+        }
+    }
+    None
+}
+
+fn find_plan_with_columns_verifier<F, MvPCS, UvPCS>(
+    proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    current_node_id: &NodeId,
+    column_names: &HashSet<String>,
+) -> Option<LogicalPlan>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    if column_names.is_empty() {
+        return None;
+    }
+
+    for (node_id, node) in proof_tree.arena().iter() {
+        if node_id == current_node_id {
+            continue;
+        }
+        if let Some(hint) = node.hint_generation_plans(proof_tree).get(OUTPUT_PLAN_KEY) {
+            let plan = hint.plan();
+            if schema_contains_columns(plan.schema().as_ref(), column_names) {
+                return Some(plan.clone());
+            }
+        }
+    }
+    None
 }
 
 fn first_tablescan_plan_prover<F, MvPCS, UvPCS>(

@@ -90,10 +90,37 @@ where
                         .cloned()
                 })
             });
-        let base_plan = match base_entry {
+        let mut base_plan = match base_entry {
             Some(entry) => entry.plan().clone(),
             None => return IndexMap::new(),
         };
+
+        if base_plan
+            .schema()
+            .field_with_unqualified_name(&column_expr.name)
+            .is_err()
+        {
+            let fallback_plan = proof_tree
+                .arena()
+                .iter()
+                .filter(|(node_id, _)| *node_id != &self.node_id)
+                .find_map(|(_, node)| {
+                    node.hint_generation_plans(proof_tree)
+                        .get(OUTPUT_PLAN_KEY)
+                        .and_then(|hint| {
+                            let plan = hint.plan();
+                            plan.schema()
+                                .field_with_unqualified_name(&column_expr.name)
+                                .ok()
+                                .map(|_| plan.clone())
+                        })
+                });
+
+            base_plan = match fallback_plan {
+                Some(plan) => plan,
+                None => return IndexMap::new(),
+            };
+        }
 
         let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
         // if base_plan
@@ -252,10 +279,37 @@ where
                         .cloned()
                 })
             });
-        let base_plan = match base_entry {
+        let mut base_plan = match base_entry {
             Some(entry) => entry.plan().clone(),
             None => return IndexMap::new(),
         };
+
+        if base_plan
+            .schema()
+            .field_with_unqualified_name(&column_expr.name)
+            .is_err()
+        {
+            let fallback_plan = proof_tree
+                .arena()
+                .iter()
+                .filter(|(node_id, _)| *node_id != &self.node_id)
+                .find_map(|(_, node)| {
+                    node.hint_generation_plans(proof_tree)
+                        .get(OUTPUT_PLAN_KEY)
+                        .and_then(|hint| {
+                            let plan = hint.plan();
+                            plan.schema()
+                                .field_with_unqualified_name(&column_expr.name)
+                                .ok()
+                                .map(|_| plan.clone())
+                        })
+                });
+
+            base_plan = match fallback_plan {
+                Some(plan) => plan,
+                None => return IndexMap::new(),
+            };
+        }
 
         let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
         // if base_plan
@@ -368,10 +422,6 @@ impl ProverColumnExprNode {
     {
         let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
         if let Some(table) = piop_tree.tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY) {
-            dbg!(table.schema());
-            for c in table.all_tracked_cols() {
-                dbg!(c.field_ref());
-            }
             if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
                 return col;
             }
@@ -401,7 +451,6 @@ impl ProverColumnExprNode {
             }
         }
 
-        dbg!(column_expr);
         panic!(
             "column {} not found in execution context",
             format_column_detail(column_expr)
