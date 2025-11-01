@@ -135,9 +135,14 @@ where
             prescribed_permutation_check_prover_input,
         )?;
 
+        let diff_activator_tracked_poly = match shift_col.activator_tracked_poly() {
+            Some(poly) => Some(&poly * &tie_indicator_col.activator_tracked_poly().unwrap()),
+            None => Some(tie_indicator_col.activator_tracked_poly().unwrap()),
+        };
+
         let diff_col = TrackedCol::new(
             &shift_col.data_tracked_poly() - &tracked_col.data_tracked_poly(),
-            Some(tie_indicator_col.data_tracked_poly()),
+            diff_activator_tracked_poly,
             tracked_col.field_ref(),
         );
         let sign = match (is_last_col, ascending, strict) {
@@ -153,6 +158,8 @@ where
             col: diff_col.clone(),
             sign,
         };
+        dbg!(diff_col.data_tracked_poly().evaluations());
+        dbg!(diff_col.activator_tracked_poly().unwrap().evaluations());
         SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
         Ok(Self::ProverOutput { diff_col })
     }
@@ -193,9 +200,16 @@ where
         let mut diff_data_oracle = shift_col_oracle.data_tracked_oracle();
         diff_data_oracle -= &tracked_col_oracle.data_tracked_oracle();
 
+        let diff_activator_tracked_oracle = match shift_col_oracle.activator_tracked_oracle() {
+            Some(poly) => {
+                Some(&poly * &tie_indicator_col_oracle.activator_tracked_oracle().unwrap())
+            },
+            None => Some(tie_indicator_col_oracle.activator_tracked_oracle().unwrap()),
+        };
+
         let diff_col_oracle = TrackedColOracle::new(
             diff_data_oracle,
-            Some(tie_indicator_col_oracle.data_tracked_oracle()),
+            diff_activator_tracked_oracle,
             tracked_col_oracle.field_ref(),
         );
 

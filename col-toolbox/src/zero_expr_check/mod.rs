@@ -97,7 +97,6 @@ where
         let tracked_data = tracked_col.data_tracked_poly();
         let selector_data = selector_col.data_tracked_poly();
 
-
         let zero_poly = match activator.as_ref() {
             Some(act) => &(&tracked_data * &selector_data) * act,
             None => &tracked_data * &selector_data,
