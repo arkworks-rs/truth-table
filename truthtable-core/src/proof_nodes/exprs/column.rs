@@ -7,7 +7,8 @@ use crate::{
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, ctx::SharedCtx,
+    table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -173,23 +174,17 @@ where
             _ => todo!(),
         };
 
-        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-        let table = piop_tree
-            .tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap();
-        let col = table
-            .tracked_col_by_name(&column_expr.name)
-            .unwrap_or_else(|| panic!("column {} not found in table", &column_expr.name));
-        // TODO: Clean this up later
+        let col = self.resolve_col(column_expr, piop_tree);
         let mut tracked_polys: IndexMap<
             Arc<datafusion::arrow::datatypes::Field>,
             ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-        > = IndexMap::from([(
+        > = IndexMap::new();
+        tracked_polys.insert(
             col.field_ref()
-                .expect("Column data type should not be None")
-                .clone(),
-            col.data_tracked_poly().clone(),
-        )]);
+                .expect("Column data type should not be None"),
+            col.data_tracked_poly(),
+        );
+
         tracked_polys.insert(
             Arc::new(datafusion::arrow::datatypes::Field::new(
                 ACTIVATOR_COL_NAME,
@@ -197,10 +192,9 @@ where
                 true,
             )),
             col.activator_tracked_poly()
-                .expect("Column activator polynomial should not be None")
-                .clone(),
+                .expect("Column activator polynomial should not be None"),
         );
-        let output_table = TrackedTable::new(None, tracked_polys, table.log_size());
+        let output_table = TrackedTable::new(None, tracked_polys, col.log_size());
 
         piop_tree.add_table(
             self.node_id.clone(),
@@ -322,16 +316,13 @@ where
             NodeId::Expr(Expr::Column(column)) => column,
             _ => todo!(),
         };
-        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-        let table = piop_tree
-            .tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap();
-        let col = table
-            .tracked_col_oracle_by_name(&column_expr.name)
-            .expect("column not found in table");
+        let col = self.resolve_col_oracle(column_expr, piop_tree);
         let mut tracked_polys: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> = IndexMap::new();
-        let data_field = col.field_ref().clone().unwrap();
-        tracked_polys.insert(data_field, col.data_tracked_oracle().clone());
+        tracked_polys.insert(
+            col.field_ref()
+                .expect("Column data type should not be None"),
+            col.data_tracked_oracle(),
+        );
 
         let activator_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
             ACTIVATOR_COL_NAME,
@@ -341,11 +332,10 @@ where
         tracked_polys.insert(
             activator_field,
             col.activator_tracked_oracle()
-                .expect("Column activator polynomial should not be None")
-                .clone(),
+                .expect("Column activator polynomial should not be None"),
         );
 
-        let output_table = TrackedTableOracle::new(None, tracked_polys, table.log_size());
+        let output_table = TrackedTableOracle::new(None, tracked_polys, col.log_size());
 
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
@@ -362,5 +352,109 @@ where
             .node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
+    }
+}
+
+impl ProverColumnExprNode {
+    fn resolve_col<F, MvPCS, UvPCS>(
+        &self,
+        column_expr: &datafusion::common::Column,
+        piop_tree: &ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> TrackedCol<F, MvPCS, UvPCS>
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
+        if let Some(table) = piop_tree.tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY) {
+            dbg!(table.schema());
+            for c in table.all_tracked_cols() {
+                dbg!(c.field_ref());
+            }
+            if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
+                return col;
+            }
+        }
+
+        if let Some(relation) = &column_expr.relation {
+            for (node_id, _) in piop_tree.proof_tree().arena().iter() {
+                let matches_reference = match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                        relation.resolved_eq(&scan_plan.table_name)
+                    },
+                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan)) => {
+                        relation.resolved_eq(&alias_plan.alias)
+                    },
+                    _ => false,
+                };
+
+                if !matches_reference {
+                    continue;
+                }
+
+                if let Some(table) = piop_tree.tracked_table(node_id, OUTPUT_PLAN_KEY) {
+                    if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
+                        return col;
+                    }
+                }
+            }
+        }
+
+        dbg!(column_expr);
+        panic!(
+            "column {} not found in execution context",
+            format_column_detail(column_expr)
+        );
+    }
+}
+
+impl VerifierColumnExprNode {
+    fn resolve_col_oracle<F, MvPCS, UvPCS>(
+        &self,
+        column_expr: &datafusion::common::Column,
+        piop_tree: &VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> TrackedColOracle<F, MvPCS, UvPCS>
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
+        if let Some(table) = piop_tree.tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+        {
+            if let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name) {
+                return col;
+            }
+        }
+
+        if let Some(relation) = &column_expr.relation {
+            for (node_id, _) in piop_tree.proof_tree().arena().iter() {
+                let matches_reference = match node_id {
+                    NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
+                        relation.resolved_eq(&scan_plan.table_name)
+                    },
+                    NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan)) => {
+                        relation.resolved_eq(&alias_plan.alias)
+                    },
+                    _ => false,
+                };
+
+                if !matches_reference {
+                    continue;
+                }
+
+                if let Some(table) = piop_tree.tracked_table_oracle(node_id, OUTPUT_PLAN_KEY) {
+                    if let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name) {
+                        return col;
+                    }
+                }
+            }
+        }
+
+        panic!(
+            "column {} not found in execution context",
+            format_column_detail(column_expr)
+        );
     }
 }

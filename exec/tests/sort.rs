@@ -5,19 +5,18 @@ use support::end_to_end_tests;
 use truthtable_core::test_display::display_prover_hint_tree;
 
 end_to_end_tests!(&["lineitem"] => [
-    group_by_project_order_by_key => r#"
+    project_sort => r#"
         SELECT l_suppkey
         FROM lineitem
         ORDER BY l_suppkey ASC;
     "#,
-    // group_by_project_order_by_aggregate_desc => r#"
-    //     SELECT
-    //         l_returnflag,
-    //         SUM(l_quantity) AS total_quantity
-    //     FROM lineitem
-    //     GROUP BY l_returnflag
-    //     ORDER BY total_quantity DESC
-    // "#,
+    project_sort_1 => r#"
+SELECT 
+    l_suppkey,
+    (l_suppkey * 7 + 3) AS computed_key
+FROM lineitem
+ORDER BY computed_key DESC, l_suppkey ASC;
+    "#,
     // group_by_project_order_by_multiple_keys => r#"
     //     SELECT
     //         l_returnflag,
@@ -36,9 +35,11 @@ type UvPCS = ark_piop::pcs::kzg10::KZG10<ark_test_curves::bls12_381::Bls12_381>;
 #[ignore = "Visualization-focused test"]
 async fn display_sort_prover_hint_tree() {
     let sql = "
-            SELECT l_suppkey
-        FROM lineitem
-        ORDER BY l_suppkey ASC;
+            SELECT 
+    l_suppkey,
+    (l_suppkey * 7 + 3) AS computed_key
+FROM lineitem
+ORDER BY computed_key DESC, l_suppkey ASC;
 ";
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");

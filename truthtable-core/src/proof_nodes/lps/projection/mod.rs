@@ -15,6 +15,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
+    arrow::datatypes::{Field, FieldRef, Schema},
     logical_expr::{
         self as df, LogicalPlan,
         LogicalPlan::Projection,
@@ -253,7 +254,10 @@ where
             panic!("projection expression tables must have matching sizes");
         }
 
-        let mut data_columns = IndexMap::with_capacity(expr_tables.len() + 1);
+        let mut data_columns: IndexMap<
+            FieldRef,
+            ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
+        > = IndexMap::with_capacity(expr_tables.len() + 1);
         for table in &expr_tables {
             let tracked_polys = table.tracked_polys();
             let (field, poly) = tracked_polys
@@ -281,9 +285,17 @@ where
             })
             .expect("activator column not found for projection");
 
-        data_columns.insert(activator_pair.0, activator_pair.1);
+        let (activator_field, activator_poly) = activator_pair;
+        data_columns.insert(activator_field.clone(), activator_poly);
 
-        let output_table = TrackedTable::new(None, data_columns, table_log_size);
+        let schema_fields: Vec<Field> = data_columns
+            .keys()
+            .map(|field_ref| field_ref.as_ref().clone())
+            .collect();
+        // Preserve the expression output names by materializing a schema before handing the table off.
+        let schema = Schema::new(schema_fields);
+
+        let output_table = TrackedTable::new(Some(schema), data_columns, table_log_size);
         piop_tree.add_table(
             self.node_id.clone(),
             OUTPUT_PLAN_KEY.to_string(),
@@ -457,14 +469,15 @@ where
             panic!("projection expression tables must have matching sizes");
         }
 
-        let mut data_columns = Vec::with_capacity(expr_tables.len() + 1);
+        let mut data_columns: IndexMap<FieldRef, _> =
+            IndexMap::with_capacity(expr_tables.len() + 1);
         for table in &expr_tables {
             let tracked_oracles = table.tracked_oracles();
             let (field, poly) = tracked_oracles
                 .iter()
                 .find(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
                 .expect("expression output must contain data column");
-            data_columns.push((field.clone(), poly.clone()));
+            data_columns.insert(field.clone(), poly.clone());
         }
 
         let activator_pair = expr_tables[0]
@@ -484,10 +497,17 @@ where
                     })
             })
             .expect("activator column not found for projection");
-        data_columns.push(activator_pair);
+        let (activator_field, activator_oracle) = activator_pair;
+        data_columns.insert(activator_field.clone(), activator_oracle);
 
-        let tracked_oracles: IndexMap<_, _> = data_columns.into_iter().collect();
-        let output_table = TrackedTableOracle::new(None, tracked_oracles, table_log_size);
+        let schema_fields: Vec<Field> = data_columns
+            .keys()
+            .map(|field_ref| field_ref.as_ref().clone())
+            .collect();
+        // Mirror the prover schema rebuild so verifier-side column lookups see the same names.
+        let schema = Schema::new(schema_fields);
+
+        let output_table = TrackedTableOracle::new(Some(schema), data_columns, table_log_size);
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
             OUTPUT_PLAN_KEY.to_string(),
