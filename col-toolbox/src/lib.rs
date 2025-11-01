@@ -17,6 +17,7 @@ pub mod perm_check;
 pub mod predicate_limit_check;
 pub mod prescribed_permutation_check;
 pub mod rematerialize_check;
+pub mod sort_based_multi_col_nodup;
 pub mod set_intersec;
 pub mod sign_check;
 pub mod sort_check;

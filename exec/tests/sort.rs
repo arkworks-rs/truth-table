@@ -15,7 +15,7 @@ SELECT
     l_suppkey,
     (l_suppkey * 7 + 3) AS computed_key
 FROM lineitem
-ORDER BY computed_key DESC, l_suppkey ASC;
+ORDER BY 4+computed_key DESC, l_suppkey ASC;
     "#,
     // group_by_project_order_by_multiple_keys => r#"
     //     SELECT
@@ -35,11 +35,11 @@ type UvPCS = ark_piop::pcs::kzg10::KZG10<ark_test_curves::bls12_381::Bls12_381>;
 #[ignore = "Visualization-focused test"]
 async fn display_sort_prover_hint_tree() {
     let sql = "
-            SELECT 
+SELECT 
     l_suppkey,
     (l_suppkey * 7 + 3) AS computed_key
 FROM lineitem
-ORDER BY computed_key DESC, l_suppkey ASC;
+ORDER BY 4+computed_key DESC, l_suppkey ASC;
 ";
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
