@@ -166,56 +166,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let SortPIOPProverInput {
-            sort: _,
-            input_sort_exprs,
-            output_sort_exprs,
-            input_table,
-            output_table,
-        } = input;
-
-        #[cfg(feature = "honest-prover")]
-        {
-            eprintln!("SortPIOP input table preview:");
-            for (field, poly) in input_table.tracked_polys_iter() {
-                let preview: Vec<String> = poly
-                    .evaluations()
-                    .iter()
-                    .take(5)
-                    .map(|v| format!("{:?}", v.into_bigint()))
-                    .collect();
-                eprintln!("  {}: {:?}", field.name(), preview);
-            }
-
-            eprintln!("SortPIOP output table preview:");
-            for (field, poly) in output_table.tracked_polys_iter() {
-                let preview: Vec<String> = poly
-                    .evaluations()
-                    .iter()
-                    .take(5)
-                    .map(|v| format!("{:?}", v.into_bigint()))
-                    .collect();
-                eprintln!("  {}: {:?}", field.name(), preview);
-            }
-        }
-
-        assert_eq!(
-            input_sort_exprs.len(),
-            output_sort_exprs.len(),
-            "sort expressions mismatch between input and output"
-        );
-        let num_table_cols = input_table.num_data_tracked_cols();
-        assert!(
-            num_table_cols > 0,
-            "input table must expose at least one data column"
-        );
-        assert_eq!(
-            num_table_cols,
-            output_table.num_data_tracked_cols(),
-            "input and output tables must expose the same number of data columns"
-        );
-
-        let row_fold_challenges: Vec<F> = (0..num_table_cols)
+        let row_fold_challenges: Vec<F> = (0..input.input_table.num_data_tracked_cols())
             .map(|_| {
                 prover
                     .get_and_append_challenge(b"sort-row-fold")
@@ -223,10 +174,18 @@ where
             })
             .collect();
 
-        let input_row_fingerprint = input_table.fold_all_data_columns(&row_fold_challenges);
-        let output_row_fingerprint = output_table.fold_all_data_columns(&row_fold_challenges);
+        // Hash every row (across all data columns) into a single fingerprint so we can
+        // reason about row movement without tracking each column separately.
+        // Mirror the prover’s row hashing so the verifier checks against the same
+        // fingerprints.
+        let input_row_fingerprint = input
+            .input_table
+            .fold_all_data_columns(&row_fold_challenges);
+        let output_row_fingerprint = input
+            .output_table
+            .fold_all_data_columns(&row_fold_challenges);
 
-        let key_components_len = 1 + input_sort_exprs.len();
+        let key_components_len = 1 + input.input_sort_exprs.len();
         let key_fold_challenges: Vec<F> = (0..key_components_len)
             .map(|_| {
                 prover
@@ -235,26 +194,46 @@ where
             })
             .collect();
 
+        // Mix the row fingerprint with each sort expression using the same random
+        // challenges so the permutation gadget can work with a single column
+        // per table.
         let mut input_key_components = Vec::with_capacity(key_components_len);
         input_key_components.push(input_row_fingerprint);
-        input_key_components.extend(input_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        input_key_components.extend(
+            input
+                .input_sort_exprs
+                .into_iter()
+                .map(|tracked| tracked.expr),
+        );
         let mut input_key_col =
             linear_combine_tracked_cols(input_key_components, &key_fold_challenges);
-        input_key_col =
-            apply_activator_to_tracked_col(input_key_col, input_table.activator_tracked_poly());
+        input_key_col = apply_activator_to_tracked_col(
+            input_key_col,
+            input.input_table.activator_tracked_poly(),
+        );
 
         let mut output_key_components = Vec::with_capacity(key_components_len);
         output_key_components.push(output_row_fingerprint);
-        output_key_components.extend(output_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        output_key_components.extend(
+            input
+                .output_sort_exprs
+                .into_iter()
+                .map(|tracked| tracked.expr),
+        );
         let mut output_key_col =
             linear_combine_tracked_cols(output_key_components, &key_fold_challenges);
-        output_key_col =
-            apply_activator_to_tracked_col(output_key_col, output_table.activator_tracked_poly());
+        output_key_col = apply_activator_to_tracked_col(
+            output_key_col,
+            input.output_table.activator_tracked_poly(),
+        );
 
         let perm_input = PermPIOPProverInput {
             left_col: input_key_col,
             right_col: output_key_col,
         };
+
+        // If the hashed key columns match as a multiset, the output is a permutation
+        // of the input that respects the requested ordering.
 
         PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_input)?;
 
@@ -334,12 +313,17 @@ where
             right_tracked_col_oracle: output_key_col,
         };
 
+        // Enforce that the prover supplied a permutation between the compressed key
+        // columns.
+
         PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_input)?;
 
         Ok(())
     }
 }
 
+// Random linear combination of tracked columns that produces a single
+// fingerprint.
 fn linear_combine_tracked_cols<F, MvPCS, UvPCS>(
     cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     challenges: &[F],
@@ -380,6 +364,8 @@ where
     TrackedCol::new(combined_poly, activator, None)
 }
 
+// Verifier-side counterpart: combine tracked column oracles under the same
+// challenges.
 fn linear_combine_tracked_col_oracles<F, MvPCS, UvPCS>(
     cols: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     challenges: &[F],
