@@ -210,12 +210,9 @@ where
     }
     fn prove_piop(
         &self,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        self.children()
-            .iter()
-            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
         Ok(())
     }
 }
@@ -366,11 +363,8 @@ where
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        self.children()
-            .iter()
-            .try_for_each(|child| child.verify_piop(_verifier, piop_tree))?;
         Ok(())
     }
 

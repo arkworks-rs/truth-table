@@ -267,9 +267,6 @@ where
         };
         AggregateFunctionExprPIOP::prove(prover, piop_input)?;
 
-        self.children()
-            .iter()
-            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
         Ok(())
     }
 }
@@ -487,9 +484,6 @@ where
         };
         AggregateFunctionExprPIOP::verify(verifier, piop_input)?;
 
-        self.children()
-            .iter()
-            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
         Ok(())
     }
 

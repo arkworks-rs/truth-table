@@ -99,7 +99,20 @@ where
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let _ = piop_tree;
+        Ok(())
+    }
+
+    fn verify_piop_recursive(
+        &self,
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        self.verify_piop(verifier, piop_tree)?;
+        for child in self.children() {
+            child.verify_piop_recursive(verifier, piop_tree)?;
+        }
+        Ok(())
     }
     fn ctx_lp_node(
         &self,

@@ -75,7 +75,9 @@ where
     }
 
     pub fn verify(&mut self, verifier: &mut Verifier<F, MvPCS, UvPCS>) -> SnarkResult<()> {
-        self.inner_proof_tree.root().verify_piop(verifier, self)
+        self.inner_proof_tree
+            .root()
+            .verify_piop_recursive(verifier, self)
     }
 
     pub fn tracked_table_oracles_for(

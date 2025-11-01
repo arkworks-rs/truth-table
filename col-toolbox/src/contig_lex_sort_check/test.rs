@@ -16,7 +16,9 @@ use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::arrow::datatypes::{DataType, Field};
 use std::{collections::HashMap, sync::Arc};
 
-use super::{ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput};
+use super::{
+    ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput,
+};
 
 #[test]
 fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {

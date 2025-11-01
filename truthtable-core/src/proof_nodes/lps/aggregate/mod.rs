@@ -609,9 +609,6 @@ where
             "auxiliary_out".to_string(),
             auxiliary_out_table,
         );
-        self.children()
-            .iter()
-            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
         Ok(())
     }
 
@@ -1126,10 +1123,6 @@ where
             "auxiliary_out".to_string(),
             auxiliary_out_table,
         );
-
-        self.children()
-            .iter()
-            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
         Ok(())
     }
 

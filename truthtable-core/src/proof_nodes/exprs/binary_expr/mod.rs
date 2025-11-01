@@ -250,9 +250,6 @@ where
                 output_col,
             };
         BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_expr_piop_prover_input)?;
-        self.children()
-            .iter()
-            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
         Ok(())
     }
 }
@@ -515,9 +512,6 @@ where
                 output_col_oracle: output_col,
             };
         BinaryExprPIOP::<F, MvPCS, UvPCS>::verify(verifier, binary_expr_piop_verifier_input)?;
-        self.children()
-            .iter()
-            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
         Ok(())
     }
 

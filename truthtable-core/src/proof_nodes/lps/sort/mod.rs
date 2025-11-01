@@ -257,8 +257,8 @@ where
     }
     fn prove_piop(
         &self,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let sort_plan = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),
@@ -266,10 +266,6 @@ where
         };
 
         // TODO
-
-        self.children()
-            .iter()
-            .try_for_each(|child| child.prove_piop(prover, piop_tree))?;
 
         Ok(())
     }
@@ -374,8 +370,8 @@ where
     }
     fn verify_piop(
         &self,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let sort_plan = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),
@@ -383,10 +379,6 @@ where
         };
 
         // TODO
-
-        self.children()
-            .iter()
-            .try_for_each(|child| child.verify_piop(verifier, piop_tree))?;
 
         Ok(())
     }

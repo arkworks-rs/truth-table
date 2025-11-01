@@ -74,7 +74,7 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let root = self.inner_proof_tree.root();
-        root.prove_piop(prover, self)
+        root.prove_piop_recursive(prover, self)
     }
 
     pub fn arena(&self) -> &IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> {

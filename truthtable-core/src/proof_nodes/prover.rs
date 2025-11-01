@@ -128,7 +128,20 @@ where
         _prover: &mut Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        todo!()
+        let _ = piop_tree;
+        Ok(())
+    }
+
+    fn prove_piop_recursive(
+        &self,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()> {
+        self.prove_piop(prover, piop_tree)?;
+        for child in self.children() {
+            child.prove_piop_recursive(prover, piop_tree)?;
+        }
+        Ok(())
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
