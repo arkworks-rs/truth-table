@@ -124,10 +124,10 @@ where
             } else {
                 let zero_expr_check_prover_input = ZeroExprCheckProverInput {
                     tracked_col: current_diff_col.clone().unwrap(),
-                    selector_col: Some(input.tie_indicator_tracked_cols[i - 1].clone()),
+                    selector_col: input.tie_indicator_tracked_cols[i - 1].clone(),
                 };
                 ZeroExprCheckPIOP::prove(prover, zero_expr_check_prover_input)?;
-                input.tie_indicator_tracked_cols[i].clone()
+                input.tie_indicator_tracked_cols[i-1].clone()
             };
 
             let local_single_col_sort_check_prover_input = LocalSingleColSortCheckProverInput {
@@ -170,12 +170,10 @@ where
             } else {
                 let zero_expr_check_verifier_input = ZeroExprCheckVerifierInput {
                     tracked_col_oracle: current_diff_col_oracle.clone().unwrap(),
-                    selector_col_oracle: Some(
-                        input.tie_indicator_tracked_col_oracles[i - 1].clone(),
-                    ),
+                    selector_col_oracle: input.tie_indicator_tracked_col_oracles[i - 1].clone(),
                 };
                 ZeroExprCheckPIOP::verify(verifier, zero_expr_check_verifier_input)?;
-                Some(input.tie_indicator_tracked_col_oracles[i].clone())
+                Some(input.tie_indicator_tracked_col_oracles[i-1].clone())
             };
 
             let local_single_col_sort_check_verifier_input = LocalSingleColSortCheckVerifierInput {

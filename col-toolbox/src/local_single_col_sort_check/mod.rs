@@ -11,7 +11,13 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-use crate::sign_check::{Sign, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
+use crate::{
+    prescribed_permutation_check::{
+        PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
+        PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
+    },
+    sign_check::{Sign, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
+};
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
@@ -116,6 +122,18 @@ where
             strict,
             is_last_col,
         } = input;
+        let shift_permutation_mle =
+            shift_permutation_mle(tracked_col.data_tracked_poly().log_size(), 1, true);
+        let shift_permutation_tracked_poly = prover.track_mat_mv_poly(shift_permutation_mle);
+        let prescribed_permutation_check_prover_input = PrescribedPermutationPIOPProverInput {
+            left_tracked_poly: tracked_col.data_tracked_poly().clone(),
+            right_tracked_poly: shift_col.data_tracked_poly().clone(),
+            permutation_tracked_poly: shift_permutation_tracked_poly,
+        };
+        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::prove(
+            prover,
+            prescribed_permutation_check_prover_input,
+        )?;
 
         let diff_col = TrackedCol::new(
             &shift_col.data_tracked_poly() - &tracked_col.data_tracked_poly(),
@@ -151,6 +169,22 @@ where
             strict,
             is_last_col_oracle,
         } = input;
+
+        let shift_permutation_oracle = shift_permutation_oracle::<F>(
+            tracked_col_oracle.data_tracked_oracle().log_size(),
+            1,
+            true,
+        );
+        let shift_permutation_tracked_oracle = verifier.track_oracle(shift_permutation_oracle);
+        let prescribed_permutation_check_verifier_input = PrescribedPermutationPIOPVerifierInput {
+            left_tracked_oracle: tracked_col_oracle.data_tracked_oracle().clone(),
+            right_tracked_oracle: shift_col_oracle.data_tracked_oracle().clone(),
+            permutation_tracked_oracle: shift_permutation_tracked_oracle,
+        };
+        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            prescribed_permutation_check_verifier_input,
+        )?;
 
         let tie_indicator_col_oracle = tie_indicator_col_oracle.expect(
             "tie indicator column oracle must be provided for local single column sort check",
