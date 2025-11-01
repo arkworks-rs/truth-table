@@ -112,13 +112,6 @@ where
             );
         }
     }
-    fn prove_piop(
-        &self,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        Ok(())
-    }
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierAliasExprNode<F, MvPCS, UvPCS>
@@ -178,14 +171,6 @@ where
             );
         }
     }
-    fn verify_piop(
-        &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        Ok(())
-    }
-
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,

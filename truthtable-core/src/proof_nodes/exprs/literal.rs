@@ -160,13 +160,6 @@ where
 
         piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
-    fn prove_piop(
-        &self,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        Ok(())
-    }
 }
 
 impl<F, MvPCS, UvPCS> VerifierNode<F, MvPCS, UvPCS> for VerifierLiteralExprNode
@@ -277,14 +270,6 @@ where
 
         piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
     }
-    fn verify_piop(
-        &self,
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        Ok(())
-    }
-
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
