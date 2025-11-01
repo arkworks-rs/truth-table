@@ -226,12 +226,6 @@ where
             .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
     }
 
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    ) {
-    }
     fn prove_piop(
         &self,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
@@ -384,13 +378,6 @@ where
 
     fn name(&self) -> String {
         self.node_id().to_string()
-    }
-
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-    ) {
     }
 
     fn verify_piop(

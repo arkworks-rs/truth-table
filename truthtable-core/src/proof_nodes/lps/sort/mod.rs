@@ -249,12 +249,6 @@ where
         self.input_prover_node.clone()
     }
 
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    ) {
-    }
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
@@ -362,12 +356,6 @@ where
         self.node_id.clone()
     }
 
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-    ) {
-    }
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,

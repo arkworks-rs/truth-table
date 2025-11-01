@@ -100,13 +100,6 @@ where
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         todo!()
     }
-
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    ) {
-    }
 }
 
 // TODO: Add the table scan output comitments (the root ones) in the prover
@@ -166,12 +159,6 @@ where
         }
     }
 
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-    ) {
-    }
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,

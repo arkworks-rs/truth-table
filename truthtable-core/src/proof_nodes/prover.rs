@@ -110,7 +110,9 @@ where
         &self,
         piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
-    );
+    ) {
+        let _ = (piop_tree, prover);
+    }
 
     fn add_virtual_witness_recursive(
         &self,
