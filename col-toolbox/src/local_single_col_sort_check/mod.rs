@@ -25,6 +25,7 @@ pub struct LocalSingleColSortCheckProverInput<
     pub shift_col: TrackedCol<F, MvPCS, UvPCS>,
     pub ascending: bool,
     pub strict: bool,
+    pub is_last_col: bool,
 }
 
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS>
@@ -41,6 +42,7 @@ where
             shift_col: self.shift_col.deep_clone(prover),
             ascending: self.ascending,
             strict: self.strict,
+            is_last_col: self.is_last_col,
         }
     }
 }
@@ -57,6 +59,27 @@ pub struct LocalSingleColSortCheckVerifierInput<
     pub shift_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub ascending: bool,
     pub strict: bool,
+    pub is_last_col: bool,
+}
+
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct LocalSingleColSortCheckProverOutput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub diff_col: TrackedCol<F, MvPCS, UvPCS>,
+}
+
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct LocalSingleColSortCheckVerifierOutput<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+> {
+    pub diff_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
 pub struct LocalSingleColSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -72,9 +95,9 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     type ProverInput = LocalSingleColSortCheckProverInput<F, MvPCS, UvPCS>;
-    type ProverOutput = ();
+    type ProverOutput = LocalSingleColSortCheckProverOutput<F, MvPCS, UvPCS>;
     type VerifierInput = LocalSingleColSortCheckVerifierInput<F, MvPCS, UvPCS>;
-    type VerifierOutput = ();
+    type VerifierOutput = LocalSingleColSortCheckVerifierOutput<F, MvPCS, UvPCS>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
@@ -85,24 +108,35 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+        let LocalSingleColSortCheckProverInput {
+            tracked_col,
+            tie_indicator_col,
+            shift_col,
+            ascending,
+            strict,
+            is_last_col,
+        } = input;
+
         let diff_col = TrackedCol::new(
-            &input.shift_col.data_tracked_poly() - &input.tracked_col.data_tracked_poly(),
-            Some(input.tie_indicator_col.data_tracked_poly()),
-            input.tracked_col.field_ref(),
+            &shift_col.data_tracked_poly() - &tracked_col.data_tracked_poly(),
+            Some(tie_indicator_col.data_tracked_poly()),
+            tracked_col.field_ref(),
         );
-        let sign = match (input.ascending, input.strict) {
-            (true, true) => Sign::Positive,
-            (true, false) => Sign::NoneNegative,
-            (false, true) => Sign::Negative,
-            (false, false) => Sign::NonePositive,
+        let sign = match (is_last_col, ascending, strict) {
+            (true, true, true) => Sign::Positive,
+            (true, true, false) => Sign::NoneNegative,
+            (true, false, true) => Sign::Negative,
+            (true, false, false) => Sign::NonePositive,
+            (false, true, _) => Sign::NoneNegative,
+            (false, false, _) => Sign::NonePositive,
         };
 
         let sign_check_prover_input = SignCheckProverInput {
-            col: diff_col,
+            col: diff_col.clone(),
             sign,
         };
         SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
-        Ok(())
+        Ok(Self::ProverOutput { diff_col })
     }
 
     fn verify_inner(
@@ -115,6 +149,7 @@ where
             shift_col_oracle,
             ascending,
             strict,
+            is_last_col,
         } = input;
 
         let tie_indicator_col_oracle = tie_indicator_col_oracle.expect(
@@ -130,18 +165,21 @@ where
             tracked_col_oracle.field_ref(),
         );
 
-        let sign = match (ascending, strict) {
-            (true, true) => Sign::Positive,
-            (true, false) => Sign::NoneNegative,
-            (false, true) => Sign::Negative,
-            (false, false) => Sign::NonePositive,
+        let sign = match (is_last_col, ascending, strict) {
+            (true, true, true) => Sign::Positive,
+            (true, true, false) => Sign::NoneNegative,
+            (true, false, true) => Sign::Negative,
+            (true, false, false) => Sign::NonePositive,
+            (false, true, _) => Sign::NoneNegative,
+            (false, false, _) => Sign::NonePositive,
         };
 
         let sign_check_input = SignCheckVerifierInput {
-            tracked_col_oracle: diff_col_oracle,
+            tracked_col_oracle: diff_col_oracle.clone(),
             sign,
         };
 
-        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_input)
+        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_input)?;
+        Ok(Self::VerifierOutput { diff_col_oracle })
     }
 }

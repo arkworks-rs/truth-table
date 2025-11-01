@@ -48,7 +48,8 @@ fn value_alias(base: &str, idx: usize) -> String {
     format!("__truthtable_join_on{idx}_{base}")
 }
 
-/// Build every hinted plan needed by the join prover (output, support, source indices, key support).
+/// Build every hinted plan needed by the join prover (output, support, source
+/// indices, key support).
 pub fn build_join_hint_generation_plans(plan: LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let mut plans = IndexMap::new();
     plans.insert(
@@ -74,7 +75,8 @@ pub fn build_verifier_join_hint_generation_plans(
     build_join_hint_generation_plans(plan)
 }
 
-/// Build per-equality support plans (left/right/input combined) that track key multiplicities.
+/// Build per-equality support plans (left/right/input combined) that track key
+/// multiplicities.
 fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let join = match plan {
         LogicalPlan::Join(join) => join,
@@ -120,7 +122,8 @@ fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerati
     support_plans
 }
 
-/// Build the three support plans for a single equality predicate along with their union.
+/// Build the three support plans for a single equality predicate along with
+/// their union.
 fn build_support_hint_plans_for_pair(
     plan: &LogicalPlan,
     join: &Join,
@@ -171,7 +174,8 @@ fn build_support_hint_plans_for_pair(
     ))
 }
 
-/// Build per-equality source plans connecting join outputs back to their originating rows.
+/// Build per-equality source plans connecting join outputs back to their
+/// originating rows.
 fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let join = match plan {
         LogicalPlan::Join(join) => join,
@@ -212,7 +216,8 @@ fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGeneratio
     source_plans
 }
 
-/// Build the source index plans for one predicate: left-only, right-only, and the union.
+/// Build the source index plans for one predicate: left-only, right-only, and
+/// the union.
 fn build_source_hint_plans_for_pair(
     join: &Join,
     idx: usize,
@@ -285,7 +290,8 @@ fn build_source_hint_plans_for_pair(
     Ok((left_projection, right_projection, combined_plan))
 }
 
-/// Count occurrences of `expr` within `input`, returning `(value, count)` pairs.
+/// Count occurrences of `expr` within `input`, returning `(value, count)`
+/// pairs.
 fn build_value_count_plan(
     input: &LogicalPlan,
     expr: &Expr,
@@ -300,7 +306,8 @@ fn build_value_count_plan(
         .build()
 }
 
-/// Annotate an input plan with the zero-based row index aligned to the row-number window.
+/// Annotate an input plan with the zero-based row index aligned to the
+/// row-number window.
 fn annotate_input_with_index(
     input: &LogicalPlan,
     value_expr: &Expr,
@@ -333,7 +340,8 @@ fn expr_to_column(expr: &Expr) -> DFResult<Column> {
     }
 }
 
-/// Track the distinct values that participate in the output key support relation.
+/// Track the distinct values that participate in the output key support
+/// relation.
 fn build_output_key_support_plan(plan: &LogicalPlan) -> LogicalPlan {
     let join = match plan {
         LogicalPlan::Join(join) => join,

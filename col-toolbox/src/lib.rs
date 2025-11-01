@@ -21,8 +21,8 @@ pub mod set_intersec;
 pub mod sign_check;
 pub mod sort_check;
 pub mod supp_check;
-pub mod zero_expr_check;
 pub(crate) mod util;
+pub mod zero_expr_check;
 
 // TODO: The names here are col_sth, but in the paper they are sth_check. Make
 // it consistent
