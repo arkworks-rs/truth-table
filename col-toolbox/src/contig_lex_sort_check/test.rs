@@ -25,6 +25,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
+        None,
         DataType::UInt32,
         true,
         false,
@@ -35,6 +36,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
+        None,
         DataType::UInt32,
         true,
         true,
@@ -45,6 +47,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
+        None,
         DataType::UInt32,
         false,
         false,
@@ -54,6 +57,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
         vec![],
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
         None,
         DataType::UInt32,
         false,
@@ -64,44 +68,48 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
-    // multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-    //     vec![to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr)],
-    //     vec![],
-    //     vec![to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr)],
-    //     Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
-    //     DataType::UInt32,
-    //     true,
-    //     false,
-    // )?;
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr)],
+        vec![],
+        vec![to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr)],
+        Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
+        Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        true,
+        false,
+    )?;
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4, 5, 5, 5, 8], Fr)],
         vec![],
         vec![to_field_vec!([2, 3, 4, 5, 5, 5, 8, 1], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
+        Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
         DataType::UInt32,
         true,
         true,
     )?;
 
-    // multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-    //     vec![to_field_vec!([8, 7, 6, 6, 4, 3, 2, 1], Fr)],
-    //     vec![],
-    //     vec![to_field_vec!([7, 6, 6, 4, 3, 2, 1, 8], Fr)],
-    //     Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
-    //     DataType::UInt32,
-    //     false,
-    //     false,
-    // )?;
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([8, 7, 6, 6, 4, 3, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([7, 6, 6, 4, 3, 2, 1, 8], Fr)],
+        Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
+        Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        false,
+        false,
+    )?;
 
-    // multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-    //     vec![to_field_vec!([8, 7, 6, 5, 4, 4, 2, 1], Fr)],
-    //     vec![],
-    //     vec![to_field_vec!([7, 6, 5, 4, 3, 2, 1, 8], Fr)],
-    //     Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
-    //     DataType::UInt32,
-    //     false,
-    //     true,
-    // )?;
+    multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+        vec![to_field_vec!([8, 7, 6, 5, 4, 4, 2, 1], Fr)],
+        vec![],
+        vec![to_field_vec!([7, 6, 5, 4, 4, 2, 1, 8], Fr)],
+        Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
+        Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
+        DataType::UInt32,
+        false,
+        true,
+    )?;
     Ok(())
 }
 
@@ -118,6 +126,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([70, 32, 12, 140, 140, 99, 30, 97], Fr),
         ],
         None,
+        None,
         DataType::UInt32,
         true,
         false,
@@ -132,6 +141,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 250, 99, 30, 97], Fr),
         ],
+        None,
         None,
         DataType::UInt32,
         true,
@@ -148,6 +158,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([93, 93, 93, 36, 175, 174, 27, 100], Fr),
         ],
         None,
+        None,
         DataType::UInt32,
         false,
         false,
@@ -163,6 +174,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([93, 90, 93, 36, 175, 174, 27, 100], Fr),
         ],
         None,
+        None,
         DataType::UInt32,
         false,
         true,
@@ -176,6 +188,7 @@ fn contig_lex_sort_is_sound() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
+        None,
         DataType::UInt32,
         false,
         false,
@@ -186,6 +199,7 @@ fn contig_lex_sort_is_sound() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
+        None,
         DataType::UInt32,
         false,
         true,
@@ -196,6 +210,7 @@ fn contig_lex_sort_is_sound() -> SnarkResult<()> {
         vec![],
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
+        None,
         DataType::UInt32,
         true,
         false,
@@ -205,6 +220,7 @@ fn contig_lex_sort_is_sound() -> SnarkResult<()> {
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
         vec![],
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
+        None,
         None,
         DataType::UInt32,
         true,
@@ -225,6 +241,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([70, 32, 12, 140, 120, 99, 30, 97], Fr),
         ],
         None,
+        None,
         DataType::UInt32,
         true,
         false,
@@ -239,6 +256,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 140, 99, 30, 97], Fr),
         ],
+        None,
         None,
         DataType::UInt32,
         true,
@@ -255,6 +273,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([93, 94, 93, 36, 175, 176, 27, 100], Fr),
         ],
         None,
+        None,
         DataType::UInt32,
         false,
         false,
@@ -269,6 +288,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 93, 93, 36, 175, 176, 27, 100], Fr),
         ],
+        None,
         None,
         DataType::UInt32,
         false,
@@ -285,14 +305,14 @@ pub(crate) fn multi_col_sort_check_test_helper<
     tie_indicator_values: Vec<Vec<F>>,
     shift_values: Vec<Vec<F>>,
     shared_activator: Option<Vec<F>>,
+    shift_activator: Option<Vec<F>>,
     data_type: DataType,
     ascending: bool,
     strict: bool,
 ) -> SnarkResult<()> {
-    let num_cols = tracked_cols_values.len();
-
     let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
     let activator_slice = shared_activator.as_deref();
+    let shift_activator_slice = shift_activator.as_deref();
 
     let tracked_cols = build_tracked_cols(
         &mut prover,
@@ -311,7 +331,7 @@ pub(crate) fn multi_col_sort_check_test_helper<
     let shift_cols = build_tracked_cols(
         &mut prover,
         &shift_values,
-        activator_slice,
+        shift_activator_slice,
         &data_type,
         "shift",
     )?;
@@ -363,6 +383,7 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
     tie_indicator_values: Vec<Vec<F>>,
     shift_values: Vec<Vec<F>>,
     shared_activator: Option<Vec<F>>,
+    shift_activator: Option<Vec<F>>,
     data_type: DataType,
     ascending: bool,
     strict: bool,
@@ -372,6 +393,7 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
         tie_indicator_values,
         shift_values,
         shared_activator,
+        shift_activator,
         data_type,
         ascending,
         strict,
@@ -405,6 +427,8 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
             Err(err) => Err(err),
         };
     }
+
+    Ok(())
 }
 
 fn build_tracked_cols<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
