@@ -1,5 +1,5 @@
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
@@ -11,9 +11,14 @@ use ark_piop::{
     prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use col_toolbox::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
+use col_toolbox::{
+    contig_lex_sort_check::ContigLexSortCheckProverInput,
+    perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
+};
 use datafusion::logical_expr::Sort;
 use derivative::Derivative;
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 #[derive(Derivative)]
 #[derivative(
@@ -29,6 +34,8 @@ where
 {
     /// The expression to sort on
     pub expr: TrackedCol<F, MvPCS, UvPCS>,
+    /// The expression shifted by one position (wrap-around)
+    pub shifted_expr: TrackedCol<F, MvPCS, UvPCS>,
     /// The direction of the sort
     pub asc: bool,
     /// Whether to put Nulls before all other data values
@@ -43,7 +50,8 @@ where
 {
     fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            expr: self.expr.deep_clone(new_prover),
+            expr: self.expr.deep_clone(new_prover.clone()),
+            shifted_expr: self.shifted_expr.deep_clone(new_prover),
             asc: self.asc,
             nulls_first: self.nulls_first,
         }
@@ -64,6 +72,8 @@ where
 {
     /// The expression to sort on
     pub expr: TrackedColOracle<F, MvPCS, UvPCS>,
+    /// The expression shifted by one position (wrap-around)
+    pub shifted_expr: TrackedColOracle<F, MvPCS, UvPCS>,
     /// The direction of the sort
     pub asc: bool,
     /// Whether to put Nulls before all other data values
@@ -163,7 +173,15 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let row_fold_challenges: Vec<F> = (0..input.input_table.num_data_tracked_cols())
+        let SortPIOPProverInput {
+            sort,
+            input_sort_exprs,
+            output_sort_exprs,
+            input_table,
+            output_table,
+        } = input;
+
+        let row_fold_challenges: Vec<F> = (0..input_table.num_data_tracked_cols())
             .map(|_| {
                 prover
                     .get_and_append_challenge(b"sort-row-fold")
@@ -171,14 +189,10 @@ where
             })
             .collect();
 
-        let input_row_fingerprint = input
-            .input_table
-            .fold_all_data_columns(&row_fold_challenges);
-        let output_row_fingerprint = input
-            .output_table
-            .fold_all_data_columns(&row_fold_challenges);
+        let input_row_fingerprint = input_table.fold_all_data_columns(&row_fold_challenges);
+        let output_row_fingerprint = output_table.fold_all_data_columns(&row_fold_challenges);
 
-        let key_components_len = 1 + input.input_sort_exprs.len();
+        let key_components_len = 1 + input_sort_exprs.len();
         let key_fold_challenges: Vec<F> = (0..key_components_len)
             .map(|_| {
                 prover
@@ -189,33 +203,19 @@ where
 
         let mut input_key_components = Vec::with_capacity(key_components_len);
         input_key_components.push(input_row_fingerprint);
-        input_key_components.extend(
-            input
-                .input_sort_exprs
-                .into_iter()
-                .map(|tracked| tracked.expr),
-        );
+        input_key_components.extend(input_sort_exprs.iter().map(|tracked| tracked.expr.clone()));
         let mut input_key_col =
             linear_combine_tracked_cols(input_key_components, &key_fold_challenges);
-        input_key_col = apply_activator_to_tracked_col(
-            input_key_col,
-            input.input_table.activator_tracked_poly(),
-        );
+        input_key_col =
+            apply_activator_to_tracked_col(input_key_col, input_table.activator_tracked_poly());
 
         let mut output_key_components = Vec::with_capacity(key_components_len);
         output_key_components.push(output_row_fingerprint);
-        output_key_components.extend(
-            input
-                .output_sort_exprs
-                .into_iter()
-                .map(|tracked| tracked.expr),
-        );
+        output_key_components.extend(output_sort_exprs.iter().map(|tracked| tracked.expr.clone()));
         let mut output_key_col =
             linear_combine_tracked_cols(output_key_components, &key_fold_challenges);
-        output_key_col = apply_activator_to_tracked_col(
-            output_key_col,
-            input.output_table.activator_tracked_poly(),
-        );
+        output_key_col =
+            apply_activator_to_tracked_col(output_key_col, output_table.activator_tracked_poly());
 
         let perm_input = PermPIOPProverInput {
             left_col: input_key_col,
@@ -223,6 +223,96 @@ where
         };
 
         PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_input)?;
+
+        let mut tracked_columns: IndexMap<
+            datafusion::arrow::datatypes::FieldRef,
+            TrackedPoly<F, MvPCS, UvPCS>,
+        > = IndexMap::new();
+        let mut shift_columns: IndexMap<
+            datafusion::arrow::datatypes::FieldRef,
+            TrackedPoly<F, MvPCS, UvPCS>,
+        > = IndexMap::new();
+        let mut table_log_size: Option<usize> = None;
+        let mut shared_activator: Option<TrackedPoly<F, MvPCS, UvPCS>> = None;
+
+        for sort_tracked_col in &output_sort_exprs {
+            let expr_col = &sort_tracked_col.expr;
+            let shifted_col = &sort_tracked_col.shifted_expr;
+
+            if let Some(existing) = table_log_size {
+                assert_eq!(
+                    existing,
+                    expr_col.log_size(),
+                    "all sort expression columns must share the same log size"
+                );
+            } else {
+                table_log_size = Some(expr_col.log_size());
+            }
+
+            assert_eq!(
+                expr_col.log_size(),
+                shifted_col.log_size(),
+                "shifted sort expression must match original log size"
+            );
+
+            let expr_activator = expr_col.activator_tracked_poly();
+            let shifted_activator = shifted_col.activator_tracked_poly();
+            match (&expr_activator, &shifted_activator) {
+                (Some(a), Some(b)) => {
+                    a.assert_same_tracker(b);
+                    if let Some(existing) = &shared_activator {
+                        existing.assert_same_tracker(a);
+                    } else {
+                        shared_activator = Some(a.clone());
+                    }
+                },
+                (None, None) => {},
+                _ => panic!("inconsistent activators between sort expression and its shift"),
+            }
+
+            let expr_field = expr_col
+                .field_ref()
+                .unwrap_or_else(|| panic!("sort expression column missing field metadata"));
+            let shifted_field = shifted_col
+                .field_ref()
+                .unwrap_or_else(|| panic!("shifted sort expression column missing field metadata"));
+
+            tracked_columns.insert(expr_field.clone(), expr_col.data_tracked_poly());
+            shift_columns.insert(shifted_field.clone(), shifted_col.data_tracked_poly());
+        }
+
+        let activator_entry = output_table
+            .tracked_polys()
+            .into_iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME);
+
+        if let Some((field, poly)) = activator_entry {
+            if let Some(shared) = &shared_activator {
+                shared.assert_same_tracker(&poly);
+            } else {
+                shared_activator = Some(poly.clone());
+            }
+            tracked_columns.insert(field.clone(), poly.clone());
+            shift_columns.insert(field, poly);
+        }
+
+        let table_log_size =
+            table_log_size.expect("sort expressions must produce at least one column");
+
+        let tracked_table = TrackedTable::new(None, tracked_columns, table_log_size);
+        let shift_tracked_table = TrackedTable::new(None, shift_columns, table_log_size);
+
+        let ascending: Vec<bool> = sort.expr.iter().map(|expr| expr.asc).collect();
+        let strict = vec![false; ascending.len()];
+
+        let contig_lex_sort_check_prover_input: ContigLexSortCheckProverInput<F, MvPCS, UvPCS> =
+            ContigLexSortCheckProverInput {
+                tracked_table,
+                tie_indicator_tracked_polys: todo!(),
+                shift_tracked_table,
+                ascending,
+                strict,
+            };
 
         Ok(())
     }

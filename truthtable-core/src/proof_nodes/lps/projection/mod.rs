@@ -292,7 +292,8 @@ where
             .keys()
             .map(|field_ref| field_ref.as_ref().clone())
             .collect();
-        // Preserve the expression output names by materializing a schema before handing the table off.
+        // Preserve the expression output names by materializing a schema before handing
+        // the table off.
         let schema = Schema::new(schema_fields);
 
         let output_table = TrackedTable::new(Some(schema), data_columns, table_log_size);
@@ -504,7 +505,8 @@ where
             .keys()
             .map(|field_ref| field_ref.as_ref().clone())
             .collect();
-        // Mirror the prover schema rebuild so verifier-side column lookups see the same names.
+        // Mirror the prover schema rebuild so verifier-side column lookups see the same
+        // names.
         let schema = Schema::new(schema_fields);
 
         let output_table = TrackedTableOracle::new(Some(schema), data_columns, table_log_size);

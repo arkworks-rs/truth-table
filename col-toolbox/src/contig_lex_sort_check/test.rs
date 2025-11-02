@@ -1,8 +1,4 @@
-use arithmetic::{
-    table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-    ACTIVATOR_COL_NAME,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 #[allow(unused_imports)]
 use ark_piop::to_field_vec;
@@ -454,11 +450,8 @@ pub(crate) fn multi_col_sort_check_test_helper<
         &data_type,
         "shift",
     )?;
-    let tie_indicator_polys = build_tracked_polys(
-        &mut prover,
-        &tie_indicator_values,
-        activator_slice,
-    )?;
+    let tie_indicator_polys =
+        build_tracked_polys(&mut prover, &tie_indicator_values, activator_slice)?;
 
     let num_cols = tracked_table.num_data_tracked_cols();
     let tracked_table_for_verifier = tracked_table.clone();
@@ -638,10 +631,8 @@ fn build_tracked_table<
     }
 
     if let Some(activator_values) = shared_activator {
-        let activator_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
-            nv,
-            activator_values,
-        ))?;
+        let activator_poly = prover
+            .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, activator_values))?;
         tracked_polys.insert(
             Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)),
             activator_poly,
@@ -694,17 +685,12 @@ fn build_tracked_polys<
         .collect()
 }
 
-fn table_to_oracle<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
+fn table_to_oracle<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     table: TrackedTable<F, MvPCS, UvPCS>,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
 ) -> SnarkResult<TrackedTableOracle<F, MvPCS, UvPCS>> {
-    let mut tracked_oracles =
-        IndexMap::with_capacity(table.num_total_tracked_cols());
+    let mut tracked_oracles = IndexMap::with_capacity(table.num_total_tracked_cols());
     for (field_ref, poly) in table.tracked_polys_iter() {
         let oracle = track_oracle_cached(verifier, poly.id(), cache)?;
         tracked_oracles.insert(field_ref.clone(), oracle);

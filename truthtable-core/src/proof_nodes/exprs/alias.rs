@@ -6,7 +6,7 @@ use crate::{
     verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{
-    ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
+    ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -142,7 +142,8 @@ where
                 .iter()
                 .map(|field_ref| field_ref.as_ref().clone())
                 .collect();
-            // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
+            // Rebuild a schema that reflects the aliased column name so later lookups can
+            // resolve it.
             let new_schema = table
                 .schema_ref()
                 .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
@@ -237,7 +238,8 @@ where
                 .iter()
                 .map(|field_ref| field_ref.as_ref().clone())
                 .collect();
-            // Mirror the prover path: attach a schema carrying the alias for verifier column resolution.
+            // Mirror the prover path: attach a schema carrying the alias for verifier
+            // column resolution.
             let new_schema = table
                 .schema()
                 .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
