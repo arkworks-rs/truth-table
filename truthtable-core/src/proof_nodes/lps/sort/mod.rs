@@ -1,10 +1,10 @@
+mod hints;
 #[cfg(test)]
 mod tests;
-
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
-        verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
+        lps::sort::hints::build_sort_hint_plans, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -21,126 +21,18 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema},
-    logical_expr::{
-        self as df,
-        expr_rewriter::{normalize_sorts, unnormalize_col},
-    },
     prelude::SessionContext,
 };
-use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput, SortTrackedCol, SortTrackedColOracle};
+use ra_toolbox::lp_piop::sort_check::{
+    SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput, SortTrackedCol, SortTrackedColOracle,
+};
 use std::sync::Arc;
 
 const SORT_EXPRESSIONS_PLAN_KEY: &str = "sort_expressions";
 const SHIFTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "shifted_sort_expressions";
 const TIE_INDICATOR_PLAN_KEY: &str = "tie_indicator_columns";
-
-fn build_sort_hint_plans(
-    base_plan: LogicalPlan,
-    sort_plan: &datafusion_expr::logical_plan::Sort,
-) -> IndexMap<String, HintGenerationPlan> {
-    let normalized_sorts = normalize_sorts(sort_plan.expr.clone(), &base_plan)
-        .expect("failed to normalize sort expressions for hint plan")
-        .into_iter()
-        .map(|sort_expr| {
-            let expr = unnormalize_col(sort_expr.expr);
-            DFSortExpr::new(expr, sort_expr.asc, sort_expr.nulls_first)
-        })
-        .collect::<Vec<_>>();
-
-    assert!(
-        !normalized_sorts.is_empty(),
-        "sort hint plan missing sort expressions"
-    );
-
-    let sorted_plan = LogicalPlanBuilder::from(base_plan.clone())
-        .sort_with_limit(normalized_sorts.clone(), sort_plan.fetch)
-        .expect("failed to append sort for hint plan")
-        .build()
-        .expect("failed to build sorted hint plan");
-
-    let projection_exprs: Vec<df::Expr> = sorted_plan
-        .schema()
-        .iter()
-        .map(|(qualifier, field)| df::Expr::from((qualifier, field)))
-        .collect();
-
-    let sorted_projected = LogicalPlanBuilder::from(sorted_plan.clone())
-        .project(projection_exprs)
-        .expect("failed to project sorted columns for hint plan")
-        .build()
-        .expect("failed to build sorted projected hint plan");
-
-    let sort_projection_exprs: Vec<df::Expr> = normalized_sorts
-        .iter()
-        .map(|sort_expr| sort_expr.expr.clone())
-        .collect();
-
-    let sort_expressions_plan = LogicalPlanBuilder::from(sorted_plan)
-        .project(sort_projection_exprs)
-        .expect("failed to project sort expressions for hint plan")
-        .build()
-        .expect("failed to build sort expressions hint plan");
-
-    let shifted_projection_exprs: Vec<df::Expr> = sort_expressions_plan
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let alias_name = format!("{}_shift", field.name());
-            df::col(field.name()).alias(alias_name)
-        })
-        .collect();
-
-    let shifted_sort_expressions_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
-        .project(shifted_projection_exprs)
-        .expect("failed to project shifted sort expressions for hint plan")
-        .build()
-        .expect("failed to build shifted sort expressions hint plan");
-
-    let mut tie_plans = None;
-    let num_sort_exprs = normalized_sorts.len();
-    if num_sort_exprs > 1 {
-        let tie_projection_exprs: Vec<df::Expr> = (0..(num_sort_exprs - 1))
-            .map(|idx| df::lit(false).alias(format!("tie_indicator_{idx}")))
-            .collect();
-        let tie_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
-            .project(tie_projection_exprs)
-            .expect("failed to project tie indicator expressions for hint plan")
-            .build()
-            .expect("failed to build tie indicator hint plan");
-        tie_plans = Some(tie_plan);
-    }
-
-    let mut plans = IndexMap::new();
-    plans.insert(
-        OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_projected),
-    );
-    plans.insert(
-        SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(
-            SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            sort_expressions_plan,
-        ),
-    );
-    plans.insert(
-        SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_virtual(
-            SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            shifted_sort_expressions_plan,
-        ),
-    );
-    if let Some(tie_plan) = tie_plans {
-        plans.insert(
-            TIE_INDICATOR_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
-        );
-    }
-
-    plans
-}
 
 pub struct ProverSortExprNode<F, MvPCS, UvPCS>
 where
@@ -208,7 +100,7 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        let base_plan = &self
+        let base_plan = self
             .input_prover_node
             .hint_generation_plans(proof_tree)
             .get(OUTPUT_PLAN_KEY)
@@ -220,7 +112,7 @@ where
             _ => panic!("expected sort logical plan"),
         };
 
-        build_sort_hint_plans(base_plan.clone(), sort_plan)
+        hints::build_sort_hint_plans(base_plan, sort_plan)
     }
 
     fn from_lp(
