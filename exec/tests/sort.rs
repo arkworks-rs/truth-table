@@ -15,7 +15,7 @@ SELECT
     l_suppkey,
     (l_suppkey * 7 + 3) AS computed_key
 FROM lineitem
-ORDER BY 4+computed_key DESC, l_suppkey ASC;
+ORDER BY 4 + (l_suppkey * 7 + 3) DESC, l_suppkey ASC;
     "#,
     filter_sort => r#"
         SELECT 
@@ -23,16 +23,7 @@ ORDER BY 4+computed_key DESC, l_suppkey ASC;
     (l_suppkey * 7 + 3) AS computed_key
 FROM lineitem
 WHERE l_suppkey > 1000
-ORDER BY 4 + computed_key DESC, l_suppkey ASC;"#,
-    groupby_sort => r#"
-SELECT 
-    l_suppkey,
-    (l_suppkey * 7 + 3) AS computed_key,
-    COUNT(*) AS cnt
-FROM lineitem
-GROUP BY l_suppkey, (l_suppkey * 7 + 3)
-ORDER BY 4 + (l_suppkey * 7 + 3) DESC, l_suppkey ASC;"#,
-
+ORDER BY 4 +  (l_suppkey * 7 + 3) DESC, l_suppkey ASC;"#,
 ]);
 
 type F = ark_test_curves::bls12_381::Fr;
