@@ -368,10 +368,6 @@ impl ProverColumnExprNode {
     {
         let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
         if let Some(table) = piop_tree.tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY) {
-            dbg!(table.schema());
-            for c in table.all_tracked_cols() {
-                dbg!(c.field_ref());
-            }
             if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
                 return col;
             }
