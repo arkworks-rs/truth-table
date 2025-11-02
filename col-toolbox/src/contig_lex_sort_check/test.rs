@@ -1,4 +1,8 @@
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use arithmetic::{
+    table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME,
+};
 use ark_ff::PrimeField;
 #[allow(unused_imports)]
 use ark_piop::to_field_vec;
@@ -7,13 +11,14 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::Prover,
+    prover::{Prover, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     test_utils::test_prelude,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::arrow::datatypes::{DataType, Field};
+use indexmap::IndexMap;
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -435,32 +440,30 @@ pub(crate) fn multi_col_sort_check_test_helper<
     let activator_slice = shared_activator.as_deref();
     let shift_activator_slice = shift_activator.as_deref();
 
-    let tracked_cols = build_tracked_cols(
+    let tracked_table = build_tracked_table(
         &mut prover,
         &tracked_cols_values,
         activator_slice,
         &data_type,
         "tracked",
     )?;
-    let tie_indicator_cols = build_tracked_cols(
-        &mut prover,
-        &tie_indicator_values,
-        activator_slice,
-        &data_type,
-        "tie",
-    )?;
-    let shift_cols = build_tracked_cols(
+    let shift_tracked_table = build_tracked_table(
         &mut prover,
         &shift_values,
         shift_activator_slice,
         &data_type,
         "shift",
     )?;
+    let tie_indicator_polys = build_tracked_polys(
+        &mut prover,
+        &tie_indicator_values,
+        activator_slice,
+    )?;
 
-    let num_cols = tracked_cols.len();
-    let tracked_cols_for_verifier = tracked_cols.clone();
-    let tie_cols_for_verifier = tie_indicator_cols.clone();
-    let shift_cols_for_verifier = shift_cols.clone();
+    let num_cols = tracked_table.num_data_tracked_cols();
+    let tracked_table_for_verifier = tracked_table.clone();
+    let shift_table_for_verifier = shift_tracked_table.clone();
+    let tie_indicator_polys_for_verifier = tie_indicator_polys.clone();
     let ascending_flags = ascending;
     let strict_flags = strict;
 
@@ -476,9 +479,9 @@ pub(crate) fn multi_col_sort_check_test_helper<
     );
 
     let prover_input = ContigLexSortCheckProverInput {
-        tracked_cols,
-        tie_indicator_tracked_cols: tie_indicator_cols,
-        shift_tracked_cols: shift_cols,
+        tracked_table,
+        tie_indicator_tracked_polys: tie_indicator_polys,
+        shift_tracked_table,
         ascending: ascending_flags.clone(),
         strict: strict_flags.clone(),
     };
@@ -489,17 +492,20 @@ pub(crate) fn multi_col_sort_check_test_helper<
 
     let mut oracle_cache: HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>> = HashMap::new();
 
-    let tracked_col_oracles =
-        cols_to_oracles(&mut verifier, &tracked_cols_for_verifier, &mut oracle_cache)?;
-    let tie_indicator_col_oracles =
-        cols_to_oracles(&mut verifier, &tie_cols_for_verifier, &mut oracle_cache)?;
-    let shift_col_oracles =
-        cols_to_oracles(&mut verifier, &shift_cols_for_verifier, &mut oracle_cache)?;
+    let tracked_table_oracle =
+        table_to_oracle(&mut verifier, tracked_table_for_verifier, &mut oracle_cache)?;
+    let shift_tracked_table_oracle =
+        table_to_oracle(&mut verifier, shift_table_for_verifier, &mut oracle_cache)?;
+    let tie_indicator_tracked_oracles = tracked_polys_to_oracles(
+        &mut verifier,
+        tie_indicator_polys_for_verifier,
+        &mut oracle_cache,
+    )?;
 
     let verifier_input = ContigLexSortCheckVerifierInput {
-        tracked_col_oracles,
-        tie_indicator_tracked_col_oracles: tie_indicator_col_oracles,
-        shift_tracked_col_oracles: shift_col_oracles,
+        tracked_table_oracle,
+        tie_indicator_tracked_oracles,
+        shift_tracked_table_oracle,
         ascending: ascending_flags,
         strict: strict_flags,
     };
@@ -564,13 +570,96 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
     }
 }
 
-fn build_tracked_cols<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+fn track_oracle_cached<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    id: TrackerID,
+    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
+) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
+    if let Some(existing) = cache.get(&id) {
+        return Ok(existing.clone());
+    }
+    let oracle = verifier.track_mv_com_by_id(id)?;
+    cache.insert(id, oracle.clone());
+    Ok(oracle)
+}
+fn build_tracked_table<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
     prover: &mut Prover<F, MvPCS, UvPCS>,
     column_values: &[Vec<F>],
     shared_activator: Option<&[F]>,
     data_type: &DataType,
     prefix: &str,
-) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+) -> SnarkResult<TrackedTable<F, MvPCS, UvPCS>> {
+    assert!(
+        !column_values.is_empty(),
+        "tracked table must contain at least one column"
+    );
+
+    let len = column_values[0].len();
+    assert!(len > 0, "column values must not be empty");
+    assert!(
+        len.is_power_of_two(),
+        "column length must be a power of two (got {len})"
+    );
+
+    if let Some(activator) = shared_activator {
+        assert_eq!(
+            activator.len(),
+            len,
+            "shared activator length must match column length"
+        );
+    }
+
+    let nv = len.trailing_zeros() as usize;
+    let mut tracked_polys =
+        IndexMap::with_capacity(column_values.len() + (shared_activator.is_some() as usize));
+
+    for (idx, values) in column_values.iter().enumerate() {
+        assert_eq!(
+            values.len(),
+            len,
+            "all columns must have identical number of rows"
+        );
+        let data_poly =
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, values))?;
+        let field_ref = Arc::new(Field::new(
+            format!("{prefix}_col_{idx}"),
+            data_type.clone(),
+            false,
+        ));
+        tracked_polys.insert(field_ref, data_poly);
+    }
+
+    if let Some(activator_values) = shared_activator {
+        let activator_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
+            nv,
+            activator_values,
+        ))?;
+        tracked_polys.insert(
+            Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)),
+            activator_poly,
+        );
+    }
+
+    Ok(TrackedTable::new(None, tracked_polys, nv))
+}
+
+fn build_tracked_polys<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    prover: &mut Prover<F, MvPCS, UvPCS>,
+    column_values: &[Vec<F>],
+    shared_activator: Option<&[F]>,
+) -> SnarkResult<Vec<TrackedPoly<F, MvPCS, UvPCS>>> {
     if column_values.is_empty() {
         return Ok(Vec::new());
     }
@@ -592,82 +681,64 @@ fn build_tracked_cols<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
 
     let nv = len.trailing_zeros() as usize;
 
-    let shared_activator_poly = match shared_activator {
-        Some(activator_values) => Some(
-            prover
-                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, activator_values))?,
-        ),
-        None => None,
-    };
-
-    let mut cols = Vec::with_capacity(column_values.len());
-    for (idx, values) in column_values.iter().enumerate() {
-        assert_eq!(
-            values.len(),
-            len,
-            "all columns must have identical number of rows"
-        );
-        let data_poly =
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, values))?;
-        let field_ref = Some(Arc::new(Field::new(
-            format!("{prefix}_col_{idx}"),
-            data_type.clone(),
-            false,
-        )));
-        cols.push(TrackedCol::new(
-            data_poly,
-            shared_activator_poly.clone(),
-            field_ref,
-        ));
-    }
-    Ok(cols)
-}
-
-fn cols_to_oracles<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    cols: &[TrackedCol<F, MvPCS, UvPCS>],
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
-    cols.iter()
-        .map(|col| tracked_col_to_oracle(verifier, col, cache))
+    column_values
+        .iter()
+        .map(|values| {
+            assert_eq!(
+                values.len(),
+                len,
+                "all columns must have identical number of rows"
+            );
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, values))
+        })
         .collect()
 }
 
-fn tracked_col_to_oracle<
+fn table_to_oracle<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    col: &TrackedCol<F, MvPCS, UvPCS>,
+    table: TrackedTable<F, MvPCS, UvPCS>,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
-    let activator_oracle = match col.activator_tracked_poly() {
-        Some(activator) => Some(track_oracle_cached(verifier, activator.id(), cache)?),
-        None => None,
-    };
-    let data_oracle = track_oracle_cached(verifier, col.data_tracked_poly().id(), cache)?;
-
-    Ok(TrackedColOracle::new(
-        data_oracle,
-        activator_oracle,
-        col.field_ref(),
+) -> SnarkResult<TrackedTableOracle<F, MvPCS, UvPCS>> {
+    let mut tracked_oracles =
+        IndexMap::with_capacity(table.num_total_tracked_cols());
+    for (field_ref, poly) in table.tracked_polys_iter() {
+        let oracle = track_oracle_cached(verifier, poly.id(), cache)?;
+        tracked_oracles.insert(field_ref.clone(), oracle);
+    }
+    Ok(TrackedTableOracle::new(
+        table.schema(),
+        tracked_oracles,
+        table.log_size(),
     ))
 }
 
-fn track_oracle_cached<
+fn tracked_polys_to_oracles<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    id: TrackerID,
+    polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
+) -> SnarkResult<Vec<TrackedOracle<F, MvPCS, UvPCS>>> {
+    polys
+        .into_iter()
+        .map(|poly| tracked_poly_to_oracle(verifier, poly, cache))
+        .collect()
+}
+
+fn tracked_poly_to_oracle<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+>(
+    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    poly: TrackedPoly<F, MvPCS, UvPCS>,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
 ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
-    if let Some(existing) = cache.get(&id) {
-        return Ok(existing.clone());
-    }
-    let oracle = verifier.track_mv_com_by_id(id)?;
-    cache.insert(id, oracle.clone());
-    Ok(oracle)
+    track_oracle_cached(verifier, poly.id(), cache)
 }

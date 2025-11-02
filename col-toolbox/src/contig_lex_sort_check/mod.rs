@@ -1,4 +1,9 @@
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use arithmetic::{
+    col::TrackedCol,
+    col_oracle::TrackedColOracle,
+    table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{
@@ -37,9 +42,9 @@ pub struct ContigLexSortCheckProverInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub tie_indicator_tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub shift_tracked_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
+    pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub ascending: Vec<bool>,
     pub strict: Vec<bool>,
 }
@@ -52,21 +57,13 @@ where
 {
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
-            tracked_cols: self
-                .tracked_cols
+            tracked_table: self.tracked_table.deep_clone(prover.clone()),
+            tie_indicator_tracked_polys: self
+                .tie_indicator_tracked_polys
                 .iter()
-                .map(|col| col.deep_clone(prover.clone()))
+                .map(|poly| poly.deep_clone(prover.clone()))
                 .collect(),
-            tie_indicator_tracked_cols: self
-                .tie_indicator_tracked_cols
-                .iter()
-                .map(|col| col.deep_clone(prover.clone()))
-                .collect(),
-            shift_tracked_cols: self
-                .shift_tracked_cols
-                .iter()
-                .map(|col| col.deep_clone(prover.clone()))
-                .collect(),
+            shift_tracked_table: self.shift_tracked_table.deep_clone(prover),
             ascending: self.ascending.clone(),
             strict: self.strict.clone(),
         }
@@ -80,9 +77,9 @@ pub struct ContigLexSortCheckVerifierInput<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
-    pub tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub tie_indicator_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub shift_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
+    pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_oracles: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
+    pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub ascending: Vec<bool>,
     pub strict: Vec<bool>,
 }
@@ -114,16 +111,42 @@ where
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let ContigLexSortCheckProverInput {
-            tracked_cols,
-            tie_indicator_tracked_cols,
-            shift_tracked_cols,
+            tracked_table,
+            tie_indicator_tracked_polys,
+            shift_tracked_table,
             ascending,
             strict,
         } = input;
 
-        let activator_tracked_poly = tracked_cols[0].activator_tracked_poly();
-        let num_cols = tracked_cols.len();
-        let num_vars = tracked_cols[0].data_tracked_poly().log_size();
+        let num_cols = tracked_table.num_data_tracked_cols();
+        assert!(
+            num_cols > 0,
+            "contiguous lex sort check requires at least one tracked column"
+        );
+        assert_eq!(
+            shift_tracked_table.num_data_tracked_cols(),
+            num_cols,
+            "shift table must provide the same number of data columns as the tracked table"
+        );
+        if num_cols > 1 {
+            assert_eq!(
+                tie_indicator_tracked_polys.len(),
+                num_cols - 1,
+                "tie indicator tracked polys length must be one less than the number of tracked columns"
+            );
+        } else {
+            assert!(
+                tie_indicator_tracked_polys.is_empty(),
+                "tie indicator tracked polys must be empty when only one tracked column is provided"
+            );
+        }
+
+        let activator_tracked_poly = tracked_table.activator_tracked_poly();
+        let num_vars = tracked_table.log_size();
+        let tie_indicator_cols: Vec<TrackedCol<F, MvPCS, UvPCS>> = tie_indicator_tracked_polys
+            .into_iter()
+            .map(|poly| TrackedCol::new(poly, None, None))
+            .collect();
 
         assert_eq!(
             ascending.len(),
@@ -139,22 +162,29 @@ where
         let mut current_diff_col: Option<TrackedCol<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_cols {
+            let tracked_col = tracked_table.tracked_col_by_ind(i);
+            let shift_col = shift_tracked_table.tracked_col_by_ind(i);
             let tie_indicator_col = if i == 0 {
-                Self::first_tie_indicator_col(prover, num_vars, activator_tracked_poly.clone())
+                Self::first_tie_indicator_col(
+                    prover,
+                    num_vars,
+                    activator_tracked_poly.clone(),
+                )
             } else {
+                let selector_col = tie_indicator_cols[i - 1].clone();
                 let zero_expr_check_prover_input = ZeroExprCheckProverInput {
                     tracked_col: current_diff_col.clone().unwrap(),
-                    selector_col: tie_indicator_tracked_cols[i - 1].clone(),
+                    selector_col: selector_col.clone(),
                 };
 
                 ZeroExprCheckPIOP::prove(prover, zero_expr_check_prover_input)?;
-                tie_indicator_tracked_cols[i - 1].clone()
+                selector_col
             };
 
             let local_single_col_sort_check_prover_input = LocalSingleColSortCheckProverInput {
-                tracked_col: tracked_cols[i].clone(),
+                tracked_col,
                 tie_indicator_col,
-                shift_col: shift_tracked_cols[i].clone(),
+                shift_col,
                 ascending: ascending[i],
                 strict: strict[i],
                 is_last_col: i == num_cols - 1,
@@ -174,16 +204,43 @@ where
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let ContigLexSortCheckVerifierInput {
-            tracked_col_oracles,
-            tie_indicator_tracked_col_oracles,
-            shift_tracked_col_oracles,
+            tracked_table_oracle,
+            tie_indicator_tracked_oracles,
+            shift_tracked_table_oracle,
             ascending,
             strict,
         } = input;
 
-        let activator_tracked_oracle = tracked_col_oracles[0].activator_tracked_oracle();
-        let num_col_oracles = tracked_col_oracles.len();
-        let num_vars = tracked_col_oracles[0].data_tracked_oracle().log_size();
+        let num_col_oracles = tracked_table_oracle.num_data_tracked_col_oracles();
+        assert!(
+            num_col_oracles > 0,
+            "contiguous lex sort check requires at least one tracked column oracle"
+        );
+        assert_eq!(
+            shift_tracked_table_oracle.num_data_tracked_col_oracles(),
+            num_col_oracles,
+            "shift table oracle must provide the same number of data columns as the tracked table oracle"
+        );
+        if num_col_oracles > 1 {
+            assert_eq!(
+                tie_indicator_tracked_oracles.len(),
+                num_col_oracles - 1,
+                "tie indicator tracked oracles length must be one less than the number of tracked column oracles"
+            );
+        } else {
+            assert!(
+                tie_indicator_tracked_oracles.is_empty(),
+                "tie indicator tracked oracles must be empty when only one tracked column oracle is provided"
+            );
+        }
+
+        let activator_tracked_oracle = tracked_table_oracle.activator_tracked_poly();
+        let num_vars = tracked_table_oracle.log_size();
+        let tie_indicator_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>> =
+            tie_indicator_tracked_oracles
+                .into_iter()
+                .map(|oracle| TrackedColOracle::new(oracle, None, None))
+                .collect();
 
         assert_eq!(
             ascending.len(),
@@ -199,6 +256,8 @@ where
         let mut current_diff_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_col_oracles {
+            let tracked_col_oracle = tracked_table_oracle.tracked_col_oracle_by_ind(i);
+            let shift_col_oracle = shift_tracked_table_oracle.tracked_col_oracle_by_ind(i);
             let tie_indicator_col_oracle = if i == 0 {
                 Some(Self::first_tie_indicator_col_oracle(
                     verifier,
@@ -206,18 +265,19 @@ where
                     activator_tracked_oracle.clone(),
                 ))
             } else {
+                let selector_col_oracle = tie_indicator_col_oracles[i - 1].clone();
                 let zero_expr_check_verifier_input = ZeroExprCheckVerifierInput {
                     tracked_col_oracle: current_diff_col_oracle.clone().unwrap(),
-                    selector_col_oracle: tie_indicator_tracked_col_oracles[i - 1].clone(),
+                    selector_col_oracle: selector_col_oracle.clone(),
                 };
                 ZeroExprCheckPIOP::verify(verifier, zero_expr_check_verifier_input)?;
-                Some(tie_indicator_tracked_col_oracles[i - 1].clone())
+                Some(selector_col_oracle)
             };
 
             let local_single_col_sort_check_verifier_input = LocalSingleColSortCheckVerifierInput {
-                tracked_col_oracle: tracked_col_oracles[i].clone(),
+                tracked_col_oracle,
                 tie_indicator_col_oracle,
-                shift_col_oracle: shift_tracked_col_oracles[i].clone(),
+                shift_col_oracle,
                 ascending: ascending[i],
                 strict: strict[i],
                 is_last_col_oracle: i == num_col_oracles - 1,

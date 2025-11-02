@@ -18,7 +18,7 @@ num-bigint = { version = "0.4.0" }
 derivative = { workspace = true }
 rayon = { workspace = true, optional = true }
 datafusion = { workspace = true }
-
+indexmap = { workspace = true }
 [dev-dependencies]
 ark-ec = { workspace = true }
 ark-test-curves = { workspace = true }

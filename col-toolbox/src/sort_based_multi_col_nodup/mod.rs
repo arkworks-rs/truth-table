@@ -106,9 +106,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         
 
         let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
-            tracked_cols: todo!(),
-            tie_indicator_tracked_cols: todo!(),
-            shift_tracked_cols: todo!(),
+            tracked_table: todo!(),
+            tie_indicator_tracked_polys: todo!(),
+            shift_tracked_table: todo!(),
             ascending: todo!(),
             strict: todo!(),
         };
