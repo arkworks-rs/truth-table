@@ -1,8 +1,10 @@
-
 #[cfg(test)]
 mod test;
 
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -14,6 +16,7 @@ use ark_piop::{
         errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
         structs::polynomial::TrackedPoly,
     },
+    transcript::Tr,
     verifier::{
         Verifier,
         structs::oracle::{InnerOracle, TrackedOracle},
@@ -23,12 +26,10 @@ use derivative::Derivative;
 use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::{
-    predicate_limit_check::{PredicateLimitCheck, PredicateLimitCheckProverInput},
-    prescribed_permutation_check::{
+    contig_lex_sort_check::{ContigLexSortCheckPIOP, ContigLexSortCheckProverInput}, perm_check::{PermPIOP, PermPIOPProverInput}, predicate_limit_check::{PredicateLimitCheck, PredicateLimitCheckProverInput}, prescribed_permutation_check::{
         PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
         PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
-    },
-    sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
+    }, sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput}
 };
 // Convinces the verifier that
 pub struct SortBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -67,7 +68,7 @@ pub struct SortBasedMultiNoDupVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>, 
+    pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for SortBasedMultiNoDup<F, MvPCS, UvPCS>
@@ -82,7 +83,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
-        //TODO
+        // TODO
         Ok(())
     }
 
@@ -90,7 +91,31 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+        let challenges = (0..input.tracked_table.num_data_tracked_cols())
+            .map(|_| prover.get_and_append_challenge(b"fold").unwrap())
+            .collect::<Vec<_>>();
+        let tracked_table_folded_col = input.tracked_table.fold_all_data_columns(&challenges);
+        let contig_lex_sorted_tracked_table_folded_col = input
+            .contig_lex_sorted_tracked_table
+            .fold_all_data_columns(&challenges);
+        let perm_piop_prover_input = PermPIOPProverInput {
+            left_col: tracked_table_folded_col,
+            right_col: contig_lex_sorted_tracked_table_folded_col,
+        };
+        PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_piop_prover_input)?;
         
+
+        let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
+            tracked_cols: todo!(),
+            tie_indicator_tracked_cols: todo!(),
+            shift_tracked_cols: todo!(),
+            ascending: todo!(),
+            strict: todo!(),
+        };
+        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(
+            prover,
+            contig_lex_sort_check_prover_input,
+        )?;
         Ok(())
     }
 
