@@ -12,7 +12,9 @@ use ark_piop::{
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use col_toolbox::{
-    contig_lex_sort_check::ContigLexSortCheckProverInput,
+    contig_lex_sort_check::{
+        ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput,
+    },
     perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
 use datafusion::logical_expr::Sort;
@@ -95,6 +97,7 @@ where
     pub sort: Sort,
     pub input_sort_exprs: Vec<SortTrackedCol<F, MvPCS, UvPCS>>,
     pub output_sort_exprs: Vec<SortTrackedCol<F, MvPCS, UvPCS>>,
+    pub tie_indicator_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub input_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_table: TrackedTable<F, MvPCS, UvPCS>,
 }
@@ -113,6 +116,7 @@ where
     pub sort: Sort,
     pub input_sort_exprs: Vec<SortTrackedColOracle<F, MvPCS, UvPCS>>,
     pub output_sort_exprs: Vec<SortTrackedColOracle<F, MvPCS, UvPCS>>,
+    pub tie_indicator_cols: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub input_table: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_table: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
@@ -134,6 +138,11 @@ where
                 .output_sort_exprs
                 .iter()
                 .map(|expr| expr.deep_clone(new_prover.clone()))
+                .collect(),
+            tie_indicator_cols: self
+                .tie_indicator_cols
+                .iter()
+                .map(|col| col.deep_clone(new_prover.clone()))
                 .collect(),
             input_table: self.input_table.deep_clone(new_prover.clone()),
             output_table: self.output_table.deep_clone(new_prover),
@@ -177,6 +186,7 @@ where
             sort,
             input_sort_exprs,
             output_sort_exprs,
+            tie_indicator_cols,
             input_table,
             output_table,
         } = input;
@@ -305,14 +315,24 @@ where
         let ascending: Vec<bool> = sort.expr.iter().map(|expr| expr.asc).collect();
         let strict = vec![false; ascending.len()];
 
+        let tie_indicator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>> = tie_indicator_cols
+            .into_iter()
+            .map(|col| col.data_tracked_poly())
+            .collect();
+
         let contig_lex_sort_check_prover_input: ContigLexSortCheckProverInput<F, MvPCS, UvPCS> =
             ContigLexSortCheckProverInput {
                 tracked_table,
-                tie_indicator_tracked_polys: todo!(),
+                tie_indicator_tracked_polys,
                 shift_tracked_table,
                 ascending,
                 strict,
             };
+
+        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(
+            prover,
+            contig_lex_sort_check_prover_input,
+        )?;
 
         Ok(())
     }
@@ -325,6 +345,7 @@ where
             sort: _,
             input_sort_exprs,
             output_sort_exprs,
+            tie_indicator_cols,
             input_table,
             output_table,
         } = input;
@@ -377,7 +398,12 @@ where
 
         let mut output_key_components = Vec::with_capacity(key_components_len);
         output_key_components.push(output_row_fingerprint);
-        output_key_components.extend(output_sort_exprs.into_iter().map(|tracked| tracked.expr));
+        output_key_components.extend(
+            output_sort_exprs
+                .clone()
+                .into_iter()
+                .map(|tracked| tracked.expr),
+        );
         let mut output_key_col =
             linear_combine_tracked_col_oracles(output_key_components, &key_fold_challenges);
         output_key_col = apply_activator_to_tracked_col_oracle(
@@ -390,10 +416,106 @@ where
             right_tracked_col_oracle: output_key_col,
         };
 
-        // Enforce that the prover supplied a permutation between the compressed key
-        // columns.
-
         PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_input)?;
+
+        let mut tracked_columns: IndexMap<
+            datafusion::arrow::datatypes::FieldRef,
+            TrackedOracle<F, MvPCS, UvPCS>,
+        > = IndexMap::new();
+        let mut shift_columns: IndexMap<
+            datafusion::arrow::datatypes::FieldRef,
+            TrackedOracle<F, MvPCS, UvPCS>,
+        > = IndexMap::new();
+        let mut shared_activator: Option<TrackedOracle<F, MvPCS, UvPCS>> = None;
+        let mut table_log_size: Option<usize> = None;
+
+        for tracked_col in &output_sort_exprs {
+            let expr_col = &tracked_col.expr;
+            let shifted_col = &tracked_col.shifted_expr;
+
+            if let Some(existing) = table_log_size {
+                assert_eq!(
+                    existing,
+                    expr_col.log_size(),
+                    "all sort expression column oracles must share the same log size"
+                );
+            } else {
+                table_log_size = Some(expr_col.log_size());
+            }
+
+            assert_eq!(
+                expr_col.log_size(),
+                shifted_col.log_size(),
+                "shifted sort expression oracle must match original log size"
+            );
+
+            let expr_activator = expr_col.activator_tracked_oracle();
+            let shifted_activator = shifted_col.activator_tracked_oracle();
+            match (&expr_activator, &shifted_activator) {
+                (Some(a), Some(b)) => {
+                    a.assert_same_tracker(b);
+                    if let Some(existing) = &shared_activator {
+                        existing.assert_same_tracker(a);
+                    } else {
+                        shared_activator = Some(a.clone());
+                    }
+                },
+                (None, None) => {},
+                _ => panic!("inconsistent activators between sort expression oracle and its shift"),
+            }
+
+            let expr_field = expr_col
+                .field_ref()
+                .unwrap_or_else(|| panic!("sort expression oracle missing field metadata"));
+            let shifted_field = shifted_col
+                .field_ref()
+                .unwrap_or_else(|| panic!("shifted sort expression oracle missing field metadata"));
+
+            tracked_columns.insert(expr_field.clone(), expr_col.data_tracked_oracle());
+            shift_columns.insert(shifted_field.clone(), shifted_col.data_tracked_oracle());
+        }
+
+        let activator_entry = output_table
+            .tracked_oracles()
+            .into_iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME);
+
+        if let Some((field, poly)) = activator_entry {
+            if let Some(shared) = &shared_activator {
+                shared.assert_same_tracker(&poly);
+            } else {
+                shared_activator = Some(poly.clone());
+            }
+            tracked_columns.insert(field.clone(), poly.clone());
+            shift_columns.insert(field, poly);
+        }
+
+        let table_log_size =
+            table_log_size.expect("sort expressions must produce at least one column oracle");
+
+        let tracked_table_oracle = TrackedTableOracle::new(None, tracked_columns, table_log_size);
+        let shift_table_oracle = TrackedTableOracle::new(None, shift_columns, table_log_size);
+
+        let tie_indicator_tracked_oracles: Vec<TrackedOracle<F, MvPCS, UvPCS>> = tie_indicator_cols
+            .into_iter()
+            .map(|col| col.data_tracked_oracle())
+            .collect();
+
+        let ascending: Vec<bool> = output_sort_exprs.iter().map(|col| col.asc).collect();
+        let strict = vec![false; ascending.len()];
+
+        let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {
+            tracked_table_oracle,
+            tie_indicator_tracked_oracles,
+            shift_tracked_table_oracle: shift_table_oracle,
+            ascending,
+            strict,
+        };
+
+        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            contig_lex_sort_check_verifier_input,
+        )?;
 
         Ok(())
     }

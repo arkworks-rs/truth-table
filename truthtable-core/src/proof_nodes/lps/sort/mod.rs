@@ -9,7 +9,9 @@ use crate::{
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, col::TrackedCol};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -18,7 +20,7 @@ use ark_piop::{
     piop::PIOP,
 };
 use datafusion::{
-    arrow::datatypes::Field,
+    arrow::datatypes::{DataType, Field, Schema},
     logical_expr::{
         self as df,
         expr_rewriter::{normalize_sorts, unnormalize_col},
@@ -27,11 +29,12 @@ use datafusion::{
 };
 use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortTrackedCol};
+use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput, SortTrackedCol, SortTrackedColOracle};
 use std::sync::Arc;
 
 const SORT_EXPRESSIONS_PLAN_KEY: &str = "sort_expressions";
 const SHIFTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "shifted_sort_expressions";
+const TIE_INDICATOR_PLAN_KEY: &str = "tie_indicator_columns";
 
 fn build_sort_hint_plans(
     base_plan: LogicalPlan,
@@ -96,6 +99,20 @@ fn build_sort_hint_plans(
         .build()
         .expect("failed to build shifted sort expressions hint plan");
 
+    let mut tie_plans = None;
+    let num_sort_exprs = normalized_sorts.len();
+    if num_sort_exprs > 1 {
+        let tie_projection_exprs: Vec<df::Expr> = (0..(num_sort_exprs - 1))
+            .map(|idx| df::lit(false).alias(format!("tie_indicator_{idx}")))
+            .collect();
+        let tie_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
+            .project(tie_projection_exprs)
+            .expect("failed to project tie indicator expressions for hint plan")
+            .build()
+            .expect("failed to build tie indicator hint plan");
+        tie_plans = Some(tie_plan);
+    }
+
     let mut plans = IndexMap::new();
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
@@ -115,6 +132,12 @@ fn build_sort_hint_plans(
             shifted_sort_expressions_plan,
         ),
     );
+    if let Some(tie_plan) = tie_plans {
+        plans.insert(
+            TIE_INDICATOR_PLAN_KEY.to_string(),
+            HintGenerationPlan::new_virtual(TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
+        );
+    }
 
     plans
 }
@@ -285,21 +308,35 @@ where
         };
 
         let log_size = sort_exprs_table.log_size();
-        let activator_entry = sort_exprs_table
-            .tracked_polys()
-            .into_iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME);
-
-        let table_activator = sort_exprs_table.activator_tracked_poly();
-
-        let mut shifted_columns = IndexMap::new();
-        let mut schema_fields = Vec::new();
-
+        let mut data_columns = Vec::new();
+        let mut activator_entry = None;
         for (field, poly) in sort_exprs_table.tracked_polys() {
             if field.name() == ACTIVATOR_COL_NAME {
-                continue;
+                activator_entry = Some((field, poly));
+            } else {
+                data_columns.push((field, poly));
             }
+        }
 
+        if data_columns.is_empty() {
+            return;
+        }
+
+        let table_activator = sort_exprs_table.activator_tracked_poly();
+        let (activator_vals, shifted_activator_vals) = if let Some(poly) = table_activator.as_ref()
+        {
+            let vals = poly.evaluations();
+            let mut shifted = vals.clone();
+            shifted.rotate_left(1);
+            (Some(vals), Some(shifted))
+        } else {
+            (None, None)
+        };
+
+        let mut shifted_columns = IndexMap::new();
+        let mut shifted_schema_fields = Vec::new();
+
+        for (field, poly) in &data_columns {
             let tracked_col =
                 TrackedCol::new(poly.clone(), table_activator.clone(), Some(field.clone()));
             let shifted_col = circular_shift_tracked_col(prover, &tracked_col)
@@ -311,21 +348,17 @@ where
                 field.data_type().clone(),
                 field.is_nullable(),
             ));
-            schema_fields.push(alias_field.as_ref().clone());
+            shifted_schema_fields.push(alias_field.as_ref().clone());
             shifted_columns.insert(alias_field, shifted_col.data_tracked_poly());
         }
 
-        if let Some((field, poly)) = activator_entry {
-            schema_fields.push(field.as_ref().clone());
+        if let Some((field, poly)) = activator_entry.clone() {
+            shifted_schema_fields.push(field.as_ref().clone());
             shifted_columns.insert(field, poly);
         }
 
-        if shifted_columns.is_empty() {
-            return;
-        }
-
         let shifted_table = TrackedTable::new(
-            Some(datafusion::arrow::datatypes::Schema::new(schema_fields)),
+            Some(Schema::new(shifted_schema_fields)),
             shifted_columns,
             log_size,
         );
@@ -335,6 +368,60 @@ where
             SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
             shifted_table,
         );
+
+        if data_columns.len() > 1 {
+            let mut tie_columns = IndexMap::new();
+            let mut tie_schema_fields = Vec::new();
+            let mut cumulative_ties = vec![F::one(); 1 << log_size];
+
+            for (idx, (_field, poly)) in data_columns.iter().enumerate() {
+                let mut values = poly.evaluations();
+                let mut shifted_values = values.clone();
+                shifted_values.rotate_left(1);
+
+                for row in 0..values.len() {
+                    let mut eq = if values[row] == shifted_values[row] {
+                        F::one()
+                    } else {
+                        F::zero()
+                    };
+
+                    if let (Some(activator), Some(shifted_activator)) =
+                        (&activator_vals, &shifted_activator_vals)
+                    {
+                        eq *= activator[row];
+                        eq *= shifted_activator[row];
+                    }
+
+                    if idx == 0 {
+                        cumulative_ties[row] = eq;
+                    } else {
+                        cumulative_ties[row] *= eq;
+                    }
+                }
+
+                if idx < data_columns.len() - 1 {
+                    let field_name = format!("tie_indicator_{idx}");
+                    let tie_field = Arc::new(Field::new(field_name, DataType::Boolean, false));
+                    tie_schema_fields.push(tie_field.as_ref().clone());
+                    let tie_mle = MLE::from_evaluations_vec(log_size, cumulative_ties.clone());
+                    let tie_poly = prover
+                        .track_and_commit_mat_mv_poly(&tie_mle)
+                        .expect("failed to build tie indicator column");
+                    tie_columns.insert(tie_field, tie_poly);
+                }
+            }
+
+            if !tie_columns.is_empty() {
+                let tie_table =
+                    TrackedTable::new(Some(Schema::new(tie_schema_fields)), tie_columns, log_size);
+                piop_tree.add_table(
+                    self.node_id.clone(),
+                    TIE_INDICATOR_PLAN_KEY.to_string(),
+                    tie_table,
+                );
+            }
+        }
     }
 
     fn prove_piop(
@@ -469,6 +556,17 @@ where
             );
         }
 
+        let tie_indicator_cols = piop_tree
+            .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
+            .map(|table| {
+                table
+                    .tracked_polys()
+                    .into_iter()
+                    .map(|(field, poly)| TrackedCol::new(poly, None, Some(field)))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
         let output_sort_exprs = self
             .sort_exprs
             .iter()
@@ -489,6 +587,7 @@ where
             sort: sort_plan,
             input_sort_exprs,
             output_sort_exprs,
+            tie_indicator_cols,
             input_table,
             output_table,
         };
@@ -591,15 +690,181 @@ where
 
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let sort_plan = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),
             _ => panic!("expected sort logical plan"),
         };
 
-        // TODO
+        let input_table_oracle = piop_tree
+            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort input node {}",
+                    OUTPUT_PLAN_KEY,
+                    self.input_verifier_node.node_id()
+                )
+            });
+
+        let output_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort node {}",
+                    OUTPUT_PLAN_KEY, self.node_id
+                )
+            });
+
+        let output_sort_exprs_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort node {}",
+                    SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                )
+            });
+
+        let shifted_sort_exprs_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort node {}",
+                    SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                )
+            });
+
+        let tie_indicator_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, TIE_INDICATOR_PLAN_KEY)
+            .cloned();
+
+        let input_sort_exprs = self
+            .sort_exprs
+            .iter()
+            .map(|sort_expr_node| {
+                let expr_table = piop_tree
+                    .tracked_table_oracle(&sort_expr_node.expr.node_id(), OUTPUT_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing {} table for sort expression node {}",
+                            OUTPUT_PLAN_KEY,
+                            sort_expr_node.expr.node_id()
+                        )
+                    });
+
+                let mut data_cols = expr_table
+                    .tracked_oracles()
+                    .into_iter()
+                    .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME);
+
+                let (field, oracle) = data_cols.next().unwrap_or_else(|| {
+                    panic!(
+                        "sort expression node {} produced no data column oracle",
+                        sort_expr_node.expr.node_id()
+                    )
+                });
+                if data_cols.next().is_some() {
+                    panic!(
+                        "sort expression node {} produced more than one data column oracle",
+                        sort_expr_node.expr.node_id()
+                    );
+                }
+
+                let expr_col = TrackedColOracle::new(
+                    oracle,
+                    expr_table.activator_tracked_poly(),
+                    Some(field.clone()),
+                );
+
+                SortTrackedColOracle {
+                    expr: expr_col.clone(),
+                    shifted_expr: expr_col,
+                    asc: sort_expr_node.asc,
+                    nulls_first: sort_expr_node.nulls_first,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let output_activator_oracle = output_sort_exprs_table_oracle.activator_tracked_poly();
+        let mut output_expr_col_oracles = output_sort_exprs_table_oracle
+            .tracked_oracles()
+            .into_iter()
+            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
+            .map(|(field, oracle)| {
+                TrackedColOracle::new(oracle, output_activator_oracle.clone(), Some(field))
+            })
+            .collect::<Vec<_>>();
+
+        if output_expr_col_oracles.len() != self.sort_exprs.len() {
+            panic!(
+                "expected {} sort expression column oracles in output but found {}",
+                self.sort_exprs.len(),
+                output_expr_col_oracles.len()
+            );
+        }
+
+        let shifted_activator_oracle = shifted_sort_exprs_table_oracle.activator_tracked_poly();
+        let mut shifted_expr_col_oracles = shifted_sort_exprs_table_oracle
+            .tracked_oracles()
+            .into_iter()
+            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
+            .map(|(field, oracle)| {
+                TrackedColOracle::new(oracle, shifted_activator_oracle.clone(), Some(field))
+            })
+            .collect::<Vec<_>>();
+
+        if shifted_expr_col_oracles.len() != self.sort_exprs.len() {
+            panic!(
+                "expected {} shifted sort expression column oracles in output but found {}",
+                self.sort_exprs.len(),
+                shifted_expr_col_oracles.len()
+            );
+        }
+
+        let output_sort_exprs = self
+            .sort_exprs
+            .iter()
+            .zip(
+                output_expr_col_oracles
+                    .drain(..)
+                    .zip(shifted_expr_col_oracles.drain(..)),
+            )
+            .map(
+                |(sort_expr_node, (expr_col, shifted_col))| SortTrackedColOracle {
+                    expr: expr_col,
+                    shifted_expr: shifted_col,
+                    asc: sort_expr_node.asc,
+                    nulls_first: sort_expr_node.nulls_first,
+                },
+            )
+            .collect::<Vec<_>>();
+
+        let tie_indicator_cols = tie_indicator_table_oracle
+            .map(|table| {
+                table
+                    .tracked_oracles()
+                    .into_iter()
+                    .map(|(field, oracle)| TrackedColOracle::new(oracle, None, Some(field)))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let sort_verifier_input = SortPIOPVerifierInput {
+            sort: sort_plan,
+            input_sort_exprs,
+            output_sort_exprs,
+            tie_indicator_cols,
+            input_table: input_table_oracle,
+            output_table: output_table_oracle,
+        };
+
+        SortPIOP::verify(verifier, sort_verifier_input)?;
 
         Ok(())
     }
