@@ -1,35 +1,24 @@
 #[cfg(test)]
 mod test;
 
-use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError::ProverError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
-        structs::polynomial::TrackedPoly,
-    },
-    transcript::Tr,
-    verifier::{
-        Verifier,
-        structs::oracle::{InnerOracle, TrackedOracle},
-    },
+    prover::{Prover, structs::polynomial::TrackedPoly},
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
-use std::{cmp::Ordering, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
-    contig_lex_sort_check::{ContigLexSortCheckPIOP, ContigLexSortCheckProverInput}, perm_check::{PermPIOP, PermPIOPProverInput}, predicate_limit_check::{PredicateLimitCheck, PredicateLimitCheckProverInput}, prescribed_permutation_check::{
-        PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
-        PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
-    }, sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput}
+    contig_lex_sort_check::{
+        ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput,
+    },
+    perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
 // Convinces the verifier that
 pub struct SortBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -47,6 +36,8 @@ pub struct SortBasedMultiNoDupProverInput<
 > {
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -57,7 +48,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
             contig_lex_sorted_tracked_table: self
                 .contig_lex_sorted_tracked_table
-                .deep_clone(prover),
+                .deep_clone(prover.clone()),
+            tie_indicator_tracked_polys: self
+                .tie_indicator_tracked_polys
+                .iter()
+                .map(|poly| poly.deep_clone(prover.clone()))
+                .collect(),
+            shift_tracked_table: self.shift_tracked_table.deep_clone(prover),
         }
     }
 }
@@ -69,6 +66,8 @@ pub struct SortBasedMultiNoDupVerifierInput<
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_oracles: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
+    pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for SortBasedMultiNoDup<F, MvPCS, UvPCS>
@@ -103,14 +102,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             right_col: contig_lex_sorted_tracked_table_folded_col,
         };
         PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_piop_prover_input)?;
-        
 
+        let mut strict_vec = vec![false; challenges.len() - 1];
+        strict_vec.push(true);
         let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
-            tracked_table: todo!(),
-            tie_indicator_tracked_polys: todo!(),
-            shift_tracked_table: todo!(),
-            ascending: todo!(),
-            strict: todo!(),
+            tracked_table: input.contig_lex_sorted_tracked_table,
+            tie_indicator_tracked_polys: input.tie_indicator_tracked_polys,
+            shift_tracked_table: input.shift_tracked_table,
+            ascending: vec![true; challenges.len()],
+            strict: strict_vec,
         };
         ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(
             prover,
@@ -123,6 +123,34 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
+        let challenges = (0..input.tracked_table_oracle.num_data_tracked_col_oracles())
+            .map(|_| verifier.get_and_append_challenge(b"fold").unwrap())
+            .collect::<Vec<_>>();
+        let tracked_table_folded_col_oracle = input
+            .tracked_table_oracle
+            .fold_all_data_columns(&challenges);
+        let contig_lex_sorted_tracked_table_folded_col_oracle = input
+            .contig_lex_sorted_tracked_table_oracle
+            .fold_all_data_columns(&challenges);
+        let perm_piop_verifier_input = PermPIOPVerifierInput {
+            left_tracked_col_oracle: tracked_table_folded_col_oracle,
+            right_tracked_col_oracle: contig_lex_sorted_tracked_table_folded_col_oracle,
+        };
+        PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
+
+        let mut strict_vec = vec![false; challenges.len() - 1];
+        strict_vec.push(true);
+        let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {
+            tracked_table_oracle: input.contig_lex_sorted_tracked_table_oracle,
+            tie_indicator_tracked_oracles: input.tie_indicator_tracked_oracles,
+            shift_tracked_table_oracle: input.shift_tracked_table_oracle,
+            ascending: vec![true; challenges.len()],
+            strict: strict_vec,
+        };
+        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            contig_lex_sort_check_verifier_input,
+        )?;
         Ok(())
     }
 }

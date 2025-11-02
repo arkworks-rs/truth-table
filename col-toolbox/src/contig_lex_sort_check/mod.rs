@@ -1,7 +1,5 @@
 use arithmetic::{
-    col::TrackedCol,
-    col_oracle::TrackedColOracle,
-    table::TrackedTable,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
@@ -119,28 +117,6 @@ where
         } = input;
 
         let num_cols = tracked_table.num_data_tracked_cols();
-        assert!(
-            num_cols > 0,
-            "contiguous lex sort check requires at least one tracked column"
-        );
-        assert_eq!(
-            shift_tracked_table.num_data_tracked_cols(),
-            num_cols,
-            "shift table must provide the same number of data columns as the tracked table"
-        );
-        if num_cols > 1 {
-            assert_eq!(
-                tie_indicator_tracked_polys.len(),
-                num_cols - 1,
-                "tie indicator tracked polys length must be one less than the number of tracked columns"
-            );
-        } else {
-            assert!(
-                tie_indicator_tracked_polys.is_empty(),
-                "tie indicator tracked polys must be empty when only one tracked column is provided"
-            );
-        }
-
         let activator_tracked_poly = tracked_table.activator_tracked_poly();
         let num_vars = tracked_table.log_size();
         let tie_indicator_cols: Vec<TrackedCol<F, MvPCS, UvPCS>> = tie_indicator_tracked_polys
@@ -148,28 +124,13 @@ where
             .map(|poly| TrackedCol::new(poly, None, None))
             .collect();
 
-        assert_eq!(
-            ascending.len(),
-            num_cols,
-            "ascending flags length must match number of tracked columns"
-        );
-        assert_eq!(
-            strict.len(),
-            num_cols,
-            "strict flags length must match number of tracked columns"
-        );
-
         let mut current_diff_col: Option<TrackedCol<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_cols {
             let tracked_col = tracked_table.tracked_col_by_ind(i);
             let shift_col = shift_tracked_table.tracked_col_by_ind(i);
             let tie_indicator_col = if i == 0 {
-                Self::first_tie_indicator_col(
-                    prover,
-                    num_vars,
-                    activator_tracked_poly.clone(),
-                )
+                Self::first_tie_indicator_col(prover, num_vars, activator_tracked_poly.clone())
             } else {
                 let selector_col = tie_indicator_cols[i - 1].clone();
                 let zero_expr_check_prover_input = ZeroExprCheckProverInput {
@@ -212,27 +173,6 @@ where
         } = input;
 
         let num_col_oracles = tracked_table_oracle.num_data_tracked_col_oracles();
-        assert!(
-            num_col_oracles > 0,
-            "contiguous lex sort check requires at least one tracked column oracle"
-        );
-        assert_eq!(
-            shift_tracked_table_oracle.num_data_tracked_col_oracles(),
-            num_col_oracles,
-            "shift table oracle must provide the same number of data columns as the tracked table oracle"
-        );
-        if num_col_oracles > 1 {
-            assert_eq!(
-                tie_indicator_tracked_oracles.len(),
-                num_col_oracles - 1,
-                "tie indicator tracked oracles length must be one less than the number of tracked column oracles"
-            );
-        } else {
-            assert!(
-                tie_indicator_tracked_oracles.is_empty(),
-                "tie indicator tracked oracles must be empty when only one tracked column oracle is provided"
-            );
-        }
 
         let activator_tracked_oracle = tracked_table_oracle.activator_tracked_poly();
         let num_vars = tracked_table_oracle.log_size();
@@ -241,17 +181,6 @@ where
                 .into_iter()
                 .map(|oracle| TrackedColOracle::new(oracle, None, None))
                 .collect();
-
-        assert_eq!(
-            ascending.len(),
-            num_col_oracles,
-            "ascending flags length must match number of tracked column oracles"
-        );
-        assert_eq!(
-            strict.len(),
-            num_col_oracles,
-            "strict flags length must match number of tracked column oracles"
-        );
 
         let mut current_diff_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>> = None;
 
