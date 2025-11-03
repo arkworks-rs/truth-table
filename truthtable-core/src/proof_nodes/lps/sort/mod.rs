@@ -3,34 +3,39 @@ mod hints;
 mod tests;
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
-        lps::sort::hints::build_sort_hint_plans, prover::ProverNode, verifier::VerifierNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY,
+        cost::ProvingCost,
+        id::NodeId,
+        lps::sort::{
+            self,
+            hints::{
+                SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, SORT_EXPRESSIONS_PLAN_KEY,
+                TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
+            },
+        },
+        prover::ProverNode,
+        verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::{
-    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    ACTIVATOR_COL_NAME, col::TrackedCol, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    piop::PIOP, verifier::Verifier,
+    piop::PIOP,
+    prover::structs::polynomial::TrackedPoly,
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use datafusion::{
-    arrow::datatypes::{DataType, Field, FieldRef, Schema},
-    prelude::SessionContext,
-};
+use datafusion::{arrow::datatypes::FieldRef, prelude::SessionContext};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput, SortTrackedCol};
+use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput};
 use std::sync::Arc;
-
-const SORT_EXPRESSIONS_PLAN_KEY: &str = "sort_expressions";
-const SHIFTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "shifted_sort_expressions";
-const TIE_INDICATOR_PLAN_KEY: &str = "tie_indicator_columns";
 
 pub struct ProverSortExprNode<F, MvPCS, UvPCS>
 where
@@ -105,12 +110,12 @@ where
             .map(|hint| hint.plan().clone())
             .expect("input node missing OUTPUT_PLAN hint");
 
-        let sort_plan = match self.node_id.to_lp() {
+        let sort_lp = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort,
             _ => panic!("expected sort logical plan"),
         };
 
-        hints::build_sort_hint_plans(base_plan, sort_plan)
+        build_sort_hint_generation_plans(base_plan, sort_lp)
     }
 
     fn from_lp(
@@ -122,7 +127,7 @@ where
     where
         Self: Sized,
     {
-        let sort_plan = match &plan {
+        let sort_lp = match &plan {
             LogicalPlan::Sort(sort) => sort,
             _ => panic!("expected sort logical plan"),
         };
@@ -132,12 +137,12 @@ where
         let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
-            sort_plan.input.as_ref(),
+            sort_lp.input.as_ref(),
             &node_id,
         )
         .root();
 
-        let sort_exprs = sort_plan
+        let sort_exprs = sort_lp
             .expr
             .iter()
             .map(|sort_expr| {
@@ -188,12 +193,15 @@ where
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let sort_plan = match self.node_id.to_lp() {
+        // Extract the sort logical plan
+        let sort_lp = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),
             _ => panic!("expected sort logical plan"),
         };
 
-        let input_table = piop_tree
+        // First, we wire the actual non-sorted table, which is produced by the output
+        // plan of the input node
+        let tracked_table = piop_tree
             .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
@@ -203,8 +211,9 @@ where
                     self.input_prover_node.node_id()
                 )
             });
-
-        let output_table = piop_tree
+        // Then, we wire the lexicographically sorted table, which is produced by the
+        // output of the current sort node
+        let lex_sorted_tracked_table = piop_tree
             .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
@@ -213,8 +222,9 @@ where
                     OUTPUT_PLAN_KEY, self.node_id
                 )
             });
-
-        let output_sort_exprs_table = piop_tree
+        // We also wire the lexicographically sorted version of the sort expressions,
+        // assembled in a table
+        let lex_sorted_sort_exprs_tracked_table = piop_tree
             .tracked_table(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
@@ -224,8 +234,13 @@ where
                 )
             });
 
-        let mut input_sort_exprs = Vec::with_capacity(self.sort_exprs.len());
+        // Now, let's assemble the sort expressions. Note that the evaluations of sort
+        // expressions does not give us sorted columns; rather, they give us the columns
+        // that were used to sort the original table.
+        let mut sort_expr_cols: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
+            IndexMap::with_capacity(self.sort_exprs.len());
         for sort_expr_node in &self.sort_exprs {
+            // Get the output table of the sort expression node
             let expr_table = piop_tree
                 .tracked_table(&sort_expr_node.expr.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {
@@ -235,7 +250,8 @@ where
                         sort_expr_node.expr.node_id()
                     )
                 });
-
+            // Get the first data column produced by the sort expression node
+            // Since expression nodes have only one data column, and at most one activator
             let mut data_cols = expr_table
                 .tracked_polys()
                 .into_iter()
@@ -254,38 +270,25 @@ where
                 );
             }
 
-            let tracked_col = TrackedCol::new(
-                poly,
-                expr_table.activator_tracked_poly(),
-                Some(field.clone()),
-            );
-            let shifted_col = circular_shift_tracked_col(prover, &tracked_col)?;
-
-            input_sort_exprs.push(SortTrackedCol {
-                expr: tracked_col,
-                shifted_expr: shifted_col,
-                asc: sort_expr_node.asc,
-                nulls_first: sort_expr_node.nulls_first,
-            });
+            sort_expr_cols.insert(field.clone(), poly);
+            if expr_table.activator_tracked_poly().is_some() {
+                sort_expr_cols.insert(
+                    expr_table
+                        .tracked_polys()
+                        .keys()
+                        .find(|f| f.name() == ACTIVATOR_COL_NAME)
+                        .unwrap()
+                        .clone(),
+                    expr_table.activator_tracked_poly().unwrap(),
+                );
+            }
         }
+        let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
 
-        let output_activator = output_sort_exprs_table.activator_tracked_poly();
-        let output_expr_cols = output_sort_exprs_table
-            .tracked_polys()
-            .into_iter()
-            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| TrackedCol::new(poly, output_activator.clone(), Some(field)))
-            .collect::<Vec<_>>();
+        let sort_exprs_tracked_table =
+            TrackedTable::new(None, sort_expr_cols, sort_exprs_tracked_table_log_size);
 
-        if output_expr_cols.len() != self.sort_exprs.len() {
-            panic!(
-                "expected {} sort expression columns in output but found {}",
-                self.sort_exprs.len(),
-                output_expr_cols.len()
-            );
-        }
-
-        let shifted_sort_exprs_table = piop_tree
+        let shifted_lex_sorted_sort_exprs_tracked_table = piop_tree
             .tracked_table(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
@@ -294,61 +297,25 @@ where
                     SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let shifted_expr_cols = shifted_sort_exprs_table
-            .tracked_polys()
-            .into_iter()
-            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| {
-                TrackedCol::new(
-                    poly,
-                    shifted_sort_exprs_table.activator_tracked_poly(),
-                    Some(field),
-                )
-            })
-            .collect::<Vec<_>>();
 
-        if shifted_expr_cols.len() != self.sort_exprs.len() {
-            panic!(
-                "expected {} shifted sort expression columns in output but found {}",
-                self.sort_exprs.len(),
-                shifted_expr_cols.len()
-            );
-        }
-
-        let tie_indicator_cols = piop_tree
+        let tie_indicators_tracked_table = piop_tree
             .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
-            .map(|table| {
-                table
-                    .tracked_polys()
-                    .into_iter()
-                    .map(|(field, poly)| TrackedCol::new(poly, None, Some(field)))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let output_sort_exprs = self
-            .sort_exprs
-            .iter()
-            .zip(
-                output_expr_cols
-                    .into_iter()
-                    .zip(shifted_expr_cols.into_iter()),
-            )
-            .map(|(sort_expr_node, (expr_col, shifted_col))| SortTrackedCol {
-                expr: expr_col,
-                shifted_expr: shifted_col,
-                asc: sort_expr_node.asc,
-                nulls_first: sort_expr_node.nulls_first,
-            })
-            .collect::<Vec<_>>();
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort node {}",
+                    TIE_INDICATOR_PLAN_KEY, self.node_id
+                )
+            });
 
         let sort_prover_input = SortPIOPProverInput {
-            sort: sort_plan,
-            input_sort_exprs,
-            output_sort_exprs,
-            tie_indicator_cols,
-            input_table,
-            output_table,
+            sort_lp,
+            sort_exprs_tracked_table,
+            lex_sorted_sort_exprs_tracked_table,
+            shifted_lex_sorted_sort_exprs_tracked_table,
+            tie_indicators_tracked_table,
+            tracked_table,
+            lex_sorted_tracked_table,
         };
         SortPIOP::prove(prover, sort_prover_input)?;
 
@@ -384,12 +351,12 @@ where
             .map(|hint| hint.plan().clone())
             .expect("input node missing OUTPUT_PLAN hint");
 
-        let sort_plan = match self.node_id.to_lp() {
+        let sort_lp = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort,
             _ => panic!("expected sort logical plan"),
         };
 
-        build_sort_hint_plans(base_plan, sort_plan)
+        build_sort_hint_generation_plans(base_plan, sort_lp)
     }
 
     fn from_lp(
@@ -401,7 +368,7 @@ where
     where
         Self: Sized,
     {
-        let sort_plan = match &plan {
+        let sort_lp = match &plan {
             LogicalPlan::Sort(sort) => sort,
             _ => panic!("expected sort logical plan"),
         };
@@ -411,12 +378,12 @@ where
         let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             verifier_ctx.clone(),
-            sort_plan.input.as_ref(),
+            sort_lp.input.as_ref(),
             &node_id,
         )
         .root();
 
-        let sort_exprs = sort_plan
+        let sort_exprs = sort_lp
             .expr
             .iter()
             .map(|sort_expr| {
@@ -452,24 +419,28 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let sort_plan = match self.node_id.to_lp() {
+        // Extract the sort logical plan
+        let sort_lp = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),
             _ => panic!("expected sort logical plan"),
         };
 
-        let input_table = piop_tree
-            .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
+        // First, we wire the actual non-sorted table, which is produced by the output
+        // plan of the input node
+        let tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
                     "missing {} table for sort input node {}",
                     OUTPUT_PLAN_KEY,
-                    self.input_prover_node.node_id()
+                    self.input_verifier_node.node_id()
                 )
             });
-
-        let output_table = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
+        // Then, we wire the lexicographically sorted table, which is produced by the
+        // output of the current sort node
+        let lex_sorted_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
@@ -477,9 +448,10 @@ where
                     OUTPUT_PLAN_KEY, self.node_id
                 )
             });
-
-        let output_sort_exprs_table = piop_tree
-            .tracked_table(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
+        // We also wire the lexicographically sorted version of the sort expressions,
+        // assembled in a table
+        let lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
@@ -488,10 +460,15 @@ where
                 )
             });
 
-        let mut input_sort_exprs = Vec::with_capacity(self.sort_exprs.len());
+        // Now, let's assemble the sort expressions. Note that the evaluations of sort
+        // expressions does not give us sorted columns; rather, they give us the columns
+        // that were used to sort the original table.
+        let mut sort_expr_cols: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> =
+            IndexMap::with_capacity(self.sort_exprs.len());
         for sort_expr_node in &self.sort_exprs {
+            // Get the output table of the sort expression node
             let expr_table = piop_tree
-                .tracked_table(&sort_expr_node.expr.node_id(), OUTPUT_PLAN_KEY)
+                .tracked_table_oracle(&sort_expr_node.expr.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {
                     panic!(
                         "missing {} table for sort expression node {}",
@@ -499,9 +476,10 @@ where
                         sort_expr_node.expr.node_id()
                     )
                 });
-
+            // Get the first data column produced by the sort expression node
+            // Since expression nodes have only one data column, and at most one activator
             let mut data_cols = expr_table
-                .tracked_polys()
+                .tracked_oracles()
                 .into_iter()
                 .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME);
 
@@ -518,39 +496,26 @@ where
                 );
             }
 
-            let tracked_col = TrackedCol::new(
-                poly,
-                expr_table.activator_tracked_poly(),
-                Some(field.clone()),
-            );
-            let shifted_col = circular_shift_tracked_col(prover, &tracked_col)?;
+            sort_expr_cols.insert(field.clone(), poly);
 
-            input_sort_exprs.push(SortTrackedCol {
-                expr: tracked_col,
-                shifted_expr: shifted_col,
-                asc: sort_expr_node.asc,
-                nulls_first: sort_expr_node.nulls_first,
-            });
+            if expr_table.activator_tracked_poly().is_some() {
+                sort_expr_cols.insert(
+                    expr_table
+                        .tracked_oracles()
+                        .keys()
+                        .find(|f| f.name() == ACTIVATOR_COL_NAME)
+                        .unwrap()
+                        .clone(),
+                    expr_table.activator_tracked_poly().unwrap(),
+                );
+            }
         }
+        let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
+        let sort_exprs_tracked_table_oracle =
+            TrackedTableOracle::new(None, sort_expr_cols, sort_exprs_tracked_table_log_size);
 
-        let output_activator = output_sort_exprs_table.activator_tracked_poly();
-        let output_expr_cols = output_sort_exprs_table
-            .tracked_polys()
-            .into_iter()
-            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| TrackedCol::new(poly, output_activator.clone(), Some(field)))
-            .collect::<Vec<_>>();
-
-        if output_expr_cols.len() != self.sort_exprs.len() {
-            panic!(
-                "expected {} sort expression columns in output but found {}",
-                self.sort_exprs.len(),
-                output_expr_cols.len()
-            );
-        }
-
-        let shifted_sort_exprs_table = piop_tree
-            .tracked_table(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
+        let shifted_lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
@@ -558,64 +523,27 @@ where
                     SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let shifted_expr_cols = shifted_sort_exprs_table
-            .tracked_polys()
-            .into_iter()
-            .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| {
-                TrackedCol::new(
-                    poly,
-                    shifted_sort_exprs_table.activator_tracked_poly(),
-                    Some(field),
+
+        let tie_indicators_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id, TIE_INDICATOR_PLAN_KEY)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {} table for sort node {}",
+                    TIE_INDICATOR_PLAN_KEY, self.node_id
                 )
-            })
-            .collect::<Vec<_>>();
-
-        if shifted_expr_cols.len() != self.sort_exprs.len() {
-            panic!(
-                "expected {} shifted sort expression columns in output but found {}",
-                self.sort_exprs.len(),
-                shifted_expr_cols.len()
-            );
-        }
-
-        let tie_indicator_cols = piop_tree
-            .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
-            .map(|table| {
-                table
-                    .tracked_polys()
-                    .into_iter()
-                    .map(|(field, poly)| TrackedCol::new(poly, None, Some(field)))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let output_sort_exprs = self
-            .sort_exprs
-            .iter()
-            .zip(
-                output_expr_cols
-                    .into_iter()
-                    .zip(shifted_expr_cols.into_iter()),
-            )
-            .map(|(sort_expr_node, (expr_col, shifted_col))| SortTrackedCol {
-                expr: expr_col,
-                shifted_expr: shifted_col,
-                asc: sort_expr_node.asc,
-                nulls_first: sort_expr_node.nulls_first,
-            })
-            .collect::<Vec<_>>();
+            });
 
         let sort_verifier_input = SortPIOPVerifierInput {
-            sort: sort_plan,
-            input_sort_exprs,
-            output_sort_exprs,
-            tie_indicator_cols,
-            input_table,
-            output_table,
+            sort_lp,
+            sort_exprs_tracked_table_oracle,
+            lex_sorted_sort_exprs_tracked_table_oracle,
+            shifted_lex_sorted_sort_exprs_tracked_table_oracle,
+            tie_indicators_tracked_table_oracle,
+            tracked_table_oracle,
+            lex_sorted_tracked_table_oracle,
         };
         SortPIOP::verify(verifier, sort_verifier_input)?;
-
         Ok(())
     }
 
@@ -625,28 +553,4 @@ where
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         self.input_verifier_node.clone()
     }
-}
-
-fn circular_shift_tracked_col<F, MvPCS, UvPCS>(
-    prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    col: &TrackedCol<F, MvPCS, UvPCS>,
-) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    use ark_piop::arithmetic::mat_poly::mle::MLE;
-
-    let mut shifted_evals = col.data_tracked_poly().evaluations();
-    if !shifted_evals.is_empty() {
-        shifted_evals.rotate_left(1);
-    }
-    let shifted_mle = MLE::from_evaluations_vec(col.log_size(), shifted_evals);
-    let shifted_poly = prover.track_and_commit_mat_mv_poly(&shifted_mle)?;
-    Ok(TrackedCol::new(
-        shifted_poly,
-        col.activator_tracked_poly(),
-        col.field_ref(),
-    ))
 }

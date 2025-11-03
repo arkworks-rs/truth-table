@@ -6,7 +6,10 @@ use datafusion::logical_expr::{
 use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
 use indexmap::IndexMap;
 
-pub fn build_sort_hint_plans(
+pub(super) const SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
+pub(super) const SHIFTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__shifted_lex_sort_expressions__";
+pub(super) const TIE_INDICATOR_PLAN_KEY: &str = "__tie_indicators__";
+pub(super) fn build_sort_hint_generation_plans(
     base_plan: LogicalPlan,
     sort_plan: &datafusion_expr::logical_plan::Sort,
 ) -> IndexMap<String, HintGenerationPlan> {
