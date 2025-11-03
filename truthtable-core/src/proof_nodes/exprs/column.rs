@@ -397,7 +397,6 @@ impl ProverColumnExprNode {
             }
         }
 
-        dbg!(column_expr);
         panic!(
             "column {} not found in execution context",
             format_column_detail(column_expr)

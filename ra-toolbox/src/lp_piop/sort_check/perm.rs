@@ -74,25 +74,17 @@ pub(super) fn perm_prove<
     // Then attach the input activator to the input lc tracked poly. Note that the
     // input table and sort expressions should all have the same activator. This
     // should be checked in the honest prover check.
-    let mut input_activator = input.tracked_table.activator_tracked_poly();
-    let mut sorted_activator = input.lex_sorted_tracked_table.activator_tracked_poly();
-
-    if let Some(ref input_act) = input_activator {
-        if let Some(ref sorted_act) = sorted_activator {
-            input_act.assert_same_tracker(sorted_act);
-        }
-        sorted_activator = Some(input_act.clone());
-    } else if let Some(ref sorted_act) = sorted_activator {
-        input_activator = Some(sorted_act.clone());
-    }
+    let input_activator = input.tracked_table.activator_tracked_poly();
+    let lex_sorted_activator = input.lex_sorted_tracked_table.activator_tracked_poly();
 
     let input_lc_tracked_col =
         TrackedCol::new(input_lc_tracked_poly, input_activator.clone(), None);
-    let sorted_lc_tracked_col = TrackedCol::new(lex_sorted_lc_tracked_poly, sorted_activator, None);
+    let lex_sorted_lc_tracked_col =
+        TrackedCol::new(lex_sorted_lc_tracked_poly, lex_sorted_activator, None);
 
     let perm_input = PermPIOPProverInput {
         left_col: input_lc_tracked_col,
-        right_col: sorted_lc_tracked_col,
+        right_col: lex_sorted_lc_tracked_col,
     };
 
     PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_input)
@@ -162,16 +154,10 @@ pub(super) fn perm_verify<
     // Then attach the input activator to the input lc tracked poly. Note that the
     // input table and sort expressions should all have the same activator. This
     // should be checked in the honest prover check.
-    let mut input_activator = input.tracked_table_oracle.activator_tracked_poly();
-    let mut sorted_activator = input
+    let input_activator = input.tracked_table_oracle.activator_tracked_poly();
+    let sorted_activator = input
         .lex_sorted_tracked_table_oracle
         .activator_tracked_poly();
-
-    if let Some(ref input_act) = input_activator {
-        sorted_activator = Some(input_act.clone());
-    } else if let Some(ref sorted_act) = sorted_activator {
-        input_activator = Some(sorted_act.clone());
-    }
 
     let input_lc_tracked_col =
         TrackedColOracle::new(input_lc_tracked_poly, input_activator.clone(), None);
