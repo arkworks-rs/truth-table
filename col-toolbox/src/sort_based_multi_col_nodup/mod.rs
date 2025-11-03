@@ -8,8 +8,8 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    prover::Prover,
+    verifier::Verifier,
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
@@ -36,7 +36,7 @@ pub struct SortBasedMultiNoDupProverInput<
 > {
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
     pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
@@ -49,12 +49,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             contig_lex_sorted_tracked_table: self
                 .contig_lex_sorted_tracked_table
                 .deep_clone(prover.clone()),
-            tie_indicator_tracked_polys: self
-                .tie_indicator_tracked_polys
-                .iter()
-                .map(|poly| poly.deep_clone(prover.clone()))
-                .collect(),
-            shift_tracked_table: self.shift_tracked_table.deep_clone(prover),
+            shift_tracked_table: self.shift_tracked_table.deep_clone(prover.clone()),
+            tie_indicator_tracked_table: self
+                .tie_indicator_tracked_table
+                .as_ref()
+                .map(|table| table.deep_clone(prover.clone())),
         }
     }
 }
@@ -66,7 +65,7 @@ pub struct SortBasedMultiNoDupVerifierInput<
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_oracles: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
+    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
     pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -107,7 +106,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         strict_vec.push(true);
         let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
             tracked_table: input.contig_lex_sorted_tracked_table,
-            tie_indicator_tracked_polys: input.tie_indicator_tracked_polys,
+            tie_indicator_tracked_table: input.tie_indicator_tracked_table,
             shift_tracked_table: input.shift_tracked_table,
             ascending: vec![true; challenges.len()],
             strict: strict_vec,
@@ -142,7 +141,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         strict_vec.push(true);
         let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {
             tracked_table_oracle: input.contig_lex_sorted_tracked_table_oracle,
-            tie_indicator_tracked_oracles: input.tie_indicator_tracked_oracles,
+            tie_indicator_tracked_table_oracle: input.tie_indicator_tracked_table_oracle,
             shift_tracked_table_oracle: input.shift_tracked_table_oracle,
             ascending: vec![true; challenges.len()],
             strict: strict_vec,

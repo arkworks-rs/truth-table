@@ -7,7 +7,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::Prover,
     structs::TrackerID,
     test_utils::test_prelude,
     verifier::{Verifier, structs::oracle::TrackedOracle},
@@ -25,7 +25,7 @@ use super::{
 fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
         None,
@@ -36,7 +36,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
         None,
@@ -47,7 +47,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
         None,
@@ -58,7 +58,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
         None,
@@ -73,7 +73,7 @@ fn one_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -83,7 +83,7 @@ fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
     )?;
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4, 5, 5, 5, 8], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 5, 5, 5, 8, 1], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -94,7 +94,7 @@ fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([8, 7, 6, 6, 4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([7, 6, 6, 4, 3, 2, 1, 8], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -105,7 +105,7 @@ fn one_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 
     multi_col_sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([8, 7, 6, 5, 4, 4, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([7, 6, 5, 4, 4, 2, 1, 8], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -123,7 +123,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 140, 99, 30], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 140, 99, 30, 97], Fr),
@@ -139,7 +139,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 250, 99, 30], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 250, 99, 30, 97], Fr),
@@ -155,7 +155,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 1], Fr),
             to_field_vec!([100, 93, 93, 93, 36, 175, 174, 27], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 93, 93, 36, 175, 174, 27, 100], Fr),
@@ -171,7 +171,7 @@ fn multi_col_none_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 1], Fr),
             to_field_vec!([100, 93, 90, 93, 36, 175, 174, 27], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 90, 93, 36, 175, 174, 27, 100], Fr),
@@ -192,7 +192,7 @@ fn multi_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 140, 99, 30], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 140, 99, 30, 97], Fr),
@@ -208,7 +208,7 @@ fn multi_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 5, 5], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 140, 140, 140], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 5, 5, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 140, 140, 140, 97], Fr),
@@ -224,7 +224,7 @@ fn multi_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 1], Fr),
             to_field_vec!([100, 93, 93, 93, 36, 175, 174, 27], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 93, 93, 36, 175, 174, 27, 100], Fr),
@@ -240,7 +240,7 @@ fn multi_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 2], Fr),
             to_field_vec!([100, 93, 90, 93, 36, 175, 175, 175], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 2, 8], Fr),
             to_field_vec!([93, 90, 93, 36, 175, 175, 175, 100], Fr),
@@ -258,7 +258,7 @@ fn multi_col_with_actv_contig_lex_sort_is_complete() -> SnarkResult<()> {
 fn one_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
         None,
@@ -269,7 +269,7 @@ fn one_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 1], Fr)],
         None,
         None,
@@ -280,7 +280,7 @@ fn one_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
         None,
@@ -291,7 +291,7 @@ fn one_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([3, 2, 1, 4], Fr)],
         None,
         None,
@@ -306,7 +306,7 @@ fn one_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 fn one_col_with_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 1, 5, 5, 7, 8], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 1, 5, 5, 7, 8, 1], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -316,7 +316,7 @@ fn one_col_with_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
     )?;
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([1, 2, 3, 4, 5, 5, 5, 8], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([2, 3, 4, 5, 5, 5, 8, 1], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 1, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 1], Fr)),
@@ -327,7 +327,7 @@ fn one_col_with_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([8, 7, 6, 9, 4, 3, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([7, 6, 9, 4, 3, 2, 1, 8], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 0, 0, 0, 1], Fr)),
@@ -338,7 +338,7 @@ fn one_col_with_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
 
     multi_col_sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
         vec![to_field_vec!([8, 7, 6, 5, 4, 4, 2, 1], Fr)],
-        vec![],
+        None,
         vec![to_field_vec!([7, 6, 5, 4, 4, 2, 1, 8], Fr)],
         Some(to_field_vec!([1, 1, 1, 1, 1, 1, 0, 0], Fr)),
         Some(to_field_vec!([1, 1, 1, 1, 1, 0, 0, 1], Fr)),
@@ -356,7 +356,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 120, 99, 30], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 120, 99, 30, 97], Fr),
@@ -372,7 +372,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([1, 2, 3, 4, 5, 5, 7, 8], Fr),
             to_field_vec!([97, 70, 32, 12, 140, 140, 99, 30], Fr),
         ],
-        vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 0, 0, 0, 1, 0, 0, 0], Fr)]),
         vec![
             to_field_vec!([2, 3, 4, 5, 5, 7, 8, 1], Fr),
             to_field_vec!([70, 32, 12, 140, 140, 99, 30, 97], Fr),
@@ -388,7 +388,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 1], Fr),
             to_field_vec!([100, 93, 94, 93, 36, 175, 176, 27], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 94, 93, 36, 175, 176, 27, 100], Fr),
@@ -404,7 +404,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
             to_field_vec!([8, 7, 7, 5, 4, 2, 2, 1], Fr),
             to_field_vec!([100, 93, 93, 93, 36, 175, 176, 27], Fr),
         ],
-        vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)],
+        Some(vec![to_field_vec!([0, 1, 0, 0, 0, 1, 0, 0], Fr)]),
         vec![
             to_field_vec!([7, 7, 5, 4, 2, 2, 1, 8], Fr),
             to_field_vec!([93, 93, 93, 36, 175, 176, 27, 100], Fr),
@@ -424,7 +424,7 @@ pub(crate) fn multi_col_sort_check_test_helper<
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
     tracked_cols_values: Vec<Vec<F>>,
-    tie_indicator_values: Vec<Vec<F>>,
+    tie_indicator_values: Option<Vec<Vec<F>>>,
     shift_values: Vec<Vec<F>>,
     shared_activator: Option<Vec<F>>,
     shift_activator: Option<Vec<F>>,
@@ -450,13 +450,38 @@ pub(crate) fn multi_col_sort_check_test_helper<
         &data_type,
         "shift",
     )?;
-    let tie_indicator_polys =
-        build_tracked_polys(&mut prover, &tie_indicator_values, activator_slice)?;
+    let row_len = tracked_cols_values
+        .first()
+        .map(|col| col.len())
+        .expect("tracked columns must contain data");
+
+    let tie_indicator_tracked_table = match tie_indicator_values {
+        Some(values) => {
+            if values.is_empty() {
+                panic!("tie indicator columns cannot be empty when provided");
+            }
+            for column in &values {
+                assert_eq!(
+                    column.len(),
+                    row_len,
+                    "tie indicator column length must match tracked column length"
+                );
+            }
+            Some(build_tracked_table(
+                &mut prover,
+                &values,
+                activator_slice,
+                &DataType::Boolean,
+                "tie_indicator",
+            )?)
+        },
+        None => None,
+    };
 
     let num_cols = tracked_table.num_data_tracked_cols();
     let tracked_table_for_verifier = tracked_table.clone();
     let shift_table_for_verifier = shift_tracked_table.clone();
-    let tie_indicator_polys_for_verifier = tie_indicator_polys.clone();
+    let tie_indicator_table_for_verifier = tie_indicator_tracked_table.clone();
     let ascending_flags = ascending;
     let strict_flags = strict;
 
@@ -473,7 +498,7 @@ pub(crate) fn multi_col_sort_check_test_helper<
 
     let prover_input = ContigLexSortCheckProverInput {
         tracked_table,
-        tie_indicator_tracked_polys: tie_indicator_polys,
+        tie_indicator_tracked_table,
         shift_tracked_table,
         ascending: ascending_flags.clone(),
         strict: strict_flags.clone(),
@@ -489,15 +514,13 @@ pub(crate) fn multi_col_sort_check_test_helper<
         table_to_oracle(&mut verifier, tracked_table_for_verifier, &mut oracle_cache)?;
     let shift_tracked_table_oracle =
         table_to_oracle(&mut verifier, shift_table_for_verifier, &mut oracle_cache)?;
-    let tie_indicator_tracked_oracles = tracked_polys_to_oracles(
-        &mut verifier,
-        tie_indicator_polys_for_verifier,
-        &mut oracle_cache,
-    )?;
+    let tie_indicator_tracked_table_oracle = tie_indicator_table_for_verifier
+        .map(|table| table_to_oracle(&mut verifier, table, &mut oracle_cache))
+        .transpose()?;
 
     let verifier_input = ContigLexSortCheckVerifierInput {
         tracked_table_oracle,
-        tie_indicator_tracked_oracles,
+        tie_indicator_tracked_table_oracle,
         shift_tracked_table_oracle,
         ascending: ascending_flags,
         strict: strict_flags,
@@ -514,7 +537,7 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
     tracked_cols_values: Vec<Vec<F>>,
-    tie_indicator_values: Vec<Vec<F>>,
+    tie_indicator_values: Option<Vec<Vec<F>>>,
     shift_values: Vec<Vec<F>>,
     shared_activator: Option<Vec<F>>,
     shift_activator: Option<Vec<F>>,
@@ -642,49 +665,6 @@ fn build_tracked_table<
     Ok(TrackedTable::new(None, tracked_polys, nv))
 }
 
-fn build_tracked_polys<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-    column_values: &[Vec<F>],
-    shared_activator: Option<&[F]>,
-) -> SnarkResult<Vec<TrackedPoly<F, MvPCS, UvPCS>>> {
-    if column_values.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let len = column_values[0].len();
-    assert!(len > 0, "column values must not be empty");
-    assert!(
-        len.is_power_of_two(),
-        "column length must be a power of two (got {len})"
-    );
-
-    if let Some(activator) = shared_activator {
-        assert_eq!(
-            activator.len(),
-            len,
-            "shared activator length must match column length"
-        );
-    }
-
-    let nv = len.trailing_zeros() as usize;
-
-    column_values
-        .iter()
-        .map(|values| {
-            assert_eq!(
-                values.len(),
-                len,
-                "all columns must have identical number of rows"
-            );
-            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, values))
-        })
-        .collect()
-}
-
 fn table_to_oracle<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     table: TrackedTable<F, MvPCS, UvPCS>,
@@ -700,31 +680,4 @@ fn table_to_oracle<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Po
         tracked_oracles,
         table.log_size(),
     ))
-}
-
-fn tracked_polys_to_oracles<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<Vec<TrackedOracle<F, MvPCS, UvPCS>>> {
-    polys
-        .into_iter()
-        .map(|poly| tracked_poly_to_oracle(verifier, poly, cache))
-        .collect()
-}
-
-fn tracked_poly_to_oracle<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    poly: TrackedPoly<F, MvPCS, UvPCS>,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
-    track_oracle_cached(verifier, poly.id(), cache)
 }

@@ -306,6 +306,17 @@ where
             )
         };
 
+        let ascending_vec = self
+            .sort_exprs
+            .iter()
+            .map(|expr| expr.asc)
+            .collect::<Vec<bool>>();
+        let null_first_vec = self
+            .sort_exprs
+            .iter()
+            .map(|expr| expr.nulls_first)
+            .collect::<Vec<bool>>();
+
         let sort_prover_input = SortPIOPProverInput {
             sort_lp,
             sort_exprs_tracked_table,
@@ -314,6 +325,8 @@ where
             tie_indicators_tracked_table,
             tracked_table,
             lex_sorted_tracked_table,
+            ascending_vec,
+            null_first_vec,
         };
         SortPIOP::prove(prover, sort_prover_input)?;
 
@@ -528,7 +541,16 @@ where
                     }),
             )
         };
-
+        let ascending_vec = self
+            .sort_exprs
+            .iter()
+            .map(|expr| expr.asc)
+            .collect::<Vec<bool>>();
+        let null_first_vec = self
+            .sort_exprs
+            .iter()
+            .map(|expr| expr.nulls_first)
+            .collect::<Vec<bool>>();
         let sort_verifier_input = SortPIOPVerifierInput {
             sort_lp,
             sort_exprs_tracked_table_oracle,
@@ -537,6 +559,8 @@ where
             tie_indicators_tracked_table_oracle,
             tracked_table_oracle,
             lex_sorted_tracked_table_oracle,
+            ascending_vec,
+            null_first_vec,
         };
         SortPIOP::verify(verifier, sort_verifier_input)?;
         Ok(())

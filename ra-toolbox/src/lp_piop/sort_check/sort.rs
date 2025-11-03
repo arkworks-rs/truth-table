@@ -25,17 +25,15 @@ pub(super) fn lex_sort_prove<
     prover: &mut Prover<F, MvPCS, UvPCS>,
     input: &SortPIOPProverInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
-    // let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
-    //     tracked_table,
-    //     tie_indicator_tracked_polys,
-    //     shift_tracked_table,
-    //     ascending,
-    //     strict,
-    // };
+    let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
+        tracked_table: input.lex_sorted_tracked_table.clone(),
+        tie_indicator_tracked_table: input.tie_indicators_tracked_table.clone(),
+        shift_tracked_table: input.shifted_lex_sorted_sort_exprs_tracked_table.clone(),
+        ascending: input.ascending_vec.clone(),
+        strict: vec![false; input.ascending_vec.len()],
+    };
 
-    // ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(prover,
-    // contig_lex_sort_check_prover_input)
-    Ok(())
+    ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, contig_lex_sort_check_prover_input)
 }
 
 pub(super) fn lex_sort_verify<
@@ -46,17 +44,18 @@ pub(super) fn lex_sort_verify<
     verifier: &mut Verifier<F, MvPCS, UvPCS>,
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
-    // let contig_lex_sort_check_verifier_input =
-    // ContigLexSortCheckVerifierInput {     tracked_table_oracle,
-    //     tie_indicator_tracked_oracles,
-    //     shift_tracked_table_oracle: shift_table_oracle,
-    //     ascending,
-    //     strict,
-    // };
+    let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {
+        tracked_table_oracle: input.lex_sorted_tracked_table_oracle.clone(),
+        tie_indicator_tracked_table_oracle: input.tie_indicators_tracked_table_oracle.clone(),
+        shift_tracked_table_oracle: input
+            .shifted_lex_sorted_sort_exprs_tracked_table_oracle
+            .clone(),
+        ascending: input.ascending_vec.clone(),
+        strict: vec![false; input.ascending_vec.len()],
+    };
 
-    // ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::verify(
-    //     verifier,
-    //     contig_lex_sort_check_verifier_input,
-    // )
-    Ok(())
+    ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::verify(
+        verifier,
+        contig_lex_sort_check_verifier_input,
+    )
 }

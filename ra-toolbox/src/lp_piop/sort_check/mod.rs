@@ -45,6 +45,10 @@ where
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     /// The lexicographically sorted table packed in a tracked table
     pub lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    /// Indicates for each sort column whether the sort is ascending
+    pub ascending_vec: Vec<bool>,
+    /// Indicates for each sort column whether the sort is strict
+    pub null_first_vec: Vec<bool>,
 }
 #[derive(Derivative)]
 #[derivative(
@@ -74,6 +78,10 @@ where
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     /// The lexicographically sorted table packed in a tracked table oracle
     pub lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    /// Indicates for each sort column whether the sort is ascending
+    pub ascending_vec: Vec<bool>,
+    /// Indicates for each sort column whether the sort is strict
+    pub null_first_vec: Vec<bool>,
 }
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for SortPIOPProverInput<F, MvPCS, UvPCS>
 where
@@ -97,6 +105,8 @@ where
                 .map(|table| table.deep_clone(new_prover.clone())),
             tracked_table: self.tracked_table.deep_clone(new_prover.clone()),
             lex_sorted_tracked_table: self.lex_sorted_tracked_table.deep_clone(new_prover),
+            ascending_vec: self.ascending_vec.clone(),
+            null_first_vec: self.null_first_vec.clone(),
         }
     }
 }
