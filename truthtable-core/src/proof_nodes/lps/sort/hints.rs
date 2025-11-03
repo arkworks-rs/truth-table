@@ -7,7 +7,8 @@ use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr}
 use indexmap::IndexMap;
 
 pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
-pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__shifted_lex_sort_expressions__";
+pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str =
+    "__shifted_lex_sort_expressions__";
 pub(super) const TIE_INDICATOR_PLAN_KEY: &str = "__tie_indicators__";
 pub(super) fn build_sort_hint_generation_plans(
     base_plan: LogicalPlan,
@@ -44,7 +45,10 @@ pub(super) fn build_sort_hint_generation_plans(
     if let Some(tie_plan) = tie_indicator_plan {
         plans.insert(
             super::TIE_INDICATOR_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(super::TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
+            HintGenerationPlan::new_materialized(
+                super::TIE_INDICATOR_PLAN_KEY.to_string(),
+                tie_plan,
+            ),
         );
     }
 
