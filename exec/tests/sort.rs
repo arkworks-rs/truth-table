@@ -24,6 +24,20 @@ ORDER BY 4 + (l_suppkey * 7 + 3) DESC, l_suppkey ASC;
 FROM lineitem
 WHERE l_suppkey > 1000
 ORDER BY 4 +  (l_suppkey * 7 + 3) DESC, l_suppkey ASC;"#,
+    groupby_sort => r#"
+SELECT
+    l_returnflag,
+    l_linestatus,
+    SUM(l_extendedprice * (1 - l_discount)) AS revenue,
+    COUNT(*) AS row_count
+FROM lineitem
+GROUP BY
+    l_returnflag,
+    l_linestatus
+ORDER BY
+    l_returnflag,
+    l_linestatus;
+    "#,
 ]);
 
 type F = ark_test_curves::bls12_381::Fr;
