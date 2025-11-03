@@ -36,7 +36,7 @@ pub(super) fn build_sort_hint_generation_plans(
     );
     plans.insert(
         super::SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_virtual(
+        HintGenerationPlan::new_materialized(
             super::SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
             shifted_sort_expressions_plan,
         ),
@@ -44,7 +44,7 @@ pub(super) fn build_sort_hint_generation_plans(
     if let Some(tie_plan) = tie_indicator_plan {
         plans.insert(
             super::TIE_INDICATOR_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(super::TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
+            HintGenerationPlan::new_materialized(super::TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
         );
     }
 

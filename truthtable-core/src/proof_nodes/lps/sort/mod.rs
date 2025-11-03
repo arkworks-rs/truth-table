@@ -271,22 +271,14 @@ where
             }
 
             sort_expr_cols.insert(field.clone(), poly);
-            if expr_table.activator_tracked_poly().is_some() {
-                sort_expr_cols.insert(
-                    expr_table
-                        .tracked_polys()
-                        .keys()
-                        .find(|f| f.name() == ACTIVATOR_COL_NAME)
-                        .unwrap()
-                        .clone(),
-                    expr_table.activator_tracked_poly().unwrap(),
-                );
-            }
         }
         let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
 
-        let sort_exprs_tracked_table =
-            TrackedTable::new(None, sort_expr_cols, sort_exprs_tracked_table_log_size);
+        let sort_exprs_tracked_table = TrackedTable::new(
+            None,
+            sort_expr_cols.clone(),
+            sort_exprs_tracked_table_log_size,
+        );
 
         let shifted_lex_sorted_sort_exprs_tracked_table = piop_tree
             .tracked_table(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
@@ -298,15 +290,21 @@ where
                 )
             });
 
-        let tie_indicators_tracked_table = piop_tree
-            .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort node {}",
-                    TIE_INDICATOR_PLAN_KEY, self.node_id
-                )
-            });
+        let tie_indicators_tracked_table = if self.sort_exprs.len() == 1 {
+            None
+        } else {
+            Some(
+                piop_tree
+                    .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing {} table for sort node {}",
+                            TIE_INDICATOR_PLAN_KEY, self.node_id
+                        )
+                    }),
+            )
+        };
 
         let sort_prover_input = SortPIOPProverInput {
             sort_lp,
@@ -497,22 +495,13 @@ where
             }
 
             sort_expr_cols.insert(field.clone(), poly);
-
-            if expr_table.activator_tracked_poly().is_some() {
-                sort_expr_cols.insert(
-                    expr_table
-                        .tracked_oracles()
-                        .keys()
-                        .find(|f| f.name() == ACTIVATOR_COL_NAME)
-                        .unwrap()
-                        .clone(),
-                    expr_table.activator_tracked_poly().unwrap(),
-                );
-            }
         }
         let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
-        let sort_exprs_tracked_table_oracle =
-            TrackedTableOracle::new(None, sort_expr_cols, sort_exprs_tracked_table_log_size);
+        let sort_exprs_tracked_table_oracle = TrackedTableOracle::new(
+            None,
+            sort_expr_cols.clone(),
+            sort_exprs_tracked_table_log_size,
+        );
 
         let shifted_lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
@@ -524,15 +513,21 @@ where
                 )
             });
 
-        let tie_indicators_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id, TIE_INDICATOR_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort node {}",
-                    TIE_INDICATOR_PLAN_KEY, self.node_id
-                )
-            });
+        let tie_indicators_tracked_table_oracle = if self.sort_exprs.len() == 1 {
+            None
+        } else {
+            Some(
+                piop_tree
+                    .tracked_table_oracle(&self.node_id, TIE_INDICATOR_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing {} table for sort node {}",
+                            TIE_INDICATOR_PLAN_KEY, self.node_id
+                        )
+                    }),
+            )
+        };
 
         let sort_verifier_input = SortPIOPVerifierInput {
             sort_lp,

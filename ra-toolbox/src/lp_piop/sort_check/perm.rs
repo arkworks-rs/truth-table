@@ -52,7 +52,6 @@ pub(super) fn perm_prove<
                     .expect("failed to draw key folding challenge")
             })
             .collect();
-
     let sort_exprs_folded_col = input
         .sort_exprs_tracked_table
         .fold_all_data_columns(&sort_exprs_fold_challenges);

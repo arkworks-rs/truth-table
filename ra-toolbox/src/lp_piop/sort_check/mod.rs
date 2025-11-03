@@ -40,7 +40,7 @@ where
     /// tracked table
     pub shifted_lex_sorted_sort_exprs_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     /// The tie indicators packed in a tracked table
-    pub tie_indicators_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub tie_indicators_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
     /// The original table packed in a tracked table
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     /// The lexicographically sorted table packed in a tracked table
@@ -69,7 +69,7 @@ where
     /// tracked table oracle
     pub shifted_lex_sorted_sort_exprs_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     /// The tie indicators packed in a tracked table oracle
-    pub tie_indicators_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub tie_indicators_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
     /// The original table packed in a tracked table oracle
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     /// The lexicographically sorted table packed in a tracked table oracle
@@ -93,7 +93,8 @@ where
                 .deep_clone(new_prover.clone()),
             tie_indicators_tracked_table: self
                 .tie_indicators_tracked_table
-                .deep_clone(new_prover.clone()),
+                .as_ref()
+                .map(|table| table.deep_clone(new_prover.clone())),
             tracked_table: self.tracked_table.deep_clone(new_prover.clone()),
             lex_sorted_tracked_table: self.lex_sorted_tracked_table.deep_clone(new_prover),
         }
