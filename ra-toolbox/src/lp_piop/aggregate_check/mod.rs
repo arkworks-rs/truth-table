@@ -175,10 +175,10 @@ where
 
         let input_folded_col_oracle = input
             .input_grouping_table_oracle
-            .fold_all_data_columns(&gpd_cols_fld_challs);
+            .fold_all_data_oracles(&gpd_cols_fld_challs);
         let output_folded_col_oracle = input
             .output_grouping_table_oracle
-            .fold_all_data_columns(&gpd_cols_fld_challs);
+            .fold_all_data_oracles(&gpd_cols_fld_challs);
 
         // Invoke the support check PIOP to check
         let supp_check_input = HintedSuppCheckVerifierInput {

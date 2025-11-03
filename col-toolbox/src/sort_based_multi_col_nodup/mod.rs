@@ -127,10 +127,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .collect::<Vec<_>>();
         let tracked_table_folded_col_oracle = input
             .tracked_table_oracle
-            .fold_all_data_columns(&challenges);
+            .fold_all_data_oracles(&challenges);
         let contig_lex_sorted_tracked_table_folded_col_oracle = input
             .contig_lex_sorted_tracked_table_oracle
-            .fold_all_data_columns(&challenges);
+            .fold_all_data_oracles(&challenges);
         let perm_piop_verifier_input = PermPIOPVerifierInput {
             left_tracked_col_oracle: tracked_table_folded_col_oracle,
             right_tracked_col_oracle: contig_lex_sorted_tracked_table_folded_col_oracle,

@@ -128,6 +128,15 @@ where
     pub fn tracked_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> {
         self.tracked_oracles.clone()
     }
+
+    pub fn data_tracked_oracles_indices(&self) -> Vec<usize> {
+        self.tracked_oracles
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, (field, _))| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
+            .collect()
+    }
+
     /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
@@ -164,13 +173,10 @@ where
 
     /// Folds all the data (i.e. excluding the activator column) tracked column
     /// oracles
-    pub fn fold_all_data_columns(&self, challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
-        self.fold(
-            &(0..self.num_data_tracked_col_oracles()).collect::<Vec<usize>>(),
-            challs,
-        )
+    pub fn fold_all_data_oracles(&self, challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
+        let data_col_indices = self.data_tracked_oracles_indices();
+        self.fold(&data_col_indices, challs)
     }
-
     /// Returns the tracked column oracle at the specified index
     pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<F, MvPCS, UvPCS> {
         let (field_ref, data_tracked_oracle) = self

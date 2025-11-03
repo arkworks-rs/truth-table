@@ -121,13 +121,13 @@ pub(super) fn perm_verify<
     // next, fold all data columns of the table
     let table_folded_col = input
         .tracked_table_oracle
-        .fold_all_data_columns(&row_fold_challenges);
+        .fold_all_data_oracles(&row_fold_challenges);
 
     // Also, fold all data columns of the lexicographically sorted table, with the
     // same challenges
     let lex_sorted_table_folded_col = input
         .lex_sorted_tracked_table_oracle
-        .fold_all_data_columns(&row_fold_challenges);
+        .fold_all_data_oracles(&row_fold_challenges);
 
     // Now, start folding the sort expressions
     // We first produce enough challenges to fold all sort expression columns
@@ -142,13 +142,13 @@ pub(super) fn perm_verify<
         .collect();
     let sort_exprs_folded_col = input
         .sort_exprs_tracked_table_oracle
-        .fold_all_data_columns(&sort_exprs_fold_challenges);
+        .fold_all_data_oracles(&sort_exprs_fold_challenges);
 
     // We do the same procedure for the sorted sort expressions
 
     let sorted_sort_exprs_folded_col = input
         .lex_sorted_sort_exprs_tracked_table_oracle
-        .fold_all_data_columns(&sort_exprs_fold_challenges);
+        .fold_all_data_oracles(&sort_exprs_fold_challenges);
 
     // Now, combine all the table folded column and sort expression folded poly
     let input_lc_tracked_poly =

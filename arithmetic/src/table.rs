@@ -151,6 +151,17 @@ where
         self.tracked_polys.iter()
     }
 
+
+    pub fn data_tracked_polys_indices(&self) -> Vec<usize> {
+        self.tracked_polys
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, (field, _))| {
+                (field.name() != ACTIVATOR_COL_NAME).then_some(idx)
+            })
+            .collect()
+    }
+
     /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
@@ -201,10 +212,8 @@ where
     /// Folds all the data (i.e. excluding the activator column) tracked column
     /// polynomials
     pub fn fold_all_data_columns(&self, challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
-        self.fold(
-            &(0..self.num_data_tracked_cols()).collect::<Vec<usize>>(),
-            challs,
-        )
+        let data_col_indices = self.data_tracked_polys_indices();
+        self.fold(&data_col_indices, challs)
     }
 
     /// Returns the tracked column at the specified index

@@ -382,7 +382,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_right_table_folded_tracked_col_oracle = input
             .right_tracked_table_oracle
-            .fold_all_data_columns(&alpha_vec[0..&alpha_vec.len() - 1]);
+            .fold_all_data_oracles(&alpha_vec[0..&alpha_vec.len() - 1]);
         let nv = input.right_tracked_table_oracle.log_size();
         let right_ind_closure = Box::new(move |point: Vec<F>| {
             let mut eval = F::zero();
@@ -445,7 +445,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         let input_left_table_folded_tracked_col_oracle = input
             .left_tracked_table_oracle
-            .fold_all_data_columns(&beta_vec[0..&beta_vec.len() - 1]);
+            .fold_all_data_oracles(&beta_vec[0..&beta_vec.len() - 1]);
         let nv = input.left_tracked_table_oracle.log_size();
         let left_ind_closure = move |point: Vec<F>| {
             let mut eval = F::zero();
