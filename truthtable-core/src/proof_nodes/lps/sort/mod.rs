@@ -48,6 +48,11 @@ fn with_activator_from_table<
     mut table: TrackedTable<F, MvPCS, UvPCS>,
     source: &TrackedTable<F, MvPCS, UvPCS>,
 ) -> TrackedTable<F, MvPCS, UvPCS> {
+    if table.activator_tracked_poly().is_some() {
+        // Table already carries an activator; respect the one produced upstream.
+        return table;
+    }
+
     let Some((activator_field, activator_poly)) = source
         .tracked_polys()
         .into_iter()
@@ -82,6 +87,11 @@ fn with_activator_from_table_oracle<
     mut table: TrackedTableOracle<F, MvPCS, UvPCS>,
     source: &TrackedTableOracle<F, MvPCS, UvPCS>,
 ) -> TrackedTableOracle<F, MvPCS, UvPCS> {
+    if table.activator_tracked_poly().is_some() {
+        // Oracle already has an activator; avoid clobbering the upstream mask.
+        return table;
+    }
+
     let Some((activator_field, activator_oracle)) = source
         .tracked_oracles()
         .into_iter()

@@ -76,7 +76,7 @@ pub(super) fn perm_prove<
     // should be checked in the honest prover check.
     let input_activator = input.tracked_table.activator_tracked_poly();
     let lex_sorted_activator = input.lex_sorted_tracked_table.activator_tracked_poly();
-    
+
     let input_lc_tracked_col =
         TrackedCol::new(input_lc_tracked_poly, input_activator.clone(), None);
     let lex_sorted_lc_tracked_col =
