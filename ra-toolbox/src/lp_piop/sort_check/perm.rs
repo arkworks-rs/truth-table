@@ -58,7 +58,7 @@ pub(super) fn perm_prove<
 
     // We do the same procedure for the sorted sort expressions
 
-    let lex_sorted_sort_exprs_folded_col = input
+    let sorted_sort_exprs_folded_col = input
         .lex_sorted_sort_exprs_tracked_table
         .fold_all_data_columns(&sort_exprs_fold_challenges);
 
@@ -69,14 +69,14 @@ pub(super) fn perm_prove<
     // Then, combine all the sorted table folded column and sorted sort expression
     // folded poly
     let lex_sorted_lc_tracked_poly = &lex_sorted_table_folded_col.data_tracked_poly()
-        + &lex_sorted_sort_exprs_folded_col.data_tracked_poly();
+        + &sorted_sort_exprs_folded_col.data_tracked_poly();
 
     // Then attach the input activator to the input lc tracked poly. Note that the
     // input table and sort expressions should all have the same activator. This
     // should be checked in the honest prover check.
     let input_activator = input.tracked_table.activator_tracked_poly();
     let lex_sorted_activator = input.lex_sorted_tracked_table.activator_tracked_poly();
-    
+
     let input_lc_tracked_col =
         TrackedCol::new(input_lc_tracked_poly, input_activator.clone(), None);
     let lex_sorted_lc_tracked_col =
@@ -138,7 +138,7 @@ pub(super) fn perm_verify<
 
     // We do the same procedure for the sorted sort expressions
 
-    let lex_sorted_sort_exprs_folded_col = input
+    let sorted_sort_exprs_folded_col = input
         .lex_sorted_sort_exprs_tracked_table_oracle
         .fold_all_data_oracles(&sort_exprs_fold_challenges);
 
@@ -149,7 +149,7 @@ pub(super) fn perm_verify<
     // Then, combine all the sorted table folded column and sorted sort expression
     // folded poly
     let lex_sorted_lc_tracked_poly = &lex_sorted_table_folded_col.data_tracked_oracle()
-        + &lex_sorted_sort_exprs_folded_col.data_tracked_oracle();
+        + &sorted_sort_exprs_folded_col.data_tracked_oracle();
 
     // Then attach the input activator to the input lc tracked poly. Note that the
     // input table and sort expressions should all have the same activator. This

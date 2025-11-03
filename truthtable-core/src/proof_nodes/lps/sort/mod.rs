@@ -9,7 +9,7 @@ use crate::{
         lps::sort::{
             self,
             hints::{
-                LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
+                SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
                 TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
             },
         },
@@ -31,82 +31,11 @@ use ark_piop::{
     prover::structs::polynomial::TrackedPoly,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use datafusion::{
-    arrow::datatypes::{FieldRef, Schema},
-    prelude::SessionContext,
-};
+use datafusion::{arrow::datatypes::FieldRef, prelude::SessionContext};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput};
 use std::sync::Arc;
-
-fn with_activator_from_table<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    mut table: TrackedTable<F, MvPCS, UvPCS>,
-    source: &TrackedTable<F, MvPCS, UvPCS>,
-) -> TrackedTable<F, MvPCS, UvPCS> {
-    let Some((activator_field, activator_poly)) = source
-        .tracked_polys()
-        .into_iter()
-        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-    else {
-        return table;
-    };
-
-    let mut polys = table.tracked_polys();
-    polys.retain(|field, _| field.name() != ACTIVATOR_COL_NAME);
-    polys.insert(activator_field.clone(), activator_poly.clone());
-
-    let schema = table.schema().map(|schema| {
-        let mut fields = schema
-            .fields()
-            .iter()
-            .filter(|field| field.name() != ACTIVATOR_COL_NAME)
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        fields.push(activator_field.as_ref().clone());
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-
-    TrackedTable::new(schema, polys, table.log_size())
-}
-
-fn with_activator_from_table_oracle<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
->(
-    mut table: TrackedTableOracle<F, MvPCS, UvPCS>,
-    source: &TrackedTableOracle<F, MvPCS, UvPCS>,
-) -> TrackedTableOracle<F, MvPCS, UvPCS> {
-    let Some((activator_field, activator_oracle)) = source
-        .tracked_oracles()
-        .into_iter()
-        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-    else {
-        return table;
-    };
-
-    let mut oracles = table.tracked_oracles();
-    oracles.retain(|field, _| field.name() != ACTIVATOR_COL_NAME);
-    oracles.insert(activator_field.clone(), activator_oracle.clone());
-
-    let schema = table.schema().map(|schema| {
-        let mut fields = schema
-            .fields()
-            .iter()
-            .filter(|field| field.name() != ACTIVATOR_COL_NAME)
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        fields.push(activator_field.as_ref().clone());
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-
-    TrackedTableOracle::new(schema, oracles, table.log_size())
-}
 
 pub struct ProverSortExprNode<F, MvPCS, UvPCS>
 where
@@ -293,9 +222,6 @@ where
                     OUTPUT_PLAN_KEY, self.node_id
                 )
             });
-        let lex_sorted_tracked_table =
-            with_activator_from_table(lex_sorted_tracked_table, &tracked_table);
-
         // We also wire the lexicographically sorted version of the sort expressions,
         // assembled in a table
         let lex_sorted_sort_exprs_tracked_table = piop_tree
@@ -307,10 +233,6 @@ where
                     LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let lex_sorted_sort_exprs_tracked_table = with_activator_from_table(
-            lex_sorted_sort_exprs_tracked_table,
-            &lex_sorted_tracked_table,
-        );
 
         // Now, let's assemble the sort expressions. Note that the evaluations of sort
         // expressions does not give us sorted columns; rather, they give us the columns
@@ -357,9 +279,6 @@ where
             sort_exprs_tracked_table_log_size,
         );
 
-        let sort_exprs_tracked_table =
-            with_activator_from_table(sort_exprs_tracked_table, &tracked_table);
-
         let shifted_lex_sorted_sort_exprs_tracked_table = piop_tree
             .tracked_table(&self.node_id, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
@@ -369,10 +288,6 @@ where
                     SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let shifted_lex_sorted_sort_exprs_tracked_table = with_activator_from_table(
-            shifted_lex_sorted_sort_exprs_tracked_table,
-            &lex_sorted_tracked_table,
-        );
 
         let tie_indicators_tracked_table = if self.sort_exprs.len() == 1 {
             None
@@ -543,10 +458,6 @@ where
                     OUTPUT_PLAN_KEY, self.node_id
                 )
             });
-        let lex_sorted_tracked_table_oracle = with_activator_from_table_oracle(
-            lex_sorted_tracked_table_oracle,
-            &tracked_table_oracle,
-        );
         // We also wire the lexicographically sorted version of the sort expressions,
         // assembled in a table
         let lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
@@ -558,10 +469,6 @@ where
                     LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let lex_sorted_sort_exprs_tracked_table_oracle = with_activator_from_table_oracle(
-            lex_sorted_sort_exprs_tracked_table_oracle,
-            &lex_sorted_tracked_table_oracle,
-        );
 
         // Now, let's assemble the sort expressions. Note that the evaluations of sort
         // expressions does not give us sorted columns; rather, they give us the columns
@@ -607,10 +514,6 @@ where
             sort_expr_cols.clone(),
             sort_exprs_tracked_table_log_size,
         );
-        let sort_exprs_tracked_table_oracle = with_activator_from_table_oracle(
-            sort_exprs_tracked_table_oracle,
-            &tracked_table_oracle,
-        );
 
         let shifted_lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&self.node_id, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
@@ -621,10 +524,6 @@ where
                     SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        let shifted_lex_sorted_sort_exprs_tracked_table_oracle = with_activator_from_table_oracle(
-            shifted_lex_sorted_sort_exprs_tracked_table_oracle,
-            &lex_sorted_tracked_table_oracle,
-        );
 
         let tie_indicators_tracked_table_oracle = if self.sort_exprs.len() == 1 {
             None

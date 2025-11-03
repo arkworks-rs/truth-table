@@ -151,11 +151,14 @@ where
         self.tracked_polys.iter()
     }
 
+
     pub fn data_tracked_polys_indices(&self) -> Vec<usize> {
         self.tracked_polys
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
+            .filter_map(|(idx, (field, _))| {
+                (field.name() != ACTIVATOR_COL_NAME).then_some(idx)
+            })
             .collect()
     }
 
