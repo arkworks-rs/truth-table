@@ -6,8 +6,8 @@ use datafusion::logical_expr::{
 use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
 use indexmap::IndexMap;
 
-pub(super) const SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
-pub(super) const SHIFTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__shifted_lex_sort_expressions__";
+pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
+pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__shifted_lex_sort_expressions__";
 pub(super) const TIE_INDICATOR_PLAN_KEY: &str = "__tie_indicators__";
 pub(super) fn build_sort_hint_generation_plans(
     base_plan: LogicalPlan,
@@ -28,16 +28,16 @@ pub(super) fn build_sort_hint_generation_plans(
         HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_output_plan),
     );
     plans.insert(
-        super::SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+        super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
         HintGenerationPlan::new_materialized(
-            super::SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+            super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
             sort_expressions_plan.clone(),
         ),
     );
     plans.insert(
-        super::SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+        super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
         HintGenerationPlan::new_materialized(
-            super::SHIFTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+            super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
             shifted_sort_expressions_plan,
         ),
     );

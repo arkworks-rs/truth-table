@@ -9,7 +9,7 @@ use crate::{
         lps::sort::{
             self,
             hints::{
-                SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, SORT_EXPRESSIONS_PLAN_KEY,
+                SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
                 TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
             },
         },
@@ -225,12 +225,12 @@ where
         // We also wire the lexicographically sorted version of the sort expressions,
         // assembled in a table
         let lex_sorted_sort_exprs_tracked_table = piop_tree
-            .tracked_table(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
+            .tracked_table(&self.node_id, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
                     "missing {} table for sort node {}",
-                    SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                    LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
 
@@ -273,7 +273,6 @@ where
             sort_expr_cols.insert(field.clone(), poly);
         }
         let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
-
         let sort_exprs_tracked_table = TrackedTable::new(
             None,
             sort_expr_cols.clone(),
@@ -281,12 +280,12 @@ where
         );
 
         let shifted_lex_sorted_sort_exprs_tracked_table = piop_tree
-            .tracked_table(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
+            .tracked_table(&self.node_id, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
                     "missing {} table for sort node {}",
-                    SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                    SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
 
@@ -462,12 +461,12 @@ where
         // We also wire the lexicographically sorted version of the sort expressions,
         // assembled in a table
         let lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id, SORT_EXPRESSIONS_PLAN_KEY)
+            .tracked_table_oracle(&self.node_id, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
                     "missing {} table for sort node {}",
-                    SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                    LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
 
@@ -517,12 +516,12 @@ where
         );
 
         let shifted_lex_sorted_sort_exprs_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id, SHIFTED_SORT_EXPRESSIONS_PLAN_KEY)
+            .tracked_table_oracle(&self.node_id, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
             .cloned()
             .unwrap_or_else(|| {
                 panic!(
                     "missing {} table for sort node {}",
-                    SHIFTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
+                    SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
 
