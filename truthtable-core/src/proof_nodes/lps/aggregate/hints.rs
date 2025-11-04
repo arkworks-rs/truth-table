@@ -113,10 +113,18 @@ fn build_grouping_columns_plan(
         .map(|field| field.name().clone())
         .collect();
 
-    let projection_exprs: Vec<df::Expr> = group_field_names
+    let mut projection_exprs: Vec<df::Expr> = group_field_names
         .iter()
         .map(|name| df::col(name.clone()))
         .collect();
+
+    if aggregate_output_plan
+        .schema()
+        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        .is_ok()
+    {
+        projection_exprs.push(df::col(ACTIVATOR_COL_NAME));
+    }
 
     let projected = LogicalPlanBuilder::from(aggregate_output_plan.clone())
         .project(projection_exprs)

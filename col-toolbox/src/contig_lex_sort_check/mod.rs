@@ -111,7 +111,6 @@ where
         let activator_tracked_poly = input.tracked_table.activator_tracked_poly();
         let num_vars = input.tracked_table.log_size();
 
-
         let mut current_diff_col: Option<TrackedCol<F, MvPCS, UvPCS>> = None;
 
         for i in 0..num_cols {
