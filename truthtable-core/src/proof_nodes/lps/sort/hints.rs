@@ -16,12 +16,14 @@ pub(super) fn build_sort_hint_generation_plans(
 ) -> IndexMap<String, HintGenerationPlan> {
     let normalized_sorts = normalize_sort_expressions(sort_plan, &base_plan);
 
-    let sorted_plan = build_sorted_plan(base_plan, sort_plan, &normalized_sorts);
-    let sorted_output_plan = project_sorted_output_plan(&sorted_plan);
-    let sort_expressions_plan = build_sort_expressions_plan(&sorted_plan, &normalized_sorts);
-    let shifted_sort_expressions_plan = build_shifted_sort_expressions_plan(&sort_expressions_plan);
+    let sort_expr_plan = build_sorted_plan(base_plan, sort_plan, &normalized_sorts);
+    let sorted_output_plan = project_sorted_output_plan(&sort_expr_plan);
+    let lex_sorted_sort_expressions_plan =
+        build_sort_expressions_plan(&sort_expr_plan, &normalized_sorts);
+    let shifted_lex_sorted_sort_expressions_plan =
+        build_shifted_sort_expressions_plan(&lex_sorted_sort_expressions_plan);
     let tie_indicator_plan =
-        build_tie_indicator_plan(&sort_expressions_plan, normalized_sorts.len());
+        build_tie_indicator_plan(&lex_sorted_sort_expressions_plan, normalized_sorts.len());
 
     let mut plans = IndexMap::new();
     plans.insert(
@@ -32,14 +34,14 @@ pub(super) fn build_sort_hint_generation_plans(
         super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
         HintGenerationPlan::new_materialized(
             super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            sort_expressions_plan.clone(),
+            lex_sorted_sort_expressions_plan.clone(),
         ),
     );
     plans.insert(
         super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
         HintGenerationPlan::new_materialized(
             super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            shifted_sort_expressions_plan,
+            shifted_lex_sorted_sort_expressions_plan,
         ),
     );
     if let Some(tie_plan) = tie_indicator_plan {
