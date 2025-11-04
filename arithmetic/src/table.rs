@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
@@ -68,6 +68,63 @@ where
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
             .collect::<IndexMap<_, _>>();
         Self::new(self.schema.clone(), tracked_polys, self.log_size)
+    }
+}
+
+impl<F, MvPCS, UvPCS> fmt::Display for TrackedTable<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        let mut first_col = true;
+
+        for (field, poly) in self.tracked_polys.iter() {
+            if !first_col {
+                write!(f, ", ")?;
+            } else {
+                first_col = false;
+            }
+
+            let evaluations = poly.evaluations();
+            let formatted_values = if evaluations.len() <= 10 {
+                evaluations
+                    .iter()
+                    .map(|val| format!("{:?}", val))
+                    .collect::<Vec<_>>()
+            } else {
+                let mut values = Vec::with_capacity(11);
+                values.extend(
+                    evaluations
+                        .iter()
+                        .take(5)
+                        .map(|val| format!("{:?}", val)),
+                );
+                values.push("...".to_string());
+                values.extend(
+                    evaluations
+                        .iter()
+                        .rev()
+                        .take(5)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .map(|val| format!("{:?}", val)),
+                );
+                values
+            };
+
+            write!(
+                f,
+                "{}: [{}]",
+                field.name(),
+                formatted_values.join(", ")
+            )?;
+        }
+
+        write!(f, "}}")
     }
 }
 

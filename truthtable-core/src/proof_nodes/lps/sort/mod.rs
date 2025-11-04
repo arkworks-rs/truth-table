@@ -31,7 +31,10 @@ use ark_piop::{
     prover::structs::polynomial::TrackedPoly,
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use datafusion::{arrow::datatypes::FieldRef, prelude::SessionContext};
+use datafusion::{
+    arrow::datatypes::{DataType, Field, FieldRef},
+    prelude::SessionContext,
+};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput};
@@ -272,6 +275,12 @@ where
 
             sort_expr_cols.insert(field.clone(), poly);
         }
+        if tracked_table.activator_tracked_poly().is_some() {
+            sort_expr_cols.insert(
+                FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::UInt64, false)),
+                tracked_table.activator_tracked_poly().unwrap(),
+            );
+        };
         let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
         let sort_exprs_tracked_table = TrackedTable::new(
             None,
@@ -288,7 +297,6 @@ where
                     SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
-        dbg!(shifted_lex_sorted_sort_exprs_tracked_table.tracked_polys());
 
         let tie_indicators_tracked_table = if self.sort_exprs.len() == 1 {
             None

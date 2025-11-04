@@ -26,7 +26,7 @@ pub(super) fn lex_sort_prove<
     input: &SortPIOPProverInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {
-        tracked_table: input.lex_sorted_tracked_table.clone(),
+        tracked_table: input.lex_sorted_sort_exprs_tracked_table.clone(),
         tie_indicator_tracked_table: input.tie_indicators_tracked_table.clone(),
         shift_tracked_table: input.shifted_lex_sorted_sort_exprs_tracked_table.clone(),
         ascending: input.ascending_vec.clone(),
@@ -45,7 +45,7 @@ pub(super) fn lex_sort_verify<
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {
-        tracked_table_oracle: input.lex_sorted_tracked_table_oracle.clone(),
+        tracked_table_oracle: input.lex_sorted_sort_exprs_tracked_table_oracle.clone(),
         tie_indicator_tracked_table_oracle: input.tie_indicators_tracked_table_oracle.clone(),
         shift_tracked_table_oracle: input
             .shifted_lex_sorted_sort_exprs_tracked_table_oracle

@@ -1,3 +1,4 @@
+use arithmetic::ACTIVATOR_COL_NAME;
 use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
 use datafusion::logical_expr::{
     self as df,
@@ -101,13 +102,21 @@ fn build_lex_sorted_sort_exprs_plan(
     sorted_plan: &LogicalPlan,
     normalized_sorts: &[DFSortExpr],
 ) -> LogicalPlan {
-    let sort_projection_exprs: Vec<df::Expr> = normalized_sorts
+    let mut projection_exprs: Vec<df::Expr> = normalized_sorts
         .iter()
         .map(|sort_expr| sort_expr.expr.clone())
         .collect();
 
+    if sorted_plan
+        .schema()
+        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        .is_ok()
+    {
+        projection_exprs.push(df::col(ACTIVATOR_COL_NAME));
+    }
+
     LogicalPlanBuilder::from(sorted_plan.clone())
-        .project(sort_projection_exprs)
+        .project(projection_exprs)
         .expect("failed to project sort expressions for hint plan")
         .build()
         .expect("failed to build sort expressions hint plan")
