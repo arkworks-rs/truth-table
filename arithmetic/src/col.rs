@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 use ark_ff::PrimeField;
 
@@ -48,6 +48,80 @@ where
             .field("has_activator", &self.activator_tracked_poly.is_some())
             .field("field_ref", &self.field_ref)
             .finish()
+    }
+}
+
+impl<F, MvPCS, UvPCS> fmt::Display for TrackedCol<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let field_name = self
+            .field_ref
+            .as_ref()
+            .map(|field| field.name().to_string())
+            .unwrap_or_else(|| "<unnamed>".to_string());
+
+        let data_evals = self.data_tracked_poly.evaluations();
+        let data_repr = if data_evals.is_empty() {
+            "[]".to_string()
+        } else if data_evals.len() <= 2 {
+            format!(
+                "[{}]",
+                data_evals
+                    .iter()
+                    .map(|v| format!("{:?}", v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            format!("{:?} ... {:?}", data_evals.first().unwrap(), data_evals.last().unwrap())
+        };
+
+        let activator_repr = match &self.activator_tracked_poly {
+            Some(poly) => {
+                let evals = poly.evaluations();
+                if evals.len() <= 10 {
+                    format!(
+                        "[{}]",
+                        evals
+                            .iter()
+                            .map(|v| format!("{:?}", v))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                } else {
+                    let mut values = Vec::with_capacity(11);
+                    values.extend(
+                        evals
+                            .iter()
+                            .take(5)
+                            .map(|val| format!("{:?}", val)),
+                    );
+                    values.push("...".to_string());
+                    values.extend(
+                        evals
+                            .iter()
+                            .rev()
+                            .take(5)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .map(|val| format!("{:?}", val)),
+                    );
+                    format!("[{}]", values.join(", "))
+                }
+            }
+            None => "none".to_string(),
+        };
+
+        write!(
+            f,
+            "{}: data={}, activator={}",
+            field_name, data_repr, activator_repr
+        )
     }
 }
 

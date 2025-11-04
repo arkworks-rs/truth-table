@@ -1,11 +1,27 @@
 use arithmetic::ACTIVATOR_COL_NAME;
 use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
-use datafusion::logical_expr::{
-    self as df,
-    expr_rewriter::{normalize_sorts, unnormalize_col},
+use datafusion::{
+    common::{DataFusionError, Result, ScalarValue},
+    logical_expr::{
+        self as df,
+        expr_rewriter::{normalize_sorts, unnormalize_col},
+    },
 };
-use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr};
+use datafusion_expr::{
+    col,
+    expr::Sort as DFSortExpr,
+    expr_fn::binary_expr,
+    lit,
+    Expr,
+    ExprFunctionExt,
+    LogicalPlan,
+    LogicalPlanBuilder,
+    Operator,
+    Sort,
+};
+use datafusion_functions_window::expr_fn::lead;
 use indexmap::IndexMap;
+
 
 pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
 pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str =
@@ -24,7 +40,7 @@ pub(super) fn build_sort_hint_generation_plans(
     let shifted_lex_sorted_sort_expressions_plan =
         build_shifted_lex_sorted_sort_exprs_plan(&lex_sorted_sort_expressions_plan);
     let tie_indicator_plan =
-        build_tie_indicator_plan(&lex_sorted_sort_expressions_plan, normalized_sorts.len());
+        build_tie_indicator_plan(&sort_expr_plan, normalized_sorts.len());
 
     let mut plans = IndexMap::new();
     plans.insert(
@@ -144,23 +160,99 @@ fn build_shifted_lex_sorted_sort_exprs_plan(sort_expressions_plan: &LogicalPlan)
         .expect("failed to build shifted sort expressions plan")
 }
 
-fn build_tie_indicator_plan(
+/// Build a plan that emits `tie_1 .. tie_{num_sort_exprs-1}` as booleans.
+/// `sort_expressions_plan` must be a top-level LogicalPlan::Sort.
+/// Each tie_i(j) is true iff the prefix of i ORDER BY expressions at row j
+/// IS NOT DISTINCT FROM the same prefix at row j+1.
+pub fn build_tie_indicator_plan(
     sort_expressions_plan: &LogicalPlan,
     num_sort_exprs: usize,
 ) -> Option<LogicalPlan> {
+    build_tie_indicator_plan_impl(sort_expressions_plan, num_sort_exprs)
+        .ok()
+        .flatten()
+}
+
+fn build_tie_indicator_plan_impl(
+    sort_plan: &LogicalPlan,
+    num_sort_exprs: usize,
+) -> Result<Option<LogicalPlan>> {
+    let order_by_exprs = match sort_plan {
+        LogicalPlan::Sort(Sort { expr, .. }) => expr.clone(),
+        _ => {
+            return Err(DataFusionError::Plan(
+                "build_tie_indicator_plan expects a top-level Sort plan".into(),
+            ));
+        },
+    };
+
     if num_sort_exprs <= 1 {
-        return None;
+        return Ok(None);
     }
 
-    let tie_projection_exprs: Vec<df::Expr> = (0..(num_sort_exprs - 1))
-        .map(|idx| df::lit(false).alias(format!("tie_indicator_{idx}")))
-        .collect();
+    if num_sort_exprs > order_by_exprs.len() {
+        return Err(DataFusionError::Plan(format!(
+            "num_sort_exprs ({}) exceeds number of ORDER BY expressions ({})",
+            num_sort_exprs,
+            order_by_exprs.len()
+        )));
+    }
 
-    Some(
-        LogicalPlanBuilder::from(sort_expressions_plan.clone())
-            .project(tie_projection_exprs)
-            .expect("failed to project tie indicator expressions for hint plan")
-            .build()
-            .expect("failed to build tie indicator hint plan"),
-    )
+    let mut window_exprs: Vec<Expr> = Vec::with_capacity(num_sort_exprs + 1);
+    let order_by_clone = order_by_exprs.clone();
+
+    for (index, sort_expr) in order_by_exprs.iter().take(num_sort_exprs).enumerate() {
+        let alias = next_alias(index);
+        let lead_expr = lead(sort_expr.expr.clone(), Some(1), None)
+            .order_by(order_by_clone.clone())
+            .build()?
+            .alias(&alias);
+        window_exprs.push(lead_expr);
+    }
+
+    const HAS_NEXT_ALIAS: &str = "__has_next_row__";
+    let has_next_expr = lead(lit(true), Some(1), Some(ScalarValue::Boolean(Some(false))))
+        .order_by(order_by_exprs.clone())
+        .build()?
+        .alias(HAS_NEXT_ALIAS);
+    window_exprs.push(has_next_expr);
+
+    let with_window = LogicalPlanBuilder::from(sort_plan.clone())
+        .window(window_exprs)?
+        .build()?;
+
+    let mut tie_cols: Vec<Expr> = Vec::with_capacity(num_sort_exprs - 1);
+    for i in 1..num_sort_exprs {
+        let mut predicates: Vec<Expr> = Vec::with_capacity(i);
+        for k in 0..i {
+            let lhs = order_by_exprs[k].expr.clone();
+            let rhs = col(&next_alias(k));
+            predicates.push(binary_expr(lhs, Operator::IsNotDistinctFrom, rhs));
+        }
+        let prefix_match = and_all(predicates);
+        let tie_expr = col(HAS_NEXT_ALIAS)
+            .and(prefix_match)
+            .alias(&format!("tie_{}", i));
+        tie_cols.push(tie_expr);
+    }
+
+    let projected = LogicalPlanBuilder::from(with_window)
+        .project(tie_cols)?
+        .build()?;
+
+    Ok(Some(projected))
+}
+
+fn next_alias(k: usize) -> String {
+    format!("__next_ord_{}", k)
+}
+
+fn and_all(mut exprs: Vec<Expr>) -> Expr {
+    assert!(!exprs.is_empty());
+    let mut it = exprs.drain(..);
+    let mut acc = it.next().unwrap();
+    for e in it {
+        acc = acc.and(e);
+    }
+    acc
 }
