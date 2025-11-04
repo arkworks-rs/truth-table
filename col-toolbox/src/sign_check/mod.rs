@@ -21,8 +21,11 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
-    verifier::{Verifier, structs::oracle::Oracle},
+    prover::{Prover, structs::polynomial::TrackedPoly},
+    verifier::{
+        Verifier,
+        structs::oracle::{Oracle, TrackedOracle},
+    },
 };
 use ark_poly::Polynomial;
 use ark_std::{cfg_iter, end_timer, start_timer};
@@ -316,6 +319,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     )?;
                 }
             },
+
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
                 let top_inclusion_check_input = InclusionCheckProverInput {
@@ -330,6 +334,33 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment],
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
+            },
+            DataType::Decimal128(..) => {
+                let chunks = Self::prove_non_neg_int128(prover, col)?;
+                let (top, rest) = chunks.split_first().expect("chunks non-empty");
+                let top_inclusion_check_input = InclusionCheckProverInput {
+                    included_cols: vec![top.clone()],
+                    super_col: TrackedCol::new(
+                        prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
+                        None,
+                        None,
+                    ),
+                };
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
+                for segment in rest {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_cols: vec![segment.clone()],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
                             None,
@@ -523,6 +554,38 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
                         verifier,
                         inclusion_check_verifier_input,
+                    )?;
+                }
+            },
+
+            DataType::Decimal128(..) => {
+                let (top, rest) = Self::verify_non_neg_int128(verifier, tracked_col_oracle)?;
+                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                    verifier,
+                    InclusionCheckVerifierInput {
+                        included_tracked_col_oracles: vec![top],
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(15)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    },
+                )?;
+                for segment in rest {
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        InclusionCheckVerifierInput {
+                            included_tracked_col_oracles: vec![segment],
+                            super_tracked_col_oracle: TrackedColOracle::new(
+                                verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                    Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                                })),
+                                None,
+                                None,
+                            ),
+                        },
                     )?;
                 }
             },
@@ -1054,6 +1117,173 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok((chunk3_oracle, chunk2_oracle, chunk1_oracle, chunk0_oracle))
     }
 
+    #[allow(clippy::complexity)]
+    pub fn prove_non_neg_uint128(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk_values: Vec<Vec<F>> = (0..8)
+            .map(|_| Vec::with_capacity(evaluations.len()))
+            .collect();
+
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_unsigned(eval, 128);
+            for (target, chunk) in chunk_values
+                .iter_mut()
+                .zip(Self::split_u128_into_u16s(n).into_iter())
+            {
+                target.push(F::from(chunk as u64));
+            }
+        }
+
+        let mut chunk_polys = Vec::with_capacity(8);
+        for values in chunk_values {
+            let poly = prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, values))?;
+            chunk_polys.push(poly);
+        }
+
+        let recomposed = Self::recompose_tracked_polys(&chunk_polys);
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+
+        let activator = col.activator_tracked_poly();
+        let field_ref = col.field_ref().clone();
+        let tracked_cols = chunk_polys
+            .into_iter()
+            .map(|poly| TrackedCol::new(poly, activator.clone(), field_ref.clone()))
+            .collect();
+
+        Ok(tracked_cols)
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn verify_non_neg_uint128(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
+
+        let mut chunk_polys = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let chunk_id = verifier.peek_next_id();
+            let chunk_poly = verifier.track_mv_com_by_id(chunk_id)?;
+            chunk_polys.push(chunk_poly);
+        }
+
+        let recomposed = Self::recompose_tracked_oracles(&chunk_polys);
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        verifier.add_zerocheck_claim(zero_poly.id());
+
+        let field_ref = tracked_col_oracle.field_ref().clone();
+        let tracked_cols = chunk_polys
+            .into_iter()
+            .map(|poly| TrackedColOracle::new(poly, col_activator.clone(), field_ref.clone()))
+            .collect();
+
+        Ok(tracked_cols)
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn prove_non_neg_int128(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk_values: Vec<Vec<F>> = (0..8)
+            .map(|_| Vec::with_capacity(evaluations.len()))
+            .collect();
+
+        for &eval in evaluations.iter() {
+            let n = Self::field_low_bits_signed(eval, 128);
+            for (target, chunk) in chunk_values
+                .iter_mut()
+                .zip(Self::split_i128_into_u16s(n).into_iter())
+            {
+                target.push(F::from(chunk as u64));
+            }
+        }
+
+        let mut chunk_polys = Vec::with_capacity(8);
+        for values in chunk_values {
+            let poly = prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, values))?;
+            chunk_polys.push(poly);
+        }
+
+        let recomposed = Self::recompose_tracked_polys(&chunk_polys);
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+
+        let activator = col.activator_tracked_poly();
+        let field_ref = col.field_ref().clone();
+        let tracked_cols = chunk_polys
+            .into_iter()
+            .map(|poly| TrackedCol::new(poly, activator.clone(), field_ref.clone()))
+            .collect();
+
+        Ok(tracked_cols)
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn verify_non_neg_int128(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<(
+        TrackedColOracle<F, MvPCS, UvPCS>,
+        Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
+    )> {
+        let segments = Self::verify_non_neg_uint128(verifier, tracked_col_oracle)?;
+        let mut iter = segments.into_iter();
+        let top = iter
+            .next()
+            .expect("chunked integer representation must be non-empty");
+        let rest = iter.collect();
+        Ok((top, rest))
+    }
+
+    fn recompose_tracked_polys(
+        chunks: &[TrackedPoly<F, MvPCS, UvPCS>],
+    ) -> TrackedPoly<F, MvPCS, UvPCS> {
+        debug_assert!(!chunks.is_empty());
+        let base = F::from(1u64 << 16);
+        let mut iter = chunks.iter();
+        let mut acc = iter.next().unwrap().clone();
+        for chunk in iter {
+            acc = &(&acc * base) + chunk;
+        }
+        acc
+    }
+
+    fn recompose_tracked_oracles(
+        chunks: &[TrackedOracle<F, MvPCS, UvPCS>],
+    ) -> TrackedOracle<F, MvPCS, UvPCS> {
+        debug_assert!(!chunks.is_empty());
+        let base = F::from(1u64 << 16);
+        let mut iter = chunks.iter();
+        let mut acc = iter.next().unwrap().clone();
+        for chunk in iter {
+            acc = &(&acc * base) + chunk;
+        }
+        acc
+    }
+
     fn split_u32_into_u16s(n: u32) -> [u16; 4] {
         let chunk0 = (n & 0xFFFF) as u16;
         let chunk1 = ((n >> 16) & 0xFFFF) as u16;
@@ -1085,6 +1315,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let chunk2 = ((bits >> 32) & 0xFFFF) as u16;
         let chunk3 = ((bits >> 48) & 0xFFFF) as u16;
         [chunk3, chunk2, chunk1, chunk0]
+    }
+
+    fn split_u128_into_u16s(n: u128) -> [u16; 8] {
+        [
+            ((n >> 112) & 0xFFFF) as u16,
+            ((n >> 96) & 0xFFFF) as u16,
+            ((n >> 80) & 0xFFFF) as u16,
+            ((n >> 64) & 0xFFFF) as u16,
+            ((n >> 48) & 0xFFFF) as u16,
+            ((n >> 32) & 0xFFFF) as u16,
+            ((n >> 16) & 0xFFFF) as u16,
+            (n & 0xFFFF) as u16,
+        ]
+    }
+
+    fn split_i128_into_u16s(n: i128) -> [u16; 8] {
+        let bits = n as u128;
+        Self::split_u128_into_u16s(bits)
     }
 
     fn field_low_bits_unsigned(value: F, bits: usize) -> u128 {
