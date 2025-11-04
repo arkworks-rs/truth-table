@@ -26,17 +26,17 @@ WHERE l_suppkey > 1000
 ORDER BY 4 +  (l_suppkey * 7 + 3) DESC, l_suppkey ASC;"#,
     groupby_sort => r#"
 SELECT
-    l_returnflag,
-    l_linestatus,
+    l_shipdate,
+    l_commitdate,
     SUM(l_extendedprice * (1 - l_discount)) AS revenue,
     COUNT(*) AS row_count
 FROM lineitem
 GROUP BY
-    l_returnflag,
-    l_linestatus
+    l_shipdate,
+    l_commitdate
 ORDER BY
-    l_returnflag,
-    l_linestatus;
+    l_shipdate,
+    l_commitdate;
     "#,
 ]);
 

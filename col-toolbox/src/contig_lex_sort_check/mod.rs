@@ -134,6 +134,7 @@ where
                 selector_col
             };
 
+
             let local_single_col_sort_check_prover_input = LocalSingleColSortCheckProverInput {
                 tracked_col,
                 tie_indicator_col,

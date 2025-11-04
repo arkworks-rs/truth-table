@@ -344,7 +344,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
 
             _ => {
-                return Err(SnarkError::DummyError);
+                return Err(SnarkError::DataTypeNotSupported);
             },
         }
         Ok(())
@@ -530,7 +530,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             },
 
             _ => {
-                return Err(SnarkError::DummyError);
+                return Err(SnarkError::DataTypeNotSupported);
             },
         }
         Ok(())
