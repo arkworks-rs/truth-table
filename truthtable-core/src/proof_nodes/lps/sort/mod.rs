@@ -9,7 +9,7 @@ use crate::{
         lps::sort::{
             self,
             hints::{
-                SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
+                LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
                 TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
             },
         },
@@ -288,6 +288,7 @@ where
                     SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
                 )
             });
+        dbg!(shifted_lex_sorted_sort_exprs_tracked_table.tracked_polys());
 
         let tie_indicators_tracked_table = if self.sort_exprs.len() == 1 {
             None

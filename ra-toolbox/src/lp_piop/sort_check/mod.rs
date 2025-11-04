@@ -149,7 +149,7 @@ where
         perm_prove(prover, &input)?;
 
         // Second, Prove that the sorted exprs are actually sorted lexicographically
-        // lex_sort_prove(prover, &input)?;
+        lex_sort_prove(prover, &input)?;
         Ok(())
     }
 
@@ -162,7 +162,7 @@ where
         // table coupled with the sorted expressions
         perm_verify(verifier, &input)?;
         // Second, Verify that the sorted exprs are actually sorted lexicographically
-        // lex_sort_verify(verifier, &input)?;
+        lex_sort_verify(verifier, &input)?;
         Ok(())
     }
 }

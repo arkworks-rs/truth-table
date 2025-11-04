@@ -7,7 +7,8 @@ use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, expr::Sort as DFSortExpr}
 use indexmap::IndexMap;
 
 pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
-pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__shifted_lex_sort_expressions__";
+pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str =
+    "__shifted_lex_sort_expressions__";
 pub(super) const TIE_INDICATOR_PLAN_KEY: &str = "__tie_indicators__";
 pub(super) fn build_sort_hint_generation_plans(
     base_plan: LogicalPlan,
@@ -44,7 +45,10 @@ pub(super) fn build_sort_hint_generation_plans(
     if let Some(tie_plan) = tie_indicator_plan {
         plans.insert(
             super::TIE_INDICATOR_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(super::TIE_INDICATOR_PLAN_KEY.to_string(), tie_plan),
+            HintGenerationPlan::new_materialized(
+                super::TIE_INDICATOR_PLAN_KEY.to_string(),
+                tie_plan,
+            ),
         );
     }
 
@@ -108,21 +112,25 @@ fn build_sort_expressions_plan(
 }
 
 fn build_shifted_sort_expressions_plan(sort_expressions_plan: &LogicalPlan) -> LogicalPlan {
-    let shifted_projection_exprs: Vec<df::Expr> = sort_expressions_plan
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let alias_name = format!("{}_shift", field.name());
-            df::col(field.name()).alias(alias_name)
-        })
-        .collect();
-
-    LogicalPlanBuilder::from(sort_expressions_plan.clone())
-        .project(shifted_projection_exprs)
-        .expect("failed to project shifted sort expressions for hint plan")
+    // Skip the first row so row i becomes row i+1 for i >= 0
+    let tail_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
+        .limit(1, None)
+        .expect("failed to skip first row for shifted sort expressions plan")
         .build()
-        .expect("failed to build shifted sort expressions hint plan")
+        .expect("failed to build shifted tail plan");
+
+    // Capture the first row so it can wrap around to the end
+    let head_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
+        .limit(0, Some(1))
+        .expect("failed to limit first row for shifted sort expressions plan")
+        .build()
+        .expect("failed to build shifted head plan");
+
+    LogicalPlanBuilder::from(tail_plan)
+        .union(head_plan)
+        .expect("failed to union shifted sort expression parts")
+        .build()
+        .expect("failed to build shifted sort expressions plan")
 }
 
 fn build_tie_indicator_plan(
