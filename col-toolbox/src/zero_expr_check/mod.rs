@@ -114,7 +114,6 @@ where
             prover,
             NoZerosCheckProverInput { col: non_zero_col },
         )?;
-
         Ok(())
     }
 
