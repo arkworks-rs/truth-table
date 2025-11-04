@@ -10,6 +10,8 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
+#[cfg(debug_assertions)]
+use ark_ff::Zero;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -44,6 +46,9 @@ where
     pub input_prover_node: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
     /// The unique identifier for this node.
     pub node_id: NodeId,
+    /// The DataFusion expression representing the predicate; cached so we can
+    /// rebuild logical plans without relying on node ids.
+    pub predicate_expr: Expr,
 }
 
 /// The implementation of a filter node in the verification proof tree.
@@ -59,6 +64,8 @@ where
     pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     /// The unique identifier for this node.
     pub node_id: NodeId,
+    /// Cached predicate expression (see prover counterpart comment).
+    pub predicate_expr: Expr,
 }
 
 impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
@@ -105,6 +112,7 @@ where
             predicate_prover_node,
             input_prover_node,
             node_id,
+            predicate_expr: filter.predicate.clone(),
         }
     }
 
@@ -135,14 +143,8 @@ where
         let activator_dtype = activator_field.data_type().clone();
 
         // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-        let try_bool_and = df::and(
-            df::col(ACTIVATOR_COL_NAME),
-            self.predicate_prover_node
-                .node_id()
-                .to_expr()
-                .cloned()
-                .unwrap(),
-        );
+        let predicate_expr = self.predicate_expr.clone();
+        let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
         let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
             try_bool_and.alias(ACTIVATOR_COL_NAME)
         } else {
@@ -154,16 +156,9 @@ where
             let zero = df::lit(0)
                 .cast_to(&activator_dtype, schema.as_ref())
                 .unwrap();
-            let mask = df::when(
-                self.predicate_prover_node
-                    .node_id()
-                    .to_expr()
-                    .cloned()
-                    .unwrap(),
-                one.clone(),
-            )
-            .otherwise(zero.clone())
-            .unwrap();
+            let mask = df::when(predicate_expr.clone(), one.clone())
+                .otherwise(zero.clone())
+                .unwrap();
 
             // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
             // replacement
@@ -172,17 +167,10 @@ where
                 try_bit_and.alias(ACTIVATOR_COL_NAME)
             } else {
                 // CASE WHEN predicate THEN activator ELSE 0
-                df::when(
-                    self.predicate_prover_node
-                        .node_id()
-                        .to_expr()
-                        .cloned()
-                        .unwrap(),
-                    df::col(ACTIVATOR_COL_NAME),
-                )
-                .otherwise(zero)
-                .unwrap()
-                .alias(ACTIVATOR_COL_NAME)
+                df::when(predicate_expr, df::col(ACTIVATOR_COL_NAME))
+                    .otherwise(zero)
+                    .unwrap()
+                    .alias(ACTIVATOR_COL_NAME)
             }
         };
 
@@ -244,6 +232,7 @@ where
         let predicate_tracked_col = predicate_table.tracked_col_by_ind(0);
         // Fetch the predicate tracked polynomial from the predicate tracked column
         let mut predicate_tracked_poly = predicate_tracked_col.data_tracked_poly();
+
         // update the predicate tracked polynomial by multiplying it with its own
         // activator
         if let Some(pred_activator) = predicate_tracked_col.activator_tracked_poly() {
@@ -254,6 +243,7 @@ where
         if let Some(input_activator) = input_table.activator_tracked_poly() {
             predicate_tracked_poly = &predicate_tracked_poly * &input_activator;
         }
+
         // Create a field for the activator column
         let activator_field = Field::new(
             ACTIVATOR_COL_NAME,
@@ -362,6 +352,7 @@ where
             predicate_verifier_node,
             input_verifier_node,
             node_id,
+            predicate_expr: filter.predicate.clone(),
         }
     }
 
@@ -392,14 +383,8 @@ where
         let activator_dtype = activator_field.data_type().clone();
 
         // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-        let try_bool_and = df::and(
-            df::col(ACTIVATOR_COL_NAME),
-            self.predicate_verifier_node
-                .node_id()
-                .to_expr()
-                .cloned()
-                .unwrap(),
-        );
+        let predicate_expr = self.predicate_expr.clone();
+        let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
         let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
             try_bool_and.alias(ACTIVATOR_COL_NAME)
         } else {
@@ -411,16 +396,9 @@ where
             let zero = df::lit(0)
                 .cast_to(&activator_dtype, schema.as_ref())
                 .unwrap();
-            let mask = df::when(
-                self.predicate_verifier_node
-                    .node_id()
-                    .to_expr()
-                    .cloned()
-                    .unwrap(),
-                one.clone(),
-            )
-            .otherwise(zero.clone())
-            .unwrap();
+            let mask = df::when(predicate_expr.clone(), one.clone())
+                .otherwise(zero.clone())
+                .unwrap();
 
             // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
             // replacement
@@ -429,17 +407,10 @@ where
                 try_bit_and.alias(ACTIVATOR_COL_NAME)
             } else {
                 // CASE WHEN predicate THEN activator ELSE 0
-                df::when(
-                    self.predicate_verifier_node
-                        .node_id()
-                        .to_expr()
-                        .cloned()
-                        .unwrap(),
-                    df::col(ACTIVATOR_COL_NAME),
-                )
-                .otherwise(zero)
-                .unwrap()
-                .alias(ACTIVATOR_COL_NAME)
+                df::when(predicate_expr, df::col(ACTIVATOR_COL_NAME))
+                    .otherwise(zero)
+                    .unwrap()
+                    .alias(ACTIVATOR_COL_NAME)
             }
         };
 

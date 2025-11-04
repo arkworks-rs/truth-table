@@ -247,7 +247,6 @@ where
         if expr_tables.is_empty() {
             return;
         }
-
         let table_size = expr_tables[0].size();
         let table_log_size = expr_tables[0].log_size();
         if expr_tables.iter().any(|table| table.size() != table_size) {
@@ -267,21 +266,23 @@ where
             data_columns.insert(field.clone(), poly.clone());
         }
 
-        let activator_pair = expr_tables[0]
-            .tracked_polys()
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| (field.clone(), poly.clone()))
+        let activator_pair = piop_tree
+            .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
+            .and_then(|table| {
+                table
+                    .tracked_polys()
+                    .iter()
+                    .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+                    .map(|(field, poly)| (field.clone(), poly.clone()))
+            })
             .or_else(|| {
-                piop_tree
-                    .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .and_then(|table| {
-                        table
-                            .tracked_polys()
-                            .iter()
-                            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-                            .map(|(field, poly)| (field.clone(), poly.clone()))
-                    })
+                expr_tables.iter().find_map(|table| {
+                    table
+                        .tracked_polys()
+                        .iter()
+                        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+                        .map(|(field, poly)| (field.clone(), poly.clone()))
+                })
             })
             .expect("activator column not found for projection");
 
@@ -481,23 +482,26 @@ where
             data_columns.insert(field.clone(), poly.clone());
         }
 
-        let activator_pair = expr_tables[0]
-            .tracked_oracles()
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .map(|(field, poly)| (field.clone(), poly.clone()))
+        let activator_pair = piop_tree
+            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
+            .and_then(|table| {
+                table
+                    .tracked_oracles()
+                    .iter()
+                    .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+                    .map(|(field, poly)| (field.clone(), poly.clone()))
+            })
             .or_else(|| {
-                piop_tree
-                    .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-                    .and_then(|table| {
-                        table
-                            .tracked_oracles()
-                            .iter()
-                            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-                            .map(|(field, poly)| (field.clone(), poly.clone()))
-                    })
+                expr_tables.iter().find_map(|table| {
+                    table
+                        .tracked_oracles()
+                        .iter()
+                        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+                        .map(|(field, poly)| (field.clone(), poly.clone()))
+                })
             })
             .expect("activator column not found for projection");
+
         let (activator_field, activator_oracle) = activator_pair;
         data_columns.insert(activator_field.clone(), activator_oracle);
 
