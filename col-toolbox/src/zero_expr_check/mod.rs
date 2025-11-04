@@ -110,7 +110,6 @@ where
 
         let non_zero_col = TrackedCol::new(tracked_data, gated_activator, tracked_col.field_ref());
 
-
         NoZerosCheck::<F, MvPCS, UvPCS>::prove(
             prover,
             NoZerosCheckProverInput { col: non_zero_col },

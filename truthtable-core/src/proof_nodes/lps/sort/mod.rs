@@ -1,4 +1,4 @@
-mod hints;
+pub(crate) mod hints;
 #[cfg(test)]
 mod tests;
 use crate::{

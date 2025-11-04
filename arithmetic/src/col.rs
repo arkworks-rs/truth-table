@@ -77,7 +77,11 @@ where
                     .join(", ")
             )
         } else {
-            format!("{:?} ... {:?}", data_evals.first().unwrap(), data_evals.last().unwrap())
+            format!(
+                "{:?} ... {:?}",
+                data_evals.first().unwrap(),
+                data_evals.last().unwrap()
+            )
         };
 
         let activator_repr = match &self.activator_tracked_poly {
@@ -94,12 +98,7 @@ where
                     )
                 } else {
                     let mut values = Vec::with_capacity(11);
-                    values.extend(
-                        evals
-                            .iter()
-                            .take(5)
-                            .map(|val| format!("{:?}", val)),
-                    );
+                    values.extend(evals.iter().take(5).map(|val| format!("{:?}", val)));
                     values.push("...".to_string());
                     values.extend(
                         evals
@@ -113,7 +112,7 @@ where
                     );
                     format!("[{}]", values.join(", "))
                 }
-            }
+            },
             None => "none".to_string(),
         };
 

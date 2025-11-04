@@ -11,8 +11,11 @@ use ark_piop::{
     prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
-use col_toolbox::supp_check::{
-    HintedSuppCheckPIOP, HintedSuppCheckProverInput, HintedSuppCheckVerifierInput,
+use col_toolbox::{
+    multi_col_supp_check::{
+        MultiColSuppCheckPIOP, MultiColSuppCheckProverInput, MultiColSuppCheckVerifierInput,
+    },
+    supp_check::{HintedSuppCheckPIOP, HintedSuppCheckProverInput, HintedSuppCheckVerifierInput},
 };
 use datafusion::logical_expr::Aggregate;
 use derivative::Derivative;
@@ -30,6 +33,9 @@ pub struct AggregatePIOPProverInput<
     pub aggregate: Aggregate,
     pub input_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub contig_lex_sorted_output_grouping_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub shifted_contig_lex_sorted_output_grouping_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
     pub grouping_multiplicity_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
@@ -70,6 +76,10 @@ pub struct AggregatePIOPVerifierInput<
     pub aggregate: Aggregate,
     pub input_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub contig_lex_sorted_output_grouping_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub shifted_contig_lex_sorted_output_grouping_tracked_table_oracle:
+        TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
     pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
@@ -118,38 +128,25 @@ where
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let num_gpd_cols = input.input_grouping_table.num_data_tracked_cols();
-        // Generate one random field element for each column being grouped by
-        // This is used to fold these columns to a single random linearly
-        // combined column
-        let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
-            .map(|_| {
-                prover
-                    .get_and_append_challenge(b"Grouping columns folding challeng")
-                    .unwrap()
-            })
-            .collect();
-
-        // Fold the grouping columns of the input and output tables
-        let input_folded_col = input
-            .input_grouping_table
-            .fold_all_data_columns(&gpd_cols_fld_challs);
-        let output_folded_col = input
-            .output_grouping_table
-            .fold_all_data_columns(&gpd_cols_fld_challs);
-
-        // Invoke the support check PIOP to check
-        let supp_check_input = HintedSuppCheckProverInput {
-            col: input_folded_col.clone(),
-            supp: output_folded_col.clone(),
+        let multi_col_supp_check_prover_input = MultiColSuppCheckProverInput {
+            orig_tracked_table: input.input_grouping_table.clone(),
+            supp_tracked_table: input.output_grouping_table.clone(),
+            contig_lex_sorted_supp_tracked_table: input
+                .contig_lex_sorted_output_grouping_tracked_table
+                .clone(),
+            shifted_contig_lex_sorted_supp_tracked_table: input
+                .shifted_contig_lex_sorted_output_grouping_tracked_table
+                .clone(),
+            tie_indicator_tracked_table: input.tie_indicator_tracked_table.clone(),
             multiplicity: input.grouping_multiplicity_tracked_poly.clone(),
         };
-
-        HintedSuppCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, supp_check_input)?;
-
+        let multi_col_supp_check_prover_output = MultiColSuppCheckPIOP::<F, MvPCS, UvPCS>::prove(
+            prover,
+            multi_col_supp_check_prover_input,
+        )?;
         Ok(AggregatePIOPProverOutput {
-            input_folded_tracked_col: input_folded_col,
-            output_folded_tracked_col: output_folded_col,
+            input_folded_tracked_col: multi_col_supp_check_prover_output.orig_folded_tracked_col,
+            output_folded_tracked_col: multi_col_supp_check_prover_output.supp_folded_tracked_col,
         })
     }
 
@@ -157,43 +154,27 @@ where
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let num_gpd_cols = input
-            .input_grouping_table_oracle
-            .num_data_tracked_col_oracles();
-        // Generate one random field element for each column being grouped by
-        // This is used to fold these columns to a single random linearly
-        // combined column
-        let gpd_cols_fld_challs: Vec<F> = (0..num_gpd_cols)
-            .map(|_| {
-                verifier
-                    .get_and_append_challenge(b"Grouping columns folding challeng")
-                    .unwrap()
-            })
-            .collect();
-
-        // Fold the grouping columns of the input and output tables
-
-        let input_folded_col_oracle = input
-            .input_grouping_table_oracle
-            .fold_all_data_oracles(&gpd_cols_fld_challs);
-        let output_folded_col_oracle = input
-            .output_grouping_table_oracle
-            .fold_all_data_oracles(&gpd_cols_fld_challs);
-
-        // Invoke the support check PIOP to check
-        let supp_check_input = HintedSuppCheckVerifierInput {
-            col: input_folded_col_oracle.clone(),
-            supp: output_folded_col_oracle.clone(),
+        let multi_col_supp_check_verifier_input = MultiColSuppCheckVerifierInput {
+            orig_tracked_table_oracle: input.input_grouping_table_oracle.clone(),
+            supp_tracked_table_oracle: input.output_grouping_table_oracle.clone(),
+            contig_lex_sorted_supp_tracked_table_oracle: input
+                .contig_lex_sorted_output_grouping_tracked_table_oracle
+                .clone(),
+            shifted_contig_lex_sorted_supp_tracked_table_oracle: input
+                .shifted_contig_lex_sorted_output_grouping_tracked_table_oracle
+                .clone(),
+            tie_indicator_tracked_table_oracle: input.tie_indicator_tracked_table_oracle.clone(),
             multiplicity: input.grouping_multiplicty_tracked_oracle.clone(),
         };
-
-        HintedSuppCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, supp_check_input)?;
+        let multi_col_supp_check_prover_output = MultiColSuppCheckPIOP::<F, MvPCS, UvPCS>::verify(
+            verifier,
+            multi_col_supp_check_verifier_input,
+        )?;
         Ok(AggregatePIOPVerifierOutput {
-            input_folded_tracked_col_oracle: input_folded_col_oracle,
-            output_folded_tracked_col_oracle: output_folded_col_oracle,
+            input_folded_tracked_col_oracle: multi_col_supp_check_prover_output
+                .orig_folded_tracked_col_oracle,
+            output_folded_tracked_col_oracle: multi_col_supp_check_prover_output
+                .supp_folded_tracked_col_oracle,
         })
     }
 }
-
-#[cfg(test)]
-mod test;

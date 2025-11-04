@@ -96,12 +96,7 @@ where
                     .collect::<Vec<_>>()
             } else {
                 let mut values = Vec::with_capacity(11);
-                values.extend(
-                    evaluations
-                        .iter()
-                        .take(5)
-                        .map(|val| format!("{:?}", val)),
-                );
+                values.extend(evaluations.iter().take(5).map(|val| format!("{:?}", val)));
                 values.push("...".to_string());
                 values.extend(
                     evaluations
@@ -116,12 +111,7 @@ where
                 values
             };
 
-            write!(
-                f,
-                "{}: [{}]",
-                field.name(),
-                formatted_values.join(", ")
-            )?;
+            write!(f, "{}: [{}]", field.name(), formatted_values.join(", "))?;
         }
 
         write!(f, "}}")
@@ -208,14 +198,11 @@ where
         self.tracked_polys.iter()
     }
 
-
     pub fn data_tracked_polys_indices(&self) -> Vec<usize> {
         self.tracked_polys
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| {
-                (field.name() != ACTIVATOR_COL_NAME).then_some(idx)
-            })
+            .filter_map(|(idx, (field, _))| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
             .collect()
     }
 

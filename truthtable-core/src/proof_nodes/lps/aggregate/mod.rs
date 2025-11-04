@@ -1,3 +1,4 @@
+mod hints;
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
@@ -20,15 +21,10 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef},
-    common::{Statistics, TableReference},
-    logical_expr::{
-        self as df, Case, ExprFunctionExt, JoinType, LogicalPlan, LogicalPlanBuilder, Operator,
-    },
-    prelude::{Column, Expr, SessionContext},
-    scalar::ScalarValue,
+    common::Statistics,
+    logical_expr::LogicalPlan,
+    prelude::{Expr, SessionContext},
 };
-use datafusion_functions_aggregate::count::count_all;
-use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::aggregate_check::{
     AggregatePIOP, AggregatePIOPProverInput, AggregatePIOPProverOutput, AggregatePIOPVerifierInput,
@@ -36,11 +32,11 @@ use ra_toolbox::lp_piop::aggregate_check::{
 };
 use std::sync::Arc;
 
-#[cfg(test)]
-mod tests;
-
 pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__truthtable_group_multiplicity";
 const MULTIPLICITY_PLAN_KEY: &str = "multiplicity";
+pub(crate) const GROUP_LEX_SORTED_PLAN_KEY: &str = "__aggregate_group_lex_sorted";
+pub(crate) const SHIFTED_GROUP_LEX_SORTED_PLAN_KEY: &str = "__aggregate_group_shifted";
+pub(crate) const GROUP_TIE_INDICATOR_PLAN_KEY: &str = "__aggregate_group_tie_indicator";
 pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__truthtable_group_input_folded";
 pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__truthtable_group_output_folded";
 
@@ -197,13 +193,11 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        // Extract the logical aggregate plan represented by this node.
         let aggregate_plan = match &self.node_id {
             NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
             _ => panic!("expected aggregate logical plan"),
         };
 
-        // The base plan is taken from the input proof tree node's OUTPUT_PLAN hint.
         let base_plan = proof_tree
             .node(&self.input_proof_tree_root.node_id())
             .and_then(|node| {
@@ -213,52 +207,7 @@ where
             })
             .expect("aggregate input missing OUTPUT_PLAN hint");
 
-        // Delegate to the shared helper so prover and verifier expose identical hints.
-        let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
-        let output_schema = output_plan.schema();
-        let group_col_count = aggregate_plan.group_expr.len();
-        let group_field_names: Vec<String> = aggregate_plan
-            .schema
-            .fields()
-            .iter()
-            .take(group_col_count)
-            .map(|field| field.name().clone())
-            .collect();
-
-        let should_materialize: IndexMap<FieldRef, bool> = output_schema
-            .fields()
-            .iter()
-            .map(|field_ref| {
-                let field_ref = field_ref.clone();
-                let should = !group_field_names
-                    .iter()
-                    .any(|name| name == field_ref.name());
-                (field_ref, should)
-            })
-            .collect();
-
-        let mut plans = IndexMap::new();
-        plans.insert(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new(OUTPUT_PLAN_KEY.to_string(), output_plan, should_materialize),
-        );
-
-        let has_count = aggregate_plan.aggr_expr.iter().any(
-            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
-        );
-
-        if !has_count {
-            let multiplicity_plan =
-                build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
-            plans.insert(
-                MULTIPLICITY_PLAN_KEY.to_string(),
-                HintGenerationPlan::new_materialized(
-                    MULTIPLICITY_PLAN_KEY.to_string(),
-                    multiplicity_plan,
-                ),
-            );
-        }
-        plans
+        hints::build_aggregate_hint_generation_plans(base_plan, aggregate_plan)
     }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
@@ -549,10 +498,39 @@ where
 
         let aggregate_piop_prover_input: AggregatePIOPProverInput<F, MvPCS, UvPCS> =
             AggregatePIOPProverInput {
-                aggregate,
+                aggregate: aggregate.clone(),
                 input_grouping_table,
                 output_grouping_table,
                 grouping_multiplicity_tracked_poly: grouping_multiplicity_tracked_poly.clone(),
+                contig_lex_sorted_output_grouping_tracked_table: piop_tree
+                    .tracked_table(&self.node_id, GROUP_LEX_SORTED_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing lex sorted grouping table for aggregate node {}",
+                            self.node_id
+                        )
+                    }),
+                shifted_contig_lex_sorted_output_grouping_tracked_table: piop_tree
+                    .tracked_table(&self.node_id, SHIFTED_GROUP_LEX_SORTED_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing shifted lex sorted grouping table for aggregate node {}",
+                            self.node_id
+                        )
+                    }),
+                tie_indicator_tracked_table: (aggregate.group_expr.len() > 1).then(|| {
+                    piop_tree
+                        .tracked_table(&self.node_id, GROUP_TIE_INDICATOR_PLAN_KEY)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing tie indicator table for aggregate node {}",
+                                self.node_id
+                            )
+                        })
+                }),
             };
         let aggregate_piop_prover_output =
             AggregatePIOP::prove(prover, aggregate_piop_prover_input)?;
@@ -728,13 +706,11 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        // Extract the logical aggregate plan represented by this node.
         let aggregate_plan = match &self.node_id {
             NodeId::LP(LogicalPlan::Aggregate(agg)) => agg,
             _ => panic!("expected aggregate logical plan"),
         };
 
-        // Obtain the input plan exposed by the verifier child node.
         let base_plan = proof_tree
             .node(&self.input_proof_tree_root.node_id())
             .and_then(|node| {
@@ -744,53 +720,7 @@ where
             })
             .expect("missing aggregate input output plan");
 
-        // Delegate to the shared helper so prover and verifier expose identical hints.
-        let output_plan = build_aggregate_hint_output_plan(base_plan.clone(), aggregate_plan);
-        let output_schema = output_plan.schema();
-        let group_col_count = aggregate_plan.group_expr.len();
-        let group_field_names: Vec<String> = aggregate_plan
-            .schema
-            .fields()
-            .iter()
-            .take(group_col_count)
-            .map(|field| field.name().clone())
-            .collect();
-
-        let should_materialize: IndexMap<FieldRef, bool> = output_schema
-            .fields()
-            .iter()
-            .map(|field_ref| {
-                let field_ref = field_ref.clone();
-                let should = !group_field_names
-                    .iter()
-                    .any(|name| name == field_ref.name());
-                (field_ref, should)
-            })
-            .collect();
-
-        let mut plans = IndexMap::new();
-        plans.insert(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new(OUTPUT_PLAN_KEY.to_string(), output_plan, should_materialize),
-        );
-
-        let has_count = aggregate_plan.aggr_expr.iter().any(
-            |expr| matches!(expr, Expr::AggregateFunction(func) if func.func.name() == "count"),
-        );
-
-        if !has_count {
-            let multiplicity_plan =
-                build_aggregate_multiplicity_hint_plan(base_plan, aggregate_plan);
-            plans.insert(
-                MULTIPLICITY_PLAN_KEY.to_string(),
-                HintGenerationPlan::new_materialized(
-                    MULTIPLICITY_PLAN_KEY.to_string(),
-                    multiplicity_plan,
-                ),
-            );
-        }
-
-        plans
+        hints::build_aggregate_hint_generation_plans(base_plan, aggregate_plan)
     }
 
     fn add_virtual_witness(
@@ -1062,10 +992,39 @@ where
 
         let aggregate_piop_verifier_input: AggregatePIOPVerifierInput<F, MvPCS, UvPCS> =
             AggregatePIOPVerifierInput {
-                aggregate,
+                aggregate: aggregate.clone(),
                 input_grouping_table_oracle,
                 output_grouping_table_oracle,
                 grouping_multiplicty_tracked_oracle: grouping_multiplicity_tracked_oracle.clone(),
+                contig_lex_sorted_output_grouping_tracked_table_oracle: piop_tree
+                    .tracked_table_oracle(&self.node_id, GROUP_LEX_SORTED_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing lex sorted grouping oracle for aggregate node {}",
+                            self.node_id
+                        )
+                    }),
+                shifted_contig_lex_sorted_output_grouping_tracked_table_oracle: piop_tree
+                    .tracked_table_oracle(&self.node_id, SHIFTED_GROUP_LEX_SORTED_PLAN_KEY)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing shifted lex sorted grouping oracle for aggregate node {}",
+                            self.node_id
+                        )
+                    }),
+                tie_indicator_tracked_table_oracle: (aggregate.group_expr.len() > 1).then(|| {
+                    piop_tree
+                        .tracked_table_oracle(&self.node_id, GROUP_TIE_INDICATOR_PLAN_KEY)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing tie indicator oracle for aggregate node {}",
+                                self.node_id
+                            )
+                        })
+                }),
             };
         let aggregate_piop_verifier_output =
             AggregatePIOP::verify(verifier, aggregate_piop_verifier_input)?;
@@ -1143,363 +1102,4 @@ where
     fn name(&self) -> String {
         self.node_id().to_string()
     }
-}
-
-fn build_aggregate_hint_output_plan(
-    base_plan: LogicalPlan,
-    aggregate_plan: &df::Aggregate,
-) -> LogicalPlan {
-    const BASE_ALIAS: &str = "__truthtable_aggr_base";
-    const AGG_ALIAS: &str = "__truthtable_aggr_values";
-    const POS_COL: &str = "__truthtable_aggr_pos";
-    const RN_COL: &str = "__truthtable_aggr_rank";
-    const GROUP_EXPR_PREFIX: &str = "__truthtable_aggr_group_expr_";
-
-    let base_schema = base_plan.schema().clone();
-
-    let mut projection_exprs: Vec<Expr> = base_schema
-        .iter()
-        .map(|(qualifier, field)| Expr::from((qualifier, field)))
-        .collect();
-
-    let group_aliases: Vec<String> = aggregate_plan
-        .group_expr
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| format!("{GROUP_EXPR_PREFIX}{idx}"))
-        .collect();
-
-    for (expr, alias) in aggregate_plan.group_expr.iter().zip(group_aliases.iter()) {
-        projection_exprs.push(expr.clone().alias(alias.clone()));
-    }
-
-    let base_with_group_exprs = LogicalPlanBuilder::from(base_plan)
-        .project(projection_exprs)
-        .expect("failed to append group expressions to aggregate base plan")
-        .build()
-        .expect("failed to build base plan with group expressions");
-
-    let base_with_pos = LogicalPlanBuilder::from(base_with_group_exprs.clone())
-        .window(vec![row_number().alias(POS_COL)])
-        .expect("failed to append position column for aggregate plan")
-        .build()
-        .expect("failed to build plan with position column");
-
-    let partition_exprs: Vec<Expr> = group_aliases
-        .iter()
-        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
-        .collect();
-
-    let order_exprs = vec![Expr::Column(Column::from_name(POS_COL.to_string())).sort(true, false)];
-
-    let rn_expr = row_number()
-        .partition_by(partition_exprs)
-        .order_by(order_exprs)
-        .build()
-        .expect("failed to construct row_number expression for aggregate plan")
-        .alias(RN_COL);
-
-    let base_with_rn = LogicalPlanBuilder::from(base_with_pos.clone())
-        .window(vec![rn_expr])
-        .expect("failed to append per-group rank column to aggregate plan")
-        .build()
-        .expect("failed to build plan with per-group rank column");
-
-    let group_by_exprs_for_agg: Vec<Expr> = group_aliases
-        .iter()
-        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
-        .collect();
-
-    let activator_filter = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
-    let activated_base_for_agg = LogicalPlanBuilder::from(base_with_group_exprs.clone())
-        .filter(activator_filter)
-        .expect("failed to filter inactive rows for aggregate hint generation")
-        .build()
-        .expect("failed to build filtered aggregate base plan");
-
-    let aggregate_values_plan = LogicalPlanBuilder::from(activated_base_for_agg)
-        .aggregate(group_by_exprs_for_agg, aggregate_plan.aggr_expr.clone())
-        .expect("failed to build aggregate plan for hint generation")
-        .build()
-        .expect("failed to finalize aggregate hint plan");
-    let agg_has_activator = aggregate_values_plan
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-
-    let base_table_ref = TableReference::bare(BASE_ALIAS);
-    let agg_table_ref = TableReference::bare(AGG_ALIAS);
-
-    let base_aliased = LogicalPlanBuilder::from(base_with_rn)
-        .alias(base_table_ref.clone())
-        .expect("failed to alias aggregate base plan")
-        .build()
-        .expect("failed to build aliased aggregate base plan");
-
-    let agg_aliased = LogicalPlanBuilder::from(aggregate_values_plan)
-        .alias(agg_table_ref.clone())
-        .expect("failed to alias aggregate values plan")
-        .build()
-        .expect("failed to build aliased aggregate values plan");
-
-    let left_join_cols: Vec<Column> = group_aliases
-        .iter()
-        .map(|alias| Column::new(Some(base_table_ref.clone()), alias.clone()))
-        .collect();
-    let right_join_cols: Vec<Column> = group_aliases
-        .iter()
-        .map(|alias| Column::new(Some(agg_table_ref.clone()), alias.clone()))
-        .collect();
-
-    let joined = LogicalPlanBuilder::from(base_aliased)
-        .join(
-            agg_aliased,
-            JoinType::Inner,
-            (left_join_cols, right_join_cols),
-            None,
-        )
-        .expect("failed to join aggregate base with aggregate values")
-        .build()
-        .expect("failed to build joined aggregate hint plan");
-
-    let pos_sort = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        POS_COL.to_string(),
-    ))
-    .sort(true, false);
-
-    let sorted = LogicalPlanBuilder::from(joined)
-        .sort(vec![pos_sort])
-        .expect("failed to apply ordering to aggregate hint plan")
-        .build()
-        .expect("failed to build sorted aggregate hint plan");
-
-    let agg_schema = aggregate_plan.schema.as_ref();
-    let mut final_exprs =
-        Vec::with_capacity(group_aliases.len() + aggregate_plan.aggr_expr.len() + 1);
-
-    for (idx, alias) in group_aliases.iter().enumerate() {
-        let field_name = agg_schema.field(idx).name().clone();
-        final_exprs.push(
-            Expr::Column(Column::new(Some(base_table_ref.clone()), alias.clone()))
-                .alias(field_name),
-        );
-    }
-
-    for (agg_idx, _) in aggregate_plan.aggr_expr.iter().enumerate() {
-        let schema_idx = group_aliases.len() + agg_idx;
-        let field_name = agg_schema.field(schema_idx).name().clone();
-        final_exprs.push(
-            Expr::Column(Column::new(Some(agg_table_ref.clone()), field_name.clone()))
-                .alias(field_name),
-        );
-    }
-
-    let rank_column = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        RN_COL.to_string(),
-    ));
-    let activator_column = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        ACTIVATOR_COL_NAME.to_string(),
-    ));
-    let output_activator_expr = if agg_has_activator {
-        Expr::Column(Column::new(
-            Some(agg_table_ref.clone()),
-            ACTIVATOR_COL_NAME.to_string(),
-        ))
-    } else {
-        Expr::Literal(ScalarValue::Boolean(Some(true)))
-    };
-    let combined_activator = Expr::BinaryExpr(datafusion_expr::expr::BinaryExpr::new(
-        Box::new(activator_column),
-        Operator::And,
-        Box::new(output_activator_expr),
-    ));
-    let activator_case = Expr::Case(Case::new(
-        None,
-        vec![(
-            Box::new(rank_column.eq(Expr::Literal(ScalarValue::UInt64(Some(1))))),
-            Box::new(combined_activator),
-        )],
-        Some(Box::new(Expr::Literal(ScalarValue::Boolean(Some(false))))),
-    ))
-    .alias(ACTIVATOR_COL_NAME.to_string());
-    final_exprs.push(activator_case);
-
-    LogicalPlanBuilder::from(sorted)
-        .project(final_exprs)
-        .expect("failed to project final aggregate hint output")
-        .build()
-        .expect("failed to construct aggregate hint output plan")
-}
-
-fn build_aggregate_multiplicity_hint_plan(
-    base_plan: LogicalPlan,
-    aggregate_plan: &df::Aggregate,
-) -> LogicalPlan {
-    const BASE_ALIAS: &str = "__truthtable_aggr_base";
-    const AGG_ALIAS: &str = "__truthtable_aggr_values";
-    const POS_COL: &str = "__truthtable_aggr_pos";
-    const RN_COL: &str = "__truthtable_aggr_rank";
-    const GROUP_EXPR_PREFIX: &str = "__truthtable_aggr_group_expr_";
-
-    let base_schema = base_plan.schema().clone();
-
-    let mut projection_exprs: Vec<Expr> = base_schema
-        .iter()
-        .map(|(qualifier, field)| Expr::from((qualifier, field)))
-        .collect();
-
-    let group_aliases: Vec<String> = aggregate_plan
-        .group_expr
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| format!("{GROUP_EXPR_PREFIX}{idx}"))
-        .collect();
-
-    for (expr, alias) in aggregate_plan.group_expr.iter().zip(group_aliases.iter()) {
-        projection_exprs.push(expr.clone().alias(alias.clone()));
-    }
-
-    let base_with_group_exprs = LogicalPlanBuilder::from(base_plan)
-        .project(projection_exprs)
-        .expect("failed to append group expressions to aggregate base plan")
-        .build()
-        .expect("failed to build base plan with group expressions");
-
-    let base_with_pos = LogicalPlanBuilder::from(base_with_group_exprs.clone())
-        .window(vec![row_number().alias(POS_COL)])
-        .expect("failed to append position column for aggregate plan")
-        .build()
-        .expect("failed to build plan with position column");
-
-    let partition_exprs: Vec<Expr> = group_aliases
-        .iter()
-        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
-        .collect();
-
-    let order_exprs = vec![Expr::Column(Column::from_name(POS_COL.to_string())).sort(true, false)];
-
-    let rn_expr = row_number()
-        .partition_by(partition_exprs)
-        .order_by(order_exprs)
-        .build()
-        .expect("failed to construct row_number expression for aggregate plan")
-        .alias(RN_COL);
-
-    let base_with_rn = LogicalPlanBuilder::from(base_with_pos.clone())
-        .window(vec![rn_expr])
-        .expect("failed to append per-group rank column to aggregate plan")
-        .build()
-        .expect("failed to build plan with per-group rank column");
-
-    let group_by_exprs_for_agg: Vec<Expr> = group_aliases
-        .iter()
-        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
-        .collect();
-
-    let activator_filter = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
-    let activated_base_for_agg = LogicalPlanBuilder::from(base_with_group_exprs.clone())
-        .filter(activator_filter)
-        .expect("failed to filter inactive rows for multiplicity hint generation")
-        .build()
-        .expect("failed to build filtered base plan for multiplicity hint");
-
-    let aggregate_values_plan = LogicalPlanBuilder::from(activated_base_for_agg)
-        .aggregate(group_by_exprs_for_agg, vec![count_all()])
-        .expect("failed to build multiplicity aggregate plan for hint generation")
-        .build()
-        .expect("failed to finalize multiplicity aggregate hint plan");
-
-    let base_table_ref = TableReference::bare(BASE_ALIAS);
-    let agg_table_ref = TableReference::bare(AGG_ALIAS);
-
-    let base_aliased = LogicalPlanBuilder::from(base_with_rn)
-        .alias(base_table_ref.clone())
-        .expect("failed to alias aggregate base plan")
-        .build()
-        .expect("failed to build aliased aggregate base plan");
-
-    let agg_aliased = LogicalPlanBuilder::from(aggregate_values_plan.clone())
-        .alias(agg_table_ref.clone())
-        .expect("failed to alias aggregate values plan")
-        .build()
-        .expect("failed to build aliased aggregate values plan");
-
-    let left_join_cols: Vec<Column> = group_aliases
-        .iter()
-        .map(|alias| Column::new(Some(base_table_ref.clone()), alias.clone()))
-        .collect();
-    let right_join_cols: Vec<Column> = group_aliases
-        .iter()
-        .map(|alias| Column::new(Some(agg_table_ref.clone()), alias.clone()))
-        .collect();
-
-    let joined = LogicalPlanBuilder::from(base_aliased)
-        .join(
-            agg_aliased,
-            JoinType::Inner,
-            (left_join_cols, right_join_cols),
-            None,
-        )
-        .expect("failed to join multiplicity aggregate base with aggregate values")
-        .build()
-        .expect("failed to build joined multiplicity aggregate hint plan");
-
-    let pos_sort = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        POS_COL.to_string(),
-    ))
-    .sort(true, false);
-
-    let sorted = LogicalPlanBuilder::from(joined)
-        .sort(vec![pos_sort])
-        .expect("failed to apply ordering to multiplicity hint plan")
-        .build()
-        .expect("failed to build sorted multiplicity hint plan");
-
-    let agg_values_schema = aggregate_values_plan.schema();
-    let mut final_exprs = Vec::with_capacity(2);
-
-    let multiplicity_field_name = agg_values_schema.field(group_aliases.len()).name().clone();
-    final_exprs.push(
-        Expr::Column(Column::new(
-            Some(agg_table_ref.clone()),
-            multiplicity_field_name,
-        ))
-        .alias(GROUP_MULTIPLICITY_COL_NAME.to_string()),
-    );
-
-    let rank_column = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        RN_COL.to_string(),
-    ));
-    let activator_column = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        ACTIVATOR_COL_NAME.to_string(),
-    ));
-    let output_activator_expr = Expr::Literal(ScalarValue::Boolean(Some(true)));
-    let combined_activator = Expr::BinaryExpr(datafusion_expr::expr::BinaryExpr::new(
-        Box::new(activator_column),
-        Operator::And,
-        Box::new(output_activator_expr),
-    ));
-    let activator_case = Expr::Case(Case::new(
-        None,
-        vec![(
-            Box::new(rank_column.eq(Expr::Literal(ScalarValue::UInt64(Some(1))))),
-            Box::new(combined_activator),
-        )],
-        Some(Box::new(Expr::Literal(ScalarValue::Boolean(Some(false))))),
-    ))
-    .alias(ACTIVATOR_COL_NAME.to_string());
-    final_exprs.push(activator_case);
-
-    LogicalPlanBuilder::from(sorted)
-        .project(final_exprs)
-        .expect("failed to project final multiplicity hint output")
-        .build()
-        .expect("failed to construct multiplicity hint output plan")
 }

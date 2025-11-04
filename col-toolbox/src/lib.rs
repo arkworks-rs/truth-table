@@ -9,6 +9,7 @@ pub mod defragger;
 pub mod fold_check;
 pub mod inclusion_check;
 pub mod local_single_col_sort_check;
+pub mod multi_col_supp_check;
 pub mod multiplicity_check;
 pub mod no_dup_check;
 pub mod no_zeros_check;

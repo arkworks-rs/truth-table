@@ -1,5 +1,5 @@
-use arithmetic::ACTIVATOR_COL_NAME;
 use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
+use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
     common::{DataFusionError, Result, ScalarValue},
     logical_expr::{
@@ -8,20 +8,11 @@ use datafusion::{
     },
 };
 use datafusion_expr::{
-    col,
-    expr::Sort as DFSortExpr,
-    expr_fn::binary_expr,
-    lit,
-    Expr,
-    ExprFunctionExt,
-    LogicalPlan,
-    LogicalPlanBuilder,
-    Operator,
-    Sort,
+    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Operator, Sort, col,
+    expr::Sort as DFSortExpr, expr_fn::binary_expr, lit,
 };
 use datafusion_functions_window::expr_fn::lead;
 use indexmap::IndexMap;
-
 
 pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expressions__";
 pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str =
@@ -39,8 +30,7 @@ pub(super) fn build_sort_hint_generation_plans(
         build_lex_sorted_sort_exprs_plan(&sort_expr_plan, &normalized_sorts);
     let shifted_lex_sorted_sort_expressions_plan =
         build_shifted_lex_sorted_sort_exprs_plan(&lex_sorted_sort_expressions_plan);
-    let tie_indicator_plan =
-        build_tie_indicator_plan(&sort_expr_plan, normalized_sorts.len());
+    let tie_indicator_plan = build_tie_indicator_plan(&sort_expr_plan, normalized_sorts.len());
 
     let mut plans = IndexMap::new();
     plans.insert(
@@ -173,7 +163,7 @@ pub fn build_tie_indicator_plan(
         .flatten()
 }
 
-fn build_tie_indicator_plan_impl(
+pub(crate) fn build_tie_indicator_plan_impl(
     sort_plan: &LogicalPlan,
     num_sort_exprs: usize,
 ) -> Result<Option<LogicalPlan>> {
