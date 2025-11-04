@@ -19,9 +19,9 @@ pub(super) fn build_sort_hint_generation_plans(
     let sort_expr_plan = build_sorted_plan(base_plan, sort_plan, &normalized_sorts);
     let sorted_output_plan = project_sorted_output_plan(&sort_expr_plan);
     let lex_sorted_sort_expressions_plan =
-        build_sort_expressions_plan(&sort_expr_plan, &normalized_sorts);
+        build_lex_sorted_sort_exprs_plan(&sort_expr_plan, &normalized_sorts);
     let shifted_lex_sorted_sort_expressions_plan =
-        build_shifted_sort_expressions_plan(&lex_sorted_sort_expressions_plan);
+        build_shifted_lex_sorted_sort_exprs_plan(&lex_sorted_sort_expressions_plan);
     let tie_indicator_plan =
         build_tie_indicator_plan(&lex_sorted_sort_expressions_plan, normalized_sorts.len());
 
@@ -97,7 +97,7 @@ fn project_sorted_output_plan(sorted_plan: &LogicalPlan) -> LogicalPlan {
         .expect("failed to build sorted projected hint plan")
 }
 
-fn build_sort_expressions_plan(
+fn build_lex_sorted_sort_exprs_plan(
     sorted_plan: &LogicalPlan,
     normalized_sorts: &[DFSortExpr],
 ) -> LogicalPlan {
@@ -113,7 +113,7 @@ fn build_sort_expressions_plan(
         .expect("failed to build sort expressions hint plan")
 }
 
-fn build_shifted_sort_expressions_plan(sort_expressions_plan: &LogicalPlan) -> LogicalPlan {
+fn build_shifted_lex_sorted_sort_exprs_plan(sort_expressions_plan: &LogicalPlan) -> LogicalPlan {
     // Skip the first row so row i becomes row i+1 for i >= 0
     let tail_plan = LogicalPlanBuilder::from(sort_expressions_plan.clone())
         .limit(1, None)
