@@ -90,12 +90,10 @@ where
         }
 
         let schema_ref = record_batches[0].schema();
-        dbg!(1);
         let combined_batch = concat_batches(&schema_ref, &record_batches).map_err(|err| {
             EncodeError::TypeNotSupported(format!("Failed to concatenate record batches: {err}"))
         })?;
 
-        dbg!(2);
         let total_rows = combined_batch.num_rows();
         assert!(
             total_rows.is_power_of_two(),
@@ -109,7 +107,6 @@ where
             cfg_into_iter!(0..num_total_cols)
                 .map(|col_idx| {
                     let base_field = schema_ref.fields()[col_idx].clone();
-                    dbg!(base_field.name());
                     let encoded = encode_arrow_array_to_field::<F>(combined_batch.column(col_idx))?;
                     let mut segmented = Vec::with_capacity(encoded.len());
                     for (segment_idx, values) in encoded.into_iter().enumerate() {
