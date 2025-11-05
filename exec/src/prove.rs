@@ -118,87 +118,107 @@ pub struct ProveRunner {
     output_path: PathBuf,
 }
 
-struct PreparedProverArtifacts {
+pub struct PreparedProverArtifacts {
     arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
     snark_pk: SNARKPk<F, MvPCS, UvPCS>,
 }
 
 impl ProveRunner {
     pub async fn run(&self) -> Result<PathBuf> {
-        let PreparedProverArtifacts {
-            arith_tree,
-            snark_pk,
-        } = self.prepare_prover_artifacts().await?;
-
-        let proof = build_proof_from_artifacts(arith_tree, snark_pk)?;
+        let artifacts = self.prepare_prover_artifacts().await?;
+        let proof = build_proof_from_artifacts(artifacts)?;
         write_proof(&proof, &self.output_path)?;
         Ok(self.output_path.clone())
     }
 
     async fn prepare_prover_artifacts(&self) -> Result<PreparedProverArtifacts> {
-        let ctx = SessionContext::new();
-        let mut table_oracles = IndexMap::new();
-
-        for (parquet_path, oracle_path) in self.parquet_paths.iter().zip(self.oracle_paths.iter()) {
-            let table_name = parquet_path
-                .file_stem()
-                .ok_or_else(|| anyhow!("parquet path must have a file name"))?
-                .to_string_lossy()
-                .to_string();
-
-            ctx.register_parquet(
-                &table_name,
-                parquet_path
-                    .to_str()
-                    .context("parquet path must be valid UTF-8")?,
-                ParquetReadOptions::default(),
-            )
-            .await
-            .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
-
-            let oracle = load_oracle(oracle_path)?;
-            let schema = oracle
-                .schema()
-                .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
-
-            table_oracles.insert(schema, oracle.clone());
-        }
-
-        let shared_ctx = SharedCtx::new(table_oracles);
-
-        let proof_tree =
-            create_prover_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, &self.query, shared_ctx)
-                .await;
-        let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
-            .await
-            .context("failed to build hint tree")?;
-        let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
-            .context("failed to arithmetize")?;
-
-        let pk_path = match &self.pk_path {
-            Some(path) => path.clone(),
-            None => {
-                let oracle_path = self
-                    .oracle_paths
-                    .first()
-                    .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
-                resolve_pk_path(oracle_path)?
-            },
-        };
-        let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
-            .with_context(|| format!("read proving key {}", pk_path.display()))?;
-        let snark_pk = tt_pk.into_inner();
-        Ok(PreparedProverArtifacts {
-            arith_tree,
-            snark_pk,
-        })
+        prepare_prover_artifacts(
+            &self.query,
+            &self.parquet_paths,
+            &self.oracle_paths,
+            self.pk_path.as_deref(),
+        )
+        .await
     }
 }
 
-fn build_proof_from_artifacts(
-    arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
-    snark_pk: SNARKPk<F, MvPCS, UvPCS>,
+pub async fn prepare_prover_artifacts(
+    query: &str,
+    parquet_paths: &[PathBuf],
+    oracle_paths: &[PathBuf],
+    pk_path: Option<&Path>,
+) -> Result<PreparedProverArtifacts> {
+    let ctx = SessionContext::new();
+    let mut table_oracles = IndexMap::new();
+
+    for (parquet_path, oracle_path) in parquet_paths.iter().zip(oracle_paths.iter()) {
+        let table_name = parquet_path
+            .file_stem()
+            .ok_or_else(|| anyhow!("parquet path must have a file name"))?
+            .to_string_lossy()
+            .to_string();
+
+        ctx.register_parquet(
+            &table_name,
+            parquet_path
+                .to_str()
+                .context("parquet path must be valid UTF-8")?,
+            ParquetReadOptions::default(),
+        )
+        .await
+        .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
+
+        let oracle = load_oracle(oracle_path)?;
+        let schema = oracle
+            .schema()
+            .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
+
+        table_oracles.insert(schema, oracle.clone());
+    }
+
+    let shared_ctx = SharedCtx::new(table_oracles);
+
+    let proof_tree =
+        create_prover_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, query, shared_ctx).await;
+    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
+        .await
+        .context("failed to build hint tree")?;
+    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+        .context("failed to arithmetize")?;
+
+    let pk_path = match pk_path {
+        Some(path) => path.to_path_buf(),
+        None => {
+            let oracle_path = oracle_paths
+                .first()
+                .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
+            resolve_pk_path(oracle_path)?
+        },
+    };
+    let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
+        .with_context(|| format!("read proving key {}", pk_path.display()))?;
+    let snark_pk = tt_pk.into_inner();
+    Ok(PreparedProverArtifacts {
+        arith_tree,
+        snark_pk,
+    })
+}
+
+impl PreparedProverArtifacts {
+    fn into_parts(
+        self,
+    ) -> (
+        ProverArithmetizedTree<F, MvPCS, UvPCS>,
+        SNARKPk<F, MvPCS, UvPCS>,
+    ) {
+        (self.arith_tree, self.snark_pk)
+    }
+}
+
+pub fn build_proof_from_artifacts(
+    artifacts: PreparedProverArtifacts,
 ) -> Result<ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>> {
+    let (arith_tree, snark_pk) = artifacts.into_parts();
     let mut prover = Prover::<F, MvPCS, UvPCS>::new_from_pk(snark_pk);
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
         .context("failed to build tracked tree")?;
