@@ -13,7 +13,8 @@ use ark_piop::{
 };
 use ark_std::cfg_into_iter;
 use datafusion::arrow::{
-    datatypes::{FieldRef, Schema},
+    compute::concat_batches,
+    datatypes::{Field, FieldRef, Schema},
     record_batch::RecordBatch,
 };
 use indexmap::IndexMap;
@@ -89,36 +90,70 @@ where
         }
 
         let schema_ref = record_batches[0].schema();
-        let num_total_cols = schema_ref.fields().len();
-        let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
-        assert!(total_rows.is_power_of_two());
+        let combined_batch = concat_batches(&schema_ref, &record_batches).map_err(|err| {
+            EncodeError::TypeNotSupported(format!("Failed to concatenate record batches: {err}"))
+        })?;
+
+        let total_rows = combined_batch.num_rows();
+        assert!(
+            total_rows.is_power_of_two(),
+            "Arithmetized tables must have power-of-two number of rows"
+        );
         let log_vars = total_rows.trailing_zeros() as usize;
 
-        let columns: Result<Vec<Vec<F>>, EncodeError> = cfg_into_iter!(0..num_total_cols)
-            .map(|col_idx| {
-                let mut values = Vec::with_capacity(total_rows);
-                for batch in &record_batches {
-                    let encoded = encode_arrow_array_to_field::<F>(batch.column(col_idx))?;
-                    assert!(encoded.len() == 1, "Expected a single column encoding, We cannot handle multi-column encodings yet"); 
-                    let mut column_values = encoded.into_iter().next().expect("encoded column");
-                    values.append(&mut column_values);
-                }
-                Ok(values)
-            })
-            .collect();
-        let columns = columns?;
+        let num_total_cols = schema_ref.fields().len();
 
-        let tracked_polys_entries: Vec<(FieldRef, Arc<MLE<F>>)> = cfg_into_iter!(columns)
-            .enumerate()
-            .map(|(idx, values)| {
+        let encoded_columns: Result<Vec<Vec<(FieldRef, Vec<F>)>>, EncodeError> =
+            cfg_into_iter!(0..num_total_cols)
+                .map(|col_idx| {
+                    let base_field = schema_ref.fields()[col_idx].clone();
+                    let encoded = encode_arrow_array_to_field::<F>(combined_batch.column(col_idx))?;
+                    let mut segmented = Vec::with_capacity(encoded.len());
+                    for (segment_idx, values) in encoded.into_iter().enumerate() {
+                        debug_assert!(
+                            values.len() == total_rows,
+                            "Encoded column length mismatch: expected {total_rows}, got {}",
+                            values.len()
+                        );
+                        let field_ref = if segment_idx == 0 {
+                            base_field.clone()
+                        } else {
+                            Arc::new(Field::new(
+                                &format!("{}__enc{}", base_field.name(), segment_idx),
+                                base_field.data_type().clone(),
+                                base_field.is_nullable(),
+                            ))
+                        };
+                        segmented.push((field_ref, values));
+                    }
+                    Ok(segmented)
+                })
+                .collect();
+        let encoded_columns = encoded_columns?;
+
+        let mut flattened_fields: Vec<FieldRef> = Vec::new();
+        let mut flattened_values: Vec<(FieldRef, Vec<F>)> = Vec::new();
+        for column_group in encoded_columns {
+            for (field_ref, values) in column_group {
+                flattened_fields.push(field_ref.clone());
+                flattened_values.push((field_ref, values));
+            }
+        }
+
+        let tracked_polys_entries: Vec<(FieldRef, Arc<MLE<F>>)> = flattened_values
+            .into_iter()
+            .map(|(field_ref, values)| {
                 let mle = Arc::new(MLE::from_evaluations_slice(log_vars, &values));
-                let field_ref = Arc::new(schema_ref.field(idx).clone());
                 (field_ref, mle)
             })
             .collect();
         let tracked_polys: IndexMap<FieldRef, Arc<MLE<F>>> =
             tracked_polys_entries.into_iter().collect();
-        let schema = Some(schema_ref.as_ref().clone());
+        let schema_fields: Vec<Field> = flattened_fields
+            .iter()
+            .map(|field_ref| field_ref.as_ref().clone())
+            .collect();
+        let schema = Some(Schema::new(schema_fields));
 
         Ok(ArithTable::new(schema, tracked_polys, log_vars))
     }

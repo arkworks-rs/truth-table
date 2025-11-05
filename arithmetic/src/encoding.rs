@@ -222,15 +222,58 @@ impl<F: PrimeField> Encodable<F> for FixedSizeBinaryArray {
     }
 }
 
-impl<F: PrimeField> Encodable<F> for StringArray {
-    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
-            if self.is_null(idx) {
+fn encode_utf8_like<F, A, GetValue>(
+    array: &A,
+    short_string_threshold: usize,
+    value_fn: GetValue,
+) -> Result<Vec<Vec<F>>, EncodeError>
+where
+    F: PrimeField,
+    A: Array,
+    GetValue: Copy + Fn(&A, usize) -> &str,
+{
+    let rows = array.len();
+    let mut max_len = 0usize;
+    for idx in 0..rows {
+        if !array.is_null(idx) {
+            let len = value_fn(array, idx).as_bytes().len();
+            if len > max_len {
+                max_len = len;
+            }
+        }
+    }
+
+    if max_len <= short_string_threshold && max_len <= 1 {
+        return Ok(collect_by_columns(rows, |idx| {
+            if array.is_null(idx) {
                 Vec::new()
             } else {
-                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
+                let bytes = value_fn(array, idx).as_bytes();
+                let field = if bytes.is_empty() {
+                    F::zero()
+                } else {
+                    F::from(bytes[0] as u64)
+                };
+                vec![field]
             }
-        }))
+        }));
+    }
+
+    let encode_row = |idx| {
+        if array.is_null(idx) {
+            Vec::new()
+        } else {
+            let value = value_fn(array, idx).as_bytes();
+            encode_hashed_bytes::<F>(value)
+        }
+    };
+
+    Ok(collect_by_columns(rows, encode_row))
+}
+
+impl<F: PrimeField> Encodable<F> for StringArray {
+    fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
+        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -243,13 +286,7 @@ impl<F: PrimeField> Encodable<F> for StringArray {
 
 impl<F: PrimeField> Encodable<F> for LargeStringArray {
     fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
-            if self.is_null(idx) {
-                Vec::new()
-            } else {
-                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
-            }
-        }))
+        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -262,13 +299,7 @@ impl<F: PrimeField> Encodable<F> for LargeStringArray {
 
 impl<F: PrimeField> Encodable<F> for StringViewArray {
     fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
-        Ok(collect_by_columns(self.len(), |idx| {
-            if self.is_null(idx) {
-                Vec::new()
-            } else {
-                encode_hashed_bytes::<F>(self.value(idx).as_bytes())
-            }
-        }))
+        encode_utf8_like::<F, _, _>(self, 32, |array, idx| array.value(idx))
     }
 
     fn decode(_field_elem: impl IntoIterator<Item = F>) -> Result<Self, EncodeError> {
@@ -675,5 +706,78 @@ where
         vec![Vec::new()]
     } else {
         columns
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_ff::Zero;
+    use ark_test_curves::bls12_381::Fr;
+    use datafusion::arrow::array::{LargeStringArray, StringArray, StringViewArray};
+
+    #[test]
+    fn single_character_strings_are_inlined() {
+        let array = StringArray::from(vec![Some("a"), Some(""), None, Some("Z")]);
+        let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
+
+        assert_eq!(encoded.len(), 1);
+        let column = &encoded[0];
+        assert_eq!(column.len(), array.len());
+        assert_eq!(column[0], Fr::from(97u64));
+        assert_eq!(column[1], Fr::zero());
+        assert_eq!(column[2], Fr::zero());
+        assert_eq!(column[3], Fr::from(90u64));
+    }
+
+    #[test]
+    fn multi_character_strings_are_hashed() {
+        let array = StringArray::from(vec![Some("foo"), Some("bar"), None, Some("baz")]);
+        let encoded = <StringArray as Encodable<Fr>>::encode(&array).unwrap();
+
+        assert_eq!(encoded.len(), 1);
+        let column = &encoded[0];
+        assert_eq!(column.len(), array.len());
+        let expected = encode_hashed_bytes::<Fr>(b"foo");
+        assert_eq!(column[0], expected[0]);
+        assert_eq!(
+            column[1],
+            encode_hashed_bytes::<Fr>(b"bar")[0]
+        );
+        assert_eq!(column[2], Fr::zero());
+        assert_eq!(
+            column[3],
+            encode_hashed_bytes::<Fr>(b"baz")[0]
+        );
+    }
+
+    #[test]
+    fn large_string_array_follows_same_rules() {
+        let array = LargeStringArray::from(vec![Some("x"), Some("yz"), None]);
+        let encoded = <LargeStringArray as Encodable<Fr>>::encode(&array).unwrap();
+
+        assert_eq!(encoded.len(), 1);
+        let column = &encoded[0];
+        assert_eq!(column[0], Fr::from(120u64));
+        assert_eq!(
+            column[1],
+            encode_hashed_bytes::<Fr>(b"yz")[0]
+        );
+        assert_eq!(column[2], Fr::zero());
+    }
+
+    #[test]
+    fn string_view_array_matches_behavior() {
+        let array = StringViewArray::from(vec![Some("m"), Some("no"), None]);
+        let encoded = <StringViewArray as Encodable<Fr>>::encode(&array).unwrap();
+
+        assert_eq!(encoded.len(), 1);
+        let column = &encoded[0];
+        assert_eq!(column[0], Fr::from(109u64));
+        assert_eq!(
+            column[1],
+            encode_hashed_bytes::<Fr>(b"no")[0]
+        );
+        assert_eq!(column[2], Fr::zero());
     }
 }
