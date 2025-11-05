@@ -16,6 +16,7 @@ arithmetic = { path = "../arithmetic" }
 ark-ff = { workspace = true }
 ark-piop = { workspace = true }
 indexmap = { workspace = true }
+tracing = { workspace = true }
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }

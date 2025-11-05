@@ -1,15 +1,13 @@
-use std::{
-    fmt,
-    path::PathBuf,
-    sync::{Arc, OnceLock},
-};
+use std::{fmt, path::PathBuf, sync::OnceLock};
 
+use ark_piop::test_utils::init_tracing_for_tests;
 use divan::black_box;
 use exec::{
-    prove::{PreparedProverArtifacts, build_proof_from_artifacts, prepare_prover_artifacts},
-    test_utils::{resolve_key_paths, resolve_oracle_path},
+    prove::{
+        PreparedProverArtifacts, build_proof_from_artifacts, prepare_prover_artifacts_blocking,
+    },
+    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
 };
-use tokio::runtime::Runtime;
 use tpch_data::{bench_data_path, query_spec};
 
 #[derive(Clone, Copy, Debug)]
@@ -35,14 +33,30 @@ fn prover_bench_queries() -> &'static [BenchQuery] {
         let queries = vec![
             BenchQuery {
                 name: "tpch_q1",
-                query: tpch.sql,
+                query: "
+               SELECT
+    l_returnflag,
+    l_linestatus,
+    SUM(l_quantity) AS sum_qty,
+    SUM(l_extendedprice) AS sum_base_price,
+    SUM(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    SUM(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,
+    AVG(l_quantity) AS avg_qty,
+    AVG(l_extendedprice) AS avg_price,
+    AVG(l_discount) AS avg_disc,
+    COUNT(*) AS count_order
+FROM lineitem
+WHERE l_shipdate <= CAST('1998-09-02' AS DATE)
+GROUP BY l_returnflag, l_linestatus
+ORDER BY l_returnflag, l_linestatus; 
+                ",
                 tables: tpch.tables,
             },
-            // BenchQuery {
-            //     name: "lineitem_dummy",
-            //     query: DUMMY_QUERY,
-            //     tables: DUMMY_TABLES,
-            // },
+            BenchQuery {
+                name: "lineitem_dummy",
+                query: DUMMY_QUERY,
+                tables: DUMMY_TABLES,
+            },
         ];
         Box::leak(queries.into_boxed_slice())
     })
@@ -51,7 +65,6 @@ fn prover_bench_queries() -> &'static [BenchQuery] {
 #[derive(Debug)]
 struct ProverBenchInputs {
     spec: BenchQuery,
-    runtime: Arc<Runtime>,
     parquet_paths: Vec<PathBuf>,
     oracle_paths: Vec<PathBuf>,
     pk_path: PathBuf,
@@ -62,7 +75,6 @@ struct ProverBenchIteration {
 }
 
 fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
-    let runtime = Arc::new(Runtime::new().expect("failed to create tokio runtime"));
     assert!(
         !spec.tables.is_empty(),
         "bench queries must reference at least one table"
@@ -76,17 +88,16 @@ fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
         .map(|table| parquet_path_for_table(table))
         .collect::<Vec<_>>();
 
-    let mut oracle_paths = Vec::with_capacity(parquet_paths.len());
-    for parquet_path in &parquet_paths {
-        let oracle_path = runtime
-            .block_on(resolve_oracle_path(parquet_path, &pk_path))
-            .expect("resolve oracle path for bench");
-        oracle_paths.push(oracle_path);
-    }
+    let oracle_paths = parquet_paths
+        .iter()
+        .map(|parquet_path| {
+            resolve_oracle_path_blocking(parquet_path, &pk_path)
+                .expect("resolve oracle path for bench")
+        })
+        .collect::<Vec<_>>();
 
     ProverBenchInputs {
         spec,
-        runtime,
         parquet_paths,
         oracle_paths,
         pk_path,
@@ -94,20 +105,18 @@ fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
 }
 
 fn prepare_iteration_state(inputs: ProverBenchInputs) -> ProverBenchIteration {
-    let artifacts = inputs
-        .runtime
-        .block_on(prepare_prover_artifacts(
-            inputs.spec.query,
-            &inputs.parquet_paths,
-            &inputs.oracle_paths,
-            Some(inputs.pk_path.as_path()),
-        ))
-        .expect("prepare prover artifacts for benchmark");
+    let artifacts = prepare_prover_artifacts_blocking(
+        inputs.spec.query,
+        &inputs.parquet_paths,
+        &inputs.oracle_paths,
+        Some(inputs.pk_path.as_path()),
+    )
+    .expect("prepare prover artifacts for benchmark");
 
     ProverBenchIteration { artifacts }
 }
 
-#[divan::bench(args = prover_bench_queries(), max_time = 60)]
+#[divan::bench(args = prover_bench_queries(), max_time = 1)]
 fn prove_command(bencher: divan::Bencher, spec: BenchQuery) {
     bencher
         .with_inputs(move || prepare_iteration_state(prepare_prover_inputs(spec)))
@@ -132,5 +141,6 @@ fn parquet_path_for_table(table: &str) -> PathBuf {
 }
 
 fn main() {
+    init_tracing_for_tests();
     divan::main();
 }

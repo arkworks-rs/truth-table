@@ -22,6 +22,7 @@ rayon = { workspace = true, optional = true }
 indexmap = { workspace = true }
 async-trait = "0.1"
 tpch-data = { path = "../tpch-data" }
+tracing = { workspace = true }
 [dev-dependencies]
 ark-test-curves.workspace = true
 divan.workspace = true
@@ -32,9 +33,9 @@ tempfile = "3"
 name = "prover"
 harness = false
 
-[[bench]]
-name = "verifier"
-harness = false
+# [[bench]]
+# name = "verifier"
+# harness = false
 
 [features]
 default = ["std", "parallel"]
@@ -47,7 +48,6 @@ parallel = [
     "ark-piop/parallel",
     "arithmetic/parallel",
     "ark-std/parallel",
-
     "truthtable-core/parallel",
 ]
 honest-prover = ["ark-piop/honest-prover", "truthtable-core/honest-prover"]

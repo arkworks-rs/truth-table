@@ -23,6 +23,7 @@ pub mod sign_check;
 pub mod sort_based_multi_col_nodup;
 pub mod sort_check;
 pub mod supp_check;
+pub mod bezout_based_multi_col_nodup;
 pub(crate) mod util;
 pub mod zero_expr_check;
 

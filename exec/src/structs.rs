@@ -7,6 +7,7 @@ use ark_piop::{
     setup::structs::{SNARKPk, SNARKVk},
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use tracing::instrument;
 use truthtable_core::errors::TTResult;
 
 pub struct TTPk<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>> {
@@ -21,11 +22,13 @@ pub trait Artifact: Sized {
     fn to_bytes(&self) -> TTResult<Vec<u8>>;
     fn from_bytes(bytes: &[u8]) -> TTResult<Self>;
 
+    #[instrument(level = "debug")]
     fn load(path: &Path) -> TTResult<Self> {
         let bytes = std::fs::read(path)?;
         Self::from_bytes(&bytes)
     }
 
+    #[instrument(level = "debug", skip(self))]
     fn save(&self, path: &Path) -> TTResult<()> {
         let bytes = self.to_bytes()?;
         std::fs::write(path, bytes)?;
@@ -104,7 +107,8 @@ fn canonical_to_vec<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
     Ok(buffer)
 }
 
+#[instrument(level = "debug", skip_all)]
 fn canonical_from_slice<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
     let mut cursor = Cursor::new(bytes);
-    Ok(T::deserialize_uncompressed(&mut cursor)?)
+    Ok(T::deserialize_uncompressed_unchecked(&mut cursor)?)
 }

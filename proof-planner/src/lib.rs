@@ -9,6 +9,7 @@ use datafusion::{
     optimizer::Analyzer,
     prelude::SessionContext,
 };
+use tracing::instrument;
 use truthtable_core::{
     prover::trees::proof_tree::ProverProofTree, verifier::trees::proof_tree::VerifierProofTree,
 };
@@ -70,6 +71,7 @@ where
     )
 }
 
+#[instrument(level = "debug", skip_all)]
 pub async fn create_prover_proof_tree_with_ctx<F, MvPCS, UvPCS>(
     df_session_ctx: &SessionContext,
     query: &str,

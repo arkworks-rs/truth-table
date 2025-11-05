@@ -6,6 +6,7 @@ use ark_piop::test_utils::init_tracing_for_tests;
 use crate::{
     commit::CommitBuilder,
     prove::ProveBuilder,
+    runtime,
     setup::{DEFAULT_TEST_LOG_SIZE, SetupBuilder, default_pk_filename, default_vk_filename},
     verify::VerifyBuilder,
 };
@@ -100,6 +101,10 @@ pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<
         .await?;
 
     Ok(oracle_path)
+}
+
+pub fn resolve_oracle_path_blocking(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
+    runtime::block_on(resolve_oracle_path(parquet_path, pk_path))
 }
 
 pub fn resolve_parquet_path(table_name: &str) -> Result<PathBuf> {
