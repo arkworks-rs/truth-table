@@ -3,18 +3,52 @@ use std::sync::Arc;
 use datafusion::{
     logical_expr::LogicalPlan,
     optimizer::{
+        common_subexpr_eliminate::CommonSubexprEliminate,
+        decorrelate_predicate_subquery::DecorrelatePredicateSubquery,
         eliminate_cross_join::EliminateCrossJoin,
+        eliminate_duplicated_expr::EliminateDuplicatedExpr, eliminate_filter::EliminateFilter,
+        eliminate_join::EliminateJoin, eliminate_limit::EliminateLimit,
+        eliminate_outer_join::EliminateOuterJoin,
         extract_equijoin_predicate::ExtractEquijoinPredicate, push_down_filter::PushDownFilter,
-        Optimizer, OptimizerContext, OptimizerRule,
+        push_down_limit::PushDownLimit, replace_distinct_aggregate::ReplaceDistinctWithAggregate,
+        scalar_subquery_to_join::ScalarSubqueryToJoin, simplify_expressions::SimplifyExpressions,
+        single_distinct_to_groupby::SingleDistinctToGroupBy, Optimizer, OptimizerContext,
+        OptimizerRule,
     },
 };
 
 pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
-        Arc::new(ExtractEquijoinPredicate),
-        Arc::new(PushDownFilter {}),
-        Arc::new(ExtractEquijoinPredicate),
-        Arc::new(EliminateCrossJoin),
+        // Arc::new(EliminateNestedUnion::new()),
+        // Arc::new(SimplifyExpressions::new()),
+        // Arc::new(UnwrapCastInComparison::new()),
+        Arc::new(ReplaceDistinctWithAggregate::new()),
+        Arc::new(EliminateJoin::new()),
+        Arc::new(DecorrelatePredicateSubquery::new()),
+        Arc::new(ScalarSubqueryToJoin::new()),
+        Arc::new(ExtractEquijoinPredicate::new()),
+        // Arc::new(EliminateDuplicatedExpr::new()),
+        Arc::new(EliminateFilter::new()),
+        Arc::new(EliminateCrossJoin::new()),
+        // Arc::new(CommonSubexprEliminate::new()),
+        Arc::new(EliminateLimit::new()),
+        // Arc::new(PropagateEmptyRelation::new()),
+        // Must be after PropagateEmptyRelation
+        // Arc::new(EliminateOneUnion::new()),
+        // Arc::new(FilterNullJoinKeys::default()),
+        Arc::new(EliminateOuterJoin::new()),
+        // Filters can't be pushed down past Limits, we should do PushDownFilter after
+        // PushDownLimit
+        Arc::new(PushDownLimit::new()),
+        Arc::new(PushDownFilter::new()),
+        Arc::new(SingleDistinctToGroupBy::new()),
+        // The previous optimizations added expressions and projections,
+        // that might benefit from the following rules
+        // Arc::new(SimplifyExpressions::new()),
+        // Arc::new(UnwrapCastInComparison::new()),
+        // Arc::new(CommonSubexprEliminate::new()),
+        // Arc::new(EliminateGroupByConstant::new()),
+        // Arc::new(OptimizeProjections::new()),
     ];
 
     let optimizer = Optimizer::with_rules(rules);

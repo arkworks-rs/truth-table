@@ -32,16 +32,16 @@ fn prover_bench_queries() -> &'static [BenchQuery] {
         let tpch1 = query_spec(1);
         let tpch3 = query_spec(3);
         let queries = vec![
-            // BenchQuery {
-            //     name: "tpch_q1",
-            //     query: tpch1.sql,
-            //     tables: tpch1.tables,
-            // },
             BenchQuery {
-                name: "tpch_q3",
-                query: tpch3.sql,
-                tables: tpch3.tables,
+                name: "tpch_q1",
+                query: tpch1.sql,
+                tables: tpch1.tables,
             },
+            // BenchQuery {
+            //     name: "tpch_q3",
+            //     query: tpch3.sql,
+            //     tables: tpch3.tables,
+            // },
             // BenchQuery {
             //     name: "lineitem_dummy",
             //     query: DUMMY_QUERY,
