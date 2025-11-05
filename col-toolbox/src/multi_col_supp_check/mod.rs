@@ -169,27 +169,27 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             contig_lex_sorted_tracked_table: prover_input
                 .contig_lex_sorted_supp_tracked_table
                 .clone(),
-            tie_indicator_tracked_table:
-        prover_input.tie_indicator_tracked_table.clone(),
+            tie_indicator_tracked_table: prover_input.tie_indicator_tracked_table.clone(),
             shift_tracked_table: prover_input
                 .shifted_contig_lex_sorted_supp_tracked_table
                 .clone(),
         };
 
-        SortBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover,
-        multi_col_no_dup_prover_input)?;
+        SortBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover, multi_col_no_dup_prover_input)?;
         // let multi_col_no_dup_prover_input = BezoutBasedMultiNoDupProverInput {
         //     tracked_table: prover_input.supp_tracked_table.clone(),
         //     contig_lex_sorted_tracked_table: prover_input
         //         .contig_lex_sorted_supp_tracked_table
         //         .clone(),
-        //     tie_indicator_tracked_table: prover_input.tie_indicator_tracked_table.clone(),
+        //     tie_indicator_tracked_table:
+        // prover_input.tie_indicator_tracked_table.clone(),
         //     shift_tracked_table: prover_input
         //         .shifted_contig_lex_sorted_supp_tracked_table
         //         .clone(),
         // };
 
-        // BezoutBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover, multi_col_no_dup_prover_input)?;
+        // BezoutBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover,
+        // multi_col_no_dup_prover_input)?;
         let multi_col_supp_check_prover_output = MultiColSuppCheckProverOutput {
             orig_folded_tracked_col: orig_table_folded_col,
             supp_folded_tracked_col: supp_table_folded_col,

@@ -20,7 +20,8 @@ use proof_planner::create_prover_proof_tree_with_ctx;
 use tracing::instrument;
 use truthtable_core::prover::trees::{
     arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
+    piop_tree::ProverPIOPTree, proof_tree::display::ProverProofTreeGraphviz,
+    tracked_tree::ProverTrackedTree,
 };
 
 use crate::{
@@ -209,6 +210,9 @@ pub async fn prepare_prover_artifacts(
 
     let proof_tree =
         create_prover_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, query, shared_ctx).await;
+    let proof_tree_root = proof_tree.root();
+    let proof_tree_graph = ProverProofTreeGraphviz::new(&proof_tree_root);
+    println!("{}", proof_tree_graph.graphviz());
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;

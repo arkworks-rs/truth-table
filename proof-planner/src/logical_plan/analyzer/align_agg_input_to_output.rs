@@ -5,7 +5,7 @@ use datafusion_common::{tree_node::Transformed, DFSchema, Result};
 use datafusion_expr::{expr::AggregateFunction as AggregateExpr, logical_plan::LogicalPlan, Expr};
 
 use super::common::cast_expression_to_type;
-
+use crate::analyze_logical_plan;
 #[derive(Debug, Default)]
 pub(crate) struct AlignAggInputToOutput;
 
@@ -105,8 +105,6 @@ mod tests {
         expr::Cast, expr_fn::col, logical_plan::builder::table_scan, Expr, LogicalPlan,
     };
     use datafusion_functions_aggregate::expr_fn::{avg, count, sum};
-
-    use crate::logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
 
     fn expect_aggregate(plan: &LogicalPlan) -> &datafusion_expr::logical_plan::Aggregate {
         match plan {

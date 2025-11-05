@@ -2,10 +2,7 @@ use crate::proof_nodes::prover::ProverNode;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
-use crate::proof_nodes::{
-    id::NodeId,
-    lps::{join::ProverJoinNode, prover::ProverTableScanNode},
-};
+use crate::proof_nodes::{id::NodeId, lps::prover::ProverTableScanNode};
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
 use std::{fmt, sync::Arc};
@@ -177,13 +174,7 @@ where
                                 .flatten()
                                 .collect::<Vec<_>>();
 
-                            if node
-                                .as_any()
-                                .downcast_ref::<ProverJoinNode<F, MvPCS, UvPCS>>()
-                                .is_some()
-                            {
-                                batches = add_activator_and_pad_power_of_two(batches)?;
-                            }
+                            batches = add_activator_and_pad_power_of_two(batches)?;
 
                             if label_clone == "output_tree"
                                 && node
@@ -442,14 +433,12 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
         let act_idx = activator_index.expect("activator field missing");
 
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
-        if cols.len() == schema.fields().len() {
-            // Replace existing activator column with `true`
-            let mut builder = BooleanBuilder::with_capacity(batch_rows);
-            for _ in 0..batch_rows {
-                builder.append_value(true);
-            }
-            cols[act_idx] = Arc::new(builder.finish());
-        } else {
+        let batch_has_activator = batch
+            .schema()
+            .fields()
+            .iter()
+            .any(|f| f.name() == ACTIVATOR_COL_NAME);
+        if !batch_has_activator {
             let mut builder = BooleanBuilder::with_capacity(batch_rows);
             for _ in 0..batch_rows {
                 builder.append_value(true);

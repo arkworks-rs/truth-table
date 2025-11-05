@@ -41,19 +41,19 @@
 
 // #[test]
 // fn nodup_check_is_sound() -> SnarkResult<()> {
-//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
+//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>,
+// KZG10<Bls12_381>>(         3,
 //         to_field_vec!([4, 7, 18, 20, 18, 2, 12, 3], Fr),
 //         vec![Fr::ONE; 2_usize.pow(3_u32)],
 //     )?;
-//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         2,
+//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>,
+// KZG10<Bls12_381>>(         2,
 //         to_field_vec!([20, 7, 16, 20], Fr),
 //         vec![Fr::ONE; 2_usize.pow(2_u32)],
 //     )?;
 
-//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
-//         3,
+//     binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>,
+// KZG10<Bls12_381>>(         3,
 //         to_field_vec!([3, 7, 1, 20, 18, 2, 12, 3], Fr),
 //         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
 //     )?;
@@ -70,7 +70,8 @@
 //     in_evals: Vec<Fr>,
 //     in_activator: Vec<Fr>,
 // ) -> SnarkResult<()> {
-//     let err = no_dup_test_helper::<Fr, MvPCS, UvPCS>(nv, in_evals, in_activator).unwrap_err();
+//     let err = no_dup_test_helper::<Fr, MvPCS, UvPCS>(nv, in_evals,
+// in_activator).unwrap_err();
 
 //     #[cfg(feature = "honest-prover")]
 //     {
@@ -89,9 +90,9 @@
 //         assert!(matches!(
 //             err,
 //             ark_piop::errors::SnarkError::VerifierError(
-//                 ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)
-//             )
-//         ));
+//
+// ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)
+// )         ));
 //     }
 
 //     Ok(())
@@ -110,18 +111,18 @@
 //     let in_mle = MLE::from_evaluations_vec(nv, in_evals);
 //     let in_tr_p = prover.track_and_commit_mat_mv_poly(&in_mle).unwrap();
 //     let in_activator_p = prover
-//         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv, in_activator))
-//         .unwrap();
-//     let col = TrackedCol::new(in_tr_p.clone(), Some(in_activator_p.clone()), None);
-//     let no_dup_prover_input = NoDupCheckProverInput { col };
+//         .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(nv,
+// in_activator))         .unwrap();
+//     let col = TrackedCol::new(in_tr_p.clone(), Some(in_activator_p.clone()),
+// None);     let no_dup_prover_input = NoDupCheckProverInput { col };
 //     NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_dup_prover_input)?;
 //     let proof = prover.build_proof()?;
 //     verifier.set_proof(proof);
 //     let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
 //     let activatorm = verifier.track_mv_com_by_id(in_activator_p.id())?;
-//     let tracked_col_oracle = TrackedColOracle::new(in_comm, Some(activatorm), None);
-//     let no_dup_verifier_input = NoDupCheckVerifierInput { tracked_col_oracle };
-//     NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_dup_verifier_input)?;
-//     verifier.verify()?;
+//     let tracked_col_oracle = TrackedColOracle::new(in_comm, Some(activatorm),
+// None);     let no_dup_verifier_input = NoDupCheckVerifierInput {
+// tracked_col_oracle };     NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut
+// verifier, no_dup_verifier_input)?;     verifier.verify()?;
 //     Ok(())
 // }

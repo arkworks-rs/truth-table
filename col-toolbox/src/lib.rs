@@ -3,6 +3,7 @@
 //! having no zeros, etc. The tools here are mainly consumed in `ra-toolbox`.
 
 pub mod and_check;
+pub mod bezout_based_multi_col_nodup;
 pub mod binary_check;
 pub mod contig_lex_sort_check;
 pub mod defragger;
@@ -23,7 +24,6 @@ pub mod sign_check;
 pub mod sort_based_multi_col_nodup;
 pub mod sort_check;
 pub mod supp_check;
-pub mod bezout_based_multi_col_nodup;
 pub(crate) mod util;
 pub mod zero_expr_check;
 
