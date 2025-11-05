@@ -106,6 +106,8 @@ mod tests {
     };
     use datafusion_functions_aggregate::expr_fn::{avg, count, sum};
 
+    use crate::logical_plan::analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
+
     fn expect_aggregate(plan: &LogicalPlan) -> &datafusion_expr::logical_plan::Aggregate {
         match plan {
             LogicalPlan::Aggregate(agg) => agg,
