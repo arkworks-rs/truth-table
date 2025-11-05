@@ -99,7 +99,7 @@ fn prepare_prover_inputs(spec: BenchQuery) -> ProverBenchInputs {
 fn prove_command(bencher: divan::Bencher, spec: BenchQuery) {
     bencher
         .with_inputs(move || prepare_prover_inputs(spec))
-        .bench_local_values(|inputs| run_prove_iteration(inputs));
+        .bench_local_values(run_prove_iteration);
 }
 
 fn run_prove_iteration(inputs: ProverBenchInputs) {
@@ -131,6 +131,7 @@ fn run_prove_iteration(inputs: ProverBenchInputs) {
         output_path: Some(proof_path.clone()),
         timed: false,
     };
+    dbg!(&command);
 
     runtime
         .block_on(command.run())

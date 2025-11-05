@@ -32,7 +32,7 @@ use ark_std::{cfg_iter, end_timer, start_timer};
 use datafusion::arrow::datatypes::DataType;
 use derivative::Derivative;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use std::{marker::PhantomData, sync::Arc};
+use std::{convert::TryInto, marker::PhantomData, sync::Arc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Sign {
@@ -374,6 +374,24 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 }
             },
 
+            DataType::Utf8View => {
+                let segments = Self::prove_non_neg_uint256(prover, col)?;
+                for segment in segments {
+                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                        included_cols: vec![segment],
+                        super_col: TrackedCol::new(
+                            prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
+                        prover,
+                        inclusion_check_prover_input,
+                    )?;
+                }
+            },
+
             _ => {},
         }
         Ok(())
@@ -586,6 +604,26 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                                 None,
                             ),
                         },
+                    )?;
+                }
+            },
+
+            DataType::Utf8View => {
+                let segments = Self::verify_non_neg_uint256(verifier, tracked_col_oracle)?;
+                for segment in segments {
+                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                        included_tracked_col_oracles: vec![segment],
+                        super_tracked_col_oracle: TrackedColOracle::new(
+                            verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
+                                Ok(Self::sparse_range_poly_by_nv(16)?.evaluate(&x))
+                            })),
+                            None,
+                            None,
+                        ),
+                    };
+                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                        verifier,
+                        inclusion_check_verifier_input,
                     )?;
                 }
             },
@@ -1196,6 +1234,81 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     #[allow(clippy::complexity)]
+    pub fn prove_non_neg_uint256(
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        col: &TrackedCol<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        let evaluations = col.data_tracked_poly().evaluations();
+        let log_size = col.log_size();
+        let mut chunk_values: Vec<Vec<F>> = (0..16)
+            .map(|_| Vec::with_capacity(evaluations.len()))
+            .collect();
+
+        for &eval in evaluations.iter() {
+            let chunks = Self::split_field_into_u16_limbs::<16>(eval);
+            for (target, chunk) in chunk_values.iter_mut().zip(chunks.iter()) {
+                target.push(F::from(*chunk as u64));
+            }
+        }
+
+        let mut chunk_polys = Vec::with_capacity(16);
+        for values in chunk_values {
+            let poly = prover
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, values))?;
+            chunk_polys.push(poly);
+        }
+
+        let recomposed = Self::recompose_tracked_polys(&chunk_polys);
+        let combined = &col.data_tracked_poly() - &recomposed;
+        let zero_poly = match &col.activator_tracked_poly() {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+
+        let activator = col.activator_tracked_poly();
+        let field_ref = col.field_ref().clone();
+        let tracked_cols = chunk_polys
+            .into_iter()
+            .map(|poly| TrackedCol::new(poly, activator.clone(), field_ref.clone()))
+            .collect();
+
+        Ok(tracked_cols)
+    }
+
+    #[allow(clippy::complexity)]
+    pub fn verify_non_neg_uint256(
+        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
+        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
+
+        let mut chunk_polys = Vec::with_capacity(16);
+        for _ in 0..16 {
+            let chunk_id = verifier.peek_next_id();
+            let chunk_poly = verifier.track_mv_com_by_id(chunk_id)?;
+            chunk_polys.push(chunk_poly);
+        }
+
+        let recomposed = Self::recompose_tracked_oracles(&chunk_polys);
+        let combined = &col_inner - &recomposed;
+        let zero_poly = match &col_activator {
+            Some(activator) => &combined * activator,
+            None => combined,
+        };
+        verifier.add_zerocheck_claim(zero_poly.id());
+
+        let field_ref = tracked_col_oracle.field_ref().clone();
+        let tracked_cols = chunk_polys
+            .into_iter()
+            .map(|poly| TrackedColOracle::new(poly, col_activator.clone(), field_ref.clone()))
+            .collect();
+
+        Ok(tracked_cols)
+    }
+
+    #[allow(clippy::complexity)]
     pub fn prove_non_neg_int128(
         prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
@@ -1333,6 +1446,37 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     fn split_i128_into_u16s(n: i128) -> [u16; 8] {
         let bits = n as u128;
         Self::split_u128_into_u16s(bits)
+    }
+
+    fn split_field_into_u16_limbs<const N: usize>(value: F) -> [u16; N] {
+        let bigint = value.into_bigint();
+        let limbs = bigint.as_ref();
+        let mut little_endian_chunks = Vec::with_capacity(N);
+        let mut limb_index = 0usize;
+        let mut shift = 0usize;
+
+        while little_endian_chunks.len() < N {
+            if limb_index >= limbs.len() {
+                little_endian_chunks.push(0u16);
+            } else {
+                let limb = limbs[limb_index];
+                let chunk = ((limb >> shift) & 0xFFFF) as u16;
+                little_endian_chunks.push(chunk);
+                shift += 16;
+                if shift >= 64 {
+                    shift -= 64;
+                    limb_index += 1;
+                }
+            }
+        }
+
+        let mut big_endian_chunks = vec![0u16; N];
+        for (idx, val) in little_endian_chunks.into_iter().enumerate() {
+            big_endian_chunks[N - 1 - idx] = val;
+        }
+        big_endian_chunks
+            .try_into()
+            .expect("chunk count must match the specified output size")
     }
 
     fn field_low_bits_unsigned(value: F, bits: usize) -> u128 {

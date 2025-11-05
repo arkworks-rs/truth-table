@@ -740,15 +740,9 @@ mod tests {
         assert_eq!(column.len(), array.len());
         let expected = encode_hashed_bytes::<Fr>(b"foo");
         assert_eq!(column[0], expected[0]);
-        assert_eq!(
-            column[1],
-            encode_hashed_bytes::<Fr>(b"bar")[0]
-        );
+        assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"bar")[0]);
         assert_eq!(column[2], Fr::zero());
-        assert_eq!(
-            column[3],
-            encode_hashed_bytes::<Fr>(b"baz")[0]
-        );
+        assert_eq!(column[3], encode_hashed_bytes::<Fr>(b"baz")[0]);
     }
 
     #[test]
@@ -759,10 +753,7 @@ mod tests {
         assert_eq!(encoded.len(), 1);
         let column = &encoded[0];
         assert_eq!(column[0], Fr::from(120u64));
-        assert_eq!(
-            column[1],
-            encode_hashed_bytes::<Fr>(b"yz")[0]
-        );
+        assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"yz")[0]);
         assert_eq!(column[2], Fr::zero());
     }
 
@@ -774,10 +765,7 @@ mod tests {
         assert_eq!(encoded.len(), 1);
         let column = &encoded[0];
         assert_eq!(column[0], Fr::from(109u64));
-        assert_eq!(
-            column[1],
-            encode_hashed_bytes::<Fr>(b"no")[0]
-        );
+        assert_eq!(column[1], encode_hashed_bytes::<Fr>(b"no")[0]);
         assert_eq!(column[2], Fr::zero());
     }
 }
