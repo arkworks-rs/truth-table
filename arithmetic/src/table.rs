@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
@@ -37,6 +37,21 @@ where
     tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
     /// The log size of the table
     log_size: usize,
+}
+
+impl<F, MvPCS, UvPCS> Default for TrackedTable<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn default() -> Self {
+        Self {
+            schema: None,
+            tracked_polys: IndexMap::new(),
+            log_size: 0,
+        }
+    }
 }
 
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTable<F, MvPCS, UvPCS>
@@ -287,6 +302,42 @@ where
             .iter()
             .map(|&i| self.tracked_col_by_ind(i))
             .collect()
+    }
+
+    /// Returns a subtable containing the tracked columns at the specified
+    /// indices and the current table's activator column (if any).
+    pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<F, MvPCS, UvPCS> {
+        let mut sub_polys = IndexMap::with_capacity(
+            indices.len() + self.activator_tracked_poly().is_some() as usize,
+        );
+
+        for &idx in indices {
+            let (field_ref, tracked_poly) = self
+                .tracked_polys
+                .get_index(idx)
+                .expect("column index out of bounds");
+            sub_polys.insert(field_ref.clone(), tracked_poly.clone());
+        }
+
+        if let Some((field_ref, activator_poly)) = self
+            .tracked_polys
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        {
+            sub_polys
+                .entry(field_ref.clone())
+                .or_insert_with(|| activator_poly.clone());
+        }
+
+        let sub_schema = self.schema.as_ref().map(|schema| {
+            let fields = sub_polys
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<Field>>();
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+
+        TrackedTable::new(sub_schema, sub_polys, self.log_size)
     }
 
     /// Returns all the tracked column polynomials in the table, including the

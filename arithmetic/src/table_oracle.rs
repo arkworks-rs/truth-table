@@ -41,6 +41,21 @@ where
     log_size: usize,
 }
 
+impl<F, MvPCS, UvPCS> Default for TrackedTableOracle<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn default() -> Self {
+        Self {
+            schema: None,
+            tracked_oracles: IndexMap::new(),
+            log_size: 0,
+        }
+    }
+}
+
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -213,6 +228,46 @@ where
             .iter()
             .map(|&i| self.tracked_col_oracle_by_ind(i))
             .collect()
+    }
+
+    /// Returns a subtable oracle containing the tracked column oracles at the
+    /// specified indices and the current table oracle's activator column (if
+    /// any).
+    pub fn tracked_subtable_by_indices(
+        &self,
+        indices: &[usize],
+    ) -> TrackedTableOracle<F, MvPCS, UvPCS> {
+        let mut sub_oracles = IndexMap::with_capacity(
+            indices.len() + self.activator_tracked_poly().is_some() as usize,
+        );
+
+        for &idx in indices {
+            let (field_ref, tracked_oracle) = self
+                .tracked_oracles
+                .get_index(idx)
+                .expect("column oracle index out of bounds");
+            sub_oracles.insert(field_ref.clone(), tracked_oracle.clone());
+        }
+
+        if let Some((field_ref, activator_oracle)) = self
+            .tracked_oracles
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        {
+            sub_oracles
+                .entry(field_ref.clone())
+                .or_insert_with(|| activator_oracle.clone());
+        }
+
+        let sub_schema = self.schema.as_ref().map(|schema| {
+            let fields = sub_oracles
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<Field>>();
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+
+        TrackedTableOracle::new(sub_schema, sub_oracles, self.log_size)
     }
     /// Returns all the tracked column oracles in the table, including the
     /// activator column (if any)

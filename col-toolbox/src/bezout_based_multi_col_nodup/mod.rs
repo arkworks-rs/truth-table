@@ -50,7 +50,6 @@ pub(crate) mod utils;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 
-use crate::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
 // Convinces the verifier that
 pub struct BezoutBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<F>,
@@ -66,9 +65,6 @@ pub struct BezoutBasedMultiNoDupProverInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -77,14 +73,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
         Self {
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
-            contig_lex_sorted_tracked_table: self
-                .contig_lex_sorted_tracked_table
-                .deep_clone(prover.clone()),
-            shift_tracked_table: self.shift_tracked_table.deep_clone(prover.clone()),
-            tie_indicator_tracked_table: self
-                .tie_indicator_tracked_table
-                .as_ref()
-                .map(|table| table.deep_clone(prover.clone())),
         }
     }
 }
@@ -95,9 +83,6 @@ pub struct BezoutBasedMultiNoDupVerifierInput<
     UvPCS: PCS<F, Poly = LDE<F>>,
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     PIOP<F, MvPCS, UvPCS> for BezoutBasedMultiNoDup<F, MvPCS, UvPCS>
@@ -212,7 +197,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         ///////////////////// Evaluation claims for the Bezout identity
-        //////////////////////////////////////////
+        ///////////////////// /////////////////////
         prover.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
         prover.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
         prover.add_uv_eval_claim(t_p_tr.id(), chall)?;

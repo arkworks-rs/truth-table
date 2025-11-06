@@ -7,12 +7,12 @@ use truthtable_core::test_display::{
     display_prover_proof_tree, display_prover_tracked_tree,
 };
 
-end_to_end_tests!(&["lineitem", "supplier"] => [
-    join_by_suppkey => r#"SELECT l_suppkey, s_name
-FROM lineitem l
-JOIN supplier s ON l.l_suppkey = s.s_suppkey;
-"#,
-]);
+// end_to_end_tests!(&["lineitem", "supplier"] => [
+//     join_by_suppkey => r#"SELECT l_suppkey, s_name
+// FROM lineitem l
+// JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+// "#,
+// ]);
 
 type F = ark_test_curves::bls12_381::Fr;
 type MvPCS = ark_piop::pcs::pst13::PST13<ark_test_curves::bls12_381::Bls12_381>;

@@ -1,13 +1,13 @@
 use arithmetic::{
-    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
 };
 use ark_ec::pairing::Pairing;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::{kzg10::KZG10, pst13::PST13, PCS},
     piop::PIOP,
     prover::structs::polynomial::TrackedPoly,
     test_utils::test_prelude,
@@ -33,16 +33,16 @@ struct InnerJoinTestInput<E: Pairing> {
     pub data_out_table: Vec<Vec<E::ScalarField>>,
     pub nv_left_keysupp: usize,
     pub activator_left_keysupp: Option<Vec<E::ScalarField>>,
-    pub data_left_keysupp: Vec<E::ScalarField>,
+    pub data_left_keysupp: Vec<Vec<E::ScalarField>>,
     pub nv_right_keysupp: usize,
     pub activator_right_keysupp: Option<Vec<E::ScalarField>>,
-    pub data_right_keysupp: Vec<E::ScalarField>,
+    pub data_right_keysupp: Vec<Vec<E::ScalarField>>,
     pub nv_out_keysupp: usize,
     pub activator_out_keysupp: Option<Vec<E::ScalarField>>,
-    pub data_out_keysupp: Vec<E::ScalarField>,
+    pub data_out_keysupp: Vec<Vec<E::ScalarField>>,
     pub nv_all_keysupp: usize,
     pub activator_all_keysupp: Option<Vec<E::ScalarField>>,
-    pub data_all_keysupp: Vec<E::ScalarField>,
+    pub data_all_keysupp: Vec<Vec<E::ScalarField>>,
     pub join_left_source_data: Vec<E::ScalarField>,
     pub join_right_source_data: Vec<E::ScalarField>,
     pub right_table_multiplicity_data: Vec<E::ScalarField>,
@@ -144,16 +144,16 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3], Fr),
         right_table_multiplicity_data: to_field_vec!([2, 2, 2, 2], Fr),
@@ -181,16 +181,16 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1], Fr),
         join_right_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         right_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
@@ -218,16 +218,16 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([2, 3], Fr),
+        data_left_keysupp: vec![to_field_vec!([2, 3], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([2, 3], Fr),
+        data_right_keysupp: vec![to_field_vec!([2, 3], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([2, 3], Fr),
+        data_out_keysupp: vec![to_field_vec!([2, 3], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([2, 3], Fr),
+        data_all_keysupp: vec![to_field_vec!([2, 3], Fr)],
         // Join sources map each output row to (left_idx, right_idx)
         join_left_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 1, 1], Fr),
@@ -262,31 +262,27 @@ fn inner_join_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], Fr),
             // left payload expanded according to join
             to_field_vec!(
-                [
-                    10, 10, 11, 11, 20, 20, 21, 21, 30, 30, 31, 31, 40, 40, 41, 41
-                ],
+                [10, 10, 11, 11, 20, 20, 21, 21, 30, 30, 31, 31, 40, 40, 41, 41],
                 Fr
             ),
             // right payload per matched right row
             to_field_vec!(
-                [
-                    100, 101, 100, 101, 200, 201, 200, 201, 300, 301, 300, 301, 400, 401, 400, 401
-                ],
+                [100, 101, 100, 101, 200, 201, 200, 201, 300, 301, 300, 301, 400, 401, 400, 401],
                 Fr
             ),
         ],
         nv_left_keysupp: 2,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2, 3, 4], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2, 3, 4], Fr)],
         nv_right_keysupp: 2,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2, 3, 4], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2, 3, 4], Fr)],
         nv_out_keysupp: 2,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2, 3, 4], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2, 3, 4], Fr)],
         nv_all_keysupp: 2,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2, 3, 4], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2, 3, 4], Fr)],
         // Each left row joins with two right rows of same key
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7], Fr),
         join_right_source_data: to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5, 6, 7, 6, 7], Fr),
@@ -331,16 +327,16 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         // Key supports (keys {1,2}) with activators present
         nv_left_keysupp: 1,
         activator_left_keysupp: Some(to_field_vec!([1, 1], Fr)),
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: Some(to_field_vec!([1, 1], Fr)),
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: Some(to_field_vec!([1, 1], Fr)),
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: Some(to_field_vec!([1, 1], Fr)),
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         // Join sources map each output to (left_idx, right_idx)
         // Map 4 output rows to source indices; only rows 0 and 2 are active
         join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
@@ -375,16 +371,16 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
         right_table_multiplicity_data: to_field_vec!([2, 0, 2, 0], Fr),
@@ -416,16 +412,16 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([1, 1, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         right_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
@@ -456,16 +452,16 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 0, 0, 4, 4, 4, 4], Fr),
         right_table_multiplicity_data: to_field_vec!([2, 0, 0, 0, 2, 0, 0, 0], Fr),
@@ -498,16 +494,16 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         ],
         nv_left_keysupp: 1,
         activator_left_keysupp: None,
-        data_left_keysupp: to_field_vec!([1, 2], Fr),
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_right_keysupp: 1,
         activator_right_keysupp: None,
-        data_right_keysupp: to_field_vec!([1, 2], Fr),
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_out_keysupp: 1,
         activator_out_keysupp: None,
-        data_out_keysupp: to_field_vec!([1, 2], Fr),
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr)],
         nv_all_keysupp: 1,
         activator_all_keysupp: None,
-        data_all_keysupp: to_field_vec!([1, 2], Fr),
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
         join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
         right_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
@@ -632,9 +628,16 @@ fn inner_join_test_helper<
         )?),
         None => None,
     };
-    let data_left_keysupp_poly = prover.track_and_commit_mat_mv_poly(
-        &MLE::from_evaluations_slice(input.nv_left_keysupp, input.data_left_keysupp.as_slice()),
-    )?;
+    let data_left_keysupp_polys = input
+        .data_left_keysupp
+        .iter()
+        .map(|col| {
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
+                input.nv_left_keysupp,
+                col.as_slice(),
+            ))
+        })
+        .collect::<SnarkResult<Vec<_>>>()?;
 
     let activator_right_keysupp_poly = match &input.activator_right_keysupp {
         Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
@@ -642,9 +645,16 @@ fn inner_join_test_helper<
         )?),
         None => None,
     };
-    let data_right_keysupp_poly = prover.track_and_commit_mat_mv_poly(
-        &MLE::from_evaluations_slice(input.nv_right_keysupp, input.data_right_keysupp.as_slice()),
-    )?;
+    let data_right_keysupp_polys = input
+        .data_right_keysupp
+        .iter()
+        .map(|col| {
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
+                input.nv_right_keysupp,
+                col.as_slice(),
+            ))
+        })
+        .collect::<SnarkResult<Vec<_>>>()?;
 
     let activator_out_keysupp_poly = match &input.activator_out_keysupp {
         Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
@@ -652,9 +662,16 @@ fn inner_join_test_helper<
         )?),
         None => None,
     };
-    let data_out_keysupp_poly = prover.track_and_commit_mat_mv_poly(
-        &MLE::from_evaluations_slice(input.nv_out_keysupp, input.data_out_keysupp.as_slice()),
-    )?;
+    let data_out_keysupp_polys = input
+        .data_out_keysupp
+        .iter()
+        .map(|col| {
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
+                input.nv_out_keysupp,
+                col.as_slice(),
+            ))
+        })
+        .collect::<SnarkResult<Vec<_>>>()?;
 
     let activator_all_keysupp_poly = match &input.activator_all_keysupp {
         Some(activator_values) => Some(prover.track_and_commit_mat_mv_poly(
@@ -662,9 +679,37 @@ fn inner_join_test_helper<
         )?),
         None => None,
     };
-    let data_all_keysupp_poly = prover.track_and_commit_mat_mv_poly(
-        &MLE::from_evaluations_slice(input.nv_all_keysupp, input.data_all_keysupp.as_slice()),
-    )?;
+    let data_all_keysupp_polys = input
+        .data_all_keysupp
+        .iter()
+        .map(|col| {
+            prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
+                input.nv_all_keysupp,
+                col.as_slice(),
+            ))
+        })
+        .collect::<SnarkResult<Vec<_>>>()?;
+
+    let (left_keysupp_columns, left_keysupp_field_order) = assemble_table_columns(
+        "left_keysupp",
+        &data_left_keysupp_polys,
+        &activator_left_keysupp_poly,
+    );
+    let (right_keysupp_columns, right_keysupp_field_order) = assemble_table_columns(
+        "right_keysupp",
+        &data_right_keysupp_polys,
+        &activator_right_keysupp_poly,
+    );
+    let (out_keysupp_columns, out_keysupp_field_order) = assemble_table_columns(
+        "out_keysupp",
+        &data_out_keysupp_polys,
+        &activator_out_keysupp_poly,
+    );
+    let (all_keysupp_columns, all_keysupp_field_order) = assemble_table_columns(
+        "all_keysupp",
+        &data_all_keysupp_polys,
+        &activator_all_keysupp_poly,
+    );
 
     // source col prep
     let join_left_source_poly = prover.track_and_commit_mat_mv_poly(
@@ -691,26 +736,26 @@ fn inner_join_test_helper<
             left_table: TrackedTable::new(None, left_table_columns, input.nv_left_table),
             right_table: TrackedTable::new(None, right_table_columns, input.nv_right_table),
             out_table: TrackedTable::new(None, out_table_columns, input.nv_out_table),
-            // keysupps
-            left_key_support: TrackedCol::new(
-                data_left_keysupp_poly,
-                activator_left_keysupp_poly,
+            // keysupp tables
+            left_key_support_table: TrackedTable::new(
                 None,
+                left_keysupp_columns,
+                input.nv_left_keysupp,
             ),
-            right_key_support: TrackedCol::new(
-                data_right_keysupp_poly,
-                activator_right_keysupp_poly,
+            right_key_support_table: TrackedTable::new(
                 None,
+                right_keysupp_columns,
+                input.nv_right_keysupp,
             ),
-            out_key_support: TrackedCol::new(
-                data_out_keysupp_poly,
-                activator_out_keysupp_poly,
+            out_key_support_table: TrackedTable::new(
                 None,
+                out_keysupp_columns,
+                input.nv_out_keysupp,
             ),
-            all_key_support: TrackedCol::new(
-                data_all_keysupp_poly,
-                activator_all_keysupp_poly,
+            all_key_support_table: TrackedTable::new(
                 None,
+                all_keysupp_columns,
+                input.nv_all_keysupp,
             ),
             // source cols
             join_left_source: TrackedCol::new(
@@ -780,44 +825,69 @@ fn inner_join_test_helper<
         })
         .collect::<Vec<_>>();
 
-    let activator_left_keysupp_comm = match &input.activator_left_keysupp {
+    let activator_left_keysupp_tracked_table_oracle = match &input.activator_left_keysupp {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_left_keysupp_id = verifier.peek_next_id();
-    let data_left_keysupp_comm = verifier.track_mv_com_by_id(data_left_keysupp_id).unwrap();
+    let data_left_keysupp_tracked_table_oracles = input
+        .data_left_keysupp
+        .iter()
+        .map(|_| {
+            let id = verifier.peek_next_id();
+            verifier.track_mv_com_by_id(id).unwrap()
+        })
+        .collect::<Vec<_>>();
 
-    let activator_right_keysupp_comm = match &input.activator_right_keysupp {
+    let activator_right_keysupp_tracked_table_oracle = match &input.activator_right_keysupp {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_right_keysupp_id = verifier.peek_next_id();
-    let data_right_keysupp_comm = verifier.track_mv_com_by_id(data_right_keysupp_id).unwrap();
-    let activator_out_keysupp_comm = match &input.activator_out_keysupp {
-        Some(_) => {
+    let data_right_keysupp_tracked_table_oracles = input
+        .data_right_keysupp
+        .iter()
+        .map(|_| {
             let id = verifier.peek_next_id();
-            Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
-        None => None,
-    };
-    let data_out_keysupp_id = verifier.peek_next_id();
-    let data_out_keysupp_comm = verifier.track_mv_com_by_id(data_out_keysupp_id).unwrap();
+            verifier.track_mv_com_by_id(id).unwrap()
+        })
+        .collect::<Vec<_>>();
 
-    let activator_all_keysupp_comm = match &input.activator_all_keysupp {
+    let activator_out_keysupp_tracked_table_oracle = match &input.activator_out_keysupp {
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
         },
         None => None,
     };
-    let data_all_keysupp_id = verifier.peek_next_id();
-    let data_all_keysupp_comm = verifier.track_mv_com_by_id(data_all_keysupp_id)?;
+    let data_out_keysupp_tracked_table_oracles = input
+        .data_out_keysupp
+        .iter()
+        .map(|_| {
+            let id = verifier.peek_next_id();
+            verifier.track_mv_com_by_id(id).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let activator_all_keysupp_tracked_table_oracle = match &input.activator_all_keysupp {
+        Some(_) => {
+            let id = verifier.peek_next_id();
+            Some(verifier.track_mv_com_by_id(id).unwrap())
+        },
+        None => None,
+    };
+    let data_all_keysupp_tracked_table_oracles = input
+        .data_all_keysupp
+        .iter()
+        .map(|_| {
+            let id = verifier.peek_next_id();
+            verifier.track_mv_com_by_id(id).unwrap()
+        })
+        .collect::<Vec<_>>();
     let join_left_source_id = verifier.peek_next_id();
     let join_left_source_comm = verifier.track_mv_com_by_id(join_left_source_id)?;
     let join_right_source_id = verifier.peek_next_id();
@@ -856,32 +926,48 @@ fn inner_join_test_helper<
                 ),
                 input.nv_out_table,
             ),
-            left_key_support_comm: TrackedColOracle::new(
-                data_left_keysupp_comm,
-                activator_left_keysupp_comm,
+            left_key_support_table_oracle: TrackedTableOracle::new(
                 None,
+                assemble_table_oracles(
+                    &left_keysupp_field_order,
+                    &data_left_keysupp_tracked_table_oracles,
+                    &activator_left_keysupp_tracked_table_oracle,
+                ),
+                input.nv_left_keysupp,
             ),
-            right_key_support_comm: TrackedColOracle::new(
-                data_right_keysupp_comm,
-                activator_right_keysupp_comm,
+            right_key_support_table_oracle: TrackedTableOracle::new(
                 None,
+                assemble_table_oracles(
+                    &right_keysupp_field_order,
+                    &data_right_keysupp_tracked_table_oracles,
+                    &activator_right_keysupp_tracked_table_oracle,
+                ),
+                input.nv_right_keysupp,
             ),
-            out_key_support_comm: TrackedColOracle::new(
-                data_out_keysupp_comm,
-                activator_out_keysupp_comm,
+            out_key_support_table_oracle: TrackedTableOracle::new(
                 None,
+                assemble_table_oracles(
+                    &out_keysupp_field_order,
+                    &data_out_keysupp_tracked_table_oracles,
+                    &activator_out_keysupp_tracked_table_oracle,
+                ),
+                input.nv_out_keysupp,
             ),
-            all_key_support_comm: TrackedColOracle::new(
-                data_all_keysupp_comm,
-                activator_all_keysupp_comm,
+            all_key_support_table_oracle: TrackedTableOracle::new(
                 None,
+                assemble_table_oracles(
+                    &all_keysupp_field_order,
+                    &data_all_keysupp_tracked_table_oracles,
+                    &activator_all_keysupp_tracked_table_oracle,
+                ),
+                input.nv_all_keysupp,
             ),
-            join_left_source_comm: TrackedColOracle::new(
+            join_left_source_table_oracle: TrackedColOracle::new(
                 join_left_source_comm,
                 activator_left_tracked_table_oracle.clone(),
                 None,
             ),
-            join_right_source_comm: TrackedColOracle::new(
+            join_right_source_table_oracle: TrackedColOracle::new(
                 join_right_source_comm,
                 activator_right_tracked_table_oracle.clone(),
                 None,

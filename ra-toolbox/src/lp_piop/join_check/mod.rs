@@ -22,6 +22,10 @@ use ark_piop::{
 };
 use ark_std::{end_timer, start_timer};
 use col_toolbox::{
+    bezout_based_multi_col_supp_check::{
+        BezoutMultiColSuppCheckPIOP, BezoutMultiColSuppCheckProverInput,
+        BezoutMultiColSuppCheckVerifierInput,
+    },
     multiplicity_check::{
         MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
     },
@@ -29,6 +33,7 @@ use col_toolbox::{
     set_intersec::{SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput},
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
+use datafusion::{functions::unicode::left, logical_expr::Join};
 use derivative::Derivative;
 use std::{marker::PhantomData, sync::Arc};
 #[cfg(test)]
@@ -51,10 +56,10 @@ pub struct InnerJoinProverInput<
     pub left_table: TrackedTable<F, MvPCS, UvPCS>,
     pub right_table: TrackedTable<F, MvPCS, UvPCS>,
     pub out_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub left_key_support: TrackedCol<F, MvPCS, UvPCS>,
-    pub right_key_support: TrackedCol<F, MvPCS, UvPCS>,
-    pub out_key_support: TrackedCol<F, MvPCS, UvPCS>,
-    pub all_key_support: TrackedCol<F, MvPCS, UvPCS>,
+    pub left_key_support_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub right_key_support_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub out_key_support_table: TrackedTable<F, MvPCS, UvPCS>,
+    pub all_key_support_table: TrackedTable<F, MvPCS, UvPCS>,
     pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
     pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
@@ -69,14 +74,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             left_table: self.left_table.deep_clone(prover.clone()),
             right_table: self.right_table.deep_clone(prover.clone()),
             out_table: self.out_table.deep_clone(prover.clone()),
-            left_key_support: self.left_key_support.deep_clone(prover.clone()),
-            right_key_support: self.right_key_support.deep_clone(prover.clone()),
-            out_key_support: self.out_key_support.deep_clone(prover.clone()),
-            all_key_support: self.all_key_support.deep_clone(prover.clone()),
+            left_key_support_table: self.left_key_support_table.deep_clone(prover.clone()),
+            right_key_support_table: self.right_key_support_table.deep_clone(prover.clone()),
+            out_key_support_table: self.out_key_support_table.deep_clone(prover.clone()),
+            all_key_support_table: self.all_key_support_table.deep_clone(prover.clone()),
             join_left_source: self.join_left_source.deep_clone(prover.clone()),
             join_right_source: self.join_right_source.deep_clone(prover.clone()),
             left_table_multiplicity: self.left_table_multiplicity.deep_clone(prover.clone()),
-            right_table_multiplicity: self.right_table_multiplicity.deep_clone(prover),
+            right_table_multiplicity: self.right_table_multiplicity.deep_clone(prover.clone()),
         }
     }
 }
@@ -91,12 +96,12 @@ pub struct InnerJoinVerifierInput<
     pub left_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub right_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub out_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub left_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub right_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub out_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub all_key_support_comm: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub join_left_source_comm: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub join_right_source_comm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub left_key_support_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub right_key_support_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub out_key_support_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub all_key_support_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+    pub join_left_source_table_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub join_right_source_table_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub right_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
     pub left_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
@@ -119,62 +124,108 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
+        debug_assert!(
+            input.left_key_support_table.num_data_tracked_cols()
+                == input.right_key_support_table.num_data_tracked_cols()
+        );
 
+        debug_assert!(
+            input.all_key_support_table.num_data_tracked_cols()
+                == input.out_key_support_table.num_data_tracked_cols()
+        );
 
+        debug_assert!(
+            input.out_key_support_table.num_data_tracked_cols()
+                == input.right_key_support_table.num_data_tracked_cols()
+        );
+
+        let num_key_cols = input.left_key_support_table.num_data_tracked_cols();
+        let key_cols_indices = (0..num_key_cols).collect::<Vec<usize>>();
         // Support Check on left_key_support, log output
-        let supp_left_prover_input = SuppCheckProverInput {
-            col: input.left_table.tracked_col_by_ind(0),
-            supp: input.left_key_support.clone(),
+        let left_key_multi_col_supp_prover_input = BezoutMultiColSuppCheckProverInput {
+            orig_tracked_table: input
+                .left_table
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table: input.left_key_support_table.clone(),
         };
-        let left_supp_check_output = SuppCheckPIOP::prove(prover, supp_left_prover_input)?;
+
+        let left_key_multi_col_supp_prover_output =
+            BezoutMultiColSuppCheckPIOP::prove(prover, left_key_multi_col_supp_prover_input)?;
 
         // Support Check on right_key_support, log output
-        let supp_right_prover_input = SuppCheckProverInput {
-            col: input.right_table.tracked_col_by_ind(0),
-            supp: input.right_key_support.clone(),
+        let right_key_multi_col_supp_prover_input = BezoutMultiColSuppCheckProverInput {
+            orig_tracked_table: input
+                .right_table
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table: input.right_key_support_table.clone(),
         };
-        let right_supp_check_output = SuppCheckPIOP::prove(prover, supp_right_prover_input)?;
+
+        let right_key_multi_col_supp_prover_output =
+            BezoutMultiColSuppCheckPIOP::prove(prover, right_key_multi_col_supp_prover_input)?;
 
         // Support Check on the out table
-        let supp_out_prover_input = SuppCheckProverInput {
-            col: input.out_table.tracked_col_by_ind(0),
-            supp: input.out_key_support.clone(),
+        let out_key_multi_col_supp_prover_input = BezoutMultiColSuppCheckProverInput {
+            orig_tracked_table: input
+                .out_table
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table: input.out_key_support_table.clone(),
         };
-        let out_supp_check_output = SuppCheckPIOP::prove(prover, supp_out_prover_input)?;
 
+        let out_key_multi_col_supp_prover_output =
+            BezoutMultiColSuppCheckPIOP::prove(prover, out_key_multi_col_supp_prover_input)?;
+
+        ////////////////////////////////
+        let key_challenges = (0..num_key_cols)
+            .map(|_| prover.get_and_append_challenge(b"key_challenge").unwrap())
+            .collect::<Vec<F>>();
+
+        let left_key_support = input
+            .left_key_support_table
+            .fold_all_data_columns(&key_challenges);
+
+        let right_key_support = input
+            .right_key_support_table
+            .fold_all_data_columns(&key_challenges);
+
+        let out_key_support = input
+            .out_key_support_table
+            .fold_all_data_columns(&key_challenges);
+        let all_key_support = input
+            .out_key_support_table
+            .fold_all_data_columns(&key_challenges);
         // (SetInterCheck) Multiplicity check on [left_key_support,
         // right_key_support] // and [all_key_support] with activator + 1
         let set_inter_union_prover_input = SetInterUnionProverInput {
-            col_left: input.left_key_support.clone(),
-            col_right: input.right_key_support.clone(),
-            col_inter: input.out_key_support.clone(),
-            col_union: input.all_key_support.clone(),
+            col_left: left_key_support.clone(),
+            col_right: right_key_support.clone(),
+            col_inter: out_key_support.clone(),
+            col_union: all_key_support.clone(),
         };
 
         SetInterUnionCheckPIOP::prove(prover, set_inter_union_prover_input)?;
 
         // Zero Check on act(out_keys)(left_key - out_keys)
-        let left_minus_out = &input.left_key_support.data_tracked_poly()
-            - &input.out_key_support.data_tracked_poly();
-        let zero_poly = match input.out_key_support.activator_tracked_poly() {
+        let left_minus_out =
+            &left_key_support.data_tracked_poly() - &out_key_support.data_tracked_poly();
+        let zero_poly = match out_key_support.activator_tracked_poly() {
             Some(act) => &act * &left_minus_out,
             None => left_minus_out,
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Zero Check on act(out_keys)(right_key - out_keys)
-        let right_minus_out = &input.right_key_support.data_tracked_poly()
-            - &input.out_key_support.data_tracked_poly();
-        let zero_poly = match input.out_key_support.activator_tracked_poly() {
+        let right_minus_out =
+            &right_key_support.data_tracked_poly() - &out_key_support.data_tracked_poly();
+        let zero_poly = match out_key_support.activator_tracked_poly() {
             Some(act) => &act * &right_minus_out,
             None => right_minus_out,
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
-        let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_p
-            * (&right_supp_check_output.super_set_multiplicity_tr_p))
-            - (&out_supp_check_output.super_set_multiplicity_tr_p);
-        let zero_poly = match input.out_key_support.activator_tracked_poly() {
+        let mlmlr_minus_mo = &(&left_key_multi_col_supp_prover_output.multiplicity
+            * (&right_key_multi_col_supp_prover_output.multiplicity))
+            - (&out_key_multi_col_supp_prover_output.multiplicity);
+        let zero_poly = match input.out_key_support_table.activator_tracked_poly() {
             Some(act) => &act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
@@ -289,63 +340,122 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        // Parse the config
+        debug_assert!(
+            input
+                .left_key_support_table_oracle
+                .num_data_tracked_col_oracles()
+                == input
+                    .right_key_support_table_oracle
+                    .num_data_tracked_col_oracles()
+        );
+
+        debug_assert!(
+            input
+                .all_key_support_table_oracle
+                .num_data_tracked_col_oracles()
+                == input
+                    .out_key_support_table_oracle
+                    .num_data_tracked_col_oracles()
+        );
+
+        debug_assert!(
+            input
+                .out_key_support_table_oracle
+                .num_data_tracked_col_oracles()
+                == input
+                    .right_key_support_table_oracle
+                    .num_data_tracked_col_oracles()
+        );
+
+        let num_key_cols = input
+            .left_key_support_table_oracle
+            .num_data_tracked_col_oracles();
+        let key_cols_indices = (0..num_key_cols).collect::<Vec<usize>>();
         // Support Check on left_key_support, log output
-        let supp_left_verifier_input = SuppCheckVerifierInput {
-            col: input.left_tracked_table_oracle.tracked_col_oracle_by_ind(0),
-            supp: input.left_key_support_comm.clone(),
+        let left_key_multi_col_supp_verifier_input = BezoutMultiColSuppCheckVerifierInput {
+            orig_tracked_table_oracle: input
+                .left_tracked_table_oracle
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table_oracle: input.left_key_support_table_oracle.clone(),
         };
-        let left_supp_check_output = SuppCheckPIOP::verify(verifier, supp_left_verifier_input)?;
+
+        let left_key_multi_col_supp_verifier_output =
+            BezoutMultiColSuppCheckPIOP::verify(verifier, left_key_multi_col_supp_verifier_input)?;
 
         // Support Check on right_key_support, log output
-        let supp_right_verifier_input = SuppCheckVerifierInput {
-            col: input
+        let right_key_multi_col_supp_verifier_input = BezoutMultiColSuppCheckVerifierInput {
+            orig_tracked_table_oracle: input
                 .right_tracked_table_oracle
-                .tracked_col_oracle_by_ind(0),
-            supp: input.right_key_support_comm.clone(),
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table_oracle: input.right_key_support_table_oracle.clone(),
         };
-        let right_supp_check_output = SuppCheckPIOP::verify(verifier, supp_right_verifier_input)?;
+
+        let right_key_multi_col_supp_verifier_output =
+            BezoutMultiColSuppCheckPIOP::verify(verifier, right_key_multi_col_supp_verifier_input)?;
 
         // Support Check on the out table
-        let supp_out_verifier_input = SuppCheckVerifierInput {
-            col: input.out_tracked_table_oracle.tracked_col_oracle_by_ind(0),
-            supp: input.out_key_support_comm.clone(),
+        let out_key_multi_col_supp_verifier_input = BezoutMultiColSuppCheckVerifierInput {
+            orig_tracked_table_oracle: input
+                .out_tracked_table_oracle
+                .tracked_subtable_by_indices(&key_cols_indices),
+            supp_tracked_table_oracle: input.out_key_support_table_oracle.clone(),
         };
-        let out_supp_check_output = SuppCheckPIOP::verify(verifier, supp_out_verifier_input)?;
 
-        // Set Intersection Union Check
+        let out_key_multi_col_supp_verifier_output =
+            BezoutMultiColSuppCheckPIOP::verify(verifier, out_key_multi_col_supp_verifier_input)?;
+
+        ////////////////////////////////
+        let key_challenges = (0..num_key_cols)
+            .map(|_| verifier.get_and_append_challenge(b"key_challenge").unwrap())
+            .collect::<Vec<F>>();
+
+        let left_key_support = input
+            .left_key_support_table_oracle
+            .fold_all_data_oracles(&key_challenges);
+
+        let right_key_support = input
+            .right_key_support_table_oracle
+            .fold_all_data_oracles(&key_challenges);
+
+        let out_key_support = input
+            .out_key_support_table_oracle
+            .fold_all_data_oracles(&key_challenges);
+        let all_key_support = input
+            .out_key_support_table_oracle
+            .fold_all_data_oracles(&key_challenges);
+        // (SetInterCheck) Multiplicity check on [left_key_support,
+        // right_key_support] // and [all_key_support] with activator + 1
         let set_inter_union_verifier_input = SetInterUnionVerifierInput {
-            col_left: input.left_key_support_comm.clone(),
-            col_right: input.right_key_support_comm.clone(),
-            col_inter: input.out_key_support_comm.clone(),
-            col_union: input.all_key_support_comm.clone(),
+            col_left: left_key_support.clone(),
+            col_right: right_key_support.clone(),
+            col_inter: out_key_support.clone(),
+            col_union: all_key_support.clone(),
         };
 
         SetInterUnionCheckPIOP::verify(verifier, set_inter_union_verifier_input)?;
 
         // Zero Check on act(out_keys)(left_key - out_keys)
-        let left_minus_out = &input.left_key_support_comm.data_tracked_oracle()
-            - &input.out_key_support_comm.data_tracked_oracle();
-        let zero_poly = match &input.out_key_support_comm.activator_tracked_oracle() {
-            Some(act) => act * &left_minus_out,
+        let left_minus_out =
+            &left_key_support.data_tracked_oracle() - &out_key_support.data_tracked_oracle();
+        let zero_poly = match out_key_support.activator_tracked_oracle() {
+            Some(act) => &act * &left_minus_out,
             None => left_minus_out,
         };
         verifier.add_zerocheck_claim(zero_poly.id());
 
         // Zero Check on act(out_keys)(right_key - out_keys)
-        let right_minus_out = &input.right_key_support_comm.data_tracked_oracle()
-            - &input.out_key_support_comm.data_tracked_oracle();
-        let zero_poly = match &input.out_key_support_comm.activator_tracked_oracle() {
-            Some(act) => act * &right_minus_out,
+        let right_minus_out =
+            &right_key_support.data_tracked_oracle() - &out_key_support.data_tracked_oracle();
+        let zero_poly = match out_key_support.activator_tracked_oracle() {
+            Some(act) => &act * &right_minus_out,
             None => right_minus_out,
         };
         verifier.add_zerocheck_claim(zero_poly.id());
-
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
-        let mlmlr_minus_mo = &(&left_supp_check_output.super_set_multiplicity_tr_com
-            * (&right_supp_check_output.super_set_multiplicity_tr_com))
-            - (&out_supp_check_output.super_set_multiplicity_tr_com);
-        let zero_poly = match &input.out_key_support_comm.activator_tracked_oracle() {
+        let mlmlr_minus_mo = &(&left_key_multi_col_supp_verifier_output.multiplicity
+            * (&right_key_multi_col_supp_verifier_output.multiplicity))
+            - (&out_key_multi_col_supp_verifier_output.multiplicity);
+        let zero_poly = match &input.out_key_support_table_oracle.activator_tracked_poly() {
             Some(act) => act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
@@ -357,8 +467,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             verifier.get_and_append_challenge(b"r1")?,
             verifier.get_and_append_challenge(b"r2")?,
         ];
-        let folded = &(&input.join_left_source_comm.data_tracked_oracle() * (r_vec[0]))
-            + &(&input.join_right_source_comm.data_tracked_oracle() * r_vec[1]);
+        let folded = &(&input.join_left_source_table_oracle.data_tracked_oracle() * (r_vec[0]))
+            + &(&input.join_right_source_table_oracle.data_tracked_oracle() * r_vec[1]);
         let folded_sources_cm = TrackedColOracle::new(
             folded,
             input
@@ -422,7 +532,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             &output_right_table_folded_tracked_col_oracle
                 .data_tracked_oracle()
                 .clone()
-                + &(input.join_right_source_comm.data_tracked_oracle()),
+                + &(input.join_right_source_table_oracle.data_tracked_oracle()),
             output_right_table_folded_tracked_col_oracle.activator_tracked_oracle(),
             None,
         );
@@ -475,7 +585,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             &output_left_table_folded_tracked_col_oracle
                 .data_tracked_oracle()
                 .clone()
-                + &(input.join_left_source_comm.data_tracked_oracle()),
+                + &(input.join_left_source_table_oracle.data_tracked_oracle()),
             output_left_table_folded_tracked_col_oracle.activator_tracked_oracle(),
             None,
         );
