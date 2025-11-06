@@ -4,15 +4,13 @@ use datafusion::{
     logical_expr::LogicalPlan,
     optimizer::{
         eliminate_cross_join::EliminateCrossJoin,
-        extract_equijoin_predicate::ExtractEquijoinPredicate, push_down_filter::PushDownFilter,
-        Optimizer, OptimizerContext, OptimizerRule,
+        extract_equijoin_predicate::ExtractEquijoinPredicate, Optimizer, OptimizerContext,
+        OptimizerRule,
     },
 };
 
 pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
-        Arc::new(ExtractEquijoinPredicate),
-        Arc::new(PushDownFilter {}),
         Arc::new(ExtractEquijoinPredicate),
         Arc::new(EliminateCrossJoin),
     ];

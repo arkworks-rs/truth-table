@@ -9,10 +9,6 @@ use truthtable_core::{
     proof_nodes::id::NodeId, prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
 };
-
-pub mod analyzer;
-pub mod optimizer;
-
 pub(crate) fn build_prover_proof_tree<F, MvPCS, UvPCS>(
     df_session_ctx: &SessionContext,
     unoptimized_plan: LogicalPlan,

@@ -25,7 +25,7 @@ use datafusion::{
 use datafusion_expr::LogicalPlan;
 use hints::{
     LEFT_SUPPORT_HINT_PREFIX, RIGHT_SUPPORT_HINT_PREFIX, SUPPORT_COUNT_COL, SUPPORT_VALUE_COL,
-    build_join_hint_generation_plans,
+    build_join_hint_generation_plans, build_verifier_join_hint_generation_plans,
 };
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::join_check::{InnerJoinPIOP, InnerJoinProverInput};
@@ -88,15 +88,13 @@ where
     ) -> IndexMap<String, HintGenerationPlan> {
         let _ = proof_tree;
 
-        let join = match self.node_id.to_lp() {
-            Some(LogicalPlan::Join(join)) => join.clone(),
-            _ => panic!("join node id should contain logical plan"),
-        };
+        let plan = self
+            .node_id
+            .to_lp()
+            .cloned()
+            .expect("join node id should contain logical plan");
 
-        let left_plan = (*join.left).clone();
-        let right_plan = (*join.right).clone();
-
-        build_join_hint_generation_plans(left_plan, right_plan, join)
+        build_join_hint_generation_plans(plan)
     }
 
     fn from_lp(
@@ -262,15 +260,13 @@ where
     ) -> IndexMap<String, HintGenerationPlan> {
         let _ = proof_tree;
 
-        let join = match self.node_id.to_lp() {
-            Some(LogicalPlan::Join(join)) => join.clone(),
-            _ => panic!("join node id should contain logical plan"),
-        };
+        let plan = self
+            .node_id
+            .to_lp()
+            .cloned()
+            .expect("join node id should contain logical plan");
 
-        let left_plan = (*join.left).clone();
-        let right_plan = (*join.right).clone();
-
-        build_join_hint_generation_plans(left_plan, right_plan, join)
+        build_verifier_join_hint_generation_plans(plan)
     }
 
     fn from_lp(

@@ -79,6 +79,13 @@ where
             _ => panic!("expected binary expression"),
         };
 
+        // Get a base plan to compute the expr, which is the first tablescan plan we
+        // find. We might run into a problem in join scenarios where the left
+        // and right nodes come from different base plans.
+        let Some(base_table_scan_plan) = first_tablescan_plan_prover(proof_tree) else {
+            panic!("no tablescan plan found");
+        };
+
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
@@ -86,7 +93,11 @@ where
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
 
         // Build the output plan with only the binary expression result.
-        let output_plan = build_prover_output_plan(proof_tree, projection_exprs);
+        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan.clone())
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
             if Self::requires_materialized_witness(bin_expr.op) {
@@ -342,6 +353,13 @@ where
             Expr::BinaryExpr(b) => b.clone(),
             _ => panic!("expected binary expression"),
         };
+        // Get a base plan to compute the expr, which is the first tablescan plan we
+        // find. We might run into a problem in join scenarios where the left
+        // and right nodes come from different base plans.
+        let Some(base_table_scan_plan) = first_tablescan_plan_verifier(proof_tree) else {
+            panic!("no tablescan plan found");
+        };
+
         // Build the projection expressions for the binary expression
         // This determines the output schema of this node
         // This projection, projects the expression result and the activator
@@ -349,7 +367,11 @@ where
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
 
         // Build the output plan
-        let output_plan = build_verifier_output_plan(proof_tree, projection_exprs);
+        let output_plan = LogicalPlanBuilder::from(base_table_scan_plan)
+            .project(projection_exprs)
+            .unwrap()
+            .build()
+            .unwrap();
 
         IndexMap::from([(
             OUTPUT_PLAN_KEY.to_string(),
@@ -583,76 +605,42 @@ where
     }
 }
 
-fn build_prover_output_plan<F, MvPCS, UvPCS>(
+fn first_tablescan_plan_prover<F, MvPCS, UvPCS>(
     proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    projection_exprs: Vec<Expr>,
-) -> LogicalPlan
+) -> Option<LogicalPlan>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    let table_scan_plans: Vec<LogicalPlan> = proof_tree
+    proof_tree
         .arena()
         .iter()
-        .filter_map(|(node_id, node)| match node_id {
+        .find_map(|(node_id, node)| match node_id {
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .map(|hint| hint.plan().clone()),
+                .and_then(|hint| Some(hint.plan().clone())),
             _ => None,
         })
-        .collect();
-
-    if table_scan_plans.is_empty() {
-        panic!("no tablescan plan found");
-    }
-
-    for base_plan in table_scan_plans.clone() {
-        let attempt = LogicalPlanBuilder::from(base_plan).project(projection_exprs.clone());
-        if let Ok(builder) = attempt {
-            if let Ok(plan) = builder.build() {
-                return plan;
-            }
-        }
-    }
-
-    panic!("failed to build binary expr output plan from available table scans");
 }
 
-fn build_verifier_output_plan<F, MvPCS, UvPCS>(
+fn first_tablescan_plan_verifier<F, MvPCS, UvPCS>(
     proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    projection_exprs: Vec<Expr>,
-) -> LogicalPlan
+) -> Option<LogicalPlan>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    let table_scan_plans: Vec<LogicalPlan> = proof_tree
+    proof_tree
         .arena()
         .iter()
-        .filter_map(|(node_id, node)| match node_id {
+        .find_map(|(node_id, node)| match node_id {
             NodeId::LP(LogicalPlan::TableScan(_)) => node
                 .hint_generation_plans(proof_tree)
                 .get(OUTPUT_PLAN_KEY)
-                .map(|hint| hint.plan().clone()),
+                .and_then(|hint| Some(hint.plan().clone())),
             _ => None,
         })
-        .collect();
-
-    if table_scan_plans.is_empty() {
-        panic!("no tablescan plan found");
-    }
-
-    for base_plan in table_scan_plans {
-        let attempt = LogicalPlanBuilder::from(base_plan).project(projection_exprs.clone());
-        if let Ok(builder) = attempt {
-            if let Ok(plan) = builder.build() {
-                return plan;
-            }
-        }
-    }
-
-    panic!("failed to build binary expr output plan from available table scans");
 }

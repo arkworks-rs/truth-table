@@ -212,7 +212,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         ///////////////////// Evaluation claims for the Bezout identity
-        ///////////////////// /////////////////////
+        //////////////////////////////////////////
         prover.add_mv_eval_claim(f_p_tr.id(), &f_query_point)?;
         prover.add_mv_eval_claim(f_prime_p_tr.id(), &f_query_point)?;
         prover.add_uv_eval_claim(t_p_tr.id(), chall)?;

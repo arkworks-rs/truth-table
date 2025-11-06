@@ -29,24 +29,34 @@ const DUMMY_TABLES: &[&str] = &["lineitem"];
 fn prover_bench_queries() -> &'static [BenchQuery] {
     static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
     QUERIES.get_or_init(|| {
-        let tpch1 = query_spec(1);
-        let tpch3 = query_spec(3);
+        let tpch = query_spec(1);
         let queries = vec![
-            // BenchQuery {
-            //     name: "tpch_q1",
-            //     query: tpch1.sql,
-            //     tables: tpch1.tables,
-            // },
             BenchQuery {
-                name: "tpch_q3",
-                query: tpch3.sql,
-                tables: tpch3.tables,
+                name: "tpch_q1",
+                query: "
+               SELECT
+    l_returnflag,
+    l_linestatus,
+    SUM(l_quantity) AS sum_qty,
+    SUM(l_extendedprice) AS sum_base_price,
+    SUM(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    SUM(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,
+    AVG(l_quantity) AS avg_qty,
+    AVG(l_extendedprice) AS avg_price,
+    AVG(l_discount) AS avg_disc,
+    COUNT(*) AS count_order
+FROM lineitem
+WHERE l_shipdate <= CAST('1998-09-02' AS DATE)
+GROUP BY l_returnflag, l_linestatus
+ORDER BY l_returnflag, l_linestatus; 
+                ",
+                tables: tpch.tables,
             },
-            // BenchQuery {
-            //     name: "lineitem_dummy",
-            //     query: DUMMY_QUERY,
-            //     tables: DUMMY_TABLES,
-            // },
+            BenchQuery {
+                name: "lineitem_dummy",
+                query: DUMMY_QUERY,
+                tables: DUMMY_TABLES,
+            },
         ];
         Box::leak(queries.into_boxed_slice())
     })

@@ -1,6 +1,5 @@
 use super::OUTPUT_PLAN_KEY;
 use crate::proof_nodes::HintGenerationPlan;
-use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
     common::{DataFusionError, Result as DFResult},
     logical_expr::Join,
@@ -49,119 +48,51 @@ fn value_alias(base: &str, idx: usize) -> String {
     format!("__truthtable_join_on{idx}_{base}")
 }
 
-fn drop_activator_columns(plan: LogicalPlan) -> DFResult<LogicalPlan> {
-    let schema = plan.schema();
-    let keep_exprs: Vec<Expr> = schema
-        .iter()
-        .filter_map(|(qualifier, field)| {
-            if field.name() == ACTIVATOR_COL_NAME {
-                None
-            } else {
-                Some(Expr::Column(Column::new(
-                    qualifier.cloned(),
-                    field.name().clone(),
-                )))
-            }
-        })
-        .collect();
-
-    if keep_exprs.is_empty() {
-        return Err(DataFusionError::Plan(
-            "join output contains only activator columns".to_string(),
-        ));
-    }
-
-    if keep_exprs.len() == schema.fields().len() {
-        Ok(plan)
-    } else {
-        LogicalPlanBuilder::from(plan).project(keep_exprs)?.build()
-    }
-}
-
-fn add_new_activator_column(plan: LogicalPlan) -> DFResult<LogicalPlan> {
-    let schema = plan.schema();
-    let mut exprs: Vec<Expr> = schema
-        .iter()
-        .map(|(qualifier, field)| {
-            Expr::Column(Column::new(qualifier.cloned(), field.name().clone()))
-        })
-        .collect();
-
-    exprs.push(lit(true).alias(ACTIVATOR_COL_NAME));
-
-    LogicalPlanBuilder::from(plan).project(exprs)?.build()
-}
-
-fn build_output_hint(
-    left_plan: &LogicalPlan,
-    right_plan: &LogicalPlan,
-    join: &Join,
-) -> DFResult<IndexMap<String, HintGenerationPlan>> {
-    let (left_on_cols, right_on_cols): (Vec<_>, Vec<_>) = join
-        .on
-        .iter()
-        .map(|(left, right)| Ok((expr_to_column(left)?, expr_to_column(right)?)))
-        .collect::<DFResult<Vec<_>>>()?
-        .into_iter()
-        .unzip();
-
-    let joined = LogicalPlanBuilder::from(left_plan.clone())
-        .join_detailed(
-            right_plan.clone(),
-            join.join_type,
-            (left_on_cols, right_on_cols),
-            join.filter.clone(),
-            join.null_equals_null,
-        )?
-        .build()?;
-
-    let stripped = drop_activator_columns(joined)?;
-    let final_plan = add_new_activator_column(stripped)?;
-
-    Ok(IndexMap::from([(
-        OUTPUT_PLAN_KEY.to_string(),
-        materialized_hint(OUTPUT_PLAN_KEY.to_string(), final_plan),
-    )]))
-}
-
 /// Build every hinted plan needed by the join prover (output, support, source
 /// indices, key support).
-pub fn build_join_hint_generation_plans(
-    left_plan: LogicalPlan,
-    right_plan: LogicalPlan,
-    join: Join,
-) -> IndexMap<String, HintGenerationPlan> {
+pub fn build_join_hint_generation_plans(plan: LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
     let mut plans = IndexMap::new();
-    plans.extend(
-        build_output_hint(&left_plan, &right_plan, &join)
-            .unwrap_or_else(|err| panic!("failed to build join output hint: {err}")),
+    plans.insert(
+        OUTPUT_PLAN_KEY.to_string(),
+        materialized_hint(OUTPUT_PLAN_KEY.to_string(), plan.clone()),
     );
-    plans.extend(build_support_hint_plans(&join));
-    plans.extend(build_source_hint_plans(&join));
+    plans.extend(build_support_hint_plans(&plan));
+    plans.extend(build_source_hint_plans(&plan));
     plans.insert(
         OUTPUT_KEY_SUPPORT_HINT.to_string(),
         materialized_hint(
             OUTPUT_KEY_SUPPORT_HINT.to_string(),
-            build_output_key_support_plan(&join),
+            build_output_key_support_plan(&plan),
         ),
     );
     plans
 }
 
+/// Verifier side consumes the exact same hint plans.
+pub fn build_verifier_join_hint_generation_plans(
+    plan: LogicalPlan,
+) -> IndexMap<String, HintGenerationPlan> {
+    build_join_hint_generation_plans(plan)
+}
+
 /// Build per-equality support plans (left/right/input combined) that track key
 /// multiplicities.
-fn build_support_hint_plans(join: &Join) -> IndexMap<String, HintGenerationPlan> {
+fn build_support_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
+    let join = match plan {
+        LogicalPlan::Join(join) => join,
+        other => panic!("expected join logical plan, found {:?}", other),
+    };
+
     let mut support_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
         let (left_plan, right_plan, output_plan, combined_plan) =
-            build_support_hint_plans_for_pair(join, idx, left_expr, right_expr).unwrap_or_else(
-                |err| {
+            build_support_hint_plans_for_pair(plan, join, idx, left_expr, right_expr)
+                .unwrap_or_else(|err| {
                     panic!(
                         "failed to build support hint plan for join equality {}: {}",
                         idx, err
                     )
-                },
-            );
+                });
 
         let left_hint_name = hint_label(LEFT_SUPPORT_HINT_PREFIX, idx);
         support_plans.insert(
@@ -194,6 +125,7 @@ fn build_support_hint_plans(join: &Join) -> IndexMap<String, HintGenerationPlan>
 /// Build the three support plans for a single equality predicate along with
 /// their union.
 fn build_support_hint_plans_for_pair(
+    plan: &LogicalPlan,
     join: &Join,
     idx: usize,
     left_expr: &Expr,
@@ -244,7 +176,12 @@ fn build_support_hint_plans_for_pair(
 
 /// Build per-equality source plans connecting join outputs back to their
 /// originating rows.
-fn build_source_hint_plans(join: &Join) -> IndexMap<String, HintGenerationPlan> {
+fn build_source_hint_plans(plan: &LogicalPlan) -> IndexMap<String, HintGenerationPlan> {
+    let join = match plan {
+        LogicalPlan::Join(join) => join,
+        other => panic!("expected join logical plan, found {:?}", other),
+    };
+
     let mut source_plans = IndexMap::new();
     for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
         let (left_plan, right_plan, combined_plan) = build_source_hint_plans_for_pair(
@@ -405,7 +342,12 @@ fn expr_to_column(expr: &Expr) -> DFResult<Column> {
 
 /// Track the distinct values that participate in the output key support
 /// relation.
-fn build_output_key_support_plan(join: &Join) -> LogicalPlan {
+fn build_output_key_support_plan(plan: &LogicalPlan) -> LogicalPlan {
+    let join = match plan {
+        LogicalPlan::Join(join) => join,
+        other => panic!("expected join logical plan, found {:?}", other),
+    };
+
     let (left_expr, _) = join
         .on
         .first()

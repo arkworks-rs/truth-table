@@ -13,14 +13,18 @@ use tracing::instrument;
 use truthtable_core::{
     prover::trees::proof_tree::ProverProofTree, verifier::trees::proof_tree::VerifierProofTree,
 };
-use crate::proof_plan::build_prover_proof_tree;
-use crate::logical_plan::analyzer::logical_plan_analyzer_rules;
-use crate::logical_plan::optimizer::optimize_logical_plan;
-use crate::proof_plan::default_shared_ctx;
-use crate::logical_plan::analyzer::analyze_logical_plan;
-use crate::proof_plan::build_verifier_proof_tree;
-pub mod logical_plan;
-pub mod proof_plan;
+
+use crate::{
+    logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules},
+    logical_plan_optimizer::optimize_logical_plan,
+    proof_plan_optimizer::{
+        build_prover_proof_tree, build_verifier_proof_tree, default_shared_ctx,
+    },
+};
+
+pub mod logical_plan_analyzer;
+pub mod logical_plan_optimizer;
+pub mod proof_plan_optimizer;
 
 /// Create a new `SessionContext` configured with the custom logical-plan
 /// analyzer.
