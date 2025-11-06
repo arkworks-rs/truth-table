@@ -203,8 +203,7 @@ mod tests {
         Expr, LogicalPlan, Operator,
     };
 
-    use crate::logical_plan::analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
-
+    use crate::logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
 
     fn projection_expr(plan: &LogicalPlan) -> &Expr {
         match plan {
