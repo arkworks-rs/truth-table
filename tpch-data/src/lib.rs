@@ -5,7 +5,8 @@ use std::{
 };
 
 use arrow::{
-    array::{new_null_array, BooleanBuilder, RecordBatch},
+    array::{BooleanBuilder, RecordBatch},
+    compute::concat as arrow_concat,
     datatypes::{DataType, Field, Schema},
 };
 use duckdb::Connection;
@@ -28,8 +29,8 @@ fn next_power_of_two(n: usize) -> usize {
 }
 
 /// Write Parquet after augmenting with an `activator` Boolean column and
-/// padding rows with all-null values until the total row count is a power of
-/// two (appended rows have activator=false).
+/// padding rows by duplicating the last row until the total row count is a
+/// power of two (appended rows have activator=false).
 fn write_parquet<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -41,11 +42,7 @@ fn write_parquet<P: AsRef<Path>>(
     }
 
     // Build output schema = original fields + activator: Boolean
-    let mut fields: Vec<Field> = orig_schema
-        .fields()
-        .iter()
-        .map(|f| (**f).clone().with_nullable(true))
-        .collect();
+    let mut fields: Vec<Field> = orig_schema.fields().iter().map(|f| (**f).clone()).collect();
     fields.push(Field::new("activator", DataType::Boolean, false));
     let out_schema = Arc::new(Schema::new(fields));
 
@@ -53,6 +50,7 @@ fn write_parquet<P: AsRef<Path>>(
     let mut writer = ArrowWriter::try_new(file, Arc::clone(&out_schema), None).expect("new writer");
 
     let mut total_rows: usize = 0;
+    let mut last_nonempty_batch: Option<RecordBatch> = None;
 
     // Stream original batches, tagging activator=true and writing out directly
     for batch in batches {
@@ -61,6 +59,7 @@ fn write_parquet<P: AsRef<Path>>(
             continue;
         }
         total_rows += n;
+        last_nonempty_batch = Some(batch.clone());
 
         // activator=true for existing rows
         let mut act_builder = BooleanBuilder::new();
@@ -87,10 +86,18 @@ fn write_parquet<P: AsRef<Path>>(
     if !is_power_of_two(total_rows) {
         let target = next_power_of_two(total_rows);
         let pad = target - total_rows;
-        let mut pad_cols = Vec::with_capacity(out_schema.fields().len());
-        for field in out_schema.fields().iter().take(out_schema.fields().len() - 1) {
-            let pad_col = new_null_array(field.data_type(), pad);
-            pad_cols.push(pad_col);
+        let last_batch = last_nonempty_batch.expect("must have last batch");
+        let last_idx = last_batch.num_rows() - 1;
+
+        // Build per-column arrays by repeating the last row value `pad` times
+        let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 1);
+        for col in last_batch.columns() {
+            let one = col.slice(last_idx, 1);
+            // Create a slice of &dyn Array repeated `pad` times
+            let repeated: Vec<&dyn arrow::array::Array> =
+                std::iter::repeat_n(one.as_ref(), pad).collect();
+            let repeated_arr = arrow_concat(&repeated).expect("concat repeated scalars");
+            pad_cols.push(repeated_arr);
         }
 
         // activator=false for appended rows
@@ -114,8 +121,8 @@ fn write_parquet<P: AsRef<Path>>(
 // Note that the tables are further preprocessed as follows:
 // - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is
 //   set true for the existing rows
-// - The tables are padded with all-null rows until the total row count is a
-//   power of two; the appended rows have activator=false
+// - The tables are padded by duplicating the last row until the total row count
+//   is a power of two; the appended rows have activator=false
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
     let out = out_dir.as_ref();
 

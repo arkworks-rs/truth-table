@@ -20,7 +20,7 @@ pub struct DataGen {
     #[arg(long, conflicts_with_all = ["scale", "bench"])]
     pub test: bool,
 
-    /// Generate the benchmark dataset (scale = 0.1, default output dir =
+    /// Generate the benchmark dataset (scale = 1, default output dir =
     /// tpch-data/bench-data).
     #[arg(long, conflicts_with_all = ["scale", "test"])]
     pub bench: bool,
@@ -47,7 +47,7 @@ impl Runnable for DataGen {
         let scale = if self.test {
             0.001
         } else if self.bench {
-            0.1
+            1.0
         } else {
             self.scale.unwrap_or(0.01)
         };

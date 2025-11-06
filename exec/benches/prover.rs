@@ -131,6 +131,6 @@ fn parquet_path_for_table(table: &str) -> PathBuf {
 }
 
 fn main() {
-    // init_tracing_for_tests();
+    init_tracing_for_tests();
     divan::main();
 }
