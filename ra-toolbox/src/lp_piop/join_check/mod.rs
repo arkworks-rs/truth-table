@@ -119,8 +119,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         prover: &mut Prover<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        // TODO: Check if the activator in the Source_l, Source_r are consistent with
-        // the table out
+
 
         // Support Check on left_key_support, log output
         let supp_left_prover_input = SuppCheckProverInput {

@@ -2,7 +2,8 @@ mod hints;
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
+        lps::join::hints::build_join_hint_generation_plans, prover::ProverNode,
         verifier::VerifierNode,
     },
     prover::trees::{
@@ -23,10 +24,6 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_expr::LogicalPlan;
-use hints::{
-    LEFT_SUPPORT_HINT_PREFIX, RIGHT_SUPPORT_HINT_PREFIX, SUPPORT_COUNT_COL, SUPPORT_VALUE_COL,
-    build_join_hint_generation_plans, build_verifier_join_hint_generation_plans,
-};
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::join_check::{InnerJoinPIOP, InnerJoinProverInput};
 use std::sync::Arc;
@@ -266,7 +263,7 @@ where
             .cloned()
             .expect("join node id should contain logical plan");
 
-        build_verifier_join_hint_generation_plans(plan)
+        build_join_hint_generation_plans(plan)
     }
 
     fn from_lp(
@@ -409,78 +406,18 @@ where
         &self,
         piop_tree: &ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> InnerJoinProverInput<F, MvPCS, UvPCS> {
-        // Left table
-        let left_table = piop_tree
-            .tracked_table(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .expect("left join table missing from piop tree")
-            .clone();
-        // Right table
-        let right_table = piop_tree
-            .tracked_table(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .expect("right join table missing from piop tree")
-            .clone();
-        // Output table
-        let out_table = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-            .expect("output join table missing from piop tree")
-            .clone();
-        // Left support hints
-        let left_support_label = format!("{LEFT_SUPPORT_HINT_PREFIX}[0]");
-        let left_support_table = piop_tree
-            .tracked_table(&self.node_id, &left_support_label)
-            .expect("left support hints missing for join node");
-        let left_key_support = left_support_table
-            .tracked_col_by_name(SUPPORT_VALUE_COL)
-            .unwrap_or_else(|| {
-                panic!(
-                    "left support hints missing {} column for join node",
-                    SUPPORT_VALUE_COL
-                )
-            });
-        // Right support hints
-        let right_support_label = format!("{RIGHT_SUPPORT_HINT_PREFIX}[0]");
-        let right_support_table = piop_tree
-            .tracked_table(&self.node_id, &right_support_label)
-            .expect("right support hints missing for join node");
-        let right_key_support = right_support_table
-            .tracked_col_by_name(SUPPORT_VALUE_COL)
-            .unwrap_or_else(|| {
-                panic!(
-                    "right support hints missing {} column for join node",
-                    SUPPORT_VALUE_COL
-                )
-            });
-
-        let left_table_multiplicity = left_support_table
-            .tracked_col_by_name(SUPPORT_COUNT_COL)
-            .unwrap_or_else(|| {
-                panic!(
-                    "left support hints missing {} column for join node",
-                    SUPPORT_COUNT_COL
-                )
-            })
-            .data_tracked_poly();
-        let right_table_multiplicity = right_support_table
-            .tracked_col_by_name(SUPPORT_COUNT_COL)
-            .unwrap_or_else(|| {
-                panic!(
-                    "right support hints missing {} column for join node",
-                    SUPPORT_COUNT_COL
-                )
-            })
-            .data_tracked_poly();
         InnerJoinProverInput {
-            left_table,
-            right_table,
-            out_table,
-            left_key_support,
-            right_key_support,
+            left_table: todo!(),
+            right_table: todo!(),
+            out_table: todo!(),
+            left_key_support: todo!(),
+            right_key_support: todo!(),
             out_key_support: todo!(),
             all_key_support: todo!(),
             join_left_source: todo!(),
             join_right_source: todo!(),
-            right_table_multiplicity,
-            left_table_multiplicity,
+            right_table_multiplicity: todo!(),
+            left_table_multiplicity: todo!(),
         }
     }
 }
