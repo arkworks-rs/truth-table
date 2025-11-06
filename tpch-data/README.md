@@ -7,7 +7,7 @@ Utility crate for generating TPC-H tables as Parquet files and for printing cano
 - Generates TPC-H tables via `tpchgen`/`tpchgen-arrow` and writes Parquet.
 - Adds an `activator` boolean column to every table:
   - `true` for original rows, `false` for any appended rows.
-- Pads each table to a power-of-two row count by duplicating the last row.
+- Pads each table to a power-of-two row count using all-null rows (activator=false).
 - Prints TPC-H query SQL using DuckDB's TPCH extension.
 - Optionally prints DataFusion logical plans and Treeviz DOT for queries.
 
@@ -32,7 +32,7 @@ DuckDB is pulled in with the `bundled` feature; no system install required.
 Both commands perform preprocessing before writing Parquet:
 - Append `activator: bool` column.
 - Set `activator=true` on original rows.
-- Pad to power-of-two rows by duplicating the last row; set `activator=false` on appended rows.
+- Pad to power-of-two rows with all-null values; set `activator=false` on appended rows.
 
 Outputs are written under the crate directory by default.
 
@@ -96,4 +96,3 @@ If `--data-dir` is omitted, the binaries look for `tpch-data/test-data`, then `t
 ## License
 
 This crate depends on third-party packages under their respective licenses. See Cargo.toml for details.
-
