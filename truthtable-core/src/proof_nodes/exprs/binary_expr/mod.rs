@@ -616,7 +616,6 @@ where
             }
         }
     }
-    dbg!(projection_exprs);
 
     panic!("failed to build binary expr output plan from available table scans");
 }
