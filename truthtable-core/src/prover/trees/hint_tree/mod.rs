@@ -4,7 +4,6 @@ pub mod display;
 pub mod tests;
 use crate::proof_nodes::{id::NodeId, lps::prover::ProverTableScanNode};
 use arithmetic::ACTIVATOR_COL_NAME;
-use datafusion::arrow::array::Array;
 use indexmap::IndexMap;
 use std::{fmt, sync::Arc};
 
@@ -15,11 +14,12 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::{
-        array::{ArrayRef, BooleanArray, BooleanBuilder, new_null_array},
+        array::{Array, ArrayRef, BooleanArray, BooleanBuilder},
+        compute::concat,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    error::Result as DFResult,
+    error::{DataFusionError, Result as DFResult},
     prelude::SessionContext,
 };
 
@@ -405,6 +405,7 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
 
     let mut new_batches = Vec::new();
     let mut total_rows = 0usize;
+    let mut last_nonempty: Option<RecordBatch> = None;
     let mut out_schema: Option<Arc<Schema>> = None;
     let mut activator_index: Option<usize> = None;
 
@@ -415,7 +416,7 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
                 .schema()
                 .fields()
                 .iter()
-                .map(|f| (**f).clone().with_nullable(true))
+                .map(|f| (**f).clone())
                 .collect();
             if !fields.iter().any(|f| f.name() == ACTIVATOR_COL_NAME) {
                 fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
@@ -448,6 +449,7 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
         let new_batch = RecordBatch::try_new(schema.clone(), cols)?;
         if batch_rows > 0 {
             total_rows += batch_rows;
+            last_nonempty = Some(new_batch.clone());
         }
         new_batches.push(new_batch);
     }
@@ -459,8 +461,10 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
     if !total_rows.is_power_of_two() {
         let target = total_rows.next_power_of_two();
         let pad = target - total_rows;
+        let last_batch = last_nonempty.expect("expected non-empty batch");
         let schema = out_schema.unwrap();
         let act_idx = activator_index.expect("activator index missing");
+        let last_row_idx = last_batch.num_rows() - 1;
 
         let mut pad_cols: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
         for (col_idx, field) in schema.fields().iter().enumerate() {
@@ -471,8 +475,11 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
                 }
                 pad_cols.push(Arc::new(builder.finish()));
             } else {
-                let pad_col = new_null_array(field.data_type(), pad);
-                pad_cols.push(pad_col);
+                let single = last_batch.column(col_idx).slice(last_row_idx, 1);
+                let repeats: Vec<&dyn Array> = (0..pad).map(|_| single.as_ref()).collect();
+                let concatenated =
+                    concat(&repeats).map_err(|e| DataFusionError::ArrowError(e, None))?;
+                pad_cols.push(concatenated);
             }
         }
 
