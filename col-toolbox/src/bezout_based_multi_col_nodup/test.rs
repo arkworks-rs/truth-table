@@ -90,8 +90,8 @@
 //         assert!(matches!(
 //             err,
 //             ark_piop::errors::SnarkError::VerifierError(
-//                 
-// ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)            
+//
+// ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(_)
 // )         ));
 //     }
 

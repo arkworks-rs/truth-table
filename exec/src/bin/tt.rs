@@ -33,6 +33,7 @@ enum Commands {
     Prove(cmd::prove::Prove),
     Verify(cmd::verify::Verify),
     DataGen(cmd::data_gen::DataGen),
+    Query(cmd::query::Query),
 }
 
 async fn dispatch<C>(cmd: C) -> Result<()>
@@ -61,6 +62,7 @@ async fn main() -> Result<()> {
         Commands::Prove(cmd) => dispatch(cmd).await?,
         Commands::Verify(cmd) => dispatch(cmd).await?,
         Commands::DataGen(cmd) => dispatch(cmd).await?,
+        Commands::Query(cmd) => dispatch(cmd).await?,
     }
 
     Ok(())

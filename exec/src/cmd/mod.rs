@@ -2,6 +2,7 @@ pub mod commit;
 pub mod common;
 pub mod data_gen;
 pub mod prove;
+pub mod query;
 pub mod setup;
 pub mod verify;
 

@@ -222,9 +222,21 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => &act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
-        dbg!(left_key_multi_col_supp_prover_output.multiplicity.evaluations());
-        dbg!(right_key_multi_col_supp_prover_output.multiplicity.evaluations());
-        dbg!(out_key_multi_col_supp_prover_output.multiplicity.evaluations());
+        dbg!(
+            left_key_multi_col_supp_prover_output
+                .multiplicity
+                .evaluations()
+        );
+        dbg!(
+            right_key_multi_col_supp_prover_output
+                .multiplicity
+                .evaluations()
+        );
+        dbg!(
+            out_key_multi_col_supp_prover_output
+                .multiplicity
+                .evaluations()
+        );
         dbg!(&zero_poly.evaluations());
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
