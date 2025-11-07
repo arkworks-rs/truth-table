@@ -206,7 +206,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None => left_minus_out,
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
-
         // Zero Check on act(out_keys)(right_key - out_keys)
         let right_minus_out =
             &right_key_support.data_tracked_poly() - &out_key_support.data_tracked_poly();
@@ -214,7 +213,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => &act * &right_minus_out,
             None => right_minus_out,
         };
-dbg!(zero_poly.evaluations());
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
         let mlmlr_minus_mo = &(&left_key_multi_col_supp_prover_output.multiplicity
@@ -224,6 +222,10 @@ dbg!(zero_poly.evaluations());
             Some(act) => &act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
+        dbg!(left_key_multi_col_supp_prover_output.multiplicity.evaluations());
+        dbg!(right_key_multi_col_supp_prover_output.multiplicity.evaluations());
+        dbg!(out_key_multi_col_supp_prover_output.multiplicity.evaluations());
+        dbg!(&zero_poly.evaluations());
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Random Challenge r picked from verifier
@@ -243,6 +245,7 @@ dbg!(zero_poly.evaluations());
             col: folded_sources.clone(),
         };
         NoDupPIOP::prove(prover, no_dup_prover_input)?;
+        dbg!(2);
         let alpha_vec = (0..(input.right_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
