@@ -56,25 +56,38 @@ where
             preprocessed_join_lp.clone(),
         ),
     );
+    let out_supp_plan =
+        build_out_supp_generation_plan::<F, MvPCS, UvPCS>(join, &preprocessed_join_lp);
+    plans.insert(
+        JOIN_OUTPUT_KEY_SUPP.to_string(),
+        HintGenerationPlan::new_materialized(
+            JOIN_OUTPUT_KEY_SUPP.to_string(),
+            out_supp_plan.clone(),
+        ),
+    );
     plans.insert(
         JOIN_LEFT_KEY_SUPP.to_string(),
-        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, &preprocessed_left_lp),
+        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
+            join,
+            &preprocessed_left_lp,
+            &out_supp_plan,
+        ),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SUPP.to_string(),
-        build_right_supp_generation_plan::<F, MvPCS, UvPCS>(join, &preprocessed_right_lp),
+        build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
+            join,
+            &preprocessed_right_lp,
+            &out_supp_plan,
+        ),
     );
-    plans.insert(
-        JOIN_OUTPUT_KEY_SUPP.to_string(),
-        build_out_supp_generation_plan::<F, MvPCS, UvPCS>(join, &preprocessed_join_lp),
-    );
-
     plans.insert(
         JOIN_ALL_KEY_SUPP.to_string(),
         build_all_supp_generation_plan::<F, MvPCS, UvPCS>(
             join,
             &preprocessed_left_lp,
             &preprocessed_right_lp,
+            &out_supp_plan,
         ),
     );
 
@@ -158,6 +171,7 @@ fn preprocess_plan(plan: &LogicalPlan) -> LogicalPlan {
 pub(crate) fn build_left_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     left_lp: &LogicalPlan,
+    output_key_supp_plan: &LogicalPlan,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
@@ -191,6 +205,7 @@ where
 pub(crate) fn build_right_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     right_lp: &LogicalPlan,
+    output_key_supp_plan: &LogicalPlan,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
@@ -223,7 +238,7 @@ where
 pub(crate) fn build_out_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     join_lp: &LogicalPlan,
-) -> HintGenerationPlan
+) -> LogicalPlan
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -247,8 +262,7 @@ where
         .expect("failed to aggregate distinct join output keys")
         .build()
         .expect("failed to finalize join output key support plan");
-
-    HintGenerationPlan::new_materialized(JOIN_OUTPUT_KEY_SUPP.to_string(), distinct_plan)
+    distinct_plan
 }
 
 /// Build the all-key support plan by unioning the left/right key supports and
@@ -257,18 +271,21 @@ pub(crate) fn build_all_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     left_lp: &LogicalPlan,
     right_lp: &LogicalPlan,
+    output_key_supp_plan: &LogicalPlan,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    let left_support_plan = build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, left_lp)
-        .plan()
-        .clone();
-    let right_support_plan = build_right_supp_generation_plan::<F, MvPCS, UvPCS>(join, right_lp)
-        .plan()
-        .clone();
+    let left_support_plan =
+        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, left_lp, output_key_supp_plan)
+            .plan()
+            .clone();
+    let right_support_plan =
+        build_right_supp_generation_plan::<F, MvPCS, UvPCS>(join, right_lp, output_key_supp_plan)
+            .plan()
+            .clone();
 
     let union_plan = LogicalPlanBuilder::from(left_support_plan)
         .union(right_support_plan)
