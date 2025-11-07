@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use ark_ff::PrimeField;
@@ -45,9 +45,9 @@ where
     let orig_left_lp = join.left.as_ref();
     let orig_right_lp = join.right.as_ref();
 
-    let preprocessed_join_lp = preprocess_plan(&orig_join_lp, join);
-    let preprocessed_left_lp = preprocess_plan(&orig_left_lp, join);
-    let preprocessed_right_lp = preprocess_plan(&orig_right_lp, join);
+    let preprocessed_join_lp = preprocess_plan(&orig_join_lp);
+    let preprocessed_left_lp = preprocess_plan(&orig_left_lp);
+    let preprocessed_right_lp = preprocess_plan(&orig_right_lp);
 
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
@@ -148,68 +148,9 @@ fn filter_active_rows(plan: &LogicalPlan) -> LogicalPlan {
 
 /// Convenience helper that keeps only active rows and then removes the
 /// activator column entirely.
-fn preprocess_plan(plan: &LogicalPlan, join: &Join) -> LogicalPlan {
+fn preprocess_plan(plan: &LogicalPlan) -> LogicalPlan {
     let filtered = filter_active_rows(plan);
-    let activator_striped = strip_activator(&filtered);
-    reorder_columns_with_join(&activator_striped, join)
-}
-
-fn columns_match(a: &Column, b: &Column) -> bool {
-    if a == b {
-        return true;
-    }
-
-    a.name == b.name && (a.relation.is_none() || b.relation.is_none() || a.relation == b.relation)
-}
-
-/// Reorders `plan` so that join keys (as defined in `join.on`) appear before
-/// the remaining columns, preserving deterministic ordering.
-fn reorder_columns_with_join(plan: &LogicalPlan, join: &Join) -> LogicalPlan {
-    let schema = plan.schema();
-
-    let mut key_columns: Vec<Column> = Vec::new();
-    for (left_expr, right_expr) in &join.on {
-        for expr in [left_expr, right_expr] {
-            if let Expr::Column(col) = expr {
-                let present_in_plan = schema.iter().any(|(qual, field)| {
-                    let schema_col = Column::new(qual.cloned(), field.name().clone());
-                    columns_match(&schema_col, col)
-                });
-                if present_in_plan
-                    && !key_columns
-                        .iter()
-                        .any(|existing| columns_match(existing, col))
-                {
-                    key_columns.push(col.clone());
-                }
-            }
-        }
-    }
-
-    if key_columns.is_empty() {
-        return plan.clone();
-    }
-
-    let mut projection_exprs: Vec<Expr> = key_columns
-        .iter()
-        .map(|col| Expr::Column(col.clone()))
-        .collect();
-
-    for (qual, field) in schema.iter() {
-        let schema_col = Column::new(qual.cloned(), field.name().clone());
-        if !key_columns
-            .iter()
-            .any(|existing| columns_match(existing, &schema_col))
-        {
-            projection_exprs.push(Expr::Column(schema_col));
-        }
-    }
-
-    LogicalPlanBuilder::from(plan.clone())
-        .project(projection_exprs)
-        .expect("failed to reorder columns based on join keys")
-        .build()
-        .expect("failed to build reordered plan")
+    strip_activator(&filtered)
 }
 
 /// Build the left-key support plan by selecting the join's left key columns,
@@ -233,7 +174,7 @@ where
         "join must contain at least one key column"
     );
 
-    let sanitized_left = preprocess_plan(left_lp, join);
+    let sanitized_left = preprocess_plan(left_lp);
     let distinct_plan = LogicalPlanBuilder::from(sanitized_left)
         .project(left_key_exprs.clone())
         .expect("failed to project left join keys")
@@ -266,7 +207,7 @@ where
         "join must contain at least one key column"
     );
 
-    let sanitized_right = preprocess_plan(right_lp, join);
+    let sanitized_right = preprocess_plan(right_lp);
     let distinct_plan = LogicalPlanBuilder::from(sanitized_right)
         .project(right_key_exprs.clone())
         .expect("failed to project right join keys")
@@ -298,7 +239,7 @@ where
         "join must contain at least one key column"
     );
 
-    let sanitized_join = preprocess_plan(join_lp, join);
+    let sanitized_join = preprocess_plan(join_lp);
     let distinct_plan = LogicalPlanBuilder::from(sanitized_join)
         .project(output_key_exprs.clone())
         .expect("failed to project join output keys")
@@ -352,7 +293,7 @@ where
 }
 
 pub(crate) fn join_left_key_source<F, MvPCS, UvPCS>(
-    join_lp: &LogicalPlan,
+    _join_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
@@ -386,7 +327,7 @@ where
         .expect("failed to build row_number window expression")
         .alias("__left_row_id");
 
-    let left_with_id = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref(), &join))
+    let left_with_id = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref()))
         .window(vec![row_number_expr])
         .expect("failed to append left row ids")
         .build()
@@ -405,7 +346,7 @@ where
 
     let rebuilt_join = LogicalPlanBuilder::from(left_with_id)
         .join(
-            preprocess_plan(join.right.as_ref(), &join),
+            preprocess_plan(join.right.as_ref()),
             join.join_type,
             (left_cols, right_cols),
             join.filter.clone(),
@@ -424,7 +365,7 @@ where
 }
 
 pub(crate) fn join_right_key_source<F, MvPCS, UvPCS>(
-    join_lp: &LogicalPlan,
+    _join_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
@@ -458,7 +399,7 @@ where
         .expect("failed to build row_number window expression")
         .alias("__right_row_id");
 
-    let right_with_id = LogicalPlanBuilder::from(preprocess_plan(join.right.as_ref(), &join))
+    let right_with_id = LogicalPlanBuilder::from(preprocess_plan(join.right.as_ref()))
         .window(vec![row_number_expr])
         .expect("failed to append right row ids")
         .build()
@@ -475,7 +416,7 @@ where
         })
         .unzip();
 
-    let rebuilt_join = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref(), &join))
+    let rebuilt_join = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref()))
         .join(
             right_with_id,
             join.join_type,

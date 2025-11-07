@@ -78,8 +78,8 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 //     )
 //     .await
 //     .expect("register lineitem table");
-//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
-//     display_prover_hint_tree(&ctx, proof_tree).await;
+//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// sql).await;     display_prover_hint_tree(&ctx, proof_tree).await;
 // }
 
 // #[tokio::test]
@@ -110,8 +110,8 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 //     )
 //     .await
 //     .expect("register lineitem table");
-//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
-//     display_prover_arithmetized_tree(&ctx, proof_tree).await;
+//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// sql).await;     display_prover_arithmetized_tree(&ctx, proof_tree).await;
 // }
 
 // #[tokio::test]
@@ -142,8 +142,8 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 //     )
 //     .await
 //     .expect("register lineitem table");
-//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
-//     display_prover_tracked_tree(&ctx, proof_tree).await;
+//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// sql).await;     display_prover_tracked_tree(&ctx, proof_tree).await;
 // }
 
 // #[tokio::test]
@@ -174,6 +174,6 @@ JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 //     )
 //     .await
 //     .expect("register lineitem table");
-//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, sql).await;
-//     display_prover_piop_tree(&ctx, proof_tree).await;
+//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// sql).await;     display_prover_piop_tree(&ctx, proof_tree).await;
 // }

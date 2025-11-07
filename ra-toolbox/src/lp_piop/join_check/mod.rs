@@ -143,19 +143,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .tracked_subtable_by_indices(&key_cols_indices),
             supp_tracked_table: input.left_key_support_table.clone(),
         };
-        let table = &input
-            .left_table
-            .tracked_subtable_by_indices(&key_cols_indices);
-        dbg!(&table.tracked_col_by_ind(0).field_ref().unwrap().name());
-        dbg!(
-            input
-                .left_key_support_table
-                .tracked_col_by_ind(0)
-                .field_ref()
-                .unwrap()
-                .name()
-        );
-
         let left_key_multi_col_supp_prover_output =
             BezoutMultiColSuppCheckPIOP::prove(prover, left_key_multi_col_supp_prover_input)?;
 
@@ -227,6 +214,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => &act * &right_minus_out,
             None => right_minus_out,
         };
+dbg!(zero_poly.evaluations());
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         // Zero Check on act(all_keys)(multicity_L * multiplicty_R - multiplicity_O)
         let mlmlr_minus_mo = &(&left_key_multi_col_supp_prover_output.multiplicity
@@ -333,7 +321,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             included_cols: vec![output_left_folded_col.clone()],
             super_col: input_left_folded_col.clone(),
         };
-
         InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
         Ok(())

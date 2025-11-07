@@ -747,8 +747,9 @@ mod tests {
 
     // #[test]
     // fn large_string_array_follows_same_rules() {
-    //     let array = LargeStringArray::from(vec![Some("x"), Some("yz"), None]);
-    //     let encoded = <LargeStringArray as Encodable<Fr>>::encode(&array).unwrap();
+    //     let array = LargeStringArray::from(vec![Some("x"), Some("yz"),
+    // None]);     let encoded = <LargeStringArray as
+    // Encodable<Fr>>::encode(&array).unwrap();
 
     //     assert_eq!(encoded.len(), 1);
     //     let column = &encoded[0];
@@ -760,7 +761,8 @@ mod tests {
     // #[test]
     // fn string_view_array_matches_behavior() {
     //     let array = StringViewArray::from(vec![Some("m"), Some("no"), None]);
-    //     let encoded = <StringViewArray as Encodable<Fr>>::encode(&array).unwrap();
+    //     let encoded = <StringViewArray as
+    // Encodable<Fr>>::encode(&array).unwrap();
 
     //     assert_eq!(encoded.len(), 1);
     //     let column = &encoded[0];
