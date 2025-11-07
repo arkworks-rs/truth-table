@@ -93,43 +93,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        let mut first_col = true;
-
-        for (field, poly) in self.tracked_polys.iter() {
-            if !first_col {
-                write!(f, ", ")?;
-            } else {
-                first_col = false;
-            }
-
-            let evaluations = poly.evaluations();
-            let formatted_values = if evaluations.len() <= 10 {
-                evaluations
-                    .iter()
-                    .map(|val| format!("{:?}", val))
-                    .collect::<Vec<_>>()
-            } else {
-                let mut values = Vec::with_capacity(11);
-                values.extend(evaluations.iter().take(5).map(|val| format!("{:?}", val)));
-                values.push("...".to_string());
-                values.extend(
-                    evaluations
-                        .iter()
-                        .rev()
-                        .take(5)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .map(|val| format!("{:?}", val)),
-                );
-                values
-            };
-
-            write!(f, "{}: [{}]", field.name(), formatted_values.join(", "))?;
-        }
-
-        write!(f, "}}")
+        write!(f, "{}", self.pretty_string())
     }
 }
 
@@ -362,6 +326,61 @@ where
             .iter()
             .find_map(|(field, poly)| (field.name() == ACTIVATOR_COL_NAME).then(|| poly.clone()))
     }
+
+    /// Pretty-print the tracked table in a row/column layout similar to
+    /// DataFusion's RecordBatch formatter.
+    pub fn pretty_string(&self) -> String {
+        if self.tracked_polys.is_empty() {
+            return "TrackedTable<empty>".to_string();
+        }
+
+        let mut headers = Vec::with_capacity(self.tracked_polys.len());
+        let mut columns: Vec<Vec<String>> = Vec::with_capacity(self.tracked_polys.len());
+
+        for (field, poly) in self.tracked_polys.iter() {
+            let header = {
+                let name = field.name();
+                if name.is_empty() {
+                    "-".to_string()
+                } else {
+                    name.to_string()
+                }
+            };
+            headers.push(header);
+            let values = poly
+                .evaluations()
+                .into_iter()
+                .map(|val| abbreviate_field_value(&format!("{}", val)))
+                .collect::<Vec<_>>();
+            columns.push(values);
+        }
+
+        let num_rows = columns.first().map(|c| c.len()).unwrap_or(0);
+        let widths: Vec<usize> = headers
+            .iter()
+            .enumerate()
+            .map(|(idx, header)| {
+                let col_width = columns[idx].iter().map(|val| val.len()).max().unwrap_or(0);
+                std::cmp::max(header.len(), col_width)
+            })
+            .collect();
+
+        let mut out = String::new();
+        out.push_str(&border_line(&widths));
+        out.push_str(&row_line(&headers, &widths));
+        out.push_str(&border_line(&widths));
+
+        for row_idx in 0..num_rows {
+            let row_values: Vec<String> = columns
+                .iter()
+                .map(|col| col.get(row_idx).cloned().unwrap_or_else(|| "-".to_string()))
+                .collect();
+            out.push_str(&row_line(&row_values, &widths));
+        }
+
+        out.push_str(&border_line(&widths));
+        out
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -372,6 +391,48 @@ pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
     polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
     log_size: usize,
+}
+
+fn border_line(widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('+');
+    for width in widths {
+        line.push_str(&"-".repeat(width + 2));
+        line.push('+');
+    }
+    line.push('\n');
+    line
+}
+
+fn row_line(values: &[String], widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('|');
+
+    for (value, width) in values.iter().zip(widths.iter()) {
+        line.push(' ');
+        line.push_str(value);
+        if value.len() < *width {
+            line.push_str(&" ".repeat(*width - value.len()));
+        }
+        line.push(' ');
+        line.push('|');
+    }
+
+    line.push('\n');
+    line
+}
+
+fn abbreviate_field_value(value: &str) -> String {
+    const PREFIX_LEN: usize = 3;
+    const SUFFIX_LEN: usize = 2;
+
+    if value.len() <= PREFIX_LEN + SUFFIX_LEN {
+        value.to_string()
+    } else {
+        let prefix = &value[..PREFIX_LEN];
+        let suffix = &value[value.len() - SUFFIX_LEN..];
+        format!("{prefix}...{suffix}")
+    }
 }
 
 impl<F: PrimeField> ArithTable<F> {
