@@ -143,6 +143,32 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .tracked_subtable_by_indices(&key_cols_indices),
             supp_tracked_table: input.left_key_support_table.clone(),
         };
+        dbg!(
+            input
+                .out_key_support_table
+                .tracked_col_by_ind(0)
+                .field_ref()
+                .unwrap()
+                .name()
+        );
+        dbg!(
+            input
+                .out_key_support_table
+                .clone()
+                .tracked_col_by_ind(0)
+                .data_tracked_poly()
+                .evaluations()
+        );
+
+        dbg!(
+            input
+                .out_key_support_table
+                .clone()
+                .tracked_col_by_ind(0)
+                .activator_tracked_poly()
+                .unwrap()
+                .evaluations()
+        );
         let left_key_multi_col_supp_prover_output =
             BezoutMultiColSuppCheckPIOP::prove(prover, left_key_multi_col_supp_prover_input)?;
 
@@ -222,22 +248,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => &act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
-        dbg!(
-            left_key_multi_col_supp_prover_output
-                .multiplicity
-                .evaluations()
-        );
-        dbg!(
-            right_key_multi_col_supp_prover_output
-                .multiplicity
-                .evaluations()
-        );
-        dbg!(
-            out_key_multi_col_supp_prover_output
-                .multiplicity
-                .evaluations()
-        );
-        dbg!(&zero_poly.evaluations());
+
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         // Random Challenge r picked from verifier

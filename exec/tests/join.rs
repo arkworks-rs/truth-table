@@ -7,10 +7,14 @@ use truthtable_core::test_display::{
     display_prover_proof_tree, display_prover_tracked_tree,
 };
 
-end_to_end_tests!(&["lineitem", "supplier"] => [
-    join_by_suppkey => r#"SELECT l_suppkey, s_name
-FROM lineitem l
-JOIN supplier s ON l.l_suppkey = s.s_suppkey;
+end_to_end_tests!(&["supplier", "nation"] => [
+    join_by_suppkey => r#"SELECT
+    s.s_suppkey,
+    n.n_regionkey
+FROM
+    supplier s
+JOIN
+    nation n ON s.s_nationkey = n.n_nationkey
 "#,
 ]);
 
