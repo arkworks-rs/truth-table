@@ -1,13 +1,13 @@
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
+    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ec::pairing::Pairing;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{kzg10::KZG10, pst13::PST13, PCS},
+    pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
     prover::structs::polynomial::TrackedPoly,
     test_utils::test_prelude,
@@ -45,8 +45,6 @@ struct InnerJoinTestInput<E: Pairing> {
     pub data_all_keysupp: Vec<Vec<E::ScalarField>>,
     pub join_left_source_data: Vec<E::ScalarField>,
     pub join_right_source_data: Vec<E::ScalarField>,
-    pub right_table_multiplicity_data: Vec<E::ScalarField>,
-    pub left_table_multiplicity_data: Vec<E::ScalarField>,
 }
 
 fn assemble_table_columns<F, MvPCS, UvPCS>(
@@ -156,8 +154,6 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3], Fr),
-        right_table_multiplicity_data: to_field_vec!([2, 2, 2, 2], Fr),
-        left_table_multiplicity_data: to_field_vec!([2, 2, 2, 2], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input)?;
 
@@ -193,8 +189,6 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1], Fr),
         join_right_source_data: to_field_vec!([0, 1, 2, 3], Fr),
-        right_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
-        left_table_multiplicity_data: to_field_vec!([2, 2], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input2)?;
 
@@ -232,8 +226,6 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         join_left_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 1, 1], Fr),
         // Multiplicities of table rows used in the join
-        right_table_multiplicity_data: to_field_vec!([2, 2], Fr),
-        left_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input3)?;
 
@@ -262,12 +254,16 @@ fn inner_join_is_complete() -> SnarkResult<()> {
             to_field_vec!([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], Fr),
             // left payload expanded according to join
             to_field_vec!(
-                [10, 10, 11, 11, 20, 20, 21, 21, 30, 30, 31, 31, 40, 40, 41, 41],
+                [
+                    10, 10, 11, 11, 20, 20, 21, 21, 30, 30, 31, 31, 40, 40, 41, 41
+                ],
                 Fr
             ),
             // right payload per matched right row
             to_field_vec!(
-                [100, 101, 100, 101, 200, 201, 200, 201, 300, 301, 300, 301, 400, 401, 400, 401],
+                [
+                    100, 101, 100, 101, 200, 201, 200, 201, 300, 301, 300, 301, 400, 401, 400, 401
+                ],
                 Fr
             ),
         ],
@@ -287,8 +283,6 @@ fn inner_join_is_complete() -> SnarkResult<()> {
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7], Fr),
         join_right_source_data: to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5, 6, 7, 6, 7], Fr),
         // Multiplicities reflect matches per row
-        right_table_multiplicity_data: to_field_vec!([2, 2, 2, 2, 2, 2, 2, 2], Fr),
-        left_table_multiplicity_data: to_field_vec!([2, 2, 2, 2, 2, 2, 2, 2], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input4)?;
 
@@ -341,9 +335,6 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         // Map 4 output rows to source indices; only rows 0 and 2 are active
         join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
         join_right_source_data: to_field_vec!([1, 1, 3, 3], Fr),
-        // Multiplicity of rows used in the join
-        right_table_multiplicity_data: to_field_vec!([0, 1, 0, 1], Fr),
-        left_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
     };
 
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input)?;
@@ -383,8 +374,6 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 1, 2, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
-        right_table_multiplicity_data: to_field_vec!([2, 0, 2, 0], Fr),
-        left_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input2)?;
 
@@ -424,8 +413,6 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([1, 1, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 1, 2, 3], Fr),
-        right_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
-        left_table_multiplicity_data: to_field_vec!([0, 2, 0, 2], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input3)?;
     // Fourth scenario: right has 8 rows with
@@ -464,8 +451,6 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3], Fr),
         join_right_source_data: to_field_vec!([0, 0, 0, 0, 4, 4, 4, 4], Fr),
-        right_table_multiplicity_data: to_field_vec!([2, 0, 0, 0, 2, 0, 0, 0], Fr),
-        left_table_multiplicity_data: to_field_vec!([1, 1, 1, 1], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input4)?;
 
@@ -506,8 +491,6 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
         data_all_keysupp: vec![to_field_vec!([1, 2], Fr)],
         join_left_source_data: to_field_vec!([0, 0, 2, 2], Fr),
         join_right_source_data: to_field_vec!([0, 0, 2, 2], Fr),
-        right_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
-        left_table_multiplicity_data: to_field_vec!([1, 0, 1, 0], Fr),
     };
     inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input7)?;
 
@@ -719,18 +702,6 @@ fn inner_join_test_helper<
         &MLE::from_evaluations_slice(input.nv_out_table, input.join_right_source_data.as_slice()),
     )?;
 
-    // multiplicity poly prep
-    let right_table_multiplicity_poly =
-        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
-            input.nv_right_table,
-            input.right_table_multiplicity_data.as_slice(),
-        ))?;
-    let left_table_multiplicity_poly =
-        prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
-            input.nv_left_table,
-            input.left_table_multiplicity_data.as_slice(),
-        ))?;
-
     let inner_join_prover_input: InnerJoinProverInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinProverInput {
             left_table: TrackedTable::new(None, left_table_columns, input.nv_left_table),
@@ -768,9 +739,6 @@ fn inner_join_test_helper<
                 activator_right_table_poly.clone(),
                 None,
             ),
-            // multiplicity polys
-            right_table_multiplicity: right_table_multiplicity_poly,
-            left_table_multiplicity: left_table_multiplicity_poly,
         };
 
     InnerJoinPIOP::<E::ScalarField, MvPCS, UvPCS>::prove(&mut prover, inner_join_prover_input)?;
@@ -892,10 +860,6 @@ fn inner_join_test_helper<
     let join_left_source_comm = verifier.track_mv_com_by_id(join_left_source_id)?;
     let join_right_source_id = verifier.peek_next_id();
     let join_right_source_comm = verifier.track_mv_com_by_id(join_right_source_id)?;
-    let right_table_multiplicity_id = verifier.peek_next_id();
-    let right_table_multiplicity_comm = verifier.track_mv_com_by_id(right_table_multiplicity_id)?;
-    let left_table_multiplicity_id = verifier.peek_next_id();
-    let left_table_multiplicity_comm = verifier.track_mv_com_by_id(left_table_multiplicity_id)?;
 
     let inner_join_verifier_input: InnerJoinVerifierInput<E::ScalarField, MvPCS, UvPCS> =
         InnerJoinVerifierInput {
@@ -972,8 +936,6 @@ fn inner_join_test_helper<
                 activator_right_tracked_table_oracle.clone(),
                 None,
             ),
-            right_table_multiplicity: right_table_multiplicity_comm,
-            left_table_multiplicity: left_table_multiplicity_comm,
         };
 
     InnerJoinPIOP::<E::ScalarField, MvPCS, UvPCS>::verify(

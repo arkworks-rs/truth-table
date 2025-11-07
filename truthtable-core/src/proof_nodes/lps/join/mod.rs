@@ -2,8 +2,17 @@ mod hints;
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
-        lps::join::hints::build_join_hint_generation_plans, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY,
+        cost::ProvingCost,
+        id::NodeId,
+        lps::join::{
+            self,
+            hints::{
+                JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
+                JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
+            },
+        },
+        prover::ProverNode,
         verifier::VerifierNode,
     },
     prover::trees::{
@@ -18,6 +27,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
+    prover::Prover,
 };
 use datafusion::{
     logical_expr::{self as df, Join},
@@ -25,7 +35,9 @@ use datafusion::{
 };
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::join_check::{InnerJoinPIOP, InnerJoinProverInput};
+use ra_toolbox::lp_piop::join_check::{
+    InnerJoinPIOP, InnerJoinProverInput, InnerJoinVerifierInput,
+};
 use std::sync::Arc;
 
 pub struct ProverJoinNode<F, MvPCS, UvPCS>
@@ -83,15 +95,7 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        let _ = proof_tree;
-
-        let plan = self
-            .node_id
-            .to_lp()
-            .cloned()
-            .expect("join node id should contain logical plan");
-
-        build_join_hint_generation_plans(plan)
+        build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
     }
 
     fn from_lp(
@@ -225,10 +229,58 @@ where
 
     fn prove_piop(
         &self,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        InnerJoinPIOP::prove(prover, self.inner_join_prover_input(piop_tree))
+        let left_tracked_table = piop_tree
+            .tracked_table(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap();
+        let right_tracked_table = piop_tree
+            .tracked_table(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap();
+        let out_tracked_table = piop_tree
+            .tracked_table(&self.node_id(), OUTPUT_PLAN_KEY)
+            .unwrap();
+        let left_key_supprt_table = piop_tree
+            .tracked_table(&self.node_id(), JOIN_LEFT_KEY_SUPP)
+            .unwrap();
+        let right_key_supprt_table = piop_tree
+            .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SUPP)
+            .unwrap();
+
+        let out_key_supprt_table = piop_tree
+            .tracked_table(&self.node_id, JOIN_OUTPUT_KEY_SUPP)
+            .unwrap();
+
+        let all_key_supprt_table = piop_tree
+            .tracked_table(&self.node_id, JOIN_ALL_KEY_SUPP)
+            .unwrap();
+        /////////////////////////////////////////
+        let join_left_source_tracked_table = piop_tree
+            .tracked_table(&self.node_id, JOIN_LEFT_KEY_SOURCE)
+            .unwrap();
+        let join_left_source = join_left_source_tracked_table
+            .tracked_col_by_ind(join_left_source_tracked_table.data_tracked_polys_indices()[0]);
+
+        ///////////////////////////////////////
+        let join_right_source_tracked_table = piop_tree
+            .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SOURCE)
+            .unwrap();
+        let join_right_source = join_right_source_tracked_table
+            .tracked_col_by_ind(join_right_source_tracked_table.data_tracked_polys_indices()[0]);
+
+        let inner_join_piop_prover_input = InnerJoinProverInput {
+            left_table: left_tracked_table.clone(),
+            right_table: right_tracked_table.clone(),
+            out_table: out_tracked_table.clone(),
+            left_key_support_table: left_key_supprt_table.clone(),
+            right_key_support_table: right_key_supprt_table.clone(),
+            out_key_support_table: out_key_supprt_table.clone(),
+            all_key_support_table: all_key_supprt_table.clone(),
+            join_left_source,
+            join_right_source,
+        };
+        InnerJoinPIOP::<F, MvPCS, UvPCS>::prove(prover, inner_join_piop_prover_input)
     }
 }
 
@@ -255,15 +307,7 @@ where
         &self,
         proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        let _ = proof_tree;
-
-        let plan = self
-            .node_id
-            .to_lp()
-            .cloned()
-            .expect("join node id should contain logical plan");
-
-        build_join_hint_generation_plans(plan)
+        build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
     }
 
     fn from_lp(
@@ -379,10 +423,71 @@ where
 
     fn verify_piop(
         &self,
-        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        Ok(())
+        let left_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .cloned()
+            .expect("left join input table missing from PIOP tree");
+
+        let right_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
+            .cloned()
+            .expect("right join input table missing from PIOP tree");
+
+        let out_tracked_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id(), OUTPUT_PLAN_KEY)
+            .cloned()
+            .expect("join output table missing from PIOP tree");
+
+        let left_key_support_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_LEFT_KEY_SUPP)
+            .cloned()
+            .expect("join left key support table missing from PIOP tree");
+
+        let right_key_support_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_RIGHT_KEY_SUPP)
+            .cloned()
+            .expect("join right key support table missing from PIOP tree");
+
+        let out_key_support_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_OUTPUT_KEY_SUPP)
+            .cloned()
+            .expect("join output key support table missing from PIOP tree");
+
+        let all_key_support_table_oracle = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_ALL_KEY_SUPP)
+            .cloned()
+            .expect("join union key support table missing from PIOP tree");
+
+        let join_left_source_table = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_LEFT_KEY_SOURCE)
+            .cloned()
+            .expect("join left source column missing from PIOP tree");
+        let join_left_source_table_oracle = join_left_source_table
+            .tracked_col_oracle_by_ind(join_left_source_table.data_tracked_oracles_indices()[0]);
+
+        let join_right_source_table = piop_tree
+            .tracked_table_oracle(&self.node_id(), JOIN_RIGHT_KEY_SOURCE)
+            .cloned()
+            .expect("join right source column missing from PIOP tree");
+        let join_right_source_table_oracle = join_right_source_table
+            .tracked_col_oracle_by_ind(join_right_source_table.data_tracked_oracles_indices()[0]);
+
+        let verifier_input = InnerJoinVerifierInput {
+            left_tracked_table_oracle,
+            right_tracked_table_oracle,
+            out_tracked_table_oracle,
+            left_key_support_table_oracle,
+            right_key_support_table_oracle,
+            out_key_support_table_oracle,
+            all_key_support_table_oracle,
+            join_left_source_table_oracle,
+            join_right_source_table_oracle,
+        };
+
+        InnerJoinPIOP::<F, MvPCS, UvPCS>::verify(verifier, verifier_input)
     }
 
     fn ctx_lp_node(
@@ -393,31 +498,5 @@ where
             .node(&self.node_id)
             .cloned()
             .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
-    }
-}
-
-impl<F, MvPCS, UvPCS> ProverJoinNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    fn inner_join_prover_input(
-        &self,
-        piop_tree: &ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> InnerJoinProverInput<F, MvPCS, UvPCS> {
-        InnerJoinProverInput {
-            left_table: todo!(),
-            right_table: todo!(),
-            out_table: todo!(),
-            left_key_support_table: todo!(),
-            right_key_support_table: todo!(),
-            out_key_support_table: todo!(),
-            all_key_support_table: todo!(),
-            join_left_source: todo!(),
-            join_right_source: todo!(),
-            right_table_multiplicity: todo!(),
-            left_table_multiplicity: todo!(),
-        }
     }
 }

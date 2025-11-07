@@ -26,6 +26,7 @@ use col_toolbox::{
         BezoutMultiColSuppCheckPIOP, BezoutMultiColSuppCheckProverInput,
         BezoutMultiColSuppCheckVerifierInput,
     },
+    inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
     multiplicity_check::{
         MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
     },
@@ -62,8 +63,6 @@ pub struct InnerJoinProverInput<
     pub all_key_support_table: TrackedTable<F, MvPCS, UvPCS>,
     pub join_left_source: TrackedCol<F, MvPCS, UvPCS>,
     pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
-    pub right_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
-    pub left_table_multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -80,8 +79,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             all_key_support_table: self.all_key_support_table.deep_clone(prover.clone()),
             join_left_source: self.join_left_source.deep_clone(prover.clone()),
             join_right_source: self.join_right_source.deep_clone(prover.clone()),
-            left_table_multiplicity: self.left_table_multiplicity.deep_clone(prover.clone()),
-            right_table_multiplicity: self.right_table_multiplicity.deep_clone(prover.clone()),
         }
     }
 }
@@ -102,8 +99,6 @@ pub struct InnerJoinVerifierInput<
     pub all_key_support_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub join_left_source_table_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub join_right_source_table_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub right_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
-    pub left_table_multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
@@ -283,14 +278,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None,
         );
         // Right multiplicity check
-        let right_multiplicity_prover_input = MultiplicityCheckProverInput {
-            fxs: vec![output_right_folded_col.clone()],
-            gxs: vec![input_right_folded_col.clone()],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.right_table_multiplicity.clone())],
+        let inclusion_check_prover_input = InclusionCheckProverInput {
+            included_cols: vec![output_right_folded_col.clone()],
+            super_col: input_right_folded_col.clone(),
         };
 
-        MultiplicityCheck::prove(prover, right_multiplicity_prover_input)?;
+        InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
         let beta_vec = (0..(input.left_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
@@ -324,14 +317,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None,
         );
         // Right multiplicity check
-        let left_multiplicity_prover_input = MultiplicityCheckProverInput {
-            fxs: vec![output_left_folded_col.clone()],
-            gxs: vec![input_left_folded_col.clone()],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        let inclusion_check_prover_input = InclusionCheckProverInput {
+            included_cols: vec![output_left_folded_col.clone()],
+            super_col: input_left_folded_col.clone(),
         };
 
-        MultiplicityCheck::prove(prover, left_multiplicity_prover_input)?;
+        InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
         Ok(())
     }
@@ -537,13 +528,13 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None,
         );
         // Right multiplicity check
-        let right_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![output_right_folded_tracked_col_oracle],
-            gxs: vec![input_right_folded_tracked_col_oracle.clone()],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.right_table_multiplicity.clone())],
+
+        let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+            included_tracked_col_oracles: vec![output_right_folded_tracked_col_oracle.clone()],
+            super_tracked_col_oracle: input_right_folded_tracked_col_oracle.clone(),
         };
-        MultiplicityCheck::verify(verifier, right_multiplicity_verifier_input)?;
+
+        InclusionCheckPIOP::verify(verifier, inclusion_check_verifier_input)?;
 
         let beta_vec = (0..(input
             .left_tracked_table_oracle
@@ -590,13 +581,12 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             None,
         );
         // Right multiplicity check
-        let left_multiplicity_verifier_input = MultiplicityCheckVerifierInput {
-            fxs: vec![output_left_folded_tracked_col_oracle],
-            gxs: vec![input_left_folded_tracked_col_oracle.clone()],
-            mfxs: vec![None],
-            mgxs: vec![Some(input.left_table_multiplicity.clone())],
+        let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+            included_tracked_col_oracles: vec![output_left_folded_tracked_col_oracle.clone()],
+            super_tracked_col_oracle: input_left_folded_tracked_col_oracle.clone(),
         };
-        MultiplicityCheck::verify(verifier, left_multiplicity_verifier_input)?;
+
+        InclusionCheckPIOP::verify(verifier, inclusion_check_verifier_input)?;
 
         Ok(())
     }
