@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion_expr::{Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, col, expr::Sort};
+use datafusion::common::Column;
+use datafusion_expr::{
+    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, col, expr::Sort, logical_plan::Join,
+};
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 
@@ -24,6 +27,114 @@ pub(crate) const JOIN_ALL_KEY_SUPP: &str = "__join_all_key_supp__";
 pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
 
+pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalPlan, LogicalPlan) {
+    let join = match join_lp {
+        LogicalPlan::Join(join) => join,
+        _ => panic!("expected join logical plan"),
+    };
+
+    let left_key_exprs: Vec<Expr> = join
+        .on
+        .iter()
+        .map(|(left_expr, _)| left_expr.clone())
+        .collect();
+    let right_key_exprs: Vec<Expr> = join
+        .on
+        .iter()
+        .map(|(_, right_expr)| right_expr.clone())
+        .collect();
+
+    let aligned_left = align_plan_with_keys(join.left.as_ref(), &left_key_exprs);
+    let aligned_right = align_plan_with_keys(join.right.as_ref(), &right_key_exprs);
+
+    let left_columns: Vec<Column> = left_key_exprs
+        .iter()
+        .map(|expr| match expr {
+            Expr::Column(col) => col.clone(),
+            _ => panic!("expected column expression in join condition"),
+        })
+        .collect();
+    let right_columns: Vec<Column> = right_key_exprs
+        .iter()
+        .map(|expr| match expr {
+            Expr::Column(col) => col.clone(),
+            _ => panic!("expected column expression in join condition"),
+        })
+        .collect();
+    let rebuilt_join = Join::try_new_with_project_input(
+        join_lp,
+        Arc::new(aligned_left.clone()),
+        Arc::new(aligned_right.clone()),
+        (left_columns, right_columns),
+    )
+    .expect("failed to rebuild aligned join logical plan");
+
+    (LogicalPlan::Join(rebuilt_join), aligned_left, aligned_right)
+}
+
+fn align_plan_with_keys(plan: &LogicalPlan, key_exprs: &[Expr]) -> LogicalPlan {
+    if key_exprs.is_empty() {
+        return plan.clone();
+    }
+
+    let schema = plan.schema();
+    assert!(
+        schema.fields().len() >= key_exprs.len(),
+        "plan does not contain enough columns to align join keys"
+    );
+
+    let key_field_names: Vec<String> = key_exprs
+        .iter()
+        .map(|expr| match expr {
+            Expr::Column(col) => col.name.clone(),
+            _ => panic!("expected column expression in join condition"),
+        })
+        .collect();
+
+    let mut already_aligned = true;
+    for (idx, key_name) in key_field_names.iter().enumerate() {
+        if schema.field(idx).name() != key_name {
+            already_aligned = false;
+            break;
+        }
+    }
+    if already_aligned {
+        return plan.clone();
+    }
+
+    let mut projection_exprs: Vec<Expr> = key_exprs.iter().cloned().collect();
+    let mut required_counts: HashMap<String, usize> = HashMap::new();
+    for key_name in &key_field_names {
+        *required_counts.entry(key_name.clone()).or_default() += 1;
+    }
+    let mut seen_counts: HashMap<String, usize> = HashMap::new();
+
+    for field in schema.fields() {
+        let required = required_counts.get(field.name());
+        let should_skip = if let Some(total) = required {
+            let count = seen_counts.entry(field.name().clone()).or_default();
+            if *count < *total {
+                *count += 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !should_skip {
+            projection_exprs.push(col(field.name()));
+        }
+    }
+
+    LogicalPlanBuilder::from(plan.clone())
+        .project(projection_exprs)
+        .expect("failed to align join keys")
+        .build()
+        .expect("failed to build aligned logical plan")
+}
+
 pub(crate) fn build_join_hint_generation_plans<F, MvPCS, UvPCS>(
     node_id: NodeId,
 ) -> IndexMap<String, HintGenerationPlan>
@@ -32,23 +143,19 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    let join_lp = node_id.to_lp().unwrap().clone();
+    let original_join_lp = node_id.to_lp().unwrap().clone();
+    let (join_lp, left_lp, right_lp) = align_key_columns(&original_join_lp);
     let join = match &join_lp {
         LogicalPlan::Join(join) => join,
         _ => panic!("Expected Join logical plan"),
     };
     let num_key_cols = join.on.len();
-    let left_lp = join.left.clone();
-    let right_lp = join.right.clone();
     let all_lp = build_concatenated_lp(num_key_cols, &left_lp, &right_lp);
     let mut plans = IndexMap::new();
 
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(
-            OUTPUT_PLAN_KEY.to_owned(),
-            node_id.to_lp().unwrap().clone(),
-        ),
+        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_owned(), join_lp.clone()),
     );
     plans.insert(
         JOIN_LEFT_KEY_SUPP.to_string(),
