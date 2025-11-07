@@ -26,6 +26,7 @@ pub(crate) const JOIN_OUTPUT_KEY_SUPP: &str = "__join_output_key_supp__";
 pub(crate) const JOIN_ALL_KEY_SUPP: &str = "__join_all_key_supp__";
 pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
+const JOIN_KEY_ALIAS_PREFIX: &str = "__join_key_";
 
 pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalPlan, LogicalPlan) {
     let join = match join_lp {
@@ -44,8 +45,8 @@ pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalP
         .map(|(_, right_expr)| right_expr.clone())
         .collect();
 
-    let aligned_left = align_plan_with_keys(join.left.as_ref(), &left_key_exprs);
-    let aligned_right = align_plan_with_keys(join.right.as_ref(), &right_key_exprs);
+    let aligned_left_base = align_plan_with_keys(join.left.as_ref(), &left_key_exprs);
+    let aligned_right_base = align_plan_with_keys(join.right.as_ref(), &right_key_exprs);
 
     let left_columns: Vec<Column> = left_key_exprs
         .iter()
@@ -63,13 +64,50 @@ pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalP
         .collect();
     let rebuilt_join = Join::try_new_with_project_input(
         join_lp,
-        Arc::new(aligned_left.clone()),
-        Arc::new(aligned_right.clone()),
+        Arc::new(aligned_left_base.clone()),
+        Arc::new(aligned_right_base.clone()),
         (left_columns, right_columns),
     )
     .expect("failed to rebuild aligned join logical plan");
 
+    let aligned_left =
+        alias_key_columns(&aligned_left_base, left_key_exprs.len());
+    let aligned_right =
+        alias_key_columns(&aligned_right_base, right_key_exprs.len());
+
     (LogicalPlan::Join(rebuilt_join), aligned_left, aligned_right)
+}
+
+fn alias_key_columns(plan: &LogicalPlan, num_key_cols: usize) -> LogicalPlan {
+    if num_key_cols == 0 {
+        return plan.clone();
+    }
+
+    let schema = plan.schema();
+    assert!(
+        schema.fields().len() >= num_key_cols,
+        "plan does not contain enough columns for aliasing join keys"
+    );
+
+    let projection_exprs: Vec<Expr> = schema
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(idx, field)| {
+            let expr = col(field.name());
+            if idx < num_key_cols {
+                expr.alias(format!("{JOIN_KEY_ALIAS_PREFIX}{idx}"))
+            } else {
+                expr
+            }
+        })
+        .collect();
+
+    LogicalPlanBuilder::from(plan.clone())
+        .project(projection_exprs)
+        .expect("failed to alias join key columns")
+        .build()
+        .expect("failed to build plan with aliased join keys")
 }
 
 fn align_plan_with_keys(plan: &LogicalPlan, key_exprs: &[Expr]) -> LogicalPlan {
