@@ -7,14 +7,14 @@ use ark_piop::{
 };
 use datafusion::common::Column;
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, col, expr::Sort, logical_plan::Join,
+    col, expr::Sort, logical_plan::Join, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        id::NodeId, prover::ProverNode, verifier::VerifierNode, HintGenerationPlan, OUTPUT_PLAN_KEY,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -28,7 +28,11 @@ pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
 const JOIN_KEY_ALIAS_PREFIX: &str = "__join_key_";
 
-pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalPlan, LogicalPlan) {
+pub(crate) fn align_key_columns(
+    join_lp: &LogicalPlan,
+    left_lp: &LogicalPlan,
+    right_lp: &LogicalPlan,
+) -> (LogicalPlan, LogicalPlan, LogicalPlan) {
     let join = match join_lp {
         LogicalPlan::Join(join) => join,
         _ => panic!("expected join logical plan"),
@@ -45,8 +49,8 @@ pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalP
         .map(|(_, right_expr)| right_expr.clone())
         .collect();
 
-    let aligned_left_base = align_plan_with_keys(join.left.as_ref(), &left_key_exprs);
-    let aligned_right_base = align_plan_with_keys(join.right.as_ref(), &right_key_exprs);
+    let aligned_left_base = align_plan_with_keys(left_lp, &left_key_exprs);
+    let aligned_right_base = align_plan_with_keys(right_lp, &right_key_exprs);
 
     let left_columns: Vec<Column> = left_key_exprs
         .iter()
@@ -70,10 +74,8 @@ pub(crate) fn align_key_columns(join_lp: &LogicalPlan) -> (LogicalPlan, LogicalP
     )
     .expect("failed to rebuild aligned join logical plan");
 
-    let aligned_left =
-        alias_key_columns(&aligned_left_base, left_key_exprs.len());
-    let aligned_right =
-        alias_key_columns(&aligned_right_base, right_key_exprs.len());
+    let aligned_left = alias_key_columns(&aligned_left_base, left_key_exprs.len());
+    let aligned_right = alias_key_columns(&aligned_right_base, right_key_exprs.len());
 
     (LogicalPlan::Join(rebuilt_join), aligned_left, aligned_right)
 }
@@ -90,11 +92,11 @@ fn alias_key_columns(plan: &LogicalPlan, num_key_cols: usize) -> LogicalPlan {
     );
 
     let projection_exprs: Vec<Expr> = schema
-        .fields()
         .iter()
         .enumerate()
-        .map(|(idx, field)| {
-            let expr = col(field.name());
+        .map(|(idx, (qualifier, field))| {
+            let column = Column::new(qualifier.cloned(), field.name().clone());
+            let expr = Expr::Column(column);
             if idx < num_key_cols {
                 expr.alias(format!("{JOIN_KEY_ALIAS_PREFIX}{idx}"))
             } else {
@@ -173,6 +175,33 @@ fn align_plan_with_keys(plan: &LogicalPlan, key_exprs: &[Expr]) -> LogicalPlan {
         .expect("failed to build aligned logical plan")
 }
 
+fn strip_activator(plan: &LogicalPlan) -> LogicalPlan {
+    let schema = plan.schema();
+    let projection_exprs: Vec<Expr> = schema
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() == "activator" {
+                None
+            } else {
+                Some(Expr::Column(Column::new(
+                    qualifier.cloned(),
+                    field.name().clone(),
+                )))
+            }
+        })
+        .collect();
+
+    if projection_exprs.len() == schema.fields().len() {
+        return plan.clone();
+    }
+
+    LogicalPlanBuilder::from(plan.clone())
+        .project(projection_exprs)
+        .expect("failed to strip activator column")
+        .build()
+        .expect("failed to build plan without activator")
+}
+
 pub(crate) fn build_join_hint_generation_plans<F, MvPCS, UvPCS>(
     node_id: NodeId,
 ) -> IndexMap<String, HintGenerationPlan>
@@ -182,18 +211,28 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     let original_join_lp = node_id.to_lp().unwrap().clone();
-    let (join_lp, left_lp, right_lp) = align_key_columns(&original_join_lp);
+    let original_join = match &original_join_lp {
+        LogicalPlan::Join(join) => join,
+        _ => panic!("Expected Join logical plan"),
+    };
+    let original_left_lp = original_join.left.as_ref().clone();
+    let original_right_lp = original_join.right.as_ref().clone();
+    let stripped_left_lp = strip_activator(&original_left_lp);
+    let stripped_right_lp = strip_activator(&original_right_lp);
+    let (join_lp, left_lp, right_lp) =
+        align_key_columns(&original_join_lp, &stripped_left_lp, &stripped_right_lp);
     let join = match &join_lp {
         LogicalPlan::Join(join) => join,
         _ => panic!("Expected Join logical plan"),
     };
     let num_key_cols = join.on.len();
+    let join_lp_key_alias = alias_key_columns(&join_lp, num_key_cols);
     let all_lp = build_concatenated_lp(num_key_cols, &left_lp, &right_lp);
     let mut plans = IndexMap::new();
 
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_owned(), join_lp.clone()),
+        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_owned(), original_join_lp),
     );
     plans.insert(
         JOIN_LEFT_KEY_SUPP.to_string(),
@@ -212,7 +251,7 @@ where
         JOIN_OUTPUT_KEY_SUPP.to_string(),
         build_supp_generation_plans::<F, MvPCS, UvPCS>(
             JOIN_OUTPUT_KEY_SUPP,
-            &join_lp,
+            &join_lp_key_alias,
             num_key_cols,
         ),
     );
