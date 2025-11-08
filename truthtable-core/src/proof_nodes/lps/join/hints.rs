@@ -8,15 +8,15 @@ use ark_piop::{
 };
 use datafusion::{common::Column, scalar::ScalarValue};
 use datafusion_expr::{
-    build_join_schema, col, expr::Sort, logical_plan::Join, Expr, ExprFunctionExt, LogicalPlan,
-    LogicalPlanBuilder,
+    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, build_join_schema, col, expr::Sort,
+    logical_plan::Join,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 
 use crate::{
     proof_nodes::{
-        id::NodeId, prover::ProverNode, verifier::VerifierNode, HintGenerationPlan, OUTPUT_PLAN_KEY,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId, prover::ProverNode, verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,

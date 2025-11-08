@@ -16,12 +16,17 @@ use crate::{
         verifier::VerifierNode,
     },
     prover::trees::{
+        arithmetized_tree::ProverArithmetizedTree,
         piop_tree::{self, ProverPIOPTree},
         proof_tree::ProverProofTree,
     },
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME,
+    table::{ArithTable, TrackedTable},
+    table_oracle::TrackedTableOracle,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -229,6 +234,50 @@ where
             .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
     }
 
+    fn arithmetic_post_process(
+        &self,
+        arithmetized_tree: &mut ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        let Some(node_tables) = arithmetized_tree.arithmetized_tables_for_mut(&self.node_id) else {
+            return;
+        };
+        let Some(all_key_supp_table) = node_tables.get(JOIN_ALL_KEY_SUPP) else {
+            return;
+        };
+
+        let target_log_size = all_key_supp_table.log_size();
+        let target_size = 1usize << target_log_size;
+
+        let mut pad_table = |label: &str| {
+            let Some(table) = node_tables.remove(label) else {
+                return;
+            };
+
+            let current_size = 1usize << table.log_size();
+            if current_size >= target_size {
+                node_tables.insert(label.to_string(), table);
+                return;
+            }
+
+            let mut padded_polys: IndexMap<FieldRef, Arc<MLE<F>>> =
+                IndexMap::with_capacity(table.polynomials().len());
+
+            for (field_ref, poly) in table.polynomials() {
+                let mut evals = poly.evaluations();
+                evals.resize(target_size, F::zero());
+                let padded_poly = Arc::new(MLE::from_evaluations_vec(target_log_size, evals));
+                padded_polys.insert(field_ref.clone(), padded_poly);
+            }
+
+            let padded_table = ArithTable::new(table.schema(), padded_polys, target_log_size);
+            node_tables.insert(label.to_string(), padded_table);
+        };
+
+        pad_table(JOIN_OUTPUT_KEY_SUPP);
+        pad_table(JOIN_LEFT_KEY_SUPP);
+        pad_table(JOIN_RIGHT_KEY_SUPP);
+    }
+
     fn prove_piop(
         &self,
         prover: &mut Prover<F, MvPCS, UvPCS>,
@@ -291,6 +340,7 @@ where
         let join_left_source = join_left_source_tracked_table
             .tracked_col_by_ind(join_left_source_tracked_table.data_tracked_polys_indices()[0]);
 
+        println!("{}", join_left_source_tracked_table);
         ///////////////////////////////////////
         let join_right_source_tracked_table = piop_tree
             .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SOURCE)

@@ -64,6 +64,19 @@ where
         }
     }
 
+    fn perform_arithmetic_post_process(arith_tree: &mut Self) {
+        let nodes: Vec<_> = arith_tree
+            .inner_proof_tree
+            .arena()
+            .values()
+            .cloned()
+            .collect();
+
+        for node in nodes {
+            node.arithmetic_post_process(arith_tree);
+        }
+    }
+
     #[instrument(level = "debug", skip_all)]
     pub fn from_hint_tree(hint_tree: ProverHintTree<F, MvPCS, UvPCS>) -> Result<Self, EncodeError> {
         let (proof_tree, hint_map) = hint_tree.into_parts();
@@ -77,8 +90,9 @@ where
             }
             tables_by_node.insert(node_id, tables);
         }
-
-        Ok(Self::new(proof_tree, tables_by_node))
+        let mut output_arith_tree = Self::new(proof_tree, tables_by_node);
+        Self::perform_arithmetic_post_process(&mut output_arith_tree);
+        Ok(output_arith_tree)
     }
 
     #[tracing::instrument(level = "debug", skip(record_batches))]
@@ -175,6 +189,13 @@ where
 
     pub fn arithmetized_tables(&self) -> &IndexMap<NodeId, IndexMap<String, ArithTable<F>>> {
         &self.arena
+    }
+
+    pub fn arithmetized_tables_for_mut(
+        &mut self,
+        node_id: &NodeId,
+    ) -> Option<&mut IndexMap<String, ArithTable<F>>> {
+        self.arena.get_mut(node_id)
     }
 
     pub fn arithmetized_table_for(&self, node_id: &NodeId, label: &str) -> Option<&ArithTable<F>> {

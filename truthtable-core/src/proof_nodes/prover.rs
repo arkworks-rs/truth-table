@@ -4,7 +4,10 @@
 use super::cost::ProvingCost;
 use crate::{
     proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId},
-    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
+    prover::trees::{
+        arithmetized_tree::ProverArithmetizedTree, piop_tree::ProverPIOPTree,
+        proof_tree::ProverProofTree,
+    },
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -103,6 +106,12 @@ where
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
+    }
+    fn arithmetic_post_process(
+        &self,
+        arithmetized_tree: &mut ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        let _ = arithmetized_tree;
     }
 
     /// Complete the piop plan
