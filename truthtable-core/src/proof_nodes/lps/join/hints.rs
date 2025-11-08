@@ -8,8 +8,8 @@ use ark_piop::{
 };
 use datafusion::{common::Column, scalar::ScalarValue};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, build_join_schema, col, expr::Sort,
-    logical_plan::Join,
+    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, WindowFrame, build_join_schema, col,
+    expr::Sort, logical_plan::Join,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
@@ -503,21 +503,11 @@ where
         "join must contain at least one key column"
     );
 
-    let sort_exprs: Vec<Sort> = left_key_exprs
-        .iter()
-        .cloned()
-        .map(|expr| Sort {
-            expr,
-            asc: true,
-            nulls_first: true,
-        })
-        .collect();
-
     let row_number_expr = row_number()
-        .order_by(sort_exprs)
+        .window_frame(WindowFrame::new(None))
         .build()
         .expect("failed to build row_number window expression")
-        .alias("__left_row_id");
+        .alias("__left_row_id_tmp");
 
     let left_with_id = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref()))
         .window(vec![row_number_expr])
@@ -547,8 +537,11 @@ where
         .build()
         .expect("failed to build join with left row ids");
 
+    let zero_based_row_id = (col("__left_row_id_tmp")
+        - Expr::Literal(ScalarValue::UInt64(Some(1))))
+    .alias("__left_row_id");
     let projection = LogicalPlanBuilder::from(rebuilt_join)
-        .project(vec![col("__left_row_id")])
+        .project(vec![zero_based_row_id])
         .expect("failed to project left row id")
         .build()
         .expect("failed to finalize left row id projection");
@@ -575,21 +568,11 @@ where
         "join must contain at least one key column"
     );
 
-    let sort_exprs: Vec<Sort> = right_key_exprs
-        .iter()
-        .cloned()
-        .map(|expr| Sort {
-            expr,
-            asc: true,
-            nulls_first: true,
-        })
-        .collect();
-
     let row_number_expr = row_number()
-        .order_by(sort_exprs)
+        .window_frame(WindowFrame::new(None))
         .build()
         .expect("failed to build row_number window expression")
-        .alias("__right_row_id");
+        .alias("__right_row_id_tmp");
 
     let right_with_id = LogicalPlanBuilder::from(preprocess_plan(join.right.as_ref()))
         .window(vec![row_number_expr])
@@ -619,8 +602,11 @@ where
         .build()
         .expect("failed to build join with right row ids");
 
+    let zero_based_row_id = (col("__right_row_id_tmp")
+        - Expr::Literal(ScalarValue::UInt64(Some(1))))
+    .alias("__right_row_id");
     let projection = LogicalPlanBuilder::from(rebuilt_join)
-        .project(vec![col("__right_row_id")])
+        .project(vec![zero_based_row_id])
         .expect("failed to project right row id")
         .build()
         .expect("failed to finalize right row id projection");
