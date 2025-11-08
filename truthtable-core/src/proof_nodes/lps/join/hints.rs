@@ -6,17 +6,17 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::common::Column;
+use datafusion::{common::Column, scalar::ScalarValue};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, build_join_schema, col, expr::Sort,
-    logical_plan::Join,
+    build_join_schema, col, expr::Sort, logical_plan::Join, Expr, ExprFunctionExt, LogicalPlan,
+    LogicalPlanBuilder,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        id::NodeId, prover::ProverNode, verifier::VerifierNode, HintGenerationPlan, OUTPUT_PLAN_KEY,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -28,6 +28,7 @@ pub(crate) const JOIN_OUTPUT_KEY_SUPP: &str = "__join_output_key_supp__";
 pub(crate) const JOIN_ALL_KEY_SUPP: &str = "__join_all_key_supp__";
 pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
+const SUPPORT_SOURCE_COL: &str = "__join_support_source__";
 
 pub(crate) fn build_join_hint_generation_plans<F, MvPCS, UvPCS>(
     node_id: NodeId,
@@ -67,29 +68,26 @@ where
             out_supp_plan.clone(),
         ),
     );
-    plans.insert(
-        JOIN_LEFT_KEY_SUPP.to_string(),
-        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
-            join,
-            &preprocessed_left_lp,
-            &out_supp_plan,
-        ),
+    let (left_supp_plan, left_diff_plan) = build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
+        join,
+        &preprocessed_left_lp,
+        &out_supp_plan,
     );
-    plans.insert(
-        JOIN_RIGHT_KEY_SUPP.to_string(),
-        build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
-            join,
-            &preprocessed_right_lp,
-            &out_supp_plan,
-        ),
+    plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
+
+    let (right_supp_plan, right_diff_plan) = build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
+        join,
+        &preprocessed_right_lp,
+        &out_supp_plan,
     );
+    plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
     plans.insert(
         JOIN_ALL_KEY_SUPP.to_string(),
         build_all_supp_generation_plan::<F, MvPCS, UvPCS>(
             join,
-            &preprocessed_left_lp,
-            &preprocessed_right_lp,
             &out_supp_plan,
+            left_diff_plan,
+            right_diff_plan,
         ),
     );
 
@@ -203,54 +201,126 @@ fn compute_output_support_plan(join: &Join, join_lp: &LogicalPlan) -> LogicalPla
         .map(|(left_expr, _)| left_expr.clone())
         .collect();
 
-    LogicalPlanBuilder::from(sanitized_join)
+    let distinct_plan = LogicalPlanBuilder::from(sanitized_join)
         .project(output_key_exprs.clone())
         .expect("failed to project join output keys")
         .aggregate(output_key_exprs, Vec::<Expr>::new())
         .expect("failed to aggregate distinct join output keys")
         .build()
-        .expect("failed to compute output key support plan")
+        .expect("failed to compute output key support plan");
+
+    sort_plan_by_keys(distinct_plan, join.on.len())
+}
+
+fn sort_plan_by_keys(plan: LogicalPlan, key_count: usize) -> LogicalPlan {
+    if key_count == 0 {
+        return plan;
+    }
+
+    let sort_exprs: Vec<Sort> = plan
+        .schema()
+        .fields()
+        .iter()
+        .take(key_count)
+        .map(|field| Sort {
+            expr: col(field.name()),
+            asc: true,
+            nulls_first: true,
+        })
+        .collect();
+
+    LogicalPlanBuilder::from(plan)
+        .sort(sort_exprs)
+        .expect("failed to sort support plan")
+        .build()
+        .expect("failed to finalize sorted support plan")
 }
 
 fn merge_support_plans(
     existing_plan: &LogicalPlan,
     new_plan: LogicalPlan,
     key_count: usize,
-) -> LogicalPlan {
-    let union_plan = LogicalPlanBuilder::from(existing_plan.clone())
-        .union(new_plan)
-        .expect("failed to union support plan with output support")
-        .build()
-        .expect("failed to build union plan for support merge");
+) -> (LogicalPlan, LogicalPlan) {
+    let diff_plan = LogicalPlanBuilder::except(new_plan, existing_plan.clone(), false)
+        .expect("failed to compute support plan difference");
+    let sorted_diff = sort_plan_by_keys(diff_plan, key_count);
 
-    let key_columns: Vec<Expr> = union_plan
+    let merged_plan = append_diff_after_output(existing_plan, sorted_diff.clone(), key_count);
+
+    (merged_plan, sorted_diff)
+}
+
+fn append_diff_after_output(
+    output_plan: &LogicalPlan,
+    diff_plan: LogicalPlan,
+    key_count: usize,
+) -> LogicalPlan {
+    if key_count == 0 {
+        return output_plan.clone();
+    }
+
+    let tagged_output = tag_support_plan(output_plan.clone(), 0);
+    let tagged_diff = tag_support_plan(diff_plan, 1);
+
+    let union_plan = LogicalPlanBuilder::from(tagged_output)
+        .union(tagged_diff)
+        .expect("failed to union support plans with tags")
+        .build()
+        .expect("failed to build tagged support union");
+
+    let mut sort_exprs = vec![Sort {
+        expr: col(SUPPORT_SOURCE_COL),
+        asc: true,
+        nulls_first: true,
+    }];
+    sort_exprs.extend(
+        union_plan
+            .schema()
+            .fields()
+            .iter()
+            .take(key_count)
+            .map(|field| Sort {
+                expr: col(field.name()),
+                asc: true,
+                nulls_first: true,
+            }),
+    );
+
+    let sorted = LogicalPlanBuilder::from(union_plan)
+        .sort(sort_exprs)
+        .expect("failed to sort tagged support union")
+        .build()
+        .expect("failed to build sorted tagged support union");
+
+    let projection_exprs: Vec<Expr> = sorted
         .schema()
         .fields()
         .iter()
-        .take(key_count)
+        .filter(|field| field.name() != SUPPORT_SOURCE_COL)
         .map(|field| col(field.name()))
         .collect();
 
-    let merged_distinct = LogicalPlanBuilder::from(union_plan.clone())
-        .aggregate(key_columns.clone(), Vec::<Expr>::new())
-        .expect("failed to aggregate merged support plan")
+    LogicalPlanBuilder::from(sorted)
+        .project(projection_exprs)
+        .expect("failed to drop support source tag")
         .build()
-        .expect("failed to finalize merged support plan");
+        .expect("failed to finalize aligned support plan")
+}
 
-    let sort_exprs: Vec<Sort> = key_columns
-        .into_iter()
-        .map(|expr| Sort {
-            expr,
-            asc: true,
-            nulls_first: true,
-        })
+fn tag_support_plan(plan: LogicalPlan, tag: u32) -> LogicalPlan {
+    let mut projection_exprs: Vec<Expr> = plan
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| col(field.name()))
         .collect();
+    projection_exprs.push(Expr::Literal(ScalarValue::UInt32(Some(tag))).alias(SUPPORT_SOURCE_COL));
 
-    LogicalPlanBuilder::from(merged_distinct)
-        .sort(sort_exprs)
-        .expect("failed to sort merged support plan")
+    LogicalPlanBuilder::from(plan)
+        .project(projection_exprs)
+        .expect("failed to tag support plan")
         .build()
-        .expect("failed to finalize sorted support plan")
+        .expect("failed to build tagged support plan")
 }
 
 /// Build the left-key support plan by selecting the join's left key columns,
@@ -259,7 +329,7 @@ pub(crate) fn build_left_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     left_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> HintGenerationPlan
+) -> (HintGenerationPlan, LogicalPlan)
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -284,10 +354,13 @@ where
         .build()
         .expect("failed to finalize left key support plan");
 
-    let merged_plan =
+    let (merged_plan, diff_plan) =
         merge_support_plans(output_key_supp_plan, distinct_plan, left_key_exprs.len());
 
-    HintGenerationPlan::new_materialized(JOIN_LEFT_KEY_SUPP.to_string(), merged_plan)
+    (
+        HintGenerationPlan::new_materialized(JOIN_LEFT_KEY_SUPP.to_string(), merged_plan),
+        diff_plan,
+    )
 }
 
 /// Build the right-key support plan by selecting the join's right key columns,
@@ -296,7 +369,7 @@ pub(crate) fn build_right_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
     right_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> HintGenerationPlan
+) -> (HintGenerationPlan, LogicalPlan)
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -321,10 +394,13 @@ where
         .build()
         .expect("failed to finalize right key support plan");
 
-    let merged_plan =
+    let (merged_plan, diff_plan) =
         merge_support_plans(output_key_supp_plan, distinct_plan, right_key_exprs.len());
 
-    HintGenerationPlan::new_materialized(JOIN_RIGHT_KEY_SUPP.to_string(), merged_plan)
+    (
+        HintGenerationPlan::new_materialized(JOIN_RIGHT_KEY_SUPP.to_string(), merged_plan),
+        diff_plan,
+    )
 }
 
 /// Build the output-key support plan from the join result itself.
@@ -357,51 +433,59 @@ where
         .build()
         .expect("failed to finalize join output key support plan");
 
-    merge_support_plans(output_key_supp_plan, distinct_plan, output_key_exprs.len())
+    let (aligned_plan, _) =
+        merge_support_plans(output_key_supp_plan, distinct_plan, output_key_exprs.len());
+
+    aligned_plan
 }
 
 /// Build the all-key support plan by unioning the left/right key supports and
 /// deduplicating the combined relation.
 pub(crate) fn build_all_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
-    left_lp: &LogicalPlan,
-    right_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
+    left_diff_plan: LogicalPlan,
+    right_diff_plan: LogicalPlan,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    let left_support_plan =
-        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, left_lp, output_key_supp_plan)
-            .plan()
-            .clone();
-    let right_support_plan =
-        build_right_supp_generation_plan::<F, MvPCS, UvPCS>(join, right_lp, output_key_supp_plan)
-            .plan()
-            .clone();
+    assert!(
+        !join.on.is_empty(),
+        "join must contain at least one key column"
+    );
 
-    let union_plan = LogicalPlanBuilder::from(left_support_plan)
-        .union(right_support_plan)
-        .expect("failed to union left/right key supports")
+    let deltas_union = LogicalPlanBuilder::from(left_diff_plan)
+        .union(right_diff_plan)
+        .expect("failed to union support deltas")
         .build()
-        .expect("failed to build union of key supports");
+        .expect("failed to build union of support deltas");
 
-    let key_exprs: Vec<Expr> = union_plan
+    let key_exprs: Vec<Expr> = deltas_union
         .schema()
         .fields()
         .iter()
+        .take(join.on.len())
         .map(|field| col(field.name()))
         .collect();
 
-    let distinct_plan = LogicalPlanBuilder::from(union_plan)
+    let deduped_deltas = LogicalPlanBuilder::from(deltas_union)
         .aggregate(key_exprs, Vec::<Expr>::new())
-        .expect("failed to aggregate distinct union of key supports")
+        .expect("failed to aggregate support deltas")
+        .build()
+        .expect("failed to finalize support delta plan");
+
+    let sorted_deltas = sort_plan_by_keys(deduped_deltas, join.on.len());
+
+    let final_plan = LogicalPlanBuilder::from(output_key_supp_plan.clone())
+        .union(sorted_deltas)
+        .expect("failed to append support deltas to output support")
         .build()
         .expect("failed to finalize all key support plan");
 
-    HintGenerationPlan::new_materialized(JOIN_ALL_KEY_SUPP.to_string(), distinct_plan)
+    HintGenerationPlan::new_materialized(JOIN_ALL_KEY_SUPP.to_string(), final_plan)
 }
 
 pub(crate) fn join_left_key_source<F, MvPCS, UvPCS>(

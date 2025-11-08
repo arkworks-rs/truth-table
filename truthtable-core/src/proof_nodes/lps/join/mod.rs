@@ -259,13 +259,14 @@ where
             .unwrap();
         let reordered_out_tracked_table =
             reorder_tracked_table_columns(out_tracked_table, &left_key_names);
-        println!("{}", reordered_out_tracked_table.pretty_string());
         /////////////////////////////////////////
         let left_key_supprt_table = piop_tree
             .tracked_table(&self.node_id(), JOIN_LEFT_KEY_SUPP)
             .unwrap();
         let reordered_left_key_support_table =
             reorder_tracked_table_columns(left_key_supprt_table, &left_key_names);
+
+        println!("{}", reordered_left_key_support_table.pretty_string());
         /////////////////////////////////////////
         let right_key_supprt_table = piop_tree
             .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SUPP)
