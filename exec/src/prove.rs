@@ -11,6 +11,7 @@ use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
     setup::structs::SNARKPk,
+    util::display,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
@@ -19,8 +20,10 @@ use indexmap::IndexMap;
 use proof_planner::create_prover_proof_tree_with_ctx;
 use tracing::instrument;
 use truthtable_core::prover::trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
+    arithmetized_tree::{ProverArithmetizedTree, display::DisplayableProverArithmetizedTree},
+    hint_tree::{ProverHintTree, display::DisplayableProverHintTree},
+    piop_tree::ProverPIOPTree,
+    tracked_tree::ProverTrackedTree,
 };
 
 use crate::{
@@ -212,9 +215,13 @@ pub async fn prepare_prover_artifacts(
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;
+    let display_hint_tree = DisplayableProverHintTree::new(&hint_tree);
+    println!("{}", display_hint_tree.graphviz());
+
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
         .context("failed to arithmetize")?;
-
+    let display_arith_tree = DisplayableProverArithmetizedTree::new(&arith_tree);
+    println!("{}", display_arith_tree.graphviz());
     let pk_path = match pk_path {
         Some(path) => path.to_path_buf(),
         None => {

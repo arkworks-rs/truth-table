@@ -52,7 +52,7 @@ where
     let output_plan = build_output_plan(join, &preprocessed_left_lp, &preprocessed_right_lp);
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_owned(), output_plan.clone()),
+        hint_with_true_activator(OUTPUT_PLAN_KEY, &output_plan),
     );
 
     let base_output_support_plan = compute_output_support_plan(join, &output_plan);
@@ -63,10 +63,7 @@ where
     );
     plans.insert(
         JOIN_OUTPUT_KEY_SUPP.to_string(),
-        HintGenerationPlan::new_materialized(
-            JOIN_OUTPUT_KEY_SUPP.to_string(),
-            out_supp_plan.clone(),
-        ),
+        hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
     );
     let (left_supp_plan, left_diff_plan) = build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
         join,
@@ -191,6 +188,40 @@ fn filter_active_rows(plan: &LogicalPlan) -> LogicalPlan {
 fn preprocess_plan(plan: &LogicalPlan) -> LogicalPlan {
     let filtered = filter_active_rows(plan);
     strip_activator(&filtered)
+}
+
+fn ensure_true_activator(plan: &LogicalPlan) -> LogicalPlan {
+    let schema = plan.schema();
+    let mut projection_exprs: Vec<Expr> = Vec::with_capacity(schema.fields().len() + 1);
+    let mut activator_present = false;
+
+    for (qualifier, field) in schema.iter() {
+        if field.name() == ACTIVATOR_COL_NAME {
+            activator_present = true;
+            projection_exprs
+                .push(Expr::Literal(ScalarValue::Boolean(Some(true))).alias(ACTIVATOR_COL_NAME));
+        } else {
+            projection_exprs.push(Expr::Column(Column::new(
+                qualifier.cloned(),
+                field.name().clone(),
+            )));
+        }
+    }
+
+    if !activator_present {
+        projection_exprs
+            .push(Expr::Literal(ScalarValue::Boolean(Some(true))).alias(ACTIVATOR_COL_NAME));
+    }
+
+    LogicalPlanBuilder::from(plan.clone())
+        .project(projection_exprs)
+        .expect("failed to append activator projection")
+        .build()
+        .expect("failed to enforce activator column")
+}
+
+fn hint_with_true_activator(label: &str, plan: &LogicalPlan) -> HintGenerationPlan {
+    HintGenerationPlan::new_materialized(label.to_string(), ensure_true_activator(plan))
 }
 
 fn compute_output_support_plan(join: &Join, join_lp: &LogicalPlan) -> LogicalPlan {
@@ -358,7 +389,7 @@ where
         merge_support_plans(output_key_supp_plan, distinct_plan, left_key_exprs.len());
 
     (
-        HintGenerationPlan::new_materialized(JOIN_LEFT_KEY_SUPP.to_string(), merged_plan),
+        hint_with_true_activator(JOIN_LEFT_KEY_SUPP, &merged_plan),
         diff_plan,
     )
 }
@@ -398,7 +429,7 @@ where
         merge_support_plans(output_key_supp_plan, distinct_plan, right_key_exprs.len());
 
     (
-        HintGenerationPlan::new_materialized(JOIN_RIGHT_KEY_SUPP.to_string(), merged_plan),
+        hint_with_true_activator(JOIN_RIGHT_KEY_SUPP, &merged_plan),
         diff_plan,
     )
 }
@@ -481,7 +512,7 @@ where
 
     let final_plan = append_diff_after_output(output_key_supp_plan, sorted_deltas, join.on.len());
 
-    HintGenerationPlan::new_materialized(JOIN_ALL_KEY_SUPP.to_string(), final_plan)
+    hint_with_true_activator(JOIN_ALL_KEY_SUPP, &final_plan)
 }
 
 pub(crate) fn join_left_key_source<F, MvPCS, UvPCS>(
@@ -546,7 +577,7 @@ where
         .build()
         .expect("failed to finalize left row id projection");
 
-    HintGenerationPlan::new_materialized(JOIN_LEFT_KEY_SOURCE.to_string(), projection)
+    hint_with_true_activator(JOIN_LEFT_KEY_SOURCE, &projection)
 }
 
 pub(crate) fn join_right_key_source<F, MvPCS, UvPCS>(
@@ -611,5 +642,5 @@ where
         .build()
         .expect("failed to finalize right row id projection");
 
-    HintGenerationPlan::new_materialized(JOIN_RIGHT_KEY_SOURCE.to_string(), projection)
+    hint_with_true_activator(JOIN_RIGHT_KEY_SOURCE, &projection)
 }

@@ -5,7 +5,10 @@ pub mod display;
 use crate::proof_nodes::id::NodeId;
 use std::{fmt, sync::Arc};
 
-use arithmetic::{errors::EncodeError, table::TrackedTable};
+use arithmetic::{
+    errors::EncodeError,
+    table::{ArithTable, TrackedTable},
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -129,7 +132,7 @@ where
         arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
         prover: &mut Prover<F, MvPCS, UvPCS>,
     ) -> Result<Self, EncodeError> {
-        let (mut proof_tree, node_arith_tables) = arith_tree.into_parts();
+        let (mut proof_tree, mut node_arith_tables) = arith_tree.into_parts();
         let prover_ctx = proof_tree.ctx_mut();
         let mut commitment_map: IndexMap<Arc<MLE<F>>, Option<MvPCS::Commitment>> = IndexMap::new();
         // First initialize the commitment mapping for all polynomials in the
@@ -219,38 +222,69 @@ where
         let mut tables_by_node: IndexMap<NodeId, IndexMap<String, TrackedTable<F, MvPCS, UvPCS>>> =
             IndexMap::with_capacity(node_arith_tables.len());
         let mut tracked_count = 0;
-        for (node_id, tables) in node_arith_tables {
-            let mut tracked_tables = IndexMap::with_capacity(tables.len());
-            for (label, arith_table) in tables {
+
+        let mut process_table =
+            |label: String, arith_table: ArithTable<F>| -> TrackedTable<F, MvPCS, UvPCS> {
                 let num_total_cols = arith_table.num_total_cols();
-                let table = if num_total_cols == 0 {
-                    TrackedTable::new(
+                if num_total_cols == 0 {
+                    return TrackedTable::new(
                         arith_table.schema(),
                         IndexMap::new(),
                         arith_table.log_size(),
-                    )
-                } else {
-                    let mut tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
-                        IndexMap::with_capacity(num_total_cols);
+                    );
+                }
 
-                    for (field_ref, mle) in arith_table.polynomials() {
-                        let commitment = commitment_map
-                            .get(mle)
-                            .expect("missing commitment for polynomial")
-                            .clone()
-                            .expect("missing commitment for polynomial");
-                        let tracked = prover
-                            .track_mat_mv_poly_with_commitment(mle.as_ref(), commitment)
-                            .expect("failed to commit witness polynomial");
-                        tracked_polys.insert(field_ref.clone(), tracked);
-                        tracked_count += 1;
+                let mut tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
+                    IndexMap::with_capacity(num_total_cols);
+
+                for (field_ref, mle) in arith_table.polynomials() {
+                    let commitment = commitment_map
+                        .get(mle)
+                        .expect("missing commitment for polynomial")
+                        .clone()
+                        .expect("missing commitment for polynomial");
+                    let tracked = prover
+                        .track_mat_mv_poly_with_commitment(mle.as_ref(), commitment)
+                        .expect("failed to commit witness polynomial");
+                    tracked_polys.insert(field_ref.clone(), tracked);
+                    tracked_count += 1;
+                }
+
+                TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
+            };
+
+        let ordered_nodes: Vec<_> = proof_tree.arena().values().cloned().collect();
+
+        for node in ordered_nodes {
+            let node_id = node.node_id();
+            let Some(mut tables) = node_arith_tables.swap_remove(&node_id) else {
+                continue;
+            };
+
+            let mut tracked_tables = IndexMap::with_capacity(tables.len());
+            if let Some(node) = proof_tree.node(&node_id) {
+                for (label, _) in node.hint_generation_plans(&proof_tree) {
+                    if let Some(table) = tables.swap_remove(&label) {
+                        let tracked_table = process_table(label.clone(), table);
+                        tracked_tables.insert(label, tracked_table);
                     }
-
-                    TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
-                };
-
-                tracked_tables.insert(label, table);
+                }
             }
+
+            for (label, table) in tables {
+                let tracked_table = process_table(label.clone(), table);
+                tracked_tables.insert(label, tracked_table);
+            }
+
+            tables_by_node.insert(node_id, tracked_tables);
+        }
+
+        for (node_id, tables) in node_arith_tables {
+            let mut tracked_tables = IndexMap::with_capacity(tables.len());
+            for (label, table) in tables {
+                tracked_tables.insert(label.clone(), process_table(label, table));
+            }
+
             tables_by_node.insert(node_id, tracked_tables);
         }
         info!("Prover tracked {} polynomials", tracked_count);

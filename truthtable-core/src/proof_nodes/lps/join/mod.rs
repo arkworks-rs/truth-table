@@ -249,19 +249,16 @@ where
         let target_size = 1usize << target_log_size;
 
         let mut pad_table = |label: &str| {
-            let Some(table) = node_tables.remove(label) else {
+            let Some(table) = node_tables.get_mut(label) else {
                 return;
             };
-
             let current_size = 1usize << table.log_size();
             if current_size >= target_size {
-                node_tables.insert(label.to_string(), table);
                 return;
             }
 
             let mut padded_polys: IndexMap<FieldRef, Arc<MLE<F>>> =
                 IndexMap::with_capacity(table.polynomials().len());
-
             for (field_ref, poly) in table.polynomials() {
                 let mut evals = poly.evaluations();
                 evals.resize(target_size, F::zero());
@@ -270,9 +267,12 @@ where
             }
 
             let padded_table = ArithTable::new(table.schema(), padded_polys, target_log_size);
-            node_tables.insert(label.to_string(), padded_table);
+            *table = padded_table;
         };
 
+        // Pad the support tables to match the union table and then drop any
+        // right-key columns from the materialized output so the prover and
+        // verifier commit to the same set of columns.
         pad_table(JOIN_OUTPUT_KEY_SUPP);
         pad_table(JOIN_LEFT_KEY_SUPP);
         pad_table(JOIN_RIGHT_KEY_SUPP);
@@ -296,7 +296,6 @@ where
             .unwrap();
         let reordered_left_tracked_table =
             reorder_tracked_table_columns(left_tracked_table, &left_key_names);
-        println!("{}", reordered_left_tracked_table);
 
         ///////////////////////////////////////
         let right_tracked_table = piop_tree
@@ -696,6 +695,10 @@ fn prune_output_right_keys<F: PrimeField>(
     tables: &mut IndexMap<String, ArithTable<F>>,
     node_id: &NodeId,
 ) {
+    // The verifier never needs the join's right-key columns in the final
+    // output table because it reconstructs those values from the right input.
+    // Removing them here keeps the prover's commitment order aligned with what
+    // the verifier will expect when it peeks tracker IDs.
     let Some(LogicalPlan::Join(join_plan)) = node_id.to_lp() else {
         return;
     };

@@ -1,5 +1,5 @@
 use crate::{
-    proof_nodes::{id::NodeId, lps::verifier::VerifierTableScanNode, verifier::VerifierNode},
+    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId, lps::verifier::VerifierTableScanNode},
     verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{ACTIVATOR_COL_NAME, ctx::SharedCtx, table_oracle::TrackedTableOracle};
@@ -12,9 +12,11 @@ use ark_piop::{
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema},
     common::DFSchemaRef,
+    logical_expr::LogicalPlan,
 };
+use datafusion_expr::Expr;
 use indexmap::IndexMap;
-use std::{fmt, sync::Arc};
+use std::{collections::HashSet, fmt, sync::Arc};
 use tracing::instrument;
 
 mod display;
@@ -142,21 +144,38 @@ where
                 .collect();
             ordered_infos.push((node_id, is_table_scan, schema_map));
         }
-
         let mut tables_by_node: IndexMap<
             NodeId,
             IndexMap<String, TrackedTableOracle<F, MvPCS, UvPCS>>,
         > = IndexMap::with_capacity(ordered_infos.len());
         // At this point, we have the nodes in an order synced with the prover
         for (node_id, is_table_scan, schema_map) in ordered_infos {
+            let right_key_names = join_right_key_names(&node_id);
             let mut tables_for_node = IndexMap::with_capacity(schema_map.len());
 
             for (label, df_schema) in schema_map {
                 let arrow_schema_ref = Arc::clone(df_schema.inner());
-                let schema_owned = Some(arrow_schema_ref.as_ref().clone());
+                // Keep the verifier schema aligned with the prover by skipping
+                // right-key columns from the join output (those commitments
+                // were already tracked on the right input side).
+                let drop_right_keys = !right_key_names.is_empty() && label == OUTPUT_PLAN_KEY;
+                let filtered_field_refs: Vec<FieldRef> = arrow_schema_ref
+                    .fields()
+                    .iter()
+                    .filter(|field| !(drop_right_keys && right_key_names.contains(field.name())))
+                    .cloned()
+                    .collect();
+
+                let schema_owned = Some(Schema::new_with_metadata(
+                    filtered_field_refs
+                        .iter()
+                        .map(|field_ref| field_ref.as_ref().clone())
+                        .collect::<Vec<_>>(),
+                    arrow_schema_ref.metadata().clone(),
+                ));
 
                 let mut columns: IndexMap<FieldRef, _> =
-                    IndexMap::with_capacity(arrow_schema_ref.fields().len());
+                    IndexMap::with_capacity(filtered_field_refs.len());
                 let mut log_size: Option<usize> = None;
                 let mut activator_seen = false;
 
@@ -166,7 +185,7 @@ where
                         panic!("missing table oracle for schema {schema_ref:?}")
                     });
                     log_size = Some(base_oracle.log_size());
-                    for field_ref in arrow_schema_ref.fields().iter() {
+                    for field_ref in filtered_field_refs.iter() {
                         let field_ref = field_ref.clone();
                         let commitment = base_oracle
                             .comitments()
@@ -185,7 +204,7 @@ where
                         columns.insert(field_ref, tracked);
                     }
                 } else {
-                    for field_ref in arrow_schema_ref.fields().iter() {
+                    for field_ref in filtered_field_refs.iter() {
                         let field_ref = field_ref.clone();
                         if field_ref.name() == ACTIVATOR_COL_NAME && activator_seen {
                             continue;
@@ -228,4 +247,21 @@ where
         }
         VerifierTrackedTree::new(proof_tree, tables_by_node)
     }
+}
+
+fn join_right_key_names(node_id: &NodeId) -> HashSet<String> {
+    // Helper shared by both prover and verifier tree builders to know which
+    // columns can be pruned from the join output.
+    let Some(LogicalPlan::Join(join_plan)) = node_id.to_lp() else {
+        return HashSet::new();
+    };
+
+    join_plan
+        .on
+        .iter()
+        .filter_map(|(_, right_expr)| match right_expr {
+            Expr::Column(col) => Some(col.name.clone()),
+            _ => None,
+        })
+        .collect()
 }

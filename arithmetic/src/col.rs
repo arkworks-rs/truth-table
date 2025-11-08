@@ -221,7 +221,8 @@ where
             .collect::<std::collections::HashSet<F>>()
     }
 
-    /// Pretty-print the tracked column, optionally showing the activator column.
+    /// Pretty-print the tracked column, optionally showing the activator
+    /// column.
     pub fn pretty_string(&self) -> String {
         let base_name = self
             .field_ref
