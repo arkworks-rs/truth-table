@@ -8,7 +8,7 @@ use support::end_to_end_tests;
 // display_prover_tracked_tree, };
 
 end_to_end_tests!(&["supplier", "nation"] => [
-    join_by_suppkey => r#"SELECT
+    join_supplier_nation_by_suppkey => r#"SELECT
     s.s_suppkey,
     n.n_regionkey
 FROM
@@ -16,6 +16,43 @@ FROM
 JOIN
     nation n ON s.s_nationkey = n.n_nationkey
 "#,
+]);
+
+end_to_end_tests!(&["supplier", "lineitem"] => [
+    join_supplier_lineitem_by_suppkey => r#"SELECT
+    l.l_orderkey,
+    l.l_partkey,
+    l.l_suppkey,
+    s.s_name,
+    s.s_nationkey
+FROM
+    lineitem AS l
+JOIN
+    supplier AS s
+ON
+    l.l_suppkey = s.s_suppkey;
+"#,
+
+    join_supplier_lineitem_by_suppkey_nationkey => r#"SELECT
+    l.l_orderkey,
+    l.l_partkey,
+    l.l_suppkey,
+    s.s_name,
+    s.s_nationkey
+FROM
+    lineitem AS l
+JOIN
+    supplier AS s
+ON
+    l.l_suppkey = s.s_suppkey
+AND
+    l.l_nationkey = s.s_nationkey;
+"#,
+
+
+
+
+
 ]);
 
 type F = ark_test_curves::bls12_381::Fr;
