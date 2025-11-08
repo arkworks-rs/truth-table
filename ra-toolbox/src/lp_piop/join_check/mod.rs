@@ -185,7 +185,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .out_key_support_table
             .fold_all_data_columns(&key_challenges);
         let all_key_support = input
-            .out_key_support_table
+            .all_key_support_table
             .fold_all_data_columns(&key_challenges);
         // (SetInterCheck) Multiplicity check on [left_key_support,
         // right_key_support] // and [all_key_support] with activator + 1
@@ -411,7 +411,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             .out_key_support_table_oracle
             .fold_all_data_oracles(&key_challenges);
         let all_key_support = input
-            .out_key_support_table_oracle
+            .all_key_support_table_oracle
             .fold_all_data_oracles(&key_challenges);
         // (SetInterCheck) Multiplicity check on [left_key_support,
         // right_key_support] // and [all_key_support] with activator + 1

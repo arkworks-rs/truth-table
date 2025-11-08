@@ -266,7 +266,6 @@ where
         let reordered_left_key_support_table =
             reorder_tracked_table_columns(left_key_supprt_table, &left_key_names);
 
-        println!("{}", reordered_left_key_support_table.pretty_string());
         /////////////////////////////////////////
         let right_key_supprt_table = piop_tree
             .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SUPP)

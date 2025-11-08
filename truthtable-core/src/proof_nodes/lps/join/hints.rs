@@ -479,11 +479,7 @@ where
 
     let sorted_deltas = sort_plan_by_keys(deduped_deltas, join.on.len());
 
-    let final_plan = LogicalPlanBuilder::from(output_key_supp_plan.clone())
-        .union(sorted_deltas)
-        .expect("failed to append support deltas to output support")
-        .build()
-        .expect("failed to finalize all key support plan");
+    let final_plan = append_diff_after_output(output_key_supp_plan, sorted_deltas, join.on.len());
 
     HintGenerationPlan::new_materialized(JOIN_ALL_KEY_SUPP.to_string(), final_plan)
 }
