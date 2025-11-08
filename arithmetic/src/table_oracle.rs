@@ -617,3 +617,32 @@ where
         Ok(())
     }
 }
+
+fn border_line(widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('+');
+    for width in widths {
+        line.push_str(&"-".repeat(width + 2));
+        line.push('+');
+    }
+    line.push('\n');
+    line
+}
+
+fn row_line(values: &[String], widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('|');
+
+    for (value, width) in values.iter().zip(widths.iter()) {
+        line.push(' ');
+        line.push_str(value);
+        if value.len() < *width {
+            line.push_str(&" ".repeat(*width - value.len()));
+        }
+        line.push(' ');
+        line.push('|');
+    }
+
+    line.push('\n');
+    line
+}
