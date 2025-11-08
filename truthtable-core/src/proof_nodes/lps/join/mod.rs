@@ -45,7 +45,7 @@ use indexmap::IndexMap;
 use ra_toolbox::lp_piop::join_check::{
     InnerJoinPIOP, InnerJoinProverInput, InnerJoinVerifierInput,
 };
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 pub struct ProverJoinNode<F, MvPCS, UvPCS>
 where
@@ -276,6 +276,7 @@ where
         pad_table(JOIN_OUTPUT_KEY_SUPP);
         pad_table(JOIN_LEFT_KEY_SUPP);
         pad_table(JOIN_RIGHT_KEY_SUPP);
+        prune_output_right_keys(node_tables, &self.node_id);
     }
 
     fn prove_piop(
@@ -309,7 +310,6 @@ where
             .unwrap();
         let reordered_out_tracked_table =
             reorder_tracked_table_columns(out_tracked_table, &left_key_names);
-        println!("{}", reordered_out_tracked_table);
         /////////////////////////////////////////
         let left_key_supprt_table = piop_tree
             .tracked_table(&self.node_id(), JOIN_LEFT_KEY_SUPP)
@@ -342,7 +342,6 @@ where
         let join_left_source = join_left_source_tracked_table
             .tracked_col_by_ind(join_left_source_tracked_table.data_tracked_polys_indices()[0]);
 
-        println!("{}", join_left_source_tracked_table);
         ///////////////////////////////////////
         let join_right_source_tracked_table = piop_tree
             .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SOURCE)
@@ -672,6 +671,59 @@ where
     });
 
     TrackedTableOracle::new(new_schema, ordered_map, table.log_size())
+}
+
+fn prune_output_right_keys<F: PrimeField>(
+    tables: &mut IndexMap<String, ArithTable<F>>,
+    node_id: &NodeId,
+) {
+    let Some(LogicalPlan::Join(join_plan)) = node_id.to_lp() else {
+        return;
+    };
+
+    let right_key_names: HashSet<String> = join_plan
+        .on
+        .iter()
+        .filter_map(|(_, right_expr)| match right_expr {
+            Expr::Column(col) => Some(col.name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    if right_key_names.is_empty() {
+        return;
+    }
+
+    let Some(output_table) = tables.get_mut(OUTPUT_PLAN_KEY) else {
+        return;
+    };
+
+    let mut filtered_polys = IndexMap::with_capacity(output_table.polynomials().len());
+    let mut modified = false;
+    for (field, poly) in output_table.polynomials() {
+        if right_key_names.contains(field.name()) {
+            modified = true;
+            continue;
+        }
+        filtered_polys.insert(field.clone(), poly.clone());
+    }
+
+    if !modified {
+        return;
+    }
+
+    let filtered_schema = output_table.schema().map(|schema| {
+        let metadata = schema.metadata().clone();
+        let fields: Vec<_> = schema
+            .fields()
+            .iter()
+            .filter(|field| !right_key_names.contains(field.name()))
+            .cloned()
+            .collect();
+        Schema::new_with_metadata(fields, metadata)
+    });
+
+    *output_table = ArithTable::new(filtered_schema, filtered_polys, output_table.log_size());
 }
 
 fn reorder_field_entries<T: Clone>(
