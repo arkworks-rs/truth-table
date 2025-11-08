@@ -520,29 +520,31 @@ where
 
         let left_tracked_table_oracle =
             reorder_tracked_table_oracle_columns(&left_tracked_table_oracle, &left_key_names);
+        println!("{}", left_tracked_table_oracle);
         ////////////////////////////////////////////
         let right_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
             .cloned()
             .expect("right join input table missing from PIOP tree");
 
-        let right_tracked_table_oracle =
+        let reordered_right_tracked_table_oracle =
             reorder_tracked_table_oracle_columns(&right_tracked_table_oracle, &right_key_names);
+        println!("{}", reordered_right_tracked_table_oracle);
         ////////////////////////////////////////////
         let out_tracked_table_oracle = piop_tree
             .tracked_table_oracle(&self.node_id(), OUTPUT_PLAN_KEY)
             .cloned()
             .expect("join output table missing from PIOP tree");
-
-        let out_tracked_table_oracle =
+        let reordered_out_tracked_table_oracle =
             reorder_tracked_table_oracle_columns(&out_tracked_table_oracle, &left_key_names);
+        println!("{}", reordered_out_tracked_table_oracle);
         ////////////////////////////////////////////
         let left_key_support_table_oracle = piop_tree
             .tracked_table_oracle(&self.node_id(), JOIN_LEFT_KEY_SUPP)
             .cloned()
             .expect("join left key support table missing from PIOP tree");
 
-        let left_key_support_table_oracle =
+        let reordered_left_key_support_table_oracle =
             reorder_tracked_table_oracle_columns(&left_key_support_table_oracle, &left_key_names);
         ////////////////////////////////////////////
         let right_key_support_table_oracle = piop_tree
@@ -550,7 +552,7 @@ where
             .cloned()
             .expect("join right key support table missing from PIOP tree");
 
-        let right_key_support_table_oracle =
+        let reordered_right_key_support_table_oracle =
             reorder_tracked_table_oracle_columns(&right_key_support_table_oracle, &right_key_names);
         ////////////////////////////////////////////
         let out_key_support_table_oracle = piop_tree
@@ -558,7 +560,7 @@ where
             .cloned()
             .expect("join output key support table missing from PIOP tree");
 
-        let out_key_support_table_oracle =
+        let reordered_out_key_support_table_oracle =
             reorder_tracked_table_oracle_columns(&out_key_support_table_oracle, &left_key_names);
         ////////////////////////////////////////////
         let all_key_support_table_oracle = piop_tree
@@ -566,7 +568,7 @@ where
             .cloned()
             .expect("join union key support table missing from PIOP tree");
 
-        let all_key_support_table_oracle =
+        let reordered_all_key_support_table_oracle =
             reorder_tracked_table_oracle_columns(&all_key_support_table_oracle, &left_key_names);
         ////////////////////////////////////////////
         let join_left_source_table = piop_tree
@@ -584,13 +586,13 @@ where
             .tracked_col_oracle_by_ind(join_right_source_table.data_tracked_oracles_indices()[0]);
 
         let verifier_input = InnerJoinVerifierInput {
-            left_tracked_table_oracle,
-            right_tracked_table_oracle,
-            out_tracked_table_oracle,
-            left_key_support_table_oracle,
-            right_key_support_table_oracle,
-            out_key_support_table_oracle,
-            all_key_support_table_oracle,
+            left_tracked_table_oracle: reordered_left_tracked_table_oracle,
+            right_tracked_table_oracle: reordered_right_tracked_table_oracle,
+            out_tracked_table_oracle: reordered_out_tracked_table_oracle,
+            left_key_support_table_oracle: reordered_left_key_support_table_oracle,
+            right_key_support_table_oracle: reordered_right_key_support_table_oracle,
+            out_key_support_table_oracle: reordered_out_key_support_table_oracle,
+            all_key_support_table_oracle: reordered_all_key_support_table_oracle,
             join_left_source_table_oracle,
             join_right_source_table_oracle,
         };
