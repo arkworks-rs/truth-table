@@ -57,3 +57,5 @@ rustdoc-args = ["--html-in-header", "../docs-header.html"]
 
 [workspace.metadata.cargo-alias]
 test-all = "sh scripts/test.sh"
+[profile.release]
+incremental = true

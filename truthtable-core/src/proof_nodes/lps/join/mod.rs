@@ -240,30 +240,50 @@ where
         };
         let left_key_names = join_key_names(&join_plan, true);
         let right_key_names = join_key_names(&join_plan, false);
-
+        ////////////////////////////////////////
         let left_tracked_table = piop_tree
             .tracked_table(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
             .unwrap();
+        let reordered_left_tracked_table =
+            reorder_tracked_table_columns(left_tracked_table, &left_key_names);
+
+        ///////////////////////////////////////
         let right_tracked_table = piop_tree
             .tracked_table(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
             .unwrap();
+        let reordered_right_tracked_table =
+            reorder_tracked_table_columns(right_tracked_table, &right_key_names);
+        /////////////////////////////////////////
         let out_tracked_table = piop_tree
             .tracked_table(&self.node_id(), OUTPUT_PLAN_KEY)
             .unwrap();
+        let reordered_out_tracked_table =
+            reorder_tracked_table_columns(out_tracked_table, &left_key_names);
+        println!("{}", reordered_out_tracked_table.pretty_string());
+        /////////////////////////////////////////
         let left_key_supprt_table = piop_tree
             .tracked_table(&self.node_id(), JOIN_LEFT_KEY_SUPP)
             .unwrap();
+        let reordered_left_key_support_table =
+            reorder_tracked_table_columns(left_key_supprt_table, &left_key_names);
+        /////////////////////////////////////////
         let right_key_supprt_table = piop_tree
             .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SUPP)
             .unwrap();
-
+        let reordered_right_key_support_table =
+            reorder_tracked_table_columns(right_key_supprt_table, &right_key_names);
+        /////////////////////////////////////////
         let out_key_supprt_table = piop_tree
             .tracked_table(&self.node_id, JOIN_OUTPUT_KEY_SUPP)
             .unwrap();
-
+        let reordered_out_key_support_table =
+            reorder_tracked_table_columns(out_key_supprt_table, &left_key_names);
+        /////////////////////////////////////////
         let all_key_supprt_table = piop_tree
             .tracked_table(&self.node_id, JOIN_ALL_KEY_SUPP)
             .unwrap();
+        let reordered_all_key_support_table =
+            reorder_tracked_table_columns(all_key_supprt_table, &left_key_names);
         /////////////////////////////////////////
         let join_left_source_tracked_table = piop_tree
             .tracked_table(&self.node_id, JOIN_LEFT_KEY_SOURCE)
@@ -278,27 +298,14 @@ where
         let join_right_source = join_right_source_tracked_table
             .tracked_col_by_ind(join_right_source_tracked_table.data_tracked_polys_indices()[0]);
 
-        let left_tracked_table = reorder_tracked_table_columns(left_tracked_table, &left_key_names);
-        let right_tracked_table =
-            reorder_tracked_table_columns(right_tracked_table, &right_key_names);
-        let out_tracked_table = reorder_tracked_table_columns(out_tracked_table, &left_key_names);
-        let left_key_support_table =
-            reorder_tracked_table_columns(left_key_supprt_table, &left_key_names);
-        let right_key_support_table =
-            reorder_tracked_table_columns(right_key_supprt_table, &right_key_names);
-        let out_key_support_table =
-            reorder_tracked_table_columns(out_key_supprt_table, &left_key_names);
-        let all_key_support_table =
-            reorder_tracked_table_columns(all_key_supprt_table, &left_key_names);
-
         let inner_join_piop_prover_input = InnerJoinProverInput {
-            left_table: left_tracked_table,
-            right_table: right_tracked_table,
-            out_table: out_tracked_table,
-            left_key_support_table,
-            right_key_support_table,
-            out_key_support_table,
-            all_key_support_table,
+            left_table: reordered_left_tracked_table,
+            right_table: reordered_right_tracked_table,
+            out_table: reordered_out_tracked_table,
+            left_key_support_table: reordered_left_key_support_table,
+            right_key_support_table: reordered_right_key_support_table,
+            out_key_support_table: reordered_out_key_support_table,
+            all_key_support_table: reordered_all_key_support_table,
             join_left_source,
             join_right_source,
         };

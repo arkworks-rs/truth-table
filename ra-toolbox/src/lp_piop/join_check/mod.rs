@@ -143,7 +143,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .tracked_subtable_by_indices(&key_cols_indices),
             supp_tracked_table: input.left_key_support_table.clone(),
         };
-        println!("{}",input.left_table.pretty_string());
         let left_key_multi_col_supp_prover_output =
             BezoutMultiColSuppCheckPIOP::prove(prover, left_key_multi_col_supp_prover_input)?;
 

@@ -8,7 +8,8 @@ use ark_piop::{
 };
 use datafusion::common::Column;
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, col, expr::Sort, logical_plan::Join,
+    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, build_join_schema, col, expr::Sort,
+    logical_plan::Join,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
@@ -45,22 +46,18 @@ where
     let orig_left_lp = join.left.as_ref();
     let orig_right_lp = join.right.as_ref();
 
-    let preprocessed_join_lp = preprocess_plan(&orig_join_lp);
     let preprocessed_left_lp = preprocess_plan(&orig_left_lp);
     let preprocessed_right_lp = preprocess_plan(&orig_right_lp);
-
+    let output_plan = build_output_plan(join, &preprocessed_left_lp, &preprocessed_right_lp);
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(
-            OUTPUT_PLAN_KEY.to_owned(),
-            preprocessed_join_lp.clone(),
-        ),
+        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_owned(), output_plan.clone()),
     );
 
-    let base_output_support_plan = compute_output_support_plan(join, &preprocessed_join_lp);
+    let base_output_support_plan = compute_output_support_plan(join, &output_plan);
     let out_supp_plan = build_out_supp_generation_plan::<F, MvPCS, UvPCS>(
         join,
-        &preprocessed_join_lp,
+        &output_plan,
         &base_output_support_plan,
     );
     plans.insert(
@@ -98,13 +95,40 @@ where
 
     plans.insert(
         JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source::<F, MvPCS, UvPCS>(&preprocessed_join_lp, join.clone()),
+        join_left_key_source::<F, MvPCS, UvPCS>(&output_plan, join.clone()),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source::<F, MvPCS, UvPCS>(&preprocessed_join_lp, join.clone()),
+        join_right_key_source::<F, MvPCS, UvPCS>(&output_plan, join.clone()),
     );
     plans
+}
+
+fn build_output_plan(
+    join: &Join,
+    preprocessed_left_lp: &LogicalPlan,
+    preprocessed_right_lp: &LogicalPlan,
+) -> LogicalPlan {
+    let left_plan = Arc::new(preprocessed_left_lp.clone());
+    let right_plan = Arc::new(preprocessed_right_lp.clone());
+
+    let join_schema = build_join_schema(
+        left_plan.schema().as_ref(),
+        right_plan.schema().as_ref(),
+        &join.join_type,
+    )
+    .expect("failed to derive schema for sanitized join output");
+
+    LogicalPlan::Join(Join {
+        left: left_plan,
+        right: right_plan,
+        on: join.on.clone(),
+        filter: join.filter.clone(),
+        join_type: join.join_type,
+        join_constraint: join.join_constraint,
+        schema: Arc::new(join_schema),
+        null_equals_null: join.null_equals_null,
+    })
 }
 
 /// Remove the `activator` column from the provided plan (if it exists) by
