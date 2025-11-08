@@ -167,6 +167,34 @@ where
         1 << self.log_size()
     }
 
+    /// Pretty-print the tracked table oracle by showing only the column names.
+    pub fn pretty_string(&self) -> String {
+        if self.tracked_oracles.is_empty() {
+            return "TrackedTableOracle<empty>".to_string();
+        }
+
+        let headers: Vec<String> = self
+            .tracked_oracles
+            .keys()
+            .map(|field| {
+                let name = field.name();
+                if name.is_empty() {
+                    "-".to_string()
+                } else {
+                    name.to_string()
+                }
+            })
+            .collect();
+
+        let widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+
+        let mut out = String::new();
+        out.push_str(&border_line(&widths));
+        out.push_str(&row_line(&headers, &widths));
+        out.push_str(&border_line(&widths));
+        out
+    }
+
     /// Folds the specified column oracles of the tracked table oracle using the
     /// provided challenges and returns the resulting folded tracked column
     /// oracle. The output tracked column will have the same activator

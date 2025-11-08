@@ -122,4 +122,67 @@ where
             None => self.data_tracked_oracle.clone(),
         }
     }
+
+    /// Pretty-print the tracked column oracle by showing the column names.
+    pub fn pretty_string(&self) -> String {
+        let base_name = self
+            .field_ref
+            .as_ref()
+            .map(|field| {
+                let name = field.name();
+                if name.is_empty() {
+                    "-".to_string()
+                } else {
+                    name.to_string()
+                }
+            })
+            .unwrap_or_else(|| "-".to_string());
+
+        let mut headers = Vec::with_capacity(2);
+        headers.push(base_name.clone());
+
+        if self.activator_tracked_oracle.is_some() {
+            headers.push(format!("{base_name} (activator)"));
+        }
+
+        if headers.is_empty() {
+            return "TrackedColOracle<empty>".to_string();
+        }
+
+        let widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+        let mut out = String::new();
+        out.push_str(&border_line(&widths));
+        out.push_str(&row_line(&headers, &widths));
+        out.push_str(&border_line(&widths));
+        out
+    }
+}
+
+fn border_line(widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('+');
+    for width in widths {
+        line.push_str(&"-".repeat(width + 2));
+        line.push('+');
+    }
+    line.push('\n');
+    line
+}
+
+fn row_line(values: &[String], widths: &[usize]) -> String {
+    let mut line = String::new();
+    line.push('|');
+
+    for (value, width) in values.iter().zip(widths.iter()) {
+        line.push(' ');
+        line.push_str(value);
+        if value.len() < *width {
+            line.push_str(&" ".repeat(*width - value.len()));
+        }
+        line.push(' ');
+        line.push('|');
+    }
+
+    line.push('\n');
+    line
 }
