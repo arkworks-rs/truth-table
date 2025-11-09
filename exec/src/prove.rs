@@ -212,6 +212,10 @@ pub async fn prepare_prover_artifacts(
 
     let proof_tree =
         create_prover_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, query, shared_ctx).await;
+
+    println!("{}", proof_tree.display_graphviz());
+
+
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;

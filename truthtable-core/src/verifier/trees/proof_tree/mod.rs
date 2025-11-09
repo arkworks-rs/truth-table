@@ -599,7 +599,19 @@ where
                 )),
                 verifier_ctx,
             ),
-            df::LogicalPlan::Limit(l) => todo!(),
+            df::LogicalPlan::Limit(l) => Self::new(
+                Arc::new(<VerifierJoinNode<F, MvPCS, UvPCS> as VerifierNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                >>::from_lp(
+                    ctx,
+                    verifier_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
+                )),
+                verifier_ctx,
+            ),
             _ => panic!(),
         }
     }

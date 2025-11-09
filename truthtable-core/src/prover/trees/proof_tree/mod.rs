@@ -612,7 +612,19 @@ where
                 )),
                 prover_ctx,
             ),
-            df::LogicalPlan::Limit(l) => todo!(),
+            df::LogicalPlan::Limit(l) => Self::new(
+                Arc::new(<crate::proof_nodes::lps::limit::ProverLimitNode<
+                    F,
+                    MvPCS,
+                    UvPCS,
+                > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id.clone(),
+                )),
+                prover_ctx,
+            ),
             _ => panic!(),
         }
     }

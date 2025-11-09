@@ -91,7 +91,6 @@ where
         // This projection, projects the expression result and the activator
         let projection_exprs =
             vec![Expr::BinaryExpr(*Box::new(bin_expr.clone())).alias("binary_expr")];
-
         // Build the output plan with only the binary expression result.
         let output_plan = LogicalPlanBuilder::from(base_table_scan_plan.clone())
             .project(projection_exprs)
