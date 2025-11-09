@@ -34,9 +34,6 @@ use std::sync::Arc;
 
 pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__truthtable_group_multiplicity";
 const MULTIPLICITY_PLAN_KEY: &str = "multiplicity";
-pub(crate) const GROUP_LEX_SORTED_PLAN_KEY: &str = "__aggregate_group_lex_sorted";
-pub(crate) const SHIFTED_GROUP_LEX_SORTED_PLAN_KEY: &str = "__aggregate_group_shifted";
-pub(crate) const GROUP_TIE_INDICATOR_PLAN_KEY: &str = "__aggregate_group_tie_indicator";
 pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__truthtable_group_input_folded";
 pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__truthtable_group_output_folded";
 

@@ -51,37 +51,6 @@ pub(super) fn build_aggregate_hint_generation_plans(
         ),
     );
 
-    if group_col_count > 0 {
-        let group_columns_plan = build_grouping_columns_plan(&output_plan, aggregate_plan);
-        plans.insert(
-            super::GROUP_LEX_SORTED_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(
-                super::GROUP_LEX_SORTED_PLAN_KEY.to_string(),
-                group_columns_plan.clone(),
-            ),
-        );
-
-        let shifted_group_columns_plan = build_shifted_grouping_columns_plan(&group_columns_plan);
-        plans.insert(
-            super::SHIFTED_GROUP_LEX_SORTED_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(
-                super::SHIFTED_GROUP_LEX_SORTED_PLAN_KEY.to_string(),
-                shifted_group_columns_plan,
-            ),
-        );
-
-        if let Some(tie_plan) = build_group_tie_indicator_plan(&group_columns_plan, group_col_count)
-        {
-            plans.insert(
-                super::GROUP_TIE_INDICATOR_PLAN_KEY.to_string(),
-                HintGenerationPlan::new_materialized(
-                    super::GROUP_TIE_INDICATOR_PLAN_KEY.to_string(),
-                    tie_plan,
-                ),
-            );
-        }
-    }
-
     let has_count = aggregate_plan
         .aggr_expr
         .iter()
@@ -101,75 +70,6 @@ pub(super) fn build_aggregate_hint_generation_plans(
     plans
 }
 
-fn build_grouping_columns_plan(
-    aggregate_output_plan: &LogicalPlan,
-    aggregate_plan: &df::Aggregate,
-) -> LogicalPlan {
-    let group_field_names: Vec<String> = aggregate_plan
-        .schema
-        .fields()
-        .iter()
-        .take(aggregate_plan.group_expr.len())
-        .map(|field| field.name().clone())
-        .collect();
-
-    let mut projection_exprs: Vec<df::Expr> = group_field_names
-        .iter()
-        .map(|name| df::col(name.clone()))
-        .collect();
-
-    if aggregate_output_plan
-        .schema()
-        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        .is_ok()
-    {
-        projection_exprs.push(df::col(ACTIVATOR_COL_NAME));
-    }
-
-    let projected = LogicalPlanBuilder::from(aggregate_output_plan.clone())
-        .project(projection_exprs)
-        .expect("failed to project aggregate grouping columns")
-        .build()
-        .expect("failed to build aggregate grouping projection plan");
-
-    let sort_exprs: Vec<df::SortExpr> = group_field_names
-        .iter()
-        .map(|name| df::col(name.clone()).sort(true, true))
-        .collect();
-
-    LogicalPlanBuilder::from(projected)
-        .sort(sort_exprs)
-        .expect("failed to sort aggregate grouping columns")
-        .build()
-        .expect("failed to build aggregate grouping sort plan")
-}
-
-fn build_shifted_grouping_columns_plan(group_plan: &LogicalPlan) -> LogicalPlan {
-    let tail_plan = LogicalPlanBuilder::from(group_plan.clone())
-        .limit(1, None)
-        .expect("failed to drop first row for shifted grouping columns plan")
-        .build()
-        .expect("failed to build grouping columns tail plan");
-
-    let head_plan = LogicalPlanBuilder::from(group_plan.clone())
-        .limit(0, Some(1))
-        .expect("failed to capture first row for shifted grouping columns plan")
-        .build()
-        .expect("failed to build grouping columns head plan");
-
-    LogicalPlanBuilder::from(tail_plan)
-        .union(head_plan)
-        .expect("failed to union shifted grouping columns plan parts")
-        .build()
-        .expect("failed to build shifted grouping columns plan")
-}
-
-fn build_group_tie_indicator_plan(
-    group_plan: &LogicalPlan,
-    num_group_exprs: usize,
-) -> Option<LogicalPlan> {
-    build_tie_indicator_plan(group_plan, num_group_exprs)
-}
 
 fn build_aggregate_hint_output_plan(
     base_plan: LogicalPlan,
