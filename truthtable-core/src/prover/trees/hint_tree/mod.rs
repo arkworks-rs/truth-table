@@ -177,13 +177,7 @@ where
                                 .flatten()
                                 .collect::<Vec<_>>();
 
-                            // if node
-                            //     .as_any()
-                            //     .downcast_ref::<ProverJoinNode<F, MvPCS, UvPCS>>()
-                            //     .is_some()
-                            // {
                                 batches = add_activator_and_pad_power_of_two(batches)?;
-                            // }
 
                             if label_clone == "output_tree"
                                 && node
