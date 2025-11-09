@@ -215,13 +215,9 @@ pub async fn prepare_prover_artifacts(
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;
-    let display_hint_tree = DisplayableProverHintTree::new(&hint_tree);
-    println!("{}", display_hint_tree.graphviz());
-
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
         .context("failed to arithmetize")?;
-    let display_arith_tree = DisplayableProverArithmetizedTree::new(&arith_tree);
-    println!("{}", display_arith_tree.graphviz());
+
     let pk_path = match pk_path {
         Some(path) => path.to_path_buf(),
         None => {
