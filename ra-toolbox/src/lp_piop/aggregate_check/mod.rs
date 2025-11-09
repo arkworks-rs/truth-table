@@ -32,10 +32,6 @@ pub struct AggregatePIOPProverInput<
     pub aggregate: Aggregate,
     pub input_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
     pub output_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_output_grouping_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub shifted_contig_lex_sorted_output_grouping_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
-    pub grouping_multiplicity_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
 #[derivative(
@@ -50,6 +46,7 @@ pub struct AggregatePIOPProverOutput<
 > {
     pub input_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub multiplicity_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for AggregatePIOPProverInput<F, MvPCS, UvPCS>
 where
@@ -75,11 +72,6 @@ pub struct AggregatePIOPVerifierInput<
     pub aggregate: Aggregate,
     pub input_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub output_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_output_grouping_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub shifted_contig_lex_sorted_output_grouping_tracked_table_oracle:
-        TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
-    pub grouping_multiplicty_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
 #[derive(Derivative)]
 #[derivative(
@@ -94,6 +86,7 @@ pub struct AggregatePIOPVerifierOutput<
 > {
     pub input_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub multiplicity_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
 pub struct AggregatePIOP<F, MvPCS, UvPCS>
 where
@@ -139,6 +132,7 @@ where
         Ok(AggregatePIOPProverOutput {
             input_folded_tracked_col: multi_col_supp_check_prover_output.orig_folded_tracked_col,
             output_folded_tracked_col: multi_col_supp_check_prover_output.supp_folded_tracked_col,
+            multiplicity_poly: multi_col_supp_check_prover_output.multiplicity,
         })
     }
 
@@ -160,6 +154,7 @@ where
                 .orig_folded_tracked_col_oracle,
             output_folded_tracked_col_oracle: multi_col_supp_check_prover_output
                 .supp_folded_tracked_col_oracle,
+            multiplicity_oracle: multi_col_supp_check_prover_output.multiplicity,
         })
     }
 }
