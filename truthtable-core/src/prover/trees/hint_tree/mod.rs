@@ -177,13 +177,13 @@ where
                                 .flatten()
                                 .collect::<Vec<_>>();
 
-                            if node
-                                .as_any()
-                                .downcast_ref::<ProverJoinNode<F, MvPCS, UvPCS>>()
-                                .is_some()
-                            {
+                            // if node
+                            //     .as_any()
+                            //     .downcast_ref::<ProverJoinNode<F, MvPCS, UvPCS>>()
+                            //     .is_some()
+                            // {
                                 batches = add_activator_and_pad_power_of_two(batches)?;
-                            }
+                            // }
 
                             if label_clone == "output_tree"
                                 && node
@@ -412,8 +412,13 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
         return Ok(Vec::new());
     }
 
+    let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+    if total_rows == 0 || total_rows.is_power_of_two() {
+        return Ok(batches);
+    }
+
     let mut new_batches = Vec::new();
-    let mut total_rows = 0usize;
+    let mut processed_rows = 0usize;
     let mut last_nonempty: Option<RecordBatch> = None;
     let mut out_schema: Option<Arc<Schema>> = None;
     let mut activator_index: Option<usize> = None;
@@ -442,14 +447,8 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
         let act_idx = activator_index.expect("activator field missing");
 
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
-        if cols.len() == schema.fields().len() {
-            // Replace existing activator column with `true`
-            let mut builder = BooleanBuilder::with_capacity(batch_rows);
-            for _ in 0..batch_rows {
-                builder.append_value(true);
-            }
-            cols[act_idx] = Arc::new(builder.finish());
-        } else {
+        if cols.len() != schema.fields().len() {
+            // Original batch had no activator; append one filled with `true`.
             let mut builder = BooleanBuilder::with_capacity(batch_rows);
             for _ in 0..batch_rows {
                 builder.append_value(true);
@@ -459,19 +458,19 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
 
         let new_batch = RecordBatch::try_new(schema.clone(), cols)?;
         if batch_rows > 0 {
-            total_rows += batch_rows;
+            processed_rows += batch_rows;
             last_nonempty = Some(new_batch.clone());
         }
         new_batches.push(new_batch);
     }
 
-    if total_rows == 0 {
+    if processed_rows == 0 {
         return Ok(new_batches);
     }
 
-    if !total_rows.is_power_of_two() {
-        let target = total_rows.next_power_of_two();
-        let pad = target - total_rows;
+    if !processed_rows.is_power_of_two() {
+        let target = processed_rows.next_power_of_two();
+        let pad = target - processed_rows;
         let last_batch = last_nonempty.expect("expected non-empty batch");
         let schema = out_schema.unwrap();
         let act_idx = activator_index.expect("activator index missing");
