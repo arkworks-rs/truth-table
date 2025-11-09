@@ -33,7 +33,6 @@ use ra_toolbox::lp_piop::aggregate_check::{
 use std::sync::Arc;
 
 pub(crate) const GROUP_MULTIPLICITY_COL_NAME: &str = "__truthtable_group_multiplicity";
-const MULTIPLICITY_PLAN_KEY: &str = "multiplicity";
 pub(crate) const GROUP_INPUT_FOLDED_COL_NAME: &str = "__truthtable_group_input_folded";
 pub(crate) const GROUP_OUTPUT_FOLDED_COL_NAME: &str = "__truthtable_group_output_folded";
 
