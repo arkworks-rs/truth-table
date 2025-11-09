@@ -215,10 +215,11 @@ pub async fn prepare_prover_artifacts(
 
     println!("{}", proof_tree.display_graphviz());
 
-
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;
+
+    println!("{}", hint_tree.display_graphviz());
     let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
         .context("failed to arithmetize")?;
 
