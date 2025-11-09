@@ -185,6 +185,18 @@ where
         self.node_id.clone()
     }
 
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        let mut labels = Vec::new();
+        labels.push(Some("input".to_string()));
+        for (idx, _) in self.group_expr_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("group_expr[{idx}]")));
+        }
+        for (idx, _) in self.aggr_expr_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("agg_expr[{idx}]")));
+        }
+        labels
+    }
+
     fn hint_generation_plans(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
@@ -306,6 +318,8 @@ where
                         group_node.name()
                     )
                 });
+            dbg!(group_node.name());
+            dbg!(idx);
             assert_eq!(
                 group_table.log_size(),
                 existing_materialized_output_table.log_size(),
@@ -630,6 +644,18 @@ where
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
+    }
+
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        let mut labels = Vec::new();
+        labels.push(Some("input".to_string()));
+        for (idx, _) in self.group_expr_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("group_expr[{idx}]")));
+        }
+        for (idx, _) in self.aggr_expr_proof_tree_roots.iter().enumerate() {
+            labels.push(Some(format!("agg_expr[{idx}]")));
+        }
+        labels
     }
 
     fn hint_generation_plans(
