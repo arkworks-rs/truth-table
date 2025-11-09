@@ -111,7 +111,8 @@ where
         let total_rows = combined_batch.num_rows();
         assert!(
             total_rows.is_power_of_two(),
-            "Arithmetized tables must have power-of-two number of rows"
+            "Arithmetized tables must have power-of-two number of rows, got {}",
+            total_rows
         );
         let log_vars = total_rows.trailing_zeros() as usize;
 
