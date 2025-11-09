@@ -168,7 +168,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let out_key_multi_col_supp_prover_output =
             BezoutMultiColSuppCheckPIOP::prove(prover, out_key_multi_col_supp_prover_input)?;
 
-        dbg!(4);
         ////////////////////////////////
         let key_challenges = (0..num_key_cols)
             .map(|_| prover.get_and_append_challenge(b"key_challenge").unwrap())
@@ -243,7 +242,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             col: folded_sources.clone(),
         };
         NoDupPIOP::prove(prover, no_dup_prover_input)?;
-        dbg!(8);
         let alpha_vec = (0..(input.right_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"alpha").unwrap())
             .collect::<Vec<F>>();
@@ -269,12 +267,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 .map(|i| i + input.left_table.num_data_tracked_cols() - num_key_cols)
                 .collect::<Vec<usize>>(),
         );
-        dbg!(output_right_indices.clone());
-        dbg!(alpha_vec[0..&alpha_vec.len() - 1].len());
         let output_right_table_folded_col = input
             .out_table
             .fold(&output_right_indices, &alpha_vec[0..&alpha_vec.len() - 1]);
-        dbg!(12312);
         let output_right_folded_col = TrackedCol::new(
             &output_right_table_folded_col.data_tracked_poly().clone()
                 + &input.join_right_source.data_tracked_poly(),
@@ -288,10 +283,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             super_col: input_right_folded_col.clone(),
         };
 
-        dbg!(1);
         InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
-        dbg!(9);
         let beta_vec = (0..(input.left_table.num_data_tracked_cols() + 1))
             .map(|_| prover.get_and_append_challenge(b"beta").unwrap())
             .collect::<Vec<F>>();
@@ -328,7 +321,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             included_cols: vec![output_left_folded_col.clone()],
             super_col: input_left_folded_col.clone(),
         };
-        dbg!(0);
         InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
         Ok(())
