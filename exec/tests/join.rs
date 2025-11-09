@@ -1,3 +1,5 @@
+#![cfg(feature = "test-utils")]
+
 mod support;
 use datafusion::prelude::ParquetReadOptions;
 use proof_planner::{create_prover_proof_tree, new_session_context_with_custom_analyzer};
@@ -33,25 +35,24 @@ ON
     l.l_suppkey = s.s_suppkey;
 "#,
 
-    join_supplier_lineitem_by_suppkey_nationkey => r#"SELECT
+]);
+end_to_end_tests!(&["partsupp", "lineitem"] => [
+    join_partsupp_lineitem_by_suppkey => r#"SELECT
     l.l_orderkey,
+    l.l_linenumber,
     l.l_partkey,
     l.l_suppkey,
-    s.s_name,
-    s.s_nationkey
+    ps.ps_availqty,
+    ps.ps_supplycost
 FROM
     lineitem AS l
 JOIN
-    supplier AS s
+    partsupp AS ps
 ON
-    l.l_suppkey = s.s_suppkey
+    l.l_partkey = ps.ps_partkey
 AND
-    l.l_nationkey = s.s_nationkey;
+    l.l_suppkey = ps.ps_suppkey;
 "#,
-
-
-
-
 
 ]);
 

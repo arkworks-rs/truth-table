@@ -497,6 +497,51 @@ fn inner_join_is_complete_with_activator() -> SnarkResult<()> {
     Ok(())
 }
 
+#[test]
+fn inner_join_is_complete_with_multiple_key_columns() -> SnarkResult<()> {
+    let input = InnerJoinTestInput {
+        nv_left_table: 2,
+        activator_left_table: None,
+        data_left_table: vec![
+            to_field_vec!([1, 1, 2, 2], Fr),
+            to_field_vec!([3, 3, 4, 4], Fr),
+            to_field_vec!([5, 6, 7, 8], Fr),
+        ],
+        nv_right_table: 2,
+        activator_right_table: None,
+        data_right_table: vec![
+            to_field_vec!([1, 1, 2, 2], Fr),
+            to_field_vec!([3, 3, 4, 4], Fr),
+            to_field_vec!([9, 10, 11, 12], Fr),
+        ],
+        nv_out_table: 3,
+        activator_out_table: None,
+        data_out_table: vec![
+            to_field_vec!([1, 1, 1, 1, 2, 2, 2, 2], Fr),
+            to_field_vec!([3, 3, 3, 3, 4, 4, 4, 4], Fr),
+            to_field_vec!([5, 5, 6, 6, 7, 7, 8, 8], Fr),
+            to_field_vec!([9, 10, 9, 10, 11, 12, 11, 12], Fr),
+        ],
+        nv_left_keysupp: 1,
+        activator_left_keysupp: None,
+        data_left_keysupp: vec![to_field_vec!([1, 2], Fr), to_field_vec!([3, 4], Fr)],
+        nv_right_keysupp: 1,
+        activator_right_keysupp: None,
+        data_right_keysupp: vec![to_field_vec!([1, 2], Fr), to_field_vec!([3, 4], Fr)],
+        nv_out_keysupp: 1,
+        activator_out_keysupp: None,
+        data_out_keysupp: vec![to_field_vec!([1, 2], Fr), to_field_vec!([3, 4], Fr)],
+        nv_all_keysupp: 1,
+        activator_all_keysupp: None,
+        data_all_keysupp: vec![to_field_vec!([1, 2], Fr), to_field_vec!([3, 4], Fr)],
+        join_left_source_data: to_field_vec!([0, 0, 1, 1, 2, 2, 3, 3], Fr),
+        join_right_source_data: to_field_vec!([0, 1, 0, 1, 2, 3, 2, 3], Fr),
+    };
+    inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input)?;
+
+    Ok(())
+}
+
 fn inner_join_test_soundness_helper(input: InnerJoinTestInput<Bls12_381>) -> SnarkResult<()> {
     let err =
         inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input).unwrap_err();
