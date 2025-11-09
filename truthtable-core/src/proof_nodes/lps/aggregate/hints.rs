@@ -1,16 +1,19 @@
-use crate::proof_nodes::{
-    HintGenerationPlan, OUTPUT_PLAN_KEY,
-};
+use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
-    common::TableReference,
+    common::{TableReference, tree_node::TreeNode},
     logical_expr::{
-        self as df, Case, ExprFunctionExt, JoinType, LogicalPlan, LogicalPlanBuilder, Operator,
+        self as df, Case, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, WindowFrame,
     },
     prelude::{Column, Expr},
     scalar::ScalarValue,
 };
+use datafusion_expr::expr::{WindowFunction, WindowFunctionDefinition, WindowFunctionParams};
 use datafusion_functions_window::expr_fn::row_number;
+use datafusion::common::{
+    tree_node::{Transformed, TreeNodeRewriter},
+    Result as DFResult,
+};
 use indexmap::IndexMap;
 
 pub(super) fn build_aggregate_hint_generation_plans(
@@ -58,7 +61,6 @@ fn build_aggregate_hint_output_plan(
     aggregate_plan: &df::Aggregate,
 ) -> LogicalPlan {
     const BASE_ALIAS: &str = "__truthtable_aggr_base";
-    const AGG_ALIAS: &str = "__truthtable_aggr_values";
     const POS_COL: &str = "__truthtable_aggr_pos";
     const RN_COL: &str = "__truthtable_aggr_rank";
     const GROUP_EXPR_PREFIX: &str = "__truthtable_aggr_group_expr_";
@@ -101,7 +103,7 @@ fn build_aggregate_hint_output_plan(
     let order_exprs = vec![Expr::Column(Column::from_name(POS_COL.to_string())).sort(true, false)];
 
     let rn_expr = row_number()
-        .partition_by(partition_exprs)
+        .partition_by(partition_exprs.clone())
         .order_by(order_exprs)
         .build()
         .expect("failed to construct row_number expression for aggregate plan")
@@ -113,31 +115,7 @@ fn build_aggregate_hint_output_plan(
         .build()
         .expect("failed to build plan with per-group rank column");
 
-    let group_by_exprs_for_agg: Vec<Expr> = group_aliases
-        .iter()
-        .map(|alias| Expr::Column(Column::from_name(alias.clone())))
-        .collect();
-
-    let activator_filter = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
-    let activated_base_for_agg = LogicalPlanBuilder::from(base_with_group_exprs.clone())
-        .filter(activator_filter)
-        .expect("failed to filter inactive rows for aggregate hint generation")
-        .build()
-        .expect("failed to build filtered aggregate base plan");
-
-    let aggregate_values_plan = LogicalPlanBuilder::from(activated_base_for_agg)
-        .aggregate(group_by_exprs_for_agg, aggregate_plan.aggr_expr.clone())
-        .expect("failed to build aggregate plan for hint generation")
-        .build()
-        .expect("failed to finalize aggregate hint plan");
-    let agg_has_activator = aggregate_values_plan
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-
     let base_table_ref = TableReference::bare(BASE_ALIAS);
-    let agg_table_ref = TableReference::bare(AGG_ALIAS);
 
     let base_aliased = LogicalPlanBuilder::from(base_with_rn)
         .alias(base_table_ref.clone())
@@ -145,31 +123,32 @@ fn build_aggregate_hint_output_plan(
         .build()
         .expect("failed to build aliased aggregate base plan");
 
-    let agg_aliased = LogicalPlanBuilder::from(aggregate_values_plan)
-        .alias(agg_table_ref.clone())
-        .expect("failed to alias aggregate values plan")
-        .build()
-        .expect("failed to build aliased aggregate values plan");
+    let activator_col = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
 
-    let left_join_cols: Vec<Column> = group_aliases
+    let partition_exprs_for_window: Vec<Expr> = group_aliases
         .iter()
-        .map(|alias| Column::new(Some(base_table_ref.clone()), alias.clone()))
-        .collect();
-    let right_join_cols: Vec<Column> = group_aliases
-        .iter()
-        .map(|alias| Column::new(Some(agg_table_ref.clone()), alias.clone()))
+        .map(|alias| Expr::Column(Column::new(Some(base_table_ref.clone()), alias.clone())))
         .collect();
 
-    let joined = LogicalPlanBuilder::from(base_aliased)
-        .join(
-            agg_aliased,
-            JoinType::Inner,
-            (left_join_cols, right_join_cols),
-            None,
-        )
-        .expect("failed to join aggregate base with aggregate values")
-        .build()
-        .expect("failed to build joined aggregate hint plan");
+    let mut window_exprs = Vec::with_capacity(aggregate_plan.aggr_expr.len());
+    for (agg_idx, expr) in aggregate_plan.aggr_expr.iter().enumerate() {
+        let schema_idx = group_aliases.len() + agg_idx;
+        let field_name = aggregate_plan.schema.field(schema_idx).name().clone();
+        let window_expr =
+            aggregate_expr_as_window(expr, &partition_exprs_for_window, &activator_col)
+                .alias(field_name);
+        window_exprs.push(window_expr);
+    }
+
+    let base_with_windows = if window_exprs.is_empty() {
+        base_aliased.clone()
+    } else {
+        LogicalPlanBuilder::from(base_aliased.clone())
+            .window(window_exprs)
+            .expect("failed to append aggregate window expressions")
+            .build()
+            .expect("failed to build plan with aggregate window expressions")
+    };
 
     let pos_sort = Expr::Column(Column::new(
         Some(base_table_ref.clone()),
@@ -177,7 +156,7 @@ fn build_aggregate_hint_output_plan(
     ))
     .sort(true, false);
 
-    let sorted = LogicalPlanBuilder::from(joined)
+    let sorted = LogicalPlanBuilder::from(base_with_windows)
         .sort(vec![pos_sort])
         .expect("failed to apply ordering to aggregate hint plan")
         .build()
@@ -190,8 +169,7 @@ fn build_aggregate_hint_output_plan(
     for (idx, alias) in group_aliases.iter().enumerate() {
         let field_name = agg_schema.field(idx).name().clone();
         final_exprs.push(
-            Expr::Column(Column::new(Some(base_table_ref.clone()), alias.clone()))
-                .alias(field_name),
+            Expr::Column(Column::from_name(alias.clone())).alias(field_name),
         );
     }
 
@@ -199,8 +177,7 @@ fn build_aggregate_hint_output_plan(
         let schema_idx = group_aliases.len() + agg_idx;
         let field_name = agg_schema.field(schema_idx).name().clone();
         final_exprs.push(
-            Expr::Column(Column::new(Some(agg_table_ref.clone()), field_name.clone()))
-                .alias(field_name),
+            Expr::Column(Column::from_name(field_name.clone())).alias(field_name),
         );
     }
 
@@ -208,28 +185,12 @@ fn build_aggregate_hint_output_plan(
         Some(base_table_ref.clone()),
         RN_COL.to_string(),
     ));
-    let activator_column = Expr::Column(Column::new(
-        Some(base_table_ref.clone()),
-        ACTIVATOR_COL_NAME.to_string(),
-    ));
-    let output_activator_expr = if agg_has_activator {
-        Expr::Column(Column::new(
-            Some(agg_table_ref.clone()),
-            ACTIVATOR_COL_NAME.to_string(),
-        ))
-    } else {
-        Expr::Literal(ScalarValue::Boolean(Some(true)))
-    };
-    let combined_activator = Expr::BinaryExpr(datafusion_expr::expr::BinaryExpr::new(
-        Box::new(activator_column),
-        Operator::And,
-        Box::new(output_activator_expr),
-    ));
+    let activator_column = Expr::Column(Column::from_name(ACTIVATOR_COL_NAME.to_string()));
     let activator_case = Expr::Case(Case::new(
         None,
         vec![(
             Box::new(rank_column.eq(Expr::Literal(ScalarValue::UInt64(Some(1))))),
-            Box::new(combined_activator),
+            Box::new(activator_column),
         )],
         Some(Box::new(Expr::Literal(ScalarValue::Boolean(Some(false))))),
     ))
@@ -241,4 +202,71 @@ fn build_aggregate_hint_output_plan(
         .expect("failed to project final aggregate hint output")
         .build()
         .expect("failed to construct aggregate hint output plan")
+}
+
+fn aggregate_expr_as_window(
+    expr: &Expr,
+    partition_exprs: &[Expr],
+    activator_col: &Expr,
+) -> Expr {
+    match strip_column_relations(expr) {
+        Expr::Alias(alias) => aggregate_expr_as_window(alias.expr.as_ref(), partition_exprs, activator_col)
+            .alias(alias.name.clone()),
+        Expr::AggregateFunction(agg) => {
+            assert!(
+                agg.params.filter.is_none(),
+                "filtered aggregates are not supported in window rewrite"
+            );
+            assert!(
+                !agg.params.distinct,
+                "distinct aggregates are not supported in window rewrite"
+            );
+            let mut gated_args = Vec::with_capacity(agg.params.args.len());
+            for arg in &agg.params.args {
+                let gated = Expr::Case(Case::new(
+                    None,
+                    vec![(Box::new(activator_col.clone()), Box::new(arg.clone()))],
+                    Some(Box::new(Expr::Literal(ScalarValue::Null))),
+                ));
+                gated_args.push(gated);
+            }
+
+            let params = WindowFunctionParams {
+                args: gated_args,
+                partition_by: partition_exprs.to_vec(),
+                order_by: agg.params.order_by.clone().unwrap_or_default(),
+                window_frame: WindowFrame::new(None),
+                null_treatment: agg.params.null_treatment,
+            };
+
+            Expr::WindowFunction(WindowFunction {
+                fun: WindowFunctionDefinition::AggregateUDF(agg.func.clone()),
+                params,
+            })
+        },
+        other => panic!("unsupported aggregate expression in hint generation: {other:?}"),
+    }
+}
+
+fn strip_column_relations(expr: &Expr) -> Expr {
+    struct Rewriter;
+    impl TreeNodeRewriter for Rewriter {
+        type Node = Expr;
+        fn f_up(&mut self, expr: Expr) -> DFResult<Transformed<Expr>> {
+            match expr {
+                Expr::Column(mut col) => {
+                    if col.relation.is_some() {
+                        col.relation = None;
+                        Ok(Transformed::yes(Expr::Column(col)))
+                    } else {
+                        Ok(Transformed::no(Expr::Column(col)))
+                    }
+                },
+                other => Ok(Transformed::no(other)),
+            }
+        }
+    }
+
+    let mut rewriter = Rewriter;
+    expr.clone().rewrite(&mut rewriter).expect("column rewrite failed").data
 }
