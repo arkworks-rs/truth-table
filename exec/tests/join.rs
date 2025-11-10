@@ -53,8 +53,53 @@ ON
 AND
     l.l_suppkey = ps.ps_suppkey;
 "#,
-
 ]);
+end_to_end_tests!(&["orders", "customer"] => [
+    join_orders_customer_by_custkey => r#"
+SELECT
+    o_orderdate,
+    o_shippriority
+FROM
+    customer,
+    orders
+WHERE
+     c_custkey = o_custkey
+    "#
+]);
+end_to_end_tests!(&["orders", "lineitem"] => [
+    join_orders_lineitem_by_orderkey => r#"
+SELECT
+    o_orderdate,
+    o_shippriority
+FROM
+    lineitem,
+    orders
+WHERE
+     l_orderkey = o_orderkey
+    "#
+]);
+
+
+
+
+end_to_end_tests!(&["orders", "lineitem", "customer"] => [
+    join_orders_lineitem_customer_by_custkey => r#"
+SELECT
+    o_orderdate,
+    o_shippriority
+FROM
+    lineitem,
+    orders,
+    customer
+WHERE
+    l_orderkey = o_orderkey
+     AND c_custkey = o_custkey
+    "#
+]);
+
+
+
+
 
 type F = ark_test_curves::bls12_381::Fr;
 type MvPCS = ark_piop::pcs::pst13::PST13<ark_test_curves::bls12_381::Bls12_381>;
@@ -67,7 +112,7 @@ type UvPCS = ark_piop::pcs::kzg10::KZG10<ark_test_curves::bls12_381::Bls12_381>;
 // FROM lineitem l
 // JOIN supplier s ON l.l_suppkey = s.s_suppkey;
 // ";
-//     let ctx = new_session_context_with_custom_analyzer();
+//     let ctx  = new_session_context_with_custom_analyzer();
 //     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
 //     let supplier_path = tpch_data::test_data_path("supplier.parquet");
 //     ctx.register_parquet(

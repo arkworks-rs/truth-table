@@ -8,11 +8,12 @@ use ark_piop::{
 };
 use datafusion::{common::Column, scalar::ScalarValue};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, WindowFrame, build_join_schema, col,
-    expr::Sort, logical_plan::Join,
+    BinaryExpr, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Operator, WindowFrame,
+    build_join_schema, col, expr::Sort, logical_plan::Join,
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
+use tracing::{debug, info};
 
 use crate::{
     proof_nodes::{
@@ -47,15 +48,24 @@ where
     let orig_left_lp = join.left.as_ref();
     let orig_right_lp = join.right.as_ref();
 
-    let preprocessed_left_lp = preprocess_plan(&orig_left_lp);
-    let preprocessed_right_lp = preprocess_plan(&orig_right_lp);
-    let output_plan = build_output_plan(join, &preprocessed_left_lp, &preprocessed_right_lp);
+    let filtered_left_lp = filter_active_rows(orig_left_lp);
+    let filtered_right_lp = filter_active_rows(orig_right_lp);
+    let preprocessed_left_lp = strip_activator(&filtered_left_lp);
+    let preprocessed_right_lp = strip_activator(&filtered_right_lp);
+
+    let base_output_plan = build_output_plan(join, &filtered_left_lp, &filtered_right_lp);
+    let output_plan = ensure_true_activator(&base_output_plan);
+    info!(
+        node = %node_id,
+        "join output plan:\n{}",
+        output_plan.display_indent()
+    );
     plans.insert(
         OUTPUT_PLAN_KEY.to_string(),
         hint_with_true_activator(OUTPUT_PLAN_KEY, &output_plan),
     );
 
-    let base_output_support_plan = compute_output_support_plan(join, &output_plan);
+    let base_output_support_plan = compute_output_support_plan(join, &base_output_plan);
     let out_supp_plan = build_out_supp_generation_plan::<F, MvPCS, UvPCS>(
         join,
         &output_plan,
@@ -67,14 +77,14 @@ where
     );
     let (left_supp_plan, left_diff_plan) = build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
         join,
-        &preprocessed_left_lp,
+        &filtered_left_lp,
         &out_supp_plan,
     );
     plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
 
     let (right_supp_plan, right_diff_plan) = build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
         join,
-        &preprocessed_right_lp,
+        &filtered_right_lp,
         &out_supp_plan,
     );
     plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
@@ -90,22 +100,23 @@ where
 
     plans.insert(
         JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source::<F, MvPCS, UvPCS>(&output_plan, join.clone()),
+        join_left_key_source::<F, MvPCS, UvPCS>(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source::<F, MvPCS, UvPCS>(&output_plan, join.clone()),
+        join_right_key_source::<F, MvPCS, UvPCS>(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans
 }
 
+#[allow(dead_code)]
 fn build_output_plan(
     join: &Join,
-    preprocessed_left_lp: &LogicalPlan,
-    preprocessed_right_lp: &LogicalPlan,
+    filtered_left_lp: &LogicalPlan,
+    filtered_right_lp: &LogicalPlan,
 ) -> LogicalPlan {
-    let left_plan = Arc::new(preprocessed_left_lp.clone());
-    let right_plan = Arc::new(preprocessed_right_lp.clone());
+    let left_plan = Arc::new(filtered_left_lp.clone());
+    let right_plan = Arc::new(filtered_right_lp.clone());
 
     let join_schema = build_join_schema(
         left_plan.schema().as_ref(),
@@ -114,7 +125,7 @@ fn build_output_plan(
     )
     .expect("failed to derive schema for sanitized join output");
 
-    LogicalPlan::Join(Join {
+    let joined = LogicalPlan::Join(Join {
         left: left_plan,
         right: right_plan,
         on: join.on.clone(),
@@ -123,7 +134,42 @@ fn build_output_plan(
         join_constraint: join.join_constraint,
         schema: Arc::new(join_schema),
         null_equals_null: join.null_equals_null,
-    })
+    });
+
+    append_combined_activator(joined)
+}
+
+fn append_combined_activator(plan: LogicalPlan) -> LogicalPlan {
+    let schema = plan.schema();
+    let mut projection_exprs: Vec<Expr> = Vec::with_capacity(schema.fields().len());
+    let mut activator_expr: Option<Expr> = None;
+
+    for (qualifier, field) in schema.iter() {
+        if field.name() == ACTIVATOR_COL_NAME {
+            let col = Expr::Column(Column::new(qualifier.cloned(), field.name().clone()));
+            activator_expr = Some(match activator_expr {
+                Some(acc) => {
+                    Expr::BinaryExpr(BinaryExpr::new(Box::new(acc), Operator::And, Box::new(col)))
+                },
+                None => col,
+            });
+            continue;
+        }
+        projection_exprs.push(Expr::Column(Column::new(
+            qualifier.cloned(),
+            field.name().clone(),
+        )));
+    }
+
+    let combined =
+        activator_expr.unwrap_or_else(|| Expr::Literal(ScalarValue::Boolean(Some(true))));
+    projection_exprs.push(combined.alias(ACTIVATOR_COL_NAME));
+
+    LogicalPlanBuilder::from(plan)
+        .project(projection_exprs)
+        .expect("failed to append combined activator")
+        .build()
+        .expect("failed to build plan with activator")
 }
 
 /// Remove the `activator` column from the provided plan (if it exists) by
@@ -198,14 +244,11 @@ fn ensure_true_activator(plan: &LogicalPlan) -> LogicalPlan {
     for (qualifier, field) in schema.iter() {
         if field.name() == ACTIVATOR_COL_NAME {
             activator_present = true;
-            projection_exprs
-                .push(Expr::Literal(ScalarValue::Boolean(Some(true))).alias(ACTIVATOR_COL_NAME));
-        } else {
-            projection_exprs.push(Expr::Column(Column::new(
-                qualifier.cloned(),
-                field.name().clone(),
-            )));
         }
+        projection_exprs.push(Expr::Column(Column::new(
+            qualifier.cloned(),
+            field.name().clone(),
+        )));
     }
 
     if !activator_present {
@@ -358,7 +401,7 @@ fn tag_support_plan(plan: LogicalPlan, tag: u32) -> LogicalPlan {
 /// projecting them, and aggregating to retain only distinct tuples.
 pub(crate) fn build_left_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
-    left_lp: &LogicalPlan,
+    filtered_left_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
 ) -> (HintGenerationPlan, LogicalPlan)
 where
@@ -376,7 +419,7 @@ where
         "join must contain at least one key column"
     );
 
-    let sanitized_left = preprocess_plan(left_lp);
+    let sanitized_left = strip_activator(filtered_left_lp);
     let distinct_plan = LogicalPlanBuilder::from(sanitized_left)
         .project(left_key_exprs.clone())
         .expect("failed to project left join keys")
@@ -398,7 +441,7 @@ where
 /// projecting them, and aggregating to retain only distinct tuples.
 pub(crate) fn build_right_supp_generation_plan<F, MvPCS, UvPCS>(
     join: &Join,
-    right_lp: &LogicalPlan,
+    filtered_right_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
 ) -> (HintGenerationPlan, LogicalPlan)
 where
@@ -416,7 +459,7 @@ where
         "join must contain at least one key column"
     );
 
-    let sanitized_right = preprocess_plan(right_lp);
+    let sanitized_right = strip_activator(filtered_right_lp);
     let distinct_plan = LogicalPlanBuilder::from(sanitized_right)
         .project(right_key_exprs.clone())
         .expect("failed to project right join keys")
@@ -516,7 +559,8 @@ where
 }
 
 pub(crate) fn join_left_key_source<F, MvPCS, UvPCS>(
-    _join_lp: &LogicalPlan,
+    filtered_left_lp: &LogicalPlan,
+    filtered_right_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
@@ -540,7 +584,7 @@ where
         .expect("failed to build row_number window expression")
         .alias("__left_row_id_tmp");
 
-    let left_with_id = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref()))
+    let left_with_id = LogicalPlanBuilder::from(strip_activator(filtered_left_lp))
         .window(vec![row_number_expr])
         .expect("failed to append left row ids")
         .build()
@@ -559,7 +603,7 @@ where
 
     let rebuilt_join = LogicalPlanBuilder::from(left_with_id)
         .join(
-            preprocess_plan(join.right.as_ref()),
+            strip_activator(filtered_right_lp),
             join.join_type,
             (left_cols, right_cols),
             join.filter.clone(),
@@ -581,7 +625,8 @@ where
 }
 
 pub(crate) fn join_right_key_source<F, MvPCS, UvPCS>(
-    _join_lp: &LogicalPlan,
+    filtered_left_lp: &LogicalPlan,
+    filtered_right_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
@@ -605,7 +650,7 @@ where
         .expect("failed to build row_number window expression")
         .alias("__right_row_id_tmp");
 
-    let right_with_id = LogicalPlanBuilder::from(preprocess_plan(join.right.as_ref()))
+    let right_with_id = LogicalPlanBuilder::from(strip_activator(filtered_right_lp))
         .window(vec![row_number_expr])
         .expect("failed to append right row ids")
         .build()
@@ -622,7 +667,7 @@ where
         })
         .unzip();
 
-    let rebuilt_join = LogicalPlanBuilder::from(preprocess_plan(join.left.as_ref()))
+    let rebuilt_join = LogicalPlanBuilder::from(strip_activator(filtered_left_lp))
         .join(
             right_with_id,
             join.join_type,
