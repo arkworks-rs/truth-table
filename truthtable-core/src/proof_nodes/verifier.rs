@@ -12,6 +12,7 @@ use ark_piop::{
     pcs::PCS,
     verifier::Verifier,
 };
+use tracing::trace;
 use datafusion::{
     arrow::datatypes::SchemaRef,
     logical_expr::LogicalPlan,
@@ -94,6 +95,7 @@ where
             child.add_virtual_witness_recursive(piop_tree, verifier);
         }
         self.add_virtual_witness(piop_tree, verifier);
+        trace!("Verifier finished add_virtual_witness_recursive: {}", self.name());
     }
 
     fn verify_piop(

@@ -319,8 +319,6 @@ where
                         group_node.name()
                     )
                 });
-            dbg!(group_node.name());
-            dbg!(idx);
             assert_eq!(
                 group_table.log_size(),
                 existing_materialized_output_table.log_size(),

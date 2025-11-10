@@ -20,7 +20,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
-    arrow::datatypes::{DataType, Field, FieldRef},
+    arrow::datatypes::{DataType, Field, FieldRef, Schema},
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
@@ -255,18 +255,42 @@ where
         let activator_field_ref = FieldRef::new(activator_field);
         // Prepare the columns for the output table of the current filter node
         let mut columns = IndexMap::new();
+        let mut activator_poly = Some(predicate_tracked_poly);
         // The output table of the current node is the same as the input table except
-        // the activator is replaced with the new predicate tracked polynomial
-        for (field, poly) in input_table.tracked_polys() {
+        // the activator is replaced with the new predicate tracked polynomial. Reuse
+        // the original column ordering to keep schemas aligned.
+        for (field, poly) in input_table.tracked_polys_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
-                continue;
+                let new_poly = activator_poly
+                    .take()
+                    .expect("activator polynomial should be present exactly once");
+                columns.insert(activator_field_ref.clone(), new_poly);
+            } else {
+                columns.insert(field.clone(), poly.clone());
             }
-            columns.insert(field.clone(), poly.clone());
         }
-        columns.insert(activator_field_ref, predicate_tracked_poly);
+        if let Some(poly) = activator_poly {
+            columns.insert(activator_field_ref.clone(), poly);
+        }
+
+        let output_schema = input_table.schema_ref().map(|schema| {
+            let updated_fields: Vec<Field> = schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    if field.name() == ACTIVATOR_COL_NAME {
+                        activator_field_ref.as_ref().clone()
+                    } else {
+                        field.as_ref().clone()
+                    }
+                })
+                .collect();
+            Schema::new(updated_fields)
+        });
+
         // Data columns are unchanged; the activator becomes
         // `input_activator AND predicate`.
-        let output_table = TrackedTable::new(None, columns, input_table.log_size());
+        let output_table = TrackedTable::new(output_schema, columns, input_table.log_size());
         piop_tree.add_table(
             self.node_id.clone(),
             OUTPUT_PLAN_KEY.to_string(),
@@ -492,18 +516,42 @@ where
         // Prepare the columns for the output table of the current filter node
         let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
         let mut columns = IndexMap::new();
+        let mut activator_oracle = Some(output_activator_oracle);
         // The output table of the current node is the same as the input table except
-        // the activator is replaced with the new predicate tracked polynomial
-        for (field, poly) in input_table.tracked_oracles().iter() {
+        // the activator is replaced with the new predicate tracked polynomial.
+        for (field, oracle) in input_table.tracked_oracles().iter() {
             if field.name() == ACTIVATOR_COL_NAME {
-                continue;
+                let new_oracle = activator_oracle
+                    .take()
+                    .expect("activator oracle should be present exactly once");
+                columns.insert(activator_field_ref.clone(), new_oracle);
+            } else {
+                columns.insert(field.clone(), oracle.clone());
             }
-            columns.insert(field.clone(), poly.clone());
         }
-        columns.insert(activator_field_ref, output_activator_oracle);
+        if let Some(oracle) = activator_oracle {
+            columns.insert(activator_field_ref.clone(), oracle);
+        }
+
+        let output_schema = input_table.schema().map(|schema| {
+            let updated_fields: Vec<Field> = schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    if field.name() == ACTIVATOR_COL_NAME {
+                        activator_field_ref.as_ref().clone()
+                    } else {
+                        field.as_ref().clone()
+                    }
+                })
+                .collect();
+            Schema::new(updated_fields)
+        });
+
         // Data columns are unchanged; the activator becomes
         // `input_activator AND predicate`.
-        let output_table = TrackedTableOracle::new(None, columns, input_table.log_size());
+        let output_table =
+            TrackedTableOracle::new(output_schema, columns, input_table.log_size());
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
             OUTPUT_PLAN_KEY.to_string(),

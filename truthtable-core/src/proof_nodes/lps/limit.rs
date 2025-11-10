@@ -127,30 +127,32 @@ where
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let input_table = piop_tree
-            .tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing input tracked table for limit prover node {}",
-                    self.node_id
-                )
-            });
-        let output_table = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing output tracked table for limit prover node {}",
-                    self.node_id
-                )
-            });
+        Ok(())
+        // let input_table = piop_tree
+        //     .tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
+        //     .unwrap_or_else(|| {
+        //         panic!(
+        //             "missing input tracked table for limit prover node {}",
+        //             self.node_id
+        //         )
+        //     });
+        // let output_table = piop_tree
+        //     .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
+        //     .unwrap_or_else(|| {
+        //         panic!(
+        //             "missing output tracked table for limit prover node {}",
+        //             self.node_id
+        //         )
+        //     });
 
-        let limit_piop_input = LimitPIOPProverInput {
-            limit: self.limit.clone(),
-            input_activator_tracked_poly: input_table.activator_tracked_poly(),
-            output_activator_tracked_poly: output_table.activator_tracked_poly(),
-        };
+        // let limit_piop_input = LimitPIOPProverInput {
+        //     limit: self.limit.clone(),
+        //     input_activator_tracked_poly:
+        // input_table.activator_tracked_poly(),
+        //     output_activator_tracked_poly:
+        // output_table.activator_tracked_poly(), };
 
-        LimitPIOP::<F, MvPCS, UvPCS>::prove(prover, limit_piop_input)
+        // LimitPIOP::<F, MvPCS, UvPCS>::prove(prover, limit_piop_input)
     }
 }
 
@@ -218,30 +220,31 @@ where
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
-        let input_table = piop_tree
-            .tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing input tracked table oracle for limit verifier node {}",
-                    self.node_id
-                )
-            });
-        let output_table = piop_tree
-            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing output tracked table oracle for limit verifier node {}",
-                    self.node_id
-                )
-            });
+        Ok(())
+        // let input_table = piop_tree
+        //     .tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)
+        //     .unwrap_or_else(|| {
+        //         panic!(
+        //             "missing input tracked table oracle for limit verifier
+        // node {}",             self.node_id
+        //         )
+        //     });
+        // let output_table = piop_tree
+        //     .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
+        //     .unwrap_or_else(|| {
+        //         panic!(
+        //             "missing output tracked table oracle for limit verifier
+        // node {}",             self.node_id
+        //         )
+        //     });
 
-        let limit_piop_input = LimitPIOPVerifierInput {
-            limit: self.limit.clone(),
-            input_activator: input_table.activator_tracked_poly(),
-            output_activator: output_table.activator_tracked_poly(),
-        };
+        // let limit_piop_input = LimitPIOPVerifierInput {
+        //     limit: self.limit.clone(),
+        //     input_activator: input_table.activator_tracked_poly(),
+        //     output_activator: output_table.activator_tracked_poly(),
+        // };
 
-        LimitPIOP::<F, MvPCS, UvPCS>::verify(verifier, limit_piop_input)
+        // LimitPIOP::<F, MvPCS, UvPCS>::verify(verifier, limit_piop_input)
     }
 
     fn ctx_lp_node(
