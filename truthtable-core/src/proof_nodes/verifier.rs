@@ -12,7 +12,6 @@ use ark_piop::{
     pcs::PCS,
     verifier::Verifier,
 };
-use tracing::trace;
 use datafusion::{
     arrow::datatypes::SchemaRef,
     logical_expr::LogicalPlan,
@@ -20,6 +19,7 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
+use tracing::trace;
 /// Common interface for a verifier proof tree node.
 pub trait VerifierNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
@@ -95,7 +95,10 @@ where
             child.add_virtual_witness_recursive(piop_tree, verifier);
         }
         self.add_virtual_witness(piop_tree, verifier);
-        trace!("Verifier finished add_virtual_witness_recursive: {}", self.name());
+        trace!(
+            "Verifier finished add_virtual_witness_recursive: {}",
+            self.name()
+        );
     }
 
     fn verify_piop(

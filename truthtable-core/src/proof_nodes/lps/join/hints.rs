@@ -75,11 +75,8 @@ where
         JOIN_OUTPUT_KEY_SUPP.to_string(),
         hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
     );
-    let (left_supp_plan, left_diff_plan) = build_left_supp_generation_plan::<F, MvPCS, UvPCS>(
-        join,
-        &filtered_left_lp,
-        &out_supp_plan,
-    );
+    let (left_supp_plan, left_diff_plan) =
+        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, &filtered_left_lp, &out_supp_plan);
     plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
 
     let (right_supp_plan, right_diff_plan) = build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
@@ -100,11 +97,19 @@ where
 
     plans.insert(
         JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source::<F, MvPCS, UvPCS>(&filtered_left_lp, &filtered_right_lp, join.clone()),
+        join_left_key_source::<F, MvPCS, UvPCS>(
+            &filtered_left_lp,
+            &filtered_right_lp,
+            join.clone(),
+        ),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source::<F, MvPCS, UvPCS>(&filtered_left_lp, &filtered_right_lp, join.clone()),
+        join_right_key_source::<F, MvPCS, UvPCS>(
+            &filtered_left_lp,
+            &filtered_right_lp,
+            join.clone(),
+        ),
     );
     plans
 }

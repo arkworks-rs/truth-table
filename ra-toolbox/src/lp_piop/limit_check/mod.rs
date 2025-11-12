@@ -64,14 +64,13 @@ where
             output_activator_tracked_poly,
         } = input;
 
-        let limit_mask_tracked_poly = if let Some(ref input_activator) =
-            input_activator_tracked_poly
-        {
-            let mask_poly = Self::limit_mask_poly(&limit, input_activator)?;
-            Some(prover.track_mat_mv_poly(mask_poly))
-        } else {
-            None
-        };
+        let limit_mask_tracked_poly =
+            if let Some(ref input_activator) = input_activator_tracked_poly {
+                let mask_poly = Self::limit_mask_poly(&limit, input_activator)?;
+                Some(prover.track_mat_mv_poly(mask_poly))
+            } else {
+                None
+            };
 
         if let (Some(input_activator), Some(output_activator), Some(limit_mask)) = (
             input_activator_tracked_poly.as_ref(),
@@ -83,16 +82,15 @@ where
             prover.add_mv_zerocheck_claim(zero_poly.id())?;
         }
 
-
         // match (
         //     input.input_activator_tracked_poly,
         //     input.output_activator_tracked_poly,
         // ) {
         //     (Some(input_activator), Some(output_activator)) => {
-                
+
         //     }
         //     _ => {}
-            
+
         // }
         Ok(())
     }
@@ -130,11 +128,9 @@ where
         let end_idx = match fetch_literal {
             None => total_len,
             Some(fetch) => {
-                let nth = skip_literal
-                    .saturating_add(fetch)
-                    .saturating_add(1);
+                let nth = skip_literal.saturating_add(fetch).saturating_add(1);
                 Self::nth_active_index(&activator_evals, nth).unwrap_or(total_len)
-            }
+            },
         };
 
         let start_idx = start_idx.min(total_len);

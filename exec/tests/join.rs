@@ -79,9 +79,6 @@ WHERE
     "#
 ]);
 
-
-
-
 end_to_end_tests!(&["orders", "lineitem", "customer"] => [
     join_orders_lineitem_customer_by_custkey => r#"
 SELECT
@@ -96,10 +93,6 @@ WHERE
      AND c_custkey = o_custkey
     "#
 ]);
-
-
-
-
 
 type F = ark_test_curves::bls12_381::Fr;
 type MvPCS = ark_piop::pcs::pst13::PST13<ark_test_curves::bls12_381::Bls12_381>;

@@ -30,8 +30,6 @@ use ra_toolbox::lp_piop::filter_check::{
 };
 use std::{hint, sync::Arc};
 
-
-
 /// The implementation of a filter node in the prover proof tree.
 pub struct ProverFilterNode<F, MvPCS, UvPCS>
 where
@@ -550,8 +548,7 @@ where
 
         // Data columns are unchanged; the activator becomes
         // `input_activator AND predicate`.
-        let output_table =
-            TrackedTableOracle::new(output_schema, columns, input_table.log_size());
+        let output_table = TrackedTableOracle::new(output_schema, columns, input_table.log_size());
         piop_tree.add_tracked_table_oracle(
             self.node_id.clone(),
             OUTPUT_PLAN_KEY.to_string(),

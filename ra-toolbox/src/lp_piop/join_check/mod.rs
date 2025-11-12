@@ -36,7 +36,7 @@ use col_toolbox::{
 };
 use datafusion::{functions::unicode::left, logical_expr::Join};
 use derivative::Derivative;
-use std::{marker::PhantomData, sync::Arc};
+use std::{env, marker::PhantomData, sync::Arc};
 #[cfg(test)]
 mod test;
 
@@ -223,7 +223,6 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             Some(act) => &act * &mlmlr_minus_mo,
             None => mlmlr_minus_mo,
         };
-        
 
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
@@ -285,6 +284,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             super_col: input_right_folded_col.clone(),
         };
 
+        log_inclusion_diff("right", &output_right_folded_col, &input_right_folded_col);
+
         dbg!(0);
         InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
@@ -324,6 +325,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             included_cols: vec![output_left_folded_col.clone()],
             super_col: input_left_folded_col.clone(),
         };
+        log_inclusion_diff("left", &output_left_folded_col, &input_left_folded_col);
         dbg!(1);
         InclusionCheckPIOP::prove(prover, inclusion_check_prover_input)?;
 
@@ -594,4 +596,65 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         Ok(())
     }
+}
+
+fn log_inclusion_diff<F, MvPCS, UvPCS>(
+    label: &str,
+    included: &TrackedCol<F, MvPCS, UvPCS>,
+    super_col: &TrackedCol<F, MvPCS, UvPCS>,
+) where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    if env::var("JOIN_INCL_DEBUG").is_err() {
+        return;
+    }
+
+    let included_data_poly = included.data_tracked_poly();
+    let super_data_poly = super_col.data_tracked_poly();
+    let included_evals = included_data_poly.evaluations().to_vec();
+    let super_evals = super_data_poly.evaluations().to_vec();
+
+    let included_act_evals = included
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations().to_vec());
+    let super_act_evals = super_col
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations().to_vec());
+
+    let mut mismatch_total = 0usize;
+    let mut samples = Vec::new();
+    let len = included_evals.len().min(super_evals.len());
+    for i in 0..len {
+        let included_active = included_act_evals
+            .as_ref()
+            .map_or(true, |act| act[i] != F::zero());
+        let super_active = super_act_evals
+            .as_ref()
+            .map_or(true, |act| act[i] != F::zero());
+
+        if !(included_active && super_active) {
+            continue;
+        }
+
+        if included_evals[i] != super_evals[i] {
+            mismatch_total += 1;
+            if samples.len() < 5 {
+                samples.push(format!(
+                    "(idx={}, included={:?}, super={:?})",
+                    i, included_evals[i], super_evals[i]
+                ));
+            }
+        }
+    }
+
+    println!(
+        "[join inclusion debug] label={} len_included={} len_super={} mismatch_total={} samples={:?}",
+        label,
+        included_evals.len(),
+        super_evals.len(),
+        mismatch_total,
+        samples
+    );
 }

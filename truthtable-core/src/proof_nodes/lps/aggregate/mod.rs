@@ -130,7 +130,6 @@ where
                 .root()
             })
             .collect();
-        
 
         // Recursively build the children by first building trees for the eggregation
         // expressions

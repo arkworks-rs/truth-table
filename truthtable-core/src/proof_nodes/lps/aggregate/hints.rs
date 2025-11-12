@@ -1,7 +1,10 @@
 use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
-    common::{TableReference, tree_node::TreeNode},
+    common::{
+        Result as DFResult, TableReference,
+        tree_node::{Transformed, TreeNode, TreeNodeRewriter},
+    },
     logical_expr::{
         self as df, Case, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, WindowFrame,
     },
@@ -10,10 +13,6 @@ use datafusion::{
 };
 use datafusion_expr::expr::{WindowFunction, WindowFunctionDefinition, WindowFunctionParams};
 use datafusion_functions_window::expr_fn::row_number;
-use datafusion::common::{
-    tree_node::{Transformed, TreeNodeRewriter},
-    Result as DFResult,
-};
 use indexmap::IndexMap;
 
 pub(super) fn build_aggregate_hint_generation_plans(
@@ -168,17 +167,13 @@ fn build_aggregate_hint_output_plan(
 
     for (idx, alias) in group_aliases.iter().enumerate() {
         let field_name = agg_schema.field(idx).name().clone();
-        final_exprs.push(
-            Expr::Column(Column::from_name(alias.clone())).alias(field_name),
-        );
+        final_exprs.push(Expr::Column(Column::from_name(alias.clone())).alias(field_name));
     }
 
     for (agg_idx, _) in aggregate_plan.aggr_expr.iter().enumerate() {
         let schema_idx = group_aliases.len() + agg_idx;
         let field_name = agg_schema.field(schema_idx).name().clone();
-        final_exprs.push(
-            Expr::Column(Column::from_name(field_name.clone())).alias(field_name),
-        );
+        final_exprs.push(Expr::Column(Column::from_name(field_name.clone())).alias(field_name));
     }
 
     let rank_column = Expr::Column(Column::new(
@@ -204,14 +199,12 @@ fn build_aggregate_hint_output_plan(
         .expect("failed to construct aggregate hint output plan")
 }
 
-fn aggregate_expr_as_window(
-    expr: &Expr,
-    partition_exprs: &[Expr],
-    activator_col: &Expr,
-) -> Expr {
+fn aggregate_expr_as_window(expr: &Expr, partition_exprs: &[Expr], activator_col: &Expr) -> Expr {
     match strip_column_relations(expr) {
-        Expr::Alias(alias) => aggregate_expr_as_window(alias.expr.as_ref(), partition_exprs, activator_col)
-            .alias(alias.name.clone()),
+        Expr::Alias(alias) => {
+            aggregate_expr_as_window(alias.expr.as_ref(), partition_exprs, activator_col)
+                .alias(alias.name.clone())
+        },
         Expr::AggregateFunction(agg) => {
             assert!(
                 agg.params.filter.is_none(),
@@ -268,5 +261,8 @@ fn strip_column_relations(expr: &Expr) -> Expr {
     }
 
     let mut rewriter = Rewriter;
-    expr.clone().rewrite(&mut rewriter).expect("column rewrite failed").data
+    expr.clone()
+        .rewrite(&mut rewriter)
+        .expect("column rewrite failed")
+        .data
 }

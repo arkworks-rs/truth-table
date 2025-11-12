@@ -133,7 +133,10 @@ where
             child.add_virtual_witness_recursive(piop_tree, prover);
         }
         self.add_virtual_witness(piop_tree, prover);
-        trace!("Prover finished add_virtual_witness_recursive: {}", self.name());
+        trace!(
+            "Prover finished add_virtual_witness_recursive: {}",
+            self.name()
+        );
     }
 
     fn prove_piop(

@@ -170,8 +170,8 @@ async fn tpch_q1_prove_verify() {
 #[tokio::test]
 async fn tpch_q3_prove_verify() {
     let spec = query_spec(3);
-    
-let sql = "SELECT
+
+    let sql = "SELECT
     l_orderkey,
     o_orderdate,
     o_shippriority

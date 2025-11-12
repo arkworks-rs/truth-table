@@ -25,6 +25,7 @@ use datafusion::{
     error::{DataFusionError, Result as DFResult},
     prelude::SessionContext,
 };
+use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, col};
 
 use futures::{
     FutureExt,
@@ -165,7 +166,8 @@ where
                                 tree_label = %label_clone,
                                 "executing hint tree"
                             );
-                            let optimized_plan = ctx.state().optimize(&projected_plan).unwrap();
+                            let plan_with_filter = ensure_activator_filter(projected_plan.clone());
+                            let optimized_plan = ctx.state().optimize(&plan_with_filter).unwrap();
                             let df = ctx.execute_logical_plan(optimized_plan).await?;
                             // Collect per-partition batches and flatten them in partition order
                             // so we keep a deterministic row ordering even when the executor
@@ -177,7 +179,7 @@ where
                                 .flatten()
                                 .collect::<Vec<_>>();
 
-                                batches = add_activator_and_pad_power_of_two(batches)?;
+                            batches = add_activator_and_pad_power_of_two(batches)?;
 
                             if label_clone == "output_tree"
                                 && node
@@ -492,4 +494,20 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
     }
 
     Ok(new_batches)
+}
+
+fn ensure_activator_filter(plan: LogicalPlan) -> LogicalPlan {
+    if plan
+        .schema()
+        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+        .is_err()
+    {
+        return plan;
+    }
+
+    LogicalPlanBuilder::from(plan)
+        .filter(col(ACTIVATOR_COL_NAME))
+        .expect("failed to add activator filter to hint plan")
+        .build()
+        .expect("failed to build filtered hint plan")
 }
