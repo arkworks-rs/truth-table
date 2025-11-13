@@ -31,7 +31,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }

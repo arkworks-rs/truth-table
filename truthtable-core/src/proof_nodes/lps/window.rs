@@ -124,7 +124,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }

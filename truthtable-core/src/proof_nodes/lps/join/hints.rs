@@ -50,8 +50,8 @@ where
 
     let filtered_left_lp = filter_active_rows(orig_left_lp);
     let filtered_right_lp = filter_active_rows(orig_right_lp);
-    let preprocessed_left_lp = strip_activator(&filtered_left_lp);
-    let preprocessed_right_lp = strip_activator(&filtered_right_lp);
+    let _preprocessed_left_lp = strip_activator(&filtered_left_lp);
+    let _preprocessed_right_lp = strip_activator(&filtered_right_lp);
 
     let base_output_plan = build_output_plan(join, &filtered_left_lp, &filtered_right_lp);
     let output_plan = ensure_true_activator(&base_output_plan);

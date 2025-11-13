@@ -193,7 +193,7 @@ where
         ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

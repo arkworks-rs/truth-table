@@ -384,7 +384,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
     }
