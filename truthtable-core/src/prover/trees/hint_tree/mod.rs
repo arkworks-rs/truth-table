@@ -166,7 +166,8 @@ where
                                 tree_label = %label_clone,
                                 "executing hint tree"
                             );
-                            // let plan_with_filter = ensure_activator_filter(projected_plan.clone());
+                            // let plan_with_filter =
+                            // ensure_activator_filter(projected_plan.clone());
                             let optimized_plan = ctx.state().optimize(&projected_plan).unwrap();
                             let df = ctx.execute_logical_plan(optimized_plan).await?;
                             // Collect per-partition batches and flatten them in partition order
