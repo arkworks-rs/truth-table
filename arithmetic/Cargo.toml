@@ -13,17 +13,18 @@ parallel = [
 ]
 
 [dependencies]
-
-# Arkworks dependencies
+# arkworks dependencies
 ark-ff = { workspace = true }
 ark-piop = { workspace = true }
 ark-serialize = { workspace = true }
-# Other dependencies
+# datafusion dependencies
 datafusion = { workspace = true }
+
+# other dependencies
 thiserror = { workspace = true }
 derivative = { workspace = true }
-tracing = "0.1"
-serde = { workspace = true, features = ["derive"] }
+tracing = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
 

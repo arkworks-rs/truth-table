@@ -12,12 +12,14 @@ ark-piop = { workspace = true }
 ark-std = { workspace = true }
 ark-ff = { workspace = true }
 ark-poly = { workspace = true }
-num-bigint = { version = "0.4.0" }
 
-# Other dependencies
+# datafusion dependencies
+datafusion = { workspace = true }
+
+# other dependencies
+num-bigint = { workspace = true }
 derivative = { workspace = true }
 rayon = { workspace = true, optional = true }
-datafusion = { workspace = true }
 indexmap = { workspace = true }
 [dev-dependencies]
 ark-ec = { workspace = true }

@@ -4,26 +4,33 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# local dependencies
 truthtable-core = { path = "../truthtable-core" }
 proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
-ark-piop = { workspace = true, features = ["test-utils"] }
-ark-ff.workspace = true
-ark-serialize = { workspace = true }
-datafusion = { workspace = true, features = ["parquet"] }
-tokio.workspace = true
-ark-test-curves.workspace = true
-anyhow = "1"
-clap = { version = "4", features = ["derive", "env"] }
-indexmap = { workspace = true }
-async-trait = "0.1"
 tpch-data = { path = "../tpch-data" }
+
+# arkworks dependencies
+ark-piop = { workspace = true, features = ["test-utils"] }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+ark-test-curves = { workspace = true }
+
+# datafusion dependencies
+datafusion = { workspace = true }
+
+# other dependencies
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+indexmap = { workspace = true }
+async-trait = { workspace = true }
 tracing = { workspace = true }
 [dev-dependencies]
-ark-test-curves.workspace = true
-divan.workspace = true
+ark-test-curves = { workspace = true }
+divan = { workspace = true }
 tpch-data = { path = "../tpch-data" }
-tempfile = "3"
+tempfile = { workspace = true }
 
 [[bench]]
 name = "prover"

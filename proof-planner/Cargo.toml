@@ -4,16 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+# local dependencies
+truthtable-core = { path = "../truthtable-core" }
+arithmetic = { path = "../arithmetic" }
+tpch-data = { path = "../tpch-data" }
+
+# arkworks dependencies
+ark-ff = { workspace = true }
+ark-piop = { workspace = true }
 ark-serialize = { workspace = true }
+
+# datafusion dependencies
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
+
+# other dependencies
 tokio = { workspace = true }
-tpch-data = { path = "../tpch-data" }
-truthtable-core = { path = "../truthtable-core" }
-arithmetic = { path = "../arithmetic" }
-ark-ff = { workspace = true }
-ark-piop = { workspace = true }
 indexmap = { workspace = true }
 tracing = { workspace = true }
 [dev-dependencies]

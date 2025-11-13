@@ -4,16 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Local dependencies
+# local dependencies
 arithmetic = { path = "../arithmetic" }
 col-toolbox = { path = "../col-toolbox" }
+
 # arkworks dependencies
 ark-std = { workspace = true }
 ark-ff = { workspace = true }
 ark-piop = { workspace = true }
-# Other dependencies
-derivative = { workspace = true }
+
+# datafusion dependencies
 datafusion = { workspace = true }
+
+# other dependencies
+derivative = { workspace = true }
 indexmap = { workspace = true }
 
 [dev-dependencies]

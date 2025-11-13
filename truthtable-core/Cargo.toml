@@ -4,28 +4,36 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+
+# local dependencies
+arithmetic = { path = "../arithmetic" }
+ra-toolbox = { path = "../ra-toolbox" }
+tpch-data = { path = "../tpch-data", optional = true }
+
+# arkworks dependencies
 ark-std = { workspace = true }
 ark-ff = { workspace = true }
 ark-piop = { workspace = true, features = ["test-utils"] }
 ark-serialize = { workspace = true }
+ark-test-curves = { workspace = true }
+
+# datafusion dependencies
 datafusion = { workspace = true }
-datafusion-functions-window = "46.0.1"
-datafusion-expr = "46.0.1"
+datafusion-functions-window = { workspace = true }
+datafusion-expr = { workspace = true }
+
+# other dependencies
 thiserror = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 rayon = { workspace = true, optional = true }
-arithmetic = { path = "../arithmetic" }
-ra-toolbox = { path = "../ra-toolbox" }
-tracing = "0.1"
+tracing = { workspace = true }
 indexmap = { workspace = true }
-ark-test-curves.workspace = true
-tpch-data = { path = "../tpch-data", optional = true }
-arrow-cast = "57"
-arrow-schema = "57"
+arrow-cast = { workspace = true }
+arrow-schema = { workspace = true }
 [dev-dependencies]
-divan.workspace = true
-libc = "0.2"
+divan = { workspace = true }
+libc = { workspace = true }
 tpch-data = { path = "../tpch-data" }
 
 
