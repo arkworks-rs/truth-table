@@ -6,7 +6,6 @@ use ark_piop::{
 use datafusion::arrow::datatypes::Schema;
 use derivative::Derivative;
 use indexmap::IndexMap;
-use serde::de;
 
 use crate::table_oracle::ArithTableOracle;
 #[derive(Derivative)]

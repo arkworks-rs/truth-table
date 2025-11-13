@@ -14,11 +14,8 @@ use ark_piop::{
 use ark_std::log2;
 use num_bigint::BigUint;
 
-use crate::{
-    perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
-    rematerialize_check::{
-        RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
-    },
+use crate::rematerialize_check::{
+    RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
 };
 
 /// A tool to defragment a column by removing the non-activated rows and

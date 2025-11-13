@@ -16,21 +16,14 @@ use ark_piop::{
     errors::{SnarkError::ProverError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
-        structs::polynomial::TrackedPoly,
-    },
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    prover::Prover,
+    verifier::Verifier,
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
 
 use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
-    multiplicity_check::{
-        MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
-    },
     perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
 pub struct RematerializeCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(

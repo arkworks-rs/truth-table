@@ -1,4 +1,3 @@
-use core::{num, panic};
 
 use ark_ff::{FftField, PrimeField};
 use ark_piop::{
@@ -9,7 +8,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
 };
 use ark_poly::DenseUVPolynomial;
-use ark_std::{cfg_iter, end_timer, start_timer};
+use ark_std::cfg_iter;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 /// Compute the product polynomial $f(X): \mathbb{F}^{\mu+1}\to\mathbb{F}$ such
 /// that $$ f(X)=[(1-x_1)\cdot p(x_2, ..., x_n, 0) + x_1\cdot f(x_2, ..., x_n,

@@ -20,10 +20,8 @@ use ark_piop::{
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
-use ark_std::cfg_iter;
 use derivative::Derivative;
-use rayon::iter::IntoParallelRefIterator;
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 use utils::calc_inclusion_multiplicity;
 
 use crate::multiplicity_check::{

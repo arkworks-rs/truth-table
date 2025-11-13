@@ -236,7 +236,7 @@ where
     let mut max_len = 0usize;
     for idx in 0..rows {
         if !array.is_null(idx) {
-            let len = value_fn(array, idx).as_bytes().len();
+            let len = value_fn(array, idx).len();
             if len > max_len {
                 max_len = len;
             }
@@ -654,7 +654,6 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
                 "Run-end index type {other} is not supported"
             ))),
         },
-        other => Err(EncodeError::TypeNotSupported(other.to_string())),
     }
 }
 
@@ -696,9 +695,9 @@ where
             }
         }
 
-        for col_idx in 0..columns.len() {
+        for (col_idx, column) in columns.iter_mut().enumerate() {
             let value = row_fields.get(col_idx).copied().unwrap_or_else(F::zero);
-            columns[col_idx].push(value);
+            column.push(value);
         }
     }
 
@@ -714,7 +713,7 @@ mod tests {
     use super::*;
     use ark_ff::Zero;
     use ark_test_curves::bls12_381::Fr;
-    use datafusion::arrow::array::{LargeStringArray, StringArray, StringViewArray};
+    use datafusion::arrow::array::StringArray;
 
     #[test]
     fn single_character_strings_are_inlined() {

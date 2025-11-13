@@ -11,11 +11,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError, HonestProverError::FalseClaim, ProverError},
-        structs::polynomial::TrackedPoly,
-    },
+    prover::{Prover, errors::{HonestProverError, ProverError}, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},

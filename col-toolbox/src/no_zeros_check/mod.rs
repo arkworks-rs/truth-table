@@ -16,7 +16,6 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
-use ark_std::{end_timer, start_timer};
 use derivative::Derivative;
 use std::marker::PhantomData;
 

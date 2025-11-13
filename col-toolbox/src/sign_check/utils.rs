@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use arithmetic::errors::DataTypeError;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

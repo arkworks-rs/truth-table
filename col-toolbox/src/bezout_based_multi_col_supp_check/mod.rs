@@ -6,9 +6,7 @@ use crate::{
         BezoutBasedMultiNoDup, BezoutBasedMultiNoDupProverInput, BezoutBasedMultiNoDupVerifierInput,
     },
     inclusion_check::{
-        HintedInclusionCheckPIOP, HintedInclusionCheckProverInput,
-        HintedInclusionCheckVerifierInput, InclusionCheckPIOP, InclusionCheckProverInput,
-        InclusionCheckVerifierInput,
+        InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput,
     },
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };

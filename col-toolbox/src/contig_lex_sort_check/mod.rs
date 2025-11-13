@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 
 use crate::{
     local_single_col_sort_check::{
-        self, LocalSingleColSortCheckPIOP, LocalSingleColSortCheckProverInput,
+        LocalSingleColSortCheckPIOP, LocalSingleColSortCheckProverInput,
         LocalSingleColSortCheckVerifierInput,
     },
     zero_expr_check::{ZeroExprCheckPIOP, ZeroExprCheckProverInput, ZeroExprCheckVerifierInput},

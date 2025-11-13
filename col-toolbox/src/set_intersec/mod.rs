@@ -18,7 +18,7 @@ use ark_piop::{
     },
 };
 use derivative::Derivative;
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 use crate::{
     multiplicity_check::{
