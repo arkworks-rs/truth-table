@@ -13,7 +13,6 @@ use ark_piop::{
     verifier::Verifier,
 };
 use datafusion::{
-    arrow::datatypes::SchemaRef,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };

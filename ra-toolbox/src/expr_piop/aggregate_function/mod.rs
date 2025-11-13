@@ -1,6 +1,5 @@
-use crate::expr_piop::impl_expr_piop_deep_clone;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{PrimeField, Zero};
+use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -10,18 +9,15 @@ use ark_piop::{
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use col_toolbox::{
-    inclusion_check::{
-        self, InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput,
-    },
+    inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
     multiplicity_check::{
         MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
     },
     sign_check::{self, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
     supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
-use datafusion::{arrow::compute::kernels::aggregate, logical_expr::expr::AggregateFunction};
+use datafusion::logical_expr::expr::AggregateFunction;
 use derivative::Derivative;
-use std::collections::BTreeMap;
 
 const AGG_COUNT: &str = "count";
 const AGG_SUM: &str = "sum";
