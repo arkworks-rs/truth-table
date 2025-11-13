@@ -45,7 +45,7 @@ fn default_output_dir(is_bench: bool) -> PathBuf {
 impl Runnable for DataGen {
     async fn run(self) -> Result<()> {
         let scale = if self.test {
-            0.001
+            0.0001
         } else if self.bench {
             0.1
         } else {
