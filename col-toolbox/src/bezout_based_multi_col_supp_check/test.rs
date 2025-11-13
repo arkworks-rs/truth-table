@@ -306,26 +306,6 @@ fn build_tracked_table<
     Ok(TrackedTable::new(None, tracked_polys, nv))
 }
 
-fn build_tracked_poly<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
-    values: &[F],
-    expected_len: usize,
-    label: &str,
-) -> SnarkResult<TrackedPoly<F, MvPCS, UvPCS>> {
-    assert_eq!(
-        values.len(),
-        expected_len,
-        "{label} length must match support table length"
-    );
-    assert!(
-        expected_len.is_power_of_two(),
-        "{label} length must be a power of two"
-    );
-
-    let nv = expected_len.trailing_zeros() as usize;
-    prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, values))
-}
-
 fn track_oracle_cached<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

@@ -325,7 +325,7 @@ where
         ))
     }
     fn truncate_activator_mle(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        _prover: &mut Prover<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> MLE<F> {
         if let Some(activator) = col.activator_tracked_poly() {

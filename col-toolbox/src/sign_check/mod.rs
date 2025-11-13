@@ -14,7 +14,7 @@ use crate::{
     inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle, errors::DataTypeError};
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -85,7 +85,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
         // TODO
         Ok(())
     }

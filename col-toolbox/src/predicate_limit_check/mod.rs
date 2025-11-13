@@ -202,7 +202,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             output_predicate,
             limit,
         } = input;
-        let limit_f = F::from(limit as u64);
+        let _limit_f = F::from(limit as u64);
         let (limit_mask_poly, mask_size_f) = Self::limit_mask_poly(&input_predicate, limit)?;
         let mask_key_challenge = prover.get_and_append_challenge(b"predicate_limit_mask_key")?;
         let mask_key = format!("{:?}", mask_key_challenge.into_bigint());
@@ -258,7 +258,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             output_predicate_oracle,
             limit,
         } = input;
-        let limit_f = F::from(limit as u64);
+        let _limit_f = F::from(limit as u64);
         let mask_key_challenge = verifier.get_and_append_challenge(b"predicate_limit_mask_key")?;
         let mask_key = format!("{:?}", mask_key_challenge.into_bigint());
         let mask_size_f = verifier.miscellaneous_field_element(&mask_key)?;

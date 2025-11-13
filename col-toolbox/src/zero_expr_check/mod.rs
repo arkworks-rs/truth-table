@@ -16,8 +16,6 @@ use crate::{
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 
-#[cfg(feature = "honest-prover")]
-use ark_piop::prover::errors::{HonestProverError, ProverError};
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
