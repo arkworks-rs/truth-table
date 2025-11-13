@@ -7,7 +7,6 @@ edition = "2024"
 truthtable-core = { path = "../truthtable-core" }
 proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
-ark-std = { workspace = true }
 ark-piop = { workspace = true, features = ["test-utils"] }
 ark-ff.workspace = true
 ark-serialize = { workspace = true }
@@ -15,10 +14,7 @@ datafusion = { workspace = true, features = ["parquet"] }
 tokio.workspace = true
 ark-test-curves.workspace = true
 anyhow = "1"
-bincode = "1"
-either.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
-rayon = { workspace = true, optional = true }
 indexmap = { workspace = true }
 async-trait = "0.1"
 tpch-data = { path = "../tpch-data" }
@@ -42,12 +38,10 @@ default = ["std", "parallel"]
 std = []
 parallel = [
     "std",
-    "rayon",
     "ark-ff/parallel",
     "ark-serialize/parallel",
     "ark-piop/parallel",
     "arithmetic/parallel",
-    "ark-std/parallel",
     "truthtable-core/parallel",
 ]
 honest-prover = ["ark-piop/honest-prover", "truthtable-core/honest-prover"]

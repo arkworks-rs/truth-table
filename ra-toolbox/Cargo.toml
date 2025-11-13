@@ -7,17 +7,13 @@ edition = "2024"
 # Local dependencies
 arithmetic = { path = "../arithmetic" }
 col-toolbox = { path = "../col-toolbox" }
-tpch-data = { path = "../tpch-data" }
 # arkworks dependencies
 ark-std = { workspace = true }
 ark-ff = { workspace = true }
-ark-poly = { workspace = true }
 ark-piop = { workspace = true }
 # Other dependencies
 derivative = { workspace = true }
-rayon = { workspace = true, optional = true }
 datafusion = { workspace = true }
-tokio = { version = "1", features = ["full"] }
 indexmap = { workspace = true }
 
 [dev-dependencies]
@@ -27,20 +23,12 @@ ark-piop = { workspace = true, features = ["test-utils"] }
 
 [features]
 default = ["std", "parallel"]
-std = [
-    "ark-piop/std",
-    "col-toolbox/std",
-    "ark-ff/std",
-    "ark-poly/std",
-    "ark-std/std",
-]
+std = ["ark-piop/std", "col-toolbox/std", "ark-ff/std", "ark-std/std"]
 parallel = [
     "std",
     "ark-piop/parallel",
     "col-toolbox/parallel",
     "ark-ff/parallel",
-    "ark-poly/parallel",
     "ark-std/parallel",
-    "rayon",
 ]
 honest-prover = ["ark-piop/honest-prover", "col-toolbox/honest-prover"]

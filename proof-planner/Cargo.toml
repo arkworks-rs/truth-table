@@ -8,7 +8,6 @@ ark-serialize = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
-itertools = { workspace = true }
 tokio = { workspace = true }
 tpch-data = { path = "../tpch-data" }
 truthtable-core = { path = "../truthtable-core" }
