@@ -143,10 +143,11 @@ where
             aggregated_col,
             input_col,
         } = input;
-        match aggregate.func.name() {
+        let func_name = aggregate.func.name();
+        match func_name {
             // Some wirings need to be done for the count
-            "count" => Ok(()),
-            "sum" => {
+            AGG_COUNT => Ok(()),
+            AGG_SUM => {
                 let multiplicity_check_prover_input = MultiplicityCheckProverInput {
                     fxs: vec![input_folded_col],
                     gxs: vec![output_folded_col],
@@ -156,7 +157,7 @@ where
                 MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
                 Ok(())
             },
-            "max" => Self::prove_max_min(
+            AGG_MAX => Self::prove_max_min(
                 aggregated_col,
                 input_folded_col,
                 output_folded_col,
@@ -164,7 +165,7 @@ where
                 sign_check::Sign::NoneNegative,
                 prover,
             ),
-            "min" => Self::prove_max_min(
+            AGG_MIN => Self::prove_max_min(
                 aggregated_col,
                 input_folded_col,
                 output_folded_col,
@@ -173,29 +174,29 @@ where
                 prover,
             ),
             // TODO
-            "avg" => Ok(()),
-            "approx_distinct" => {
+            AGG_AVG => Ok(()),
+            AGG_APPROX_DISTINCT => {
                 todo!("AggregateFunctionExprPIOP::prove_inner approx_distinct")
             },
-            "var" | "variance" => todo!("AggregateFunctionExprPIOP::prove_inner variance"),
-            "var_samp" | "variance_samp" => {
+            AGG_VAR | AGG_VARIANCE => todo!("AggregateFunctionExprPIOP::prove_inner variance"),
+            AGG_VAR_SAMP | AGG_VARIANCE_SAMP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner variance_samp")
             },
-            "var_pop" | "variance_pop" => {
+            AGG_VAR_POP | AGG_VARIANCE_POP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner variance_pop")
             },
-            "stddev" | "std" => todo!("AggregateFunctionExprPIOP::prove_inner stddev"),
-            "stddev_samp" | "std_samp" => {
+            AGG_STDDEV | AGG_STD => todo!("AggregateFunctionExprPIOP::prove_inner stddev"),
+            AGG_STDDEV_SAMP | AGG_STD_SAMP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner stddev_samp")
             },
-            "stddev_pop" | "std_pop" => {
+            AGG_STDDEV_POP | AGG_STD_POP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner stddev_pop")
             },
-            "median" => todo!("AggregateFunctionExprPIOP::prove_inner median"),
-            "first" | "first_value" => {
+            AGG_MEDIAN => todo!("AggregateFunctionExprPIOP::prove_inner median"),
+            AGG_FIRST | AGG_FIRST_VALUE => {
                 todo!("AggregateFunctionExprPIOP::prove_inner first_value")
             },
-            "last" | "last_value" => {
+            AGG_LAST | AGG_LAST_VALUE => {
                 todo!("AggregateFunctionExprPIOP::prove_inner last_value")
             },
             other => todo!("AggregateFunctionExprPIOP::prove_inner unsupported aggregate {other}"),
