@@ -1,18 +1,13 @@
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
-    verifier::{
-        Verifier,
-        structs::oracle::{Oracle, TrackedOracle},
-    },
 };
 use ark_poly::{
-    DenseMVPolynomial, Polynomial,
+    DenseMVPolynomial,
     multivariate::{SparsePolynomial, SparseTerm, Term},
 };
-use datafusion::arrow::datatypes::DataType;
 
 use super::SignCheckPIOP;
 
@@ -23,23 +18,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub(crate) fn range_poly(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        data_type: &DataType,
-    ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
-        let (nv, sparse_poly) = match data_type {
-            DataType::UInt8 => (8, Self::sparse_range_poly_by_nv(8)?),
-            DataType::UInt16 => (16, Self::sparse_range_poly_by_nv(16)?),
-            DataType::UInt32 => (32, Self::sparse_range_poly_by_nv(32)?),
-            DataType::UInt64 => (64, Self::sparse_range_poly_by_nv(64)?),
-            _ => return Err(SnarkError::DummyError),
-        };
-        let tracked_poly = verifier.track_oracle(Oracle::new_multivariate(nv, move |x| {
-            Ok(sparse_poly.evaluate(&x))
-        }));
-        Ok(tracked_poly)
-    }
-
     pub(crate) fn sparse_range_poly_by_nv(
         nv: usize,
     ) -> SnarkResult<SparsePolynomial<F, SparseTerm>> {

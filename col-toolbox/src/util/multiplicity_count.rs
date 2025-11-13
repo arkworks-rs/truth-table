@@ -30,26 +30,4 @@ where
     mults_map
 }
 
-pub fn col_multiplicity_count<F, MvPCS, UvPCS>(col: &TrackedCol<F, MvPCS, UvPCS>) -> HashMap<F, u64>
-where
-    F: PrimeField + PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    let poly_evals = col.data_tracked_poly().evaluations();
-    match col.activator_tracked_poly() {
-        Some(ref sel) => vec_multiplicity_count::<F>(&poly_evals, Some(&sel.evaluations())),
-        None => vec_multiplicity_count::<F>(&poly_evals, None),
-    }
-}
 
-pub fn mle_multiplicity_count<F: PrimeField + PrimeField>(
-    poly: &MLE<F>,
-    sel: &Option<MLE<F>>,
-) -> HashMap<F, u64> {
-    let poly_evals = poly.evaluations().clone();
-    match sel {
-        Some(sel) => vec_multiplicity_count::<F>(&poly_evals, Some(&sel.evaluations())),
-        None => vec_multiplicity_count::<F>(&poly_evals, None),
-    }
-}

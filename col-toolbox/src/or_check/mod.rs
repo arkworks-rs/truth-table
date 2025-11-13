@@ -100,7 +100,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             }
         }
 
-        return Ok(());
+        Ok(())
 
         // let legit_activator_tracked_poly = MLE
         // let check_poly =

@@ -2,7 +2,7 @@ use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
@@ -15,7 +15,6 @@ use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
@@ -71,7 +70,7 @@ where
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
         Ok(())
     }
 

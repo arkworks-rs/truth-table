@@ -7,7 +7,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::Prover,
     structs::TrackerID,
     test_utils::test_prelude,
     verifier::{Verifier, structs::oracle::TrackedOracle},

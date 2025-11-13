@@ -31,7 +31,7 @@ where
         .as_ref()
         .map(|sel| sel.evaluations());
 
-    let mut included_col_mults_map = match included_col.activator_tracked_poly() {
+    let included_col_mults_map = match included_col.activator_tracked_poly() {
         Some(sel) => vec_multiplicity_count::<F>(&included_col_evals, Some(&sel.evaluations())),
         None => vec_multiplicity_count::<F>(&included_col_evals, None),
     };
@@ -39,19 +39,13 @@ where
     let mut super_col_mult_evals = Vec::with_capacity(super_col_len);
 
     for (i, &val) in super_col_evals.iter().enumerate() {
-        if let Some(ref activator_evals) = super_col_activator_evals {
-            if activator_evals[i] == F::zero() {
-                super_col_mult_evals.push(F::zero());
-                continue;
-            }
+        if let Some(activator_evals) = &super_col_activator_evals && activator_evals[i] == F::zero() {
+            super_col_mult_evals.push(F::zero());
+            continue;
         }
 
-        if let Some(&included_col_mult) = included_col_mults_map.get(&val) {
-            super_col_mult_evals.push(F::from(included_col_mult));
-            included_col_mults_map.insert(val, 0);
-        } else {
-            super_col_mult_evals.push(F::zero());
-        }
+        let multiplicity = included_col_mults_map.get(&val).copied().unwrap_or(0);
+        super_col_mult_evals.push(F::from(multiplicity));
     }
 
     MLE::from_evaluations_vec(super_col_nv, super_col_mult_evals)

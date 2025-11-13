@@ -6,7 +6,6 @@
 
 #[cfg(test)]
 mod test;
-pub(crate) mod utils;
 
 use super::no_dup_check::NoDupPIOP;
 use crate::{
