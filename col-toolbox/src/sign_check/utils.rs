@@ -9,12 +9,10 @@ use ark_piop::{
     },
 };
 use ark_poly::{
-    DenseMVPolynomial, DenseMultilinearExtension, Polynomial,
+    DenseMVPolynomial, Polynomial,
     multivariate::{SparsePolynomial, SparseTerm, Term},
 };
-use ark_std::iterable::Iterable;
 use datafusion::arrow::datatypes::DataType;
-use rayon::vec;
 
 use super::SignCheckPIOP;
 
@@ -84,12 +82,12 @@ mod tests {
             SignCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::dense_range_poly_by_nv(8)
                 .unwrap();
         assert_eq!(
-            u8_sparse_poly.evaluate(&to_field_vec!(vec![1, 1, 1, 0, 0, 0, 0, 0], Fr)),
+            u8_sparse_poly.evaluate(&to_field_vec!([1, 1, 1, 0, 0, 0, 0, 0], Fr)),
             Fr::from(7)
         );
 
         assert_eq!(
-            u8_dense_poly.evaluate(&to_field_vec!(vec![1, 1, 1, 0, 0, 0, 0, 0], Fr)),
+            u8_dense_poly.evaluate(&to_field_vec!([1, 1, 1, 0, 0, 0, 0, 0], Fr)),
             Fr::from(7)
         );
         let u16_sparse_poly =
@@ -100,7 +98,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             u16_sparse_poly.evaluate(&to_field_vec!(
-                vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
                 Fr
             )),
             Fr::from(2048)
@@ -108,7 +106,7 @@ mod tests {
 
         assert_eq!(
             u16_dense_poly.evaluate(&to_field_vec!(
-                vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
                 Fr
             )),
             Fr::from(2048)

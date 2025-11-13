@@ -96,7 +96,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierInput = BezoutBasedMultiNoDupVerifierInput<F, MvPCS, UvPCS>;
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         // TODO
         Ok(())
     }

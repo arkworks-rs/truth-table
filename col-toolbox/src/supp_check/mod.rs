@@ -12,12 +12,12 @@ use super::no_dup_check::NoDupPIOP;
 use crate::{
     inclusion_check::{
         HintedInclusionCheckPIOP, HintedInclusionCheckProverInput,
-        HintedInclusionCheckVerifierInput, InclusionCheckPIOP, utils::calc_inclusion_multiplicity,
+        HintedInclusionCheckVerifierInput, utils::calc_inclusion_multiplicity,
     },
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-use std::{collections::BTreeMap, hint};
+use std::collections::BTreeMap;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;

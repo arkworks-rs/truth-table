@@ -165,12 +165,3 @@ where
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    #[ignore = "fill in zero expression check tests"]
-    fn zero_expr_check_placeholder() {
-        assert!(true);
-    }
-}

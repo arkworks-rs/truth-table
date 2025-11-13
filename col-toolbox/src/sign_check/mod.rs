@@ -28,11 +28,9 @@ use ark_piop::{
     },
 };
 use ark_poly::Polynomial;
-use ark_std::{cfg_iter, end_timer, start_timer};
 use datafusion::arrow::datatypes::DataType;
 use derivative::Derivative;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use std::{convert::TryInto, marker::PhantomData, sync::Arc};
+use std::{convert::TryInto, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Sign {

@@ -16,16 +16,12 @@ use ark_piop::{
         errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
         structs::polynomial::TrackedPoly,
     },
-    verifier::{
-        Verifier,
-        structs::oracle::{InnerOracle, TrackedOracle},
-    },
+    verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
 use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::{
-    predicate_limit_check::{PredicateLimitCheck, PredicateLimitCheckProverInput},
     prescribed_permutation_check::{
         PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
         PrescribedPermutationPIOPVerifierInput, shift_permutation_mle, shift_permutation_oracle,
