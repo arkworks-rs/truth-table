@@ -240,7 +240,7 @@ fn sort_based_multi_no_dup_is_sound() -> SnarkResult<()> {
 
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sort_based_multi_no_dup_test_helper<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -352,7 +352,7 @@ pub(crate) fn sort_based_multi_no_dup_test_helper<
     verifier.verify()?;
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sort_based_multi_no_dup_soundness_helper<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

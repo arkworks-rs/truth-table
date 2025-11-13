@@ -173,7 +173,7 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
     )?;
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 fn set_inter_union_test_soundness_helper<
     Fr: PrimeField,
     MvPCS: PCS<Fr, Poly = MLE<Fr>>,
@@ -230,7 +230,7 @@ fn set_inter_union_test_soundness_helper<
 
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 fn set_inter_union_test_helper<
     Fr: PrimeField,
     MvPCS: PCS<Fr, Poly = MLE<Fr>>,

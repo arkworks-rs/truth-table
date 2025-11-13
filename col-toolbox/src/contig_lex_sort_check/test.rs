@@ -417,7 +417,7 @@ fn multi_col_none_actv_contig_lex_sort_is_sound() -> SnarkResult<()> {
     )?;
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn multi_col_sort_check_test_helper<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -530,7 +530,7 @@ pub(crate) fn multi_col_sort_check_test_helper<
     verifier.verify()?;
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn multi_col_sort_check_soundness_helper<
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,

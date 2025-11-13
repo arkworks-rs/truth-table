@@ -109,7 +109,7 @@ fn or_check_test_helper<
         .iter()
         .map(|in_evals| {
             prover
-                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &in_evals))
+                .track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, in_evals))
                 .unwrap()
         })
         .collect();

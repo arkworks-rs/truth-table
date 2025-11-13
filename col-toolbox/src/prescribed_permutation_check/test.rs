@@ -77,7 +77,7 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
     let expected = shift_permutation_mle::<Fr>(log_size, shift, right).evaluations();
     match oracle.inner() {
         InnerOracle::Multivariate(eval_fn) => {
-            for idx in 0..(1 << log_size) {
+            for (idx, &expected_value) in expected.iter().enumerate() {
                 let point: Vec<Fr> = (0..log_size)
                     .map(|bit| {
                         if (idx >> bit) & 1 == 1 {
@@ -88,7 +88,7 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
                     })
                     .collect();
                 let value = eval_fn(point.clone()).expect("oracle evaluation");
-                assert_eq!(value, expected[idx]);
+                assert_eq!(value, expected_value);
             }
         },
         _ => panic!("shift_permutation_oracle should be multivariate"),
