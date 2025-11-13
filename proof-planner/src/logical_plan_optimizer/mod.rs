@@ -21,4 +21,4 @@ pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
 
     optimizer.optimize(plan.clone(), &config, observer).unwrap()
 }
-fn observer(plan: &LogicalPlan, rule: &dyn OptimizerRule) {}
+fn observer(_plan: &LogicalPlan, _rule: &dyn OptimizerRule) {}

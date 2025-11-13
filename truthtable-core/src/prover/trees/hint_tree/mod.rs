@@ -496,19 +496,3 @@ fn add_activator_and_pad_power_of_two(batches: Vec<RecordBatch>) -> DFResult<Vec
 
     Ok(new_batches)
 }
-
-fn ensure_activator_filter(plan: LogicalPlan) -> LogicalPlan {
-    if plan
-        .schema()
-        .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        .is_err()
-    {
-        return plan;
-    }
-
-    LogicalPlanBuilder::from(plan)
-        .filter(col(ACTIVATOR_COL_NAME))
-        .expect("failed to add activator filter to hint plan")
-        .build()
-        .expect("failed to build filtered hint plan")
-}

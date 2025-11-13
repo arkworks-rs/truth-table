@@ -15,13 +15,11 @@ use arithmetic::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
 };
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema},
-    common::scalar,
-    logical_expr::{Expr, LogicalPlan},
+    arrow::datatypes::{Field, Schema},
+    logical_expr::Expr,
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
@@ -167,7 +165,6 @@ where
 
             piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
         } else {
-            let target_type = cast_expr.data_type.clone();
 
             let child_table = match piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
             {
@@ -330,7 +327,6 @@ where
                 table,
             );
         } else {
-            let target_type = cast_expr.data_type.clone();
 
             let child_table =
                 match piop_tree.tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY) {

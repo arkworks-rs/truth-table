@@ -37,10 +37,10 @@ where
     }
 
     fn from_lp(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -69,7 +69,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -97,16 +97,16 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
     fn from_lp(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -119,7 +119,7 @@ where
     }
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -127,7 +127,7 @@ where
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

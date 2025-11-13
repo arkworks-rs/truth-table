@@ -567,7 +567,7 @@ where
             df::LogicalPlan::Analyze(_a) => todo!(),
             df::LogicalPlan::Distinct(_d) => todo!(),
             df::LogicalPlan::Subquery(_sq) => todo!(),
-            df::LogicalPlan::SubqueryAlias(_sqa) => {
+            df::LogicalPlan::SubqueryAlias(_) => {
                 Self::new(
                     Arc::new(
                         <VerifierSubqueryAliasNode<F, MvPCS, UvPCS> as VerifierNode<
@@ -584,9 +584,9 @@ where
                     verifier_ctx,
                 )
             },
-            df::LogicalPlan::Union(_u) => todo!(),
+            df::LogicalPlan::Union(_) => todo!(),
             df::LogicalPlan::Extension(_ext) => todo!(),
-            df::LogicalPlan::Join(_j) => Self::new(
+            df::LogicalPlan::Join(_) => Self::new(
                 Arc::new(<VerifierJoinNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,
@@ -599,7 +599,7 @@ where
                 )),
                 verifier_ctx,
             ),
-            df::LogicalPlan::Limit(l) => Self::new(
+            df::LogicalPlan::Limit(_) => Self::new(
                 Arc::new(<VerifierJoinNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
                     MvPCS,

@@ -42,10 +42,10 @@ where
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_node_id: NodeId,
+        _expr: Expr,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -55,10 +55,10 @@ where
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
     fn from_lp(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -104,7 +104,7 @@ where
     /// function.
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
     }

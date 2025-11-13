@@ -612,7 +612,7 @@ where
                 )),
                 prover_ctx,
             ),
-            df::LogicalPlan::Limit(l) => Self::new(
+            df::LogicalPlan::Limit(_) => Self::new(
                 Arc::new(<crate::proof_nodes::lps::limit::ProverLimitNode<
                     F,
                     MvPCS,

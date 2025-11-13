@@ -1,9 +1,4 @@
-use arithmetic::col::TrackedCol;
 use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
 use std::collections::HashMap;
 
 // Returns a map from the unique evaluations of col to their multiplicities
@@ -29,5 +24,3 @@ where
 
     mults_map
 }
-
-

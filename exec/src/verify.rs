@@ -16,8 +16,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use indexmap::IndexMap;
 use proof_planner::create_verifier_proof_tree_with_ctx;
 use truthtable_core::verifier::trees::{
-    piop_tree::{VerifierPIOPTree, display::DisplayableVerifierPIOPTree},
-    tracked_tree::VerifierTrackedTree,
+    piop_tree::VerifierPIOPTree, tracked_tree::VerifierTrackedTree,
 };
 
 use crate::structs::{Artifact, TTVk};

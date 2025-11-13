@@ -11,7 +11,7 @@ use truthtable_core::{
 };
 pub(crate) fn build_prover_proof_tree<F, MvPCS, UvPCS>(
     df_session_ctx: &SessionContext,
-    unoptimized_plan: LogicalPlan,
+    _unoptimized_plan: LogicalPlan,
     optimized_plan: LogicalPlan,
     prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
 ) -> ProverProofTree<F, MvPCS, UvPCS>
@@ -27,7 +27,7 @@ where
 
 pub(crate) fn build_verifier_proof_tree<F, MvPCS, UvPCS>(
     df_session_ctx: &SessionContext,
-    unoptimized_plan: LogicalPlan,
+    _unoptimized_plan: LogicalPlan,
     optimized_plan: LogicalPlan,
     verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
 ) -> VerifierProofTree<F, MvPCS, UvPCS>

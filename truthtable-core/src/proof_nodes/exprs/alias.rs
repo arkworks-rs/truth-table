@@ -11,9 +11,7 @@ use arithmetic::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
-    prover::Prover,
 };
 use datafusion::{
     arrow::datatypes::{Field, FieldRef, Schema, SchemaRef},
@@ -21,7 +19,6 @@ use datafusion::{
     logical_expr::Expr,
     prelude::SessionContext,
 };
-use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
 

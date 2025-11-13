@@ -47,7 +47,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
     }
@@ -143,7 +143,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         IndexMap::new()
     }
@@ -152,7 +152,7 @@ where
         ctx: &SessionContext,
         verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

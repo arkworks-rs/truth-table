@@ -224,7 +224,7 @@ where
         let mut tracked_count = 0;
 
         let mut process_table =
-            |label: String, arith_table: ArithTable<F>| -> TrackedTable<F, MvPCS, UvPCS> {
+            |_label: String, arith_table: ArithTable<F>| -> TrackedTable<F, MvPCS, UvPCS> {
                 let num_total_cols = arith_table.num_total_cols();
                 if num_total_cols == 0 {
                     return TrackedTable::new(

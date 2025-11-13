@@ -38,10 +38,10 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -111,10 +111,10 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     fn from_lp(
-        ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -141,7 +141,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         let mut hint_generation_plans = IndexMap::new();
 

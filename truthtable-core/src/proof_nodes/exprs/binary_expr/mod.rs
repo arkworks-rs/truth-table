@@ -22,7 +22,7 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::datatypes::{DataType, Field, FieldRef},
+    arrow::datatypes::{DataType, Field},
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
 };
 use indexmap::IndexMap;

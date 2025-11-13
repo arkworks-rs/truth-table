@@ -29,14 +29,6 @@ fn escape_edge_label(raw: &str) -> String {
         .replace('\r', "\\r")
 }
 
-fn hint_rows_cols(batches: Option<&Vec<RecordBatch>>) -> (usize, usize) {
-    if let Some(batches) = batches {
-        let (rows, cols, _) = rows_cols_activated(batches);
-        (rows, cols)
-    } else {
-        (0, 0)
-    }
-}
 
 /// Display helper that renders a Graphviz DOT tree for a ProverHintTree.
 pub struct DisplayableProverHintTree<'a, F, MvPCS, UvPCS>

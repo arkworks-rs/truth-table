@@ -11,7 +11,6 @@ use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
     setup::structs::SNARKPk,
-    util::display,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};

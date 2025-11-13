@@ -13,14 +13,13 @@ use arithmetic::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::datatypes::{FieldRef, SchemaRef},
+    arrow::datatypes::FieldRef,
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
-    prelude::{SessionContext, col},
+    prelude::SessionContext,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -95,20 +94,7 @@ where
             None => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
-        // if base_plan
-        //     .schema()
-        //     .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        //     .is_ok()
-        //     && !projection_exprs.iter().any(|expr| {
-        //         matches!(
-        //             expr,
-        //             Expr::Column(col) if col.name() == ACTIVATOR_COL_NAME
-        //         )
-        //     })
-        // {
-        //     projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        // }
+        let projection_exprs = vec![Expr::Column(column_expr.clone())];
 
         let output_plan = LogicalPlanBuilder::from(base_plan.clone())
             .project(projection_exprs)
@@ -257,20 +243,7 @@ where
             None => return IndexMap::new(),
         };
 
-        let mut projection_exprs = vec![Expr::Column(column_expr.clone())];
-        // if base_plan
-        //     .schema()
-        //     .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-        //     .is_ok()
-        //     && !projection_exprs.iter().any(|expr| {
-        //         matches!(
-        //             expr,
-        //             Expr::Column(col) if col.name() == ACTIVATOR_COL_NAME
-        //         )
-        //     })
-        // {
-        //     projection_exprs.push(col(ACTIVATOR_COL_NAME));
-        // }
+        let projection_exprs = vec![Expr::Column(column_expr.clone())];
 
         let output_plan = LogicalPlanBuilder::from(base_plan)
             .project(projection_exprs)
@@ -367,10 +340,10 @@ impl ProverColumnExprNode {
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
-        if let Some(table) = piop_tree.tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY) {
-            if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
-                return col;
-            }
+        if let Some(table) = piop_tree.tracked_table(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+            && let Some(col) = table.tracked_col_by_name(&column_expr.name)
+        {
+            return col;
         }
 
         if let Some(relation) = &column_expr.relation {
@@ -389,10 +362,10 @@ impl ProverColumnExprNode {
                     continue;
                 }
 
-                if let Some(table) = piop_tree.tracked_table(node_id, OUTPUT_PLAN_KEY) {
-                    if let Some(col) = table.tracked_col_by_name(&column_expr.name) {
-                        return col;
-                    }
+                if let Some(table) = piop_tree.tracked_table(node_id, OUTPUT_PLAN_KEY)
+                    && let Some(col) = table.tracked_col_by_name(&column_expr.name)
+                {
+                    return col;
                 }
             }
         }
@@ -417,10 +390,9 @@ impl VerifierColumnExprNode {
     {
         let ctx_lp_node = self.ctx_lp_node(piop_tree.proof_tree());
         if let Some(table) = piop_tree.tracked_table_oracle(&ctx_lp_node.node_id(), OUTPUT_PLAN_KEY)
+            && let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name)
         {
-            if let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name) {
-                return col;
-            }
+            return col;
         }
 
         if let Some(relation) = &column_expr.relation {
@@ -439,10 +411,10 @@ impl VerifierColumnExprNode {
                     continue;
                 }
 
-                if let Some(table) = piop_tree.tracked_table_oracle(node_id, OUTPUT_PLAN_KEY) {
-                    if let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name) {
-                        return col;
-                    }
+                if let Some(table) = piop_tree.tracked_table_oracle(node_id, OUTPUT_PLAN_KEY)
+                    && let Some(col) = table.tracked_col_oracle_by_name(&column_expr.name)
+                {
+                    return col;
                 }
             }
         }

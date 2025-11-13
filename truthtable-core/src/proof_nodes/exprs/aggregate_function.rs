@@ -14,7 +14,6 @@ use crate::{
 };
 use arithmetic::{
     ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, ctx::SharedCtx,
-    table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -23,13 +22,10 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::Prover,
-    verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
     arrow::datatypes::SchemaRef, common::Statistics, logical_expr::Expr, prelude::SessionContext,
 };
-use datafusion_expr::LogicalPlan;
-use indexmap::IndexMap;
 use ra_toolbox::expr_piop::aggregate_function::{
     AggregateFunctionExprPIOP, AggregateFunctionPIOPProverInput, AggregateFunctionPIOPVerifierInput,
 };
@@ -115,7 +111,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut Prover<F, MvPCS, UvPCS>,
     ) {
         // let mut collected_cols = IndexMap::new();
@@ -336,7 +332,7 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         // let mut collected_cols = IndexMap::new();

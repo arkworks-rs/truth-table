@@ -211,7 +211,7 @@ where
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         self.input_prover_node.clone()
     }
