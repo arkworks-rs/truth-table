@@ -199,7 +199,7 @@ where
 
     /// Returns an iterator over the activated data elements
     /// Useful for testing and debugging
-    pub fn effective_iter(&self) -> impl IntoIterator<Item = F> {
+    pub fn effective_iter(&self) -> impl IntoIterator<Item = F> + use<F, MvPCS, UvPCS> {
         match &self.activator_tracked_poly {
             Some(activator) => self
                 .data_tracked_poly

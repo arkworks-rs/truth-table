@@ -24,7 +24,7 @@ use datafusion::arrow::{
 /// be mapped directly to field elements. No decoding functionality is provided
 /// (or needed) for now.
 macro_rules! impl_col_adapter_map {
-    ($array_ty:ty, $map:expr) => {
+    ($array_ty:ty, $map:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
             fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
                 Ok(collect_by_columns(self.len(), |idx| {
@@ -45,7 +45,7 @@ macro_rules! impl_col_adapter_map {
 /// This macro implements the `Encodable` trait for Arrow array types that are
 /// not supported yet
 macro_rules! impl_col_adapter_unsupported {
-    ($array_ty:ty, $name:expr) => {
+    ($array_ty:ty, $name:expr_2021) => {
         impl<F: PrimeField> Encodable<F> for $array_ty {
             fn encode(&self) -> Result<Vec<Vec<F>>, EncodeError> {
                 Err(EncodeError::TypeNotSupported($name.to_string()))
