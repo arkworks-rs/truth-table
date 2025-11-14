@@ -14,29 +14,23 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::Prover,
     verifier::{
         Verifier,
-        structs::oracle::{Oracle, TrackedOracle},
+        structs::oracle::Oracle,
     },
 };
-use ark_std::{end_timer, start_timer};
 use col_toolbox::{
     bezout_based_multi_col_supp_check::{
         BezoutMultiColSuppCheckPIOP, BezoutMultiColSuppCheckProverInput,
         BezoutMultiColSuppCheckVerifierInput,
     },
     inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
-    multiplicity_check::{
-        MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
-    },
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput, NoDupPIOP},
     set_intersec::{SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput},
-    supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput},
 };
-use datafusion::{functions::unicode::left, logical_expr::Join};
 use derivative::Derivative;
-use std::{env, marker::PhantomData, sync::Arc};
+use std::{env, marker::PhantomData};
 #[cfg(test)]
 mod test;
 

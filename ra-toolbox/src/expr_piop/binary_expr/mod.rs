@@ -5,13 +5,10 @@ use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError::ProverError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
-    },
+    prover::Prover,
     verifier::Verifier,
 };
 use datafusion::logical_expr::Operator;
@@ -92,6 +89,9 @@ where
             .iter()
             .any(|&size| size != 0 && size != target_size);
         if incompatible {
+            use ark_piop::errors::SnarkError::ProverError;
+            use ark_piop::prover::errors::HonestProverError::FalseClaim;
+            use ark_piop::prover::errors::ProverError::HonestProverError;
             return Err(ProverError(HonestProverError(FalseClaim)));
         }
 
@@ -102,6 +102,9 @@ where
             || !activators_match::<F, MvPCS, UvPCS>(left_act.clone(), output_act.clone())
             || !activators_match::<F, MvPCS, UvPCS>(right_act.clone(), output_act.clone())
         {
+            use ark_piop::errors::SnarkError::ProverError;
+            use ark_piop::prover::errors::HonestProverError::FalseClaim;
+            use ark_piop::prover::errors::ProverError::HonestProverError;
             return Err(ProverError(HonestProverError(FalseClaim)));
         }
         Ok(())

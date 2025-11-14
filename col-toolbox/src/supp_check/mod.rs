@@ -16,20 +16,15 @@ use crate::{
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-use std::collections::BTreeMap;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError, ProverError},
-        structs::polynomial::TrackedPoly,
-    },
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
@@ -151,12 +146,17 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        use std::collections::BTreeMap;
+
         let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
         for elem in input.supp.effective_iter() {
             *bookkeeping_map.entry(elem).or_insert(0) += 1;
         }
         for key in bookkeeping_map.keys() {
             if *bookkeeping_map.get(key).unwrap() != 1 {
+                use ark_piop::errors::SnarkError;
+                use ark_piop::prover::errors::HonestProverError;
+                use ark_piop::prover::errors::ProverError;
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));
@@ -167,6 +167,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
         for (_, count) in bookkeeping_map.iter() {
             if *count != 0 {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));
@@ -250,12 +255,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        use std::collections::BTreeMap;
+
         let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
         for elem in input.supp.effective_iter() {
             *bookkeeping_map.entry(elem).or_insert(0) += 1;
         }
         for key in bookkeeping_map.keys() {
             if *bookkeeping_map.get(key).unwrap() != 1 {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));
@@ -266,6 +278,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
         for (_, count) in bookkeeping_map.iter() {
             if *count != 0 {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));

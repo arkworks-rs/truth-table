@@ -2,8 +2,6 @@ use crate::expr_piop::binary_expr::comparison::{
     InnerComparisonPIOPProverInput, InnerComparisonPIOPVerifierInput,
 };
 
-use super::{BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -13,10 +11,7 @@ use ark_piop::{
     prover::Prover,
     verifier::Verifier,
 };
-use col_toolbox::{
-    binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
-    sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
-};
+use col_toolbox::sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
 use std::marker::PhantomData;
 
 pub struct LtBinaryExprPIOP<

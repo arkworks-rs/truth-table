@@ -21,7 +21,6 @@ use datafusion_expr::{
     logical_plan::{FetchType, SkipType},
 };
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::limit_check::{LimitPIOP, LimitPIOPProverInput, LimitPIOPVerifierInput};
 use std::sync::Arc;
 
 pub struct ProverLimitNode<F, MvPCS, UvPCS>

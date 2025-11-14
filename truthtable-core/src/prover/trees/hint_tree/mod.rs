@@ -4,7 +4,7 @@ pub mod display;
 pub mod tests;
 use crate::proof_nodes::{
     id::NodeId,
-    lps::{join::ProverJoinNode, prover::ProverTableScanNode},
+    lps::prover::ProverTableScanNode,
 };
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;

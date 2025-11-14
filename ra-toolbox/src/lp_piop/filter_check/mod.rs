@@ -7,13 +7,10 @@ use arithmetic::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError::ProverError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
-    },
+    prover::Prover,
     verifier::Verifier,
 };
 use datafusion::logical_expr::Filter;
@@ -108,6 +105,9 @@ where
         // Check if the zero polynomial is indeed zero on the domain
         for val in zero_poly.evaluations().iter() {
             if !val.is_zero() {
+                use ark_piop::errors::SnarkError::ProverError;
+                use ark_piop::prover::errors::HonestProverError::FalseClaim;
+                use ark_piop::prover::errors::ProverError::HonestProverError;
                 return Err(ProverError(HonestProverError(FalseClaim)));
             }
         }

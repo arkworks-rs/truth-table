@@ -1,19 +1,15 @@
-use std::collections::BTreeMap;
+#[cfg(feature = "honest-prover")]
+use crate::multiplicity_check::MultiplicityCheck;
 
-use super::{MultiplicityCheck, MultiplicityCheckProverInput};
+use super::MultiplicityCheckProverInput;
 use ark_ff::PrimeField;
+#[cfg(feature = "honest-prover")]
+use ark_piop::errors::SnarkResult;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{
-        InputShapeError::{EmptyInput, InputLengthMismatch},
-        SnarkError, SnarkResult,
-    },
     pcs::PCS,
     piop::DeepClone,
-    prover::{
-        Prover,
-        errors::{HonestProverError, ProverError},
-    },
+    prover::Prover,
 };
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> DeepClone<F, MvPCS, UvPCS>
     for MultiplicityCheckProverInput<F, MvPCS, UvPCS>
@@ -63,7 +59,14 @@ where
     ) -> SnarkResult<()> {
         // Check that we do actually have some polynomial on the left hand side
 
+        use ark_piop::errors::InputShapeError::EmptyInput;
+        use std::collections::BTreeMap;
         if input.fxs.is_empty() {
+            use ark_piop::{
+                errors::SnarkError,
+                prover::errors::{HonestProverError, ProverError},
+            };
+
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(EmptyInput),
             )));
@@ -71,6 +74,9 @@ where
         // Check that we have as many multiplicity polynomials as we do polynomials on
         // the left side
         if input.fxs.len() != input.mfxs.len() {
+            use ark_piop::errors::InputShapeError::InputLengthMismatch;
+            use ark_piop::errors::SnarkError;
+            use ark_piop::prover::errors::{HonestProverError, ProverError};
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(InputLengthMismatch {
                     expected: input.fxs.len(),
@@ -81,6 +87,11 @@ where
 
         // Check that we do actually have some polynomial on the right hand side
         if input.gxs.is_empty() {
+            use ark_piop::errors::InputShapeError::EmptyInput;
+            use ark_piop::{
+                errors::SnarkError,
+                prover::errors::{HonestProverError, ProverError},
+            };
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(EmptyInput),
             )));
@@ -88,6 +99,9 @@ where
         // Check that we have as many multiplicity polynomials as we do polynomials on
         // the right side
         if input.gxs.len() != input.mgxs.len() {
+            use ark_piop::errors::InputShapeError::InputLengthMismatch;
+            use ark_piop::prover::errors::ProverError;
+            use ark_piop::{errors::SnarkError, prover::errors::HonestProverError};
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::WrongInputShape(InputLengthMismatch {
                     expected: input.gxs.len(),
@@ -195,6 +209,11 @@ where
 
         for (_, count) in bookkeeping_map.iter() {
             if *count != F::zero() {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));

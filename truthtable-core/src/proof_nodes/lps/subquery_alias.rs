@@ -9,7 +9,6 @@ use crate::{
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
 };
 use datafusion::prelude::SessionContext;

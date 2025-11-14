@@ -30,15 +30,8 @@ pub mod unnest;
 pub mod wildcard;
 pub mod window_function;
 
-use std::sync::Arc;
 
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    piop::PIOP,
-};
-use datafusion::prelude::Expr;
+use ark_piop::errors::SnarkResult;
 
 pub type ExprPIOPResult = SnarkResult<()>;
 

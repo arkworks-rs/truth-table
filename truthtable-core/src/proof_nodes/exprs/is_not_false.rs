@@ -9,7 +9,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
-    logical_expr::{Expr, LogicalPlan},
+    logical_expr::Expr,
     prelude::SessionContext,
 };
 use std::sync::Arc;

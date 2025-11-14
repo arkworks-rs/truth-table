@@ -9,7 +9,7 @@ use crate::{
     proof_nodes::id::NodeId,
     verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree},
 };
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

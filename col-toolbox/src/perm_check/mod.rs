@@ -20,7 +20,6 @@ use std::marker::PhantomData;
 use crate::multiplicity_check::{
     MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
 };
-use std::collections::BTreeMap;
 
 // Convinces the verifier that
 pub struct PermPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
@@ -72,6 +71,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+        use std::collections::BTreeMap;
+
         let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
         for elem in input.left_col.effective_iter() {
             *bookkeeping_map.entry(elem).or_insert(0) += 1;

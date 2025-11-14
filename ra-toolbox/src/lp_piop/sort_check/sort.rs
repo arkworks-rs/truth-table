@@ -1,18 +1,15 @@
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    prover::Prover,
+    verifier::Verifier,
 };
 use col_toolbox::contig_lex_sort_check::{
     ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput,
 };
-use datafusion::arrow::datatypes::FieldRef;
-use indexmap::IndexMap;
 
 use crate::lp_piop::sort_check::{SortPIOPProverInput, SortPIOPVerifierInput};
 

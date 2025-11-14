@@ -2,7 +2,7 @@ use crate::{
     proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId, lps::verifier::VerifierTableScanNode},
     verifier::trees::proof_tree::VerifierProofTree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ctx::SharedCtx, table_oracle::TrackedTableOracle};
+use arithmetic::{ACTIVATOR_COL_NAME, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

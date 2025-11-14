@@ -13,7 +13,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{
-    logical_expr::{self as df, LogicalPlan},
+    logical_expr::LogicalPlan,
     prelude::SessionContext,
 };
 use indexmap::IndexMap;

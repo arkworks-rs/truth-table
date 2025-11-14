@@ -10,7 +10,7 @@ use crate::expr_piop::binary_expr::comparison::{
     lt_eq::LtEqBinaryExprPIOP, not_eq::NotEqBinaryExprPIOP,
 };
 
-use super::{BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
+use super::{BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{

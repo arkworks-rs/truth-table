@@ -1,8 +1,4 @@
-use crate::{
-    proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode},
-    prover::trees::piop_tree::ProverPIOPTree,
-    verifier::trees::piop_tree::VerifierPIOPTree,
-};
+use crate::proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{

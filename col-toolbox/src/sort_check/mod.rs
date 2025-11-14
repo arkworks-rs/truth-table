@@ -8,18 +8,14 @@ use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError::ProverError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{
-        Prover,
-        errors::{HonestProverError::FalseClaim, ProverError::HonestProverError},
-        structs::polynomial::TrackedPoly,
-    },
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
-use std::{cmp::Ordering, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     prescribed_permutation_check::{
@@ -87,6 +83,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         };
 
         for current in iter {
+            use std::cmp::Ordering;
+
             let ordering = current.cmp(&prev);
             let valid = match (input.ascending, input.strict) {
                 (true, true) => ordering == Ordering::Greater,
@@ -94,8 +92,10 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                 (false, true) => ordering == Ordering::Less,
                 (false, false) => ordering != Ordering::Greater,
             };
-
+            use ark_piop::prover::errors::HonestProverError::FalseClaim;
+            use ark_piop::prover::errors::ProverError::HonestProverError;
             if !valid {
+                use ark_piop::errors::SnarkError::ProverError;
                 return Err(ProverError(HonestProverError(FalseClaim)));
             }
 

@@ -32,7 +32,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{self, Prover, structs::polynomial::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{Verifier, errors::VerifierError},
 };
 use ark_std::rand::RngCore;
@@ -186,6 +186,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         #[cfg(feature = "honest-prover")]
         {
             if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
+                use ark_piop::prover;
+
                 return Err(SnarkError::ProverError(
                     prover::errors::ProverError::HonestProverError(
                         prover::errors::HonestProverError::FalseClaim,

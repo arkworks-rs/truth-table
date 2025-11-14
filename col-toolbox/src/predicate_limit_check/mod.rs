@@ -8,10 +8,10 @@ use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::{SnarkError, SnarkResult},
+    errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, errors::{HonestProverError, ProverError}, structs::polynomial::TrackedPoly},
+    prover::{Prover, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -138,6 +138,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         let output_evals = output_predicate.evaluations();
 
         if input_evals.len() != output_evals.len() {
+            use ark_piop::errors::SnarkError;
+            use ark_piop::prover::errors::{HonestProverError, ProverError};
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             )));
@@ -145,6 +147,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
         for val in input_evals.iter().chain(output_evals.iter()) {
             if !val.is_zero() && *val != F::one() {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));
@@ -152,6 +159,11 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         }
 
         if limit > input_evals.len() {
+            use ark_piop::{
+                errors::SnarkError,
+                prover::errors::{HonestProverError, ProverError},
+            };
+
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             )));
@@ -164,12 +176,22 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
             if remaining > 0 {
                 if input_val.is_zero() {
                     if !output_val.is_zero() {
+                        use ark_piop::{
+                            errors::SnarkError,
+                            prover::errors::{HonestProverError, ProverError},
+                        };
+
                         return Err(SnarkError::ProverError(ProverError::HonestProverError(
                             HonestProverError::FalseClaim,
                         )));
                     }
                 } else {
                     if output_val != input_val {
+                        use ark_piop::{
+                            errors::SnarkError,
+                            prover::errors::{HonestProverError, ProverError},
+                        };
+
                         return Err(SnarkError::ProverError(ProverError::HonestProverError(
                             HonestProverError::FalseClaim,
                         )));
@@ -178,13 +200,20 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     retained_non_zero += 1;
                 }
             } else if !output_val.is_zero() {
+                use ark_piop::{
+                    errors::SnarkError,
+                    prover::errors::{HonestProverError, ProverError},
+                };
+
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
                     HonestProverError::FalseClaim,
                 )));
             }
         }
-
+        use ark_piop::prover::errors::ProverError;
         if remaining != 0 || retained_non_zero != limit {
+            use ark_piop::{errors::SnarkError, prover::errors::HonestProverError};
+
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             )));
