@@ -310,7 +310,7 @@ pub(crate) fn sort_based_multi_no_dup_test_helper<
                 &DataType::Boolean,
                 "tie_indicator",
             )?)
-        },
+        }
         None => None,
     };
     let tie_indicator_table_for_verifier = tie_indicator_tracked_table.clone();

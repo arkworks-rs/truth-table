@@ -178,11 +178,11 @@ impl VerifyRunner {
             Ok(()) => {
                 println!("\x1b[32mproof verified successfully\x1b[0m");
                 Ok(())
-            },
+            }
             Err(err) => {
                 eprintln!("\x1b[31mproof verification failed: {err}\x1b[0m");
                 Err(anyhow!(err))
-            },
+            }
         }
     }
 }

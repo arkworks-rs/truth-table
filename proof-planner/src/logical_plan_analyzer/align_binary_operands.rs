@@ -77,7 +77,7 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsR
                     subquery: Arc::new(new_plan),
                     outer_ref_columns,
                 })))
-            },
+            }
             Expr::Exists(Exists { subquery, negated }) => {
                 let new_plan =
                     align_plan(self.schema, Arc::unwrap_or_clone(subquery.subquery.clone()))?.data;
@@ -88,7 +88,7 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsR
                     },
                     negated,
                 })))
-            },
+            }
             Expr::InSubquery(InSubquery {
                 expr: input_expr,
                 subquery,
@@ -104,7 +104,7 @@ impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsR
                     },
                     negated,
                 ))))
-            },
+            }
             Expr::BinaryExpr(binary) => align_binary_expr(binary, self.schema),
             _ => Ok(Transformed::no(expr)),
         }
@@ -135,14 +135,14 @@ fn align_binary_expr(mut binary: BinaryExpr, schema: &DFSchema) -> Result<Transf
         (Some(target_type), None) => {
             changed |= align_operand(&mut binary.left, &target_type, schema)?;
             changed |= align_operand(&mut binary.right, &target_type, schema)?;
-        },
+        }
         (None, Some(target_type)) => {
             changed |= align_operand(&mut binary.left, &target_type, schema)?;
             changed |= align_operand(&mut binary.right, &target_type, schema)?;
-        },
+        }
         (Some(_), Some(_)) | (None, None) => {
             return Ok(Transformed::no(Expr::BinaryExpr(binary)));
-        },
+        }
     }
 
     if changed {
@@ -178,16 +178,16 @@ fn extract_decimal_column_type(expr: &Expr, schema: &DFSchema) -> Option<DataTyp
                 .and_then(|field| match field.data_type() {
                     DataType::Decimal128(..) | DataType::Decimal256(..) => {
                         Some(field.data_type().clone())
-                    },
+                    }
                     _ => None,
                 })
-        },
+        }
         Expr::Cast(cast) => extract_decimal_column_type(&cast.expr, schema),
         Expr::TryCast(cast) => extract_decimal_column_type(&cast.expr, schema),
         Expr::Alias(alias) => extract_decimal_column_type(&alias.expr, schema),
         Expr::OuterReferenceColumn(data_type, _) if is_decimal_type(data_type) => {
             Some(data_type.clone())
-        },
+        }
         _ => None,
     }
 }
@@ -236,7 +236,7 @@ mod tests {
             Expr::Cast(Cast { data_type, .. }) => match data_type {
                 DataType::Decimal128(_, scale) | DataType::Decimal256(_, scale) => {
                     assert_eq!(*scale, 2);
-                },
+                }
                 other => panic!("expected decimal cast, found {other:?}"),
             },
             other => panic!("expected cast on right operand, found {other:?}"),
@@ -266,7 +266,7 @@ mod tests {
             Expr::Cast(Cast { data_type, .. }) => match data_type {
                 DataType::Decimal128(_, scale) | DataType::Decimal256(_, scale) => {
                     assert_eq!(*scale, 3);
-                },
+                }
                 other => panic!("expected decimal cast, found {other:?}"),
             },
             other => panic!("expected cast on left operand, found {other:?}"),

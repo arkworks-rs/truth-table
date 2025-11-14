@@ -97,16 +97,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match prover_input.sign {
             Sign::NoneNegative => {
                 SignCheckPIOP::prove_non_neg(prover, &prover_input.col)?;
-            },
+            }
             Sign::Positive => {
                 SignCheckPIOP::prove_positive(prover, &prover_input.col)?;
-            },
+            }
             Sign::Negative => {
                 SignCheckPIOP::prove_negative(prover, &prover_input.col)?;
-            },
+            }
             Sign::NonePositive => {
                 SignCheckPIOP::prove_none_positive(prover, &prover_input.col)?;
-            },
+            }
         }
         Ok(())
     }
@@ -118,16 +118,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         match verifier_input.sign {
             Sign::Positive => {
                 Self::verify_positive(verifier, &verifier_input.tracked_col_oracle)?;
-            },
+            }
             Sign::NoneNegative => {
                 Self::verify_non_neg(verifier, &verifier_input.tracked_col_oracle)?;
-            },
+            }
             Sign::Negative => {
                 Self::verify_negative(verifier, &verifier_input.tracked_col_oracle)?;
-            },
+            }
             Sign::NonePositive => {
                 Self::verify_none_positive(verifier, &verifier_input.tracked_col_oracle)?;
-            },
+            }
         }
         Ok(())
     }
@@ -223,7 +223,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
-            },
+            }
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_cols: vec![col.clone()],
@@ -234,7 +234,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
-            },
+            }
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_cols: vec![col.clone()],
@@ -245,7 +245,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
-            },
+            }
             DataType::Int16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
                     included_cols: vec![col.clone()],
@@ -256,7 +256,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     ),
                 };
                 InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
-            },
+            }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
@@ -273,7 +273,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
                 let top_inclusion_check_input = InclusionCheckProverInput {
@@ -299,7 +299,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
@@ -316,7 +316,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
 
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
@@ -343,7 +343,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
             DataType::Decimal128(..) => {
                 let chunks = Self::prove_non_neg_int128(prover, col)?;
                 let (top, rest) = chunks.split_first().expect("chunks non-empty");
@@ -370,7 +370,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
 
             DataType::Utf8View => {
                 let segments = Self::prove_non_neg_uint256(prover, col)?;
@@ -388,9 +388,9 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_prover_input,
                     )?;
                 }
-            },
+            }
 
-            _ => {},
+            _ => {}
         }
         Ok(())
     }
@@ -417,7 +417,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     verifier,
                     inclusion_check_prover_input,
                 )?;
-            },
+            }
 
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
@@ -434,7 +434,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     verifier,
                     inclusion_check_prover_input,
                 )?;
-            },
+            }
 
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
@@ -451,7 +451,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     verifier,
                     inclusion_check_prover_input,
                 )?;
-            },
+            }
             DataType::Int16 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
                     included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
@@ -467,7 +467,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                     verifier,
                     inclusion_check_prover_input,
                 )?;
-            },
+            }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
@@ -487,7 +487,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_verifier_input,
                     )?;
                 }
-            },
+            }
 
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
@@ -519,7 +519,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_verifier_input,
                     )?;
                 }
-            },
+            }
 
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
@@ -540,7 +540,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_verifier_input,
                     )?;
                 }
-            },
+            }
 
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
@@ -572,7 +572,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_verifier_input,
                     )?;
                 }
-            },
+            }
 
             DataType::Decimal128(..) => {
                 let (top, rest) = Self::verify_non_neg_int128(verifier, tracked_col_oracle)?;
@@ -604,7 +604,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         },
                     )?;
                 }
-            },
+            }
 
             DataType::Utf8View => {
                 let segments = Self::verify_non_neg_uint256(verifier, tracked_col_oracle)?;
@@ -624,7 +624,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         inclusion_check_verifier_input,
                     )?;
                 }
-            },
+            }
 
             _ => {
                 return Err(SnarkError::DataTypeError(
@@ -632,7 +632,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
                         data_type.clone().to_string(),
                     ),
                 ));
-            },
+            }
         }
         Ok(())
     }

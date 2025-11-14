@@ -71,7 +71,7 @@ impl Runnable for Prove {
                 println!("proof written to {}", output.display());
                 println!("build_proof_from_artifacts completed in {:.2?}", elapsed);
                 Ok(())
-            },
+            }
             Err(err) => Err(err),
         }
     }

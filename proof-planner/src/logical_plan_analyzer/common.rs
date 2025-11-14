@@ -16,7 +16,7 @@ pub(super) fn cast_expression_to_type(
         Expr::Cast(mut cast) => {
             cast.data_type = target_type.clone();
             Ok(Expr::Cast(cast))
-        },
+        }
         other => other.cast_to(target_type, schema),
     }
 }

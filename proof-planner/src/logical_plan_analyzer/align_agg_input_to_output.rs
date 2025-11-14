@@ -60,7 +60,7 @@ fn align_plan_node(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
             } else {
                 Ok(Transformed::no(LogicalPlan::Aggregate(aggregate)))
             }
-        },
+        }
         other => Ok(Transformed::no(other)),
     }
 }
@@ -87,7 +87,7 @@ fn align_aggregate_expr(
             }
 
             Ok((Expr::AggregateFunction(agg), changed))
-        },
+        }
         other => Ok((other, false)),
     }
 }
@@ -136,7 +136,7 @@ mod tests {
             Some(Expr::Cast(Cast { data_type, expr })) => {
                 assert_eq!(data_type, &target_type);
                 assert!(!matches!(expr.as_ref(), Expr::Cast(_)));
-            },
+            }
             other => panic!("expected casted argument, found {other:?}"),
         }
 
@@ -165,7 +165,7 @@ mod tests {
         match aggregate_expr.params.args.first() {
             Some(Expr::Cast(Cast { data_type, .. })) => {
                 assert_eq!(data_type, &DataType::Float64);
-            },
+            }
             other => panic!("expected casted argument, found {other:?}"),
         }
 
@@ -189,7 +189,7 @@ mod tests {
         };
 
         match aggregate_expr.params.args.first() {
-            Some(Expr::Column(_)) => {},
+            Some(Expr::Column(_)) => {}
             other => panic!("expected original argument, found {other:?}"),
         }
 

@@ -127,7 +127,7 @@ where
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) += *mf_elem;
                         }
                     }
-                },
+                }
                 (None, Some(activator)) => {
                     let activator_evals = activator.evaluations();
                     for (elem, activator_elem) in fx
@@ -140,12 +140,12 @@ where
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
                         }
                     }
-                },
+                }
                 (None, None) => {
                     for elem in fx.data_tracked_poly().evaluations() {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
                     }
-                },
+                }
                 (Some(mfx), None) => {
                     for (elem, mf_elem) in fx
                         .data_tracked_poly()
@@ -155,7 +155,7 @@ where
                     {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) += *mf_elem;
                     }
-                },
+                }
             }
         }
 
@@ -175,7 +175,7 @@ where
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) -= *mg_elem;
                         }
                     }
-                },
+                }
                 (None, Some(activator)) => {
                     let activator_evals = activator.evaluations();
                     for (elem, activator_elem) in gx
@@ -188,12 +188,12 @@ where
                             *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
                         }
                     }
-                },
+                }
                 (None, None) => {
                     for elem in gx.data_tracked_poly().evaluations() {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
                     }
-                },
+                }
                 (Some(mgx), None) => {
                     for (elem, mg_elem) in gx
                         .data_tracked_poly()
@@ -203,7 +203,7 @@ where
                     {
                         *bookkeeping_map.entry(elem).or_insert(F::zero()) -= *mg_elem;
                     }
-                },
+                }
             }
         }
 

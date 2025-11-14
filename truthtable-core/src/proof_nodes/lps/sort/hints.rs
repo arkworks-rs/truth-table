@@ -173,7 +173,7 @@ pub(crate) fn build_tie_indicator_plan_impl(
             return Err(DataFusionError::Plan(
                 "build_tie_indicator_plan expects a top-level Sort plan".into(),
             ));
-        },
+        }
     };
 
     if num_sort_exprs <= 1 {

@@ -227,10 +227,10 @@ where
                                     label,
                                     field_ref.name()
                                 );
-                            },
+                            }
                             None => {
                                 log_size = Some(num_vars);
-                            },
+                            }
                         }
                         if field_ref.name() == ACTIVATOR_COL_NAME {
                             activator_seen = true;

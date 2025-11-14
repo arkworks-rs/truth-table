@@ -377,7 +377,7 @@ fn table_with_activator<
                 tracked_polys,
                 log_size,
             ))
-        },
+        }
         None => Ok(base_table.clone()),
     }
 }

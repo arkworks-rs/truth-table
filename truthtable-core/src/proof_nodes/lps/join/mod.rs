@@ -170,7 +170,7 @@ where
                         &node_id,
                     );
                     Some(Arc::clone(&filter_tree.root()))
-                },
+                }
                 None => None,
             };
 
@@ -455,7 +455,7 @@ where
                         &node_id,
                     );
                     Some(Arc::clone(&filter_tree.root()))
-                },
+                }
                 None => None,
             };
 

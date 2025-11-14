@@ -156,7 +156,7 @@ where
                 };
                 MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
                 Ok(())
-            },
+            }
             AGG_MAX => Self::prove_max_min(
                 aggregated_col,
                 input_folded_col,
@@ -177,28 +177,28 @@ where
             AGG_AVG => Ok(()),
             AGG_APPROX_DISTINCT => {
                 todo!("AggregateFunctionExprPIOP::prove_inner approx_distinct")
-            },
+            }
             AGG_VAR | AGG_VARIANCE => todo!("AggregateFunctionExprPIOP::prove_inner variance"),
             AGG_VAR_SAMP | AGG_VARIANCE_SAMP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner variance_samp")
-            },
+            }
             AGG_VAR_POP | AGG_VARIANCE_POP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner variance_pop")
-            },
+            }
             AGG_STDDEV | AGG_STD => todo!("AggregateFunctionExprPIOP::prove_inner stddev"),
             AGG_STDDEV_SAMP | AGG_STD_SAMP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner stddev_samp")
-            },
+            }
             AGG_STDDEV_POP | AGG_STD_POP => {
                 todo!("AggregateFunctionExprPIOP::prove_inner stddev_pop")
-            },
+            }
             AGG_MEDIAN => todo!("AggregateFunctionExprPIOP::prove_inner median"),
             AGG_FIRST | AGG_FIRST_VALUE => {
                 todo!("AggregateFunctionExprPIOP::prove_inner first_value")
-            },
+            }
             AGG_LAST | AGG_LAST_VALUE => {
                 todo!("AggregateFunctionExprPIOP::prove_inner last_value")
-            },
+            }
             other => todo!("AggregateFunctionExprPIOP::prove_inner unsupported aggregate {other}"),
         }
     }
@@ -226,7 +226,7 @@ where
                 };
                 MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
                 Ok(())
-            },
+            }
             "max" => Self::verify_max_min(
                 aggregated_col_oracle,
                 input_folded_col_oracle,
@@ -247,28 +247,28 @@ where
             "avg" => Ok(()),
             "approx_distinct" => {
                 todo!("AggregateFunctionExprPIOP::verify approx_distinct")
-            },
+            }
             "var" | "variance" => todo!("AggregateFunctionExprPIOP::verify variance"),
             "var_samp" | "variance_samp" => {
                 todo!("AggregateFunctionExprPIOP::verify variance_samp")
-            },
+            }
             "var_pop" | "variance_pop" => {
                 todo!("AggregateFunctionExprPIOP::verify variance_pop")
-            },
+            }
             "stddev" | "std" => todo!("AggregateFunctionExprPIOP::verify stddev"),
             "stddev_samp" | "std_samp" => {
                 todo!("AggregateFunctionExprPIOP::verify stddev_samp")
-            },
+            }
             "stddev_pop" | "std_pop" => {
                 todo!("AggregateFunctionExprPIOP::verify stddev_pop")
-            },
+            }
             "median" => todo!("AggregateFunctionExprPIOP::verify median"),
             "first" | "first_value" => {
                 todo!("AggregateFunctionExprPIOP::verify first_value")
-            },
+            }
             "last" | "last_value" => {
                 todo!("AggregateFunctionExprPIOP::verify last_value")
-            },
+            }
             other => todo!("AggregateFunctionExprPIOP::verify unsupported aggregate {other}"),
         }
     }

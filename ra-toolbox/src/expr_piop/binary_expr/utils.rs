@@ -38,6 +38,6 @@ pub(super) fn activators_match<
         (Some(lhs_poly), Some(rhs_poly)) => {
             lhs_poly.log_size() == rhs_poly.log_size()
                 && lhs_poly.evaluations() == rhs_poly.evaluations()
-        },
+        }
     }
 }

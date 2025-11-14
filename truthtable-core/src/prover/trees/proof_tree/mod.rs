@@ -318,7 +318,7 @@ where
                     ),
                     prover_ctx,
                 )
-            },
+            }
             Expr::Negative(_) => Self::new(
                 Arc::new(<ProverNegativeExprNode<F, MvPCS, UvPCS> as ProverNode<
                     F,

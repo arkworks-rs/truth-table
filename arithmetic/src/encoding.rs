@@ -420,43 +420,43 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
     match array.data_type() {
         DataType::Null => {
             downcast_and_encode::<F, NullArray>(array, "array downcast to NullArray failed")
-        },
+        }
         DataType::Boolean => {
             downcast_and_encode::<F, BooleanArray>(array, "array downcast to BooleanArray failed")
-        },
+        }
         DataType::Int8 => {
             downcast_and_encode::<F, Int8Array>(array, "array downcast to Int8Array failed")
-        },
+        }
         DataType::Int16 => {
             downcast_and_encode::<F, Int16Array>(array, "array downcast to Int16Array failed")
-        },
+        }
         DataType::Int32 => {
             downcast_and_encode::<F, Int32Array>(array, "array downcast to Int32Array failed")
-        },
+        }
         DataType::Int64 => {
             downcast_and_encode::<F, Int64Array>(array, "array downcast to Int64Array failed")
-        },
+        }
         DataType::UInt8 => {
             downcast_and_encode::<F, UInt8Array>(array, "array downcast to UInt8Array failed")
-        },
+        }
         DataType::UInt16 => {
             downcast_and_encode::<F, UInt16Array>(array, "array downcast to UInt16Array failed")
-        },
+        }
         DataType::UInt32 => {
             downcast_and_encode::<F, UInt32Array>(array, "array downcast to UInt32Array failed")
-        },
+        }
         DataType::UInt64 => {
             downcast_and_encode::<F, UInt64Array>(array, "array downcast to UInt64Array failed")
-        },
+        }
         DataType::Float16 => {
             downcast_and_encode::<F, Float16Array>(array, "array downcast to Float16Array failed")
-        },
+        }
         DataType::Float32 => {
             downcast_and_encode::<F, Float32Array>(array, "array downcast to Float32Array failed")
-        },
+        }
         DataType::Float64 => {
             downcast_and_encode::<F, Float64Array>(array, "array downcast to Float64Array failed")
-        },
+        }
         DataType::Timestamp(unit, _) => match unit {
             TimeUnit::Second => downcast_and_encode::<F, TimestampSecondArray>(
                 array,
@@ -477,10 +477,10 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         },
         DataType::Date32 => {
             downcast_and_encode::<F, Date32Array>(array, "array downcast to Date32Array failed")
-        },
+        }
         DataType::Date64 => {
             downcast_and_encode::<F, Date64Array>(array, "array downcast to Date64Array failed")
-        },
+        }
         DataType::Time32(unit) => match unit {
             TimeUnit::Second => downcast_and_encode::<F, Time32SecondArray>(
                 array,
@@ -541,7 +541,7 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         },
         DataType::Binary => {
             downcast_and_encode::<F, BinaryArray>(array, "array downcast to BinaryArray failed")
-        },
+        }
         DataType::LargeBinary => downcast_and_encode::<F, LargeBinaryArray>(
             array,
             "array downcast to LargeBinaryArray failed",
@@ -556,7 +556,7 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         ),
         DataType::Utf8 => {
             downcast_and_encode::<F, StringArray>(array, "array downcast to StringArray failed")
-        },
+        }
         DataType::LargeUtf8 => downcast_and_encode::<F, LargeStringArray>(
             array,
             "array downcast to LargeStringArray failed",
@@ -567,14 +567,14 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         ),
         DataType::List(_) => {
             downcast_and_encode::<F, ListArray>(array, "array downcast to ListArray failed")
-        },
+        }
         DataType::LargeList(_) => downcast_and_encode::<F, LargeListArray>(
             array,
             "array downcast to LargeListArray failed",
         ),
         DataType::ListView(_) => {
             downcast_and_encode::<F, ListViewArray>(array, "array downcast to ListViewArray failed")
-        },
+        }
         DataType::LargeListView(_) => downcast_and_encode::<F, LargeListViewArray>(
             array,
             "array downcast to LargeListViewArray failed",
@@ -585,10 +585,10 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         ),
         DataType::Struct(_) => {
             downcast_and_encode::<F, StructArray>(array, "array downcast to StructArray failed")
-        },
+        }
         DataType::Union(..) => {
             downcast_and_encode::<F, UnionArray>(array, "array downcast to UnionArray failed")
-        },
+        }
         DataType::Dictionary(key_type, _) => match key_type.as_ref() {
             DataType::Int8 => downcast_and_encode::<F, Int8DictionaryArray>(
                 array,
@@ -628,7 +628,7 @@ pub fn encode_arrow_array_to_field<F: PrimeField>(
         },
         DataType::Map(..) => {
             downcast_and_encode::<F, MapArray>(array, "array downcast to MapArray failed")
-        },
+        }
         DataType::Decimal128(..) => downcast_and_encode::<F, Decimal128Array>(
             array,
             "array downcast to Decimal128Array failed",

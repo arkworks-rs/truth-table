@@ -91,7 +91,6 @@ WHERE
     "#
 ]);
 
-
 // #[tokio::test]
 // #[ignore = "Visualization-focused test"]
 // async fn display_join_prover_proof_tree() {

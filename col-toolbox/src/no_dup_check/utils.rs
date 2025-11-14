@@ -139,8 +139,7 @@ pub fn build_root_products<F: FftField>(roots: &[F]) -> LDE<F> {
 
 pub fn d_dx<F: PrimeField>(poly: &LDE<F>) -> LDE<F> {
     // Skip the constant term and parallelize the computation of the derivative
-    let coeffs: Vec<F> = cfg_iter!(poly
-            .coeffs)
+    let coeffs: Vec<F> = cfg_iter!(poly.coeffs)
         .enumerate() // Get the index for each coefficient
         .skip(1) // Skip the constant term since its derivative is 0
         .map(|(i, coeff)| F::from(i as u64) * coeff) // Derivative: i * coeff[i]

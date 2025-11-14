@@ -19,11 +19,11 @@ pub trait Runnable: Sized {
             Ok(()) => {
                 println!("completed in {:.2?}", start.elapsed());
                 Ok(())
-            },
+            }
             Err(err) => {
                 println!("failed in {:.2?}", start.elapsed());
                 Err(err)
-            },
+            }
         }
     }
 }

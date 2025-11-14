@@ -60,22 +60,22 @@ where
                 &(&(&in_activator_tracked_poly * &p_tracked)
                     * &(&input.left_col.data_tracked_poly() + &input.right_col.data_tracked_poly()))
                     - &(&input.output_col.data_tracked_poly() * &out_activator_tracked_poly)
-            },
+            }
             (Some(in_activator_tracked_poly), None) => {
                 &(&(&in_activator_tracked_poly * &p_tracked)
                     * &(&input.left_col.data_tracked_poly() + &input.right_col.data_tracked_poly()))
                     - &input.output_col.data_tracked_poly()
-            },
+            }
             (None, Some(out_activator_tracked_poly)) => {
                 &(&p_tracked
                     * &(&input.left_col.data_tracked_poly() + &input.right_col.data_tracked_poly()))
                     - &(&input.output_col.data_tracked_poly() * &out_activator_tracked_poly)
-            },
+            }
             (None, None) => {
                 &(&p_tracked
                     * &(&input.left_col.data_tracked_poly() + &input.right_col.data_tracked_poly()))
                     - &input.output_col.data_tracked_poly()
-            },
+            }
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         Ok(())
@@ -106,26 +106,26 @@ where
                         + &input.right_col_oracle.data_tracked_oracle()))
                     - &(&input.output_col_oracle.data_tracked_oracle()
                         * &out_activator_tracked_poly)
-            },
+            }
             (Some(in_activator_tracked_poly), None) => {
                 &(&(&in_activator_tracked_poly * &p_tracked)
                     * &(&input.left_col_oracle.data_tracked_oracle()
                         + &input.right_col_oracle.data_tracked_oracle()))
                     - &input.output_col_oracle.data_tracked_oracle()
-            },
+            }
             (None, Some(out_activator_tracked_poly)) => {
                 &(&p_tracked
                     * &(&input.left_col_oracle.data_tracked_oracle()
                         + &input.right_col_oracle.data_tracked_oracle()))
                     - &(&input.output_col_oracle.data_tracked_oracle()
                         * &out_activator_tracked_poly)
-            },
+            }
             (None, None) => {
                 &(&p_tracked
                     * &(&input.left_col_oracle.data_tracked_oracle()
                         + &input.right_col_oracle.data_tracked_oracle()))
                     - &input.output_col_oracle.data_tracked_oracle()
-            },
+            }
         };
         verifier.add_zerocheck_claim(zero_poly.id());
         Ok(())

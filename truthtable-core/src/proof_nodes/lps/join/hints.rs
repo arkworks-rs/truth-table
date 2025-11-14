@@ -120,7 +120,7 @@ fn append_combined_activator(plan: LogicalPlan) -> LogicalPlan {
             activator_expr = Some(match activator_expr {
                 Some(acc) => {
                     Expr::BinaryExpr(BinaryExpr::new(Box::new(acc), Operator::And, Box::new(col)))
-                },
+                }
                 None => col,
             });
             continue;
@@ -541,7 +541,7 @@ pub(crate) fn join_left_key_source(
         .map(|(left_expr, right_expr)| match (left_expr, right_expr) {
             (Expr::Column(left_col), Expr::Column(right_col)) => {
                 (left_col.clone(), right_col.clone())
-            },
+            }
             _ => panic!("expected column expressions in join condition"),
         })
         .unzip();
@@ -602,7 +602,7 @@ pub(crate) fn join_right_key_source(
         .map(|(left_expr, right_expr)| match (left_expr, right_expr) {
             (Expr::Column(left_col), Expr::Column(right_col)) => {
                 (left_col.clone(), right_col.clone())
-            },
+            }
             _ => panic!("expected column expressions in join condition"),
         })
         .unzip();

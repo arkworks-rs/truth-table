@@ -92,14 +92,14 @@ where
             (Some(in_activator), Some(out_activator)) => {
                 &out_activator
                     - &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
-            },
+            }
             (Some(in_activator), None) => {
                 &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
                     + F::one().neg()
-            },
+            }
             (None, Some(out_activator)) => {
                 &out_activator - &input.predicate_col.activated_data_tracked_poly()
-            },
+            }
             (None, None) => &input.predicate_col.activated_data_tracked_poly() + F::one().neg(),
         };
         // Check if the zero polynomial is indeed zero on the domain
@@ -126,14 +126,14 @@ where
             (Some(in_activator), Some(out_activator)) => {
                 &out_activator
                     - &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
-            },
+            }
             (Some(in_activator), None) => {
                 &(&in_activator * &input.predicate_col.activated_data_tracked_poly())
                     + F::one().neg()
-            },
+            }
             (None, Some(out_activator)) => {
                 &out_activator - &input.predicate_col.activated_data_tracked_poly()
-            },
+            }
             (None, None) => &input.predicate_col.activated_data_tracked_poly() + F::one().neg(),
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
@@ -152,17 +152,17 @@ where
             (Some(in_activator), Some(out_activator)) => {
                 &out_activator
                     - &(&in_activator * &input.predicate_oracle.activated_data_tracked_oracle())
-            },
+            }
             (Some(in_activator), None) => {
                 &(&in_activator * &input.predicate_oracle.activated_data_tracked_oracle())
                     + F::one().neg()
-            },
+            }
             (None, Some(out_activator)) => {
                 &out_activator - &input.predicate_oracle.activated_data_tracked_oracle()
-            },
+            }
             (None, None) => {
                 &input.predicate_oracle.activated_data_tracked_oracle() + F::one().neg()
-            },
+            }
         };
         verifier.add_zerocheck_claim(zero_oracle.id());
         Ok(())

@@ -233,7 +233,7 @@ pub async fn prepare_prover_artifacts(
                 .first()
                 .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
             resolve_pk_path(oracle_path)?
-        },
+        }
     };
     let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
         .with_context(|| format!("read proving key {}", pk_path.display()))?;
@@ -338,7 +338,7 @@ fn resolve_output_path(requested: Option<PathBuf>) -> Result<PathBuf> {
             } else {
                 Ok(path.join(DEFAULT_PROOF_FILE))
             }
-        },
+        }
         None => Ok(std::env::current_dir()
             .context("failed to resolve current working directory")?
             .join(DEFAULT_PROOF_FILE)),

@@ -69,7 +69,7 @@ impl SetupBuilder {
                 let pk = base.join(default_pk_filename(log_size));
                 let vk = base.join(default_vk_filename(log_size));
                 (pk, vk)
-            },
+            }
             (Some(pk), None) => {
                 let base = pk
                     .parent()
@@ -77,7 +77,7 @@ impl SetupBuilder {
                     .unwrap_or_else(|| PathBuf::from("."));
                 let vk = base.join(default_vk_filename(log_size));
                 (pk, vk)
-            },
+            }
             (None, Some(vk)) => {
                 let base = vk
                     .parent()
@@ -85,7 +85,7 @@ impl SetupBuilder {
                     .unwrap_or_else(|| PathBuf::from("."));
                 let pk = base.join(default_pk_filename(log_size));
                 (pk, vk)
-            },
+            }
         };
 
         Ok(SetupRunner {
@@ -129,7 +129,7 @@ fn parse_log_size(label: Option<String>) -> Result<usize> {
                     .parse::<usize>()
                     .map_err(|_| anyhow!("invalid size '{other}'")),
             }
-        },
+        }
         None => Ok(DEFAULT_LOG_SIZE),
     }
 }

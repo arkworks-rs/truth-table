@@ -289,7 +289,7 @@ fn resolve_limit_bounds(limit: &Limit) -> (usize, Option<usize>) {
         SkipType::Literal(value) => value,
         SkipType::UnsupportedExpr => {
             panic!("LIMIT skip expressions must be literal for hint generation")
-        },
+        }
     };
 
     let fetch = match limit
@@ -299,7 +299,7 @@ fn resolve_limit_bounds(limit: &Limit) -> (usize, Option<usize>) {
         FetchType::Literal(value) => value,
         FetchType::UnsupportedExpr => {
             panic!("LIMIT fetch expressions must be literal for hint generation")
-        },
+        }
     };
 
     (skip, fetch)

@@ -90,7 +90,7 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
                 let value = eval_fn(point.clone()).expect("oracle evaluation");
                 assert_eq!(value, expected_value);
             }
-        },
+        }
         _ => panic!("shift_permutation_oracle should be multivariate"),
     }
 

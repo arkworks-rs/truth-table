@@ -798,7 +798,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
 
         None => None,
     };
@@ -814,7 +814,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_right_tracked_table_oracles = input
@@ -829,7 +829,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_out_tracked_table_oracles = input
@@ -845,7 +845,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_left_keysupp_tracked_table_oracles = input
@@ -861,7 +861,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_right_keysupp_tracked_table_oracles = input
@@ -877,7 +877,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_out_keysupp_tracked_table_oracles = input
@@ -893,7 +893,7 @@ fn inner_join_test_helper<
         Some(_) => {
             let id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(id).unwrap())
-        },
+        }
         None => None,
     };
     let data_all_keysupp_tracked_table_oracles = input

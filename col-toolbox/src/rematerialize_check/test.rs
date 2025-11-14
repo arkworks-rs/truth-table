@@ -106,7 +106,7 @@ fn rematerialize_test_helper<
     let input_activator_poly = match input_activator {
         Some(vals) => {
             Some(prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(input_nv, vals))?)
-        },
+        }
         None => None,
     };
     let input_col = TrackedCol::new(input_poly.clone(), input_activator_poly.clone(), None);
@@ -116,7 +116,7 @@ fn rematerialize_test_helper<
     let output_activator_poly = match output_activator {
         Some(vals) => {
             Some(prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(output_nv, vals))?)
-        },
+        }
         None => None,
     };
     let output_col = TrackedCol::new(output_poly.clone(), output_activator_poly.clone(), None);

@@ -35,4 +35,3 @@ ORDER BY
     l_commitdate;
     "#,
 ]);
-

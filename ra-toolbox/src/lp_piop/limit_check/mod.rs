@@ -127,7 +127,7 @@ where
             Some(fetch) => {
                 let nth = skip_literal.saturating_add(fetch).saturating_add(1);
                 Self::nth_active_index(&activator_evals, nth).unwrap_or(total_len)
-            },
+            }
         };
 
         let start_idx = start_idx.min(total_len);

@@ -70,14 +70,14 @@ where
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
                                 .cloned()
-                        },
+                        }
                         NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
                             if relation.resolved_eq(&alias_plan.alias) =>
                         {
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
                                 .cloned()
-                        },
+                        }
                         _ => None,
                     })
             })
@@ -219,14 +219,14 @@ where
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
                                 .cloned()
-                        },
+                        }
                         NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
                             if relation.resolved_eq(&alias_plan.alias) =>
                         {
                             node.hint_generation_plans(proof_tree)
                                 .get(OUTPUT_PLAN_KEY)
                                 .cloned()
-                        },
+                        }
                         _ => None,
                     })
             })
@@ -351,10 +351,10 @@ impl ProverColumnExprNode {
                 let matches_reference = match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
                         relation.resolved_eq(&scan_plan.table_name)
-                    },
+                    }
                     NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan)) => {
                         relation.resolved_eq(&alias_plan.alias)
-                    },
+                    }
                     _ => false,
                 };
 
@@ -400,10 +400,10 @@ impl VerifierColumnExprNode {
                 let matches_reference = match node_id {
                     NodeId::LP(LogicalPlan::TableScan(scan_plan)) => {
                         relation.resolved_eq(&scan_plan.table_name)
-                    },
+                    }
                     NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan)) => {
                         relation.resolved_eq(&alias_plan.alias)
-                    },
+                    }
                     _ => false,
                 };
 

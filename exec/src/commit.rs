@@ -119,12 +119,12 @@ fn resolve_output_path(parquet_path: &Path, requested: Option<PathBuf>) -> Resul
             } else {
                 Ok(path.join(default_name))
             }
-        },
+        }
         None => {
             let base =
                 std::env::current_dir().context("failed to resolve current working directory")?;
             Ok(base.join(default_name))
-        },
+        }
     }
 }
 

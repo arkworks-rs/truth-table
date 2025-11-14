@@ -129,22 +129,22 @@ where
         match input.op {
             datafusion::logical_expr::Operator::Eq => {
                 EqBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             datafusion::logical_expr::Operator::NotEq => {
                 NotEqBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             datafusion::logical_expr::Operator::Lt => {
                 LtBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             datafusion::logical_expr::Operator::LtEq => {
                 LtEqBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             datafusion::logical_expr::Operator::Gt => {
                 GtBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             datafusion::logical_expr::Operator::GtEq => {
                 GtEqBinaryExprPIOP::prove(prover, inner_comparison_prover_input)
-            },
+            }
             _ => unreachable!("is_comparison_op should ensure this is a comparison operator"),
         }
     }
@@ -193,22 +193,22 @@ where
         match input.op {
             datafusion::logical_expr::Operator::Eq => {
                 EqBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             datafusion::logical_expr::Operator::NotEq => {
                 NotEqBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             datafusion::logical_expr::Operator::Lt => {
                 LtBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             datafusion::logical_expr::Operator::LtEq => {
                 LtEqBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             datafusion::logical_expr::Operator::Gt => {
                 GtBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             datafusion::logical_expr::Operator::GtEq => {
                 GtEqBinaryExprPIOP::verify(verifier, inner_comparison_verifier_input)
-            },
+            }
             _ => unreachable!("is_comparison_op should ensure this is a comparison operator"),
         }
     }

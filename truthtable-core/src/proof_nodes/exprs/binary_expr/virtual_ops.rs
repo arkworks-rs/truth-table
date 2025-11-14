@@ -38,7 +38,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Plus => {
                 let data_out = &left_col.data_tracked_poly() + &right_col.data_tracked_poly();
 
@@ -51,7 +51,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Minus => {
                 let data_out = &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
 
@@ -64,7 +64,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Multiply => {
                 let data_out = &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
 
@@ -77,7 +77,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             _ => panic!("unsupported operator for virtual witness"),
         };
         let field_ref = if let Some(f) = left_col.field_ref() {
@@ -147,7 +147,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Plus => {
                 let data_out = &left_col_oracle.data_tracked_oracle()
                     + &right_col_oracle.data_tracked_oracle();
@@ -161,7 +161,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Minus => {
                 let data_out = &left_col_oracle.data_tracked_oracle()
                     - &right_col_oracle.data_tracked_oracle();
@@ -175,7 +175,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             Operator::Multiply => {
                 let data_out = &left_col_oracle.data_tracked_oracle()
                     * &right_col_oracle.data_tracked_oracle();
@@ -189,7 +189,7 @@ where
                     (None, Some(r)) => &r * &data_out,
                     (None, None) => data_out,
                 }
-            },
+            }
             _ => panic!("unsupported operator for virtual witness"),
         };
 

@@ -204,7 +204,7 @@ fn aggregate_expr_as_window(expr: &Expr, partition_exprs: &[Expr], activator_col
         Expr::Alias(alias) => {
             aggregate_expr_as_window(alias.expr.as_ref(), partition_exprs, activator_col)
                 .alias(alias.name.clone())
-        },
+        }
         Expr::AggregateFunction(agg) => {
             assert!(
                 agg.params.filter.is_none(),
@@ -236,7 +236,7 @@ fn aggregate_expr_as_window(expr: &Expr, partition_exprs: &[Expr], activator_col
                 fun: WindowFunctionDefinition::AggregateUDF(agg.func.clone()),
                 params,
             })
-        },
+        }
         other => panic!("unsupported aggregate expression in hint generation: {other:?}"),
     }
 }
@@ -254,7 +254,7 @@ fn strip_column_relations(expr: &Expr) -> Expr {
                     } else {
                         Ok(Transformed::no(Expr::Column(col)))
                     }
-                },
+                }
                 other => Ok(Transformed::no(other)),
             }
         }

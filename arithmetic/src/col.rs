@@ -112,7 +112,7 @@ where
                     );
                     format!("[{}]", values.join(", "))
                 }
-            },
+            }
             None => "none".to_string(),
         };
 

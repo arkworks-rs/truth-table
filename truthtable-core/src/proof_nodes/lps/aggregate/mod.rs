@@ -703,8 +703,10 @@ where
             .map(|idx| agg_schema.field(group_col_count + idx).name().clone())
             .collect();
         #[allow(clippy::type_complexity)]
-        let mut aggregate_entries: IndexMap<String, (Arc<Field>, TrackedOracle<F, MvPCS, UvPCS>)> =
-            IndexMap::with_capacity(aggregate_col_count);
+        let mut aggregate_entries: IndexMap<
+            String,
+            (Arc<Field>, TrackedOracle<F, MvPCS, UvPCS>),
+        > = IndexMap::with_capacity(aggregate_col_count);
         let mut activator_entry = None;
         for (field, oracle) in existing_output.tracked_oracles() {
             if field.name() == ACTIVATOR_COL_NAME {

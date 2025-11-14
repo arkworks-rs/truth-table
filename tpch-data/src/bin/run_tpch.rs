@@ -132,7 +132,7 @@ async fn main() {
         _ => {
             eprintln!("Usage: run_tpch <1..22>|all [--plan] [--data-dir DIR]");
             std::process::exit(2)
-        },
+        }
     };
     let rows = duckdb_fetch(Some(qnum)).unwrap_or_else(|| {
         eprintln!("DuckDB TPCH extension not available.");

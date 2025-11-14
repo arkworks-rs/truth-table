@@ -309,7 +309,7 @@ fn set_inter_union_test_helper<
         Some(_) => {
             let activator_id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(activator_id)?)
-        },
+        }
         None => None,
     };
     let right_id = verifier.peek_next_id();
@@ -319,7 +319,7 @@ fn set_inter_union_test_helper<
         Some(_) => {
             let activator_id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(activator_id)?)
-        },
+        }
         None => None,
     };
     let inter_id = verifier.peek_next_id();
@@ -328,7 +328,7 @@ fn set_inter_union_test_helper<
         Some(_) => {
             let activator_id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(activator_id)?)
-        },
+        }
         None => None,
     };
     let union_id = verifier.peek_next_id();
@@ -337,7 +337,7 @@ fn set_inter_union_test_helper<
         Some(_) => {
             let activator_id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(activator_id)?)
-        },
+        }
         None => None,
     };
     //////////////////////////////////////////////////////////////////////

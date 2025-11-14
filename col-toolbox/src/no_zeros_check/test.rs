@@ -113,7 +113,7 @@ fn nozero_test_helper<
         Some(_) => {
             let activator_id = verifier.peek_next_id();
             Some(verifier.track_mv_com_by_id(activator_id)?)
-        },
+        }
         None => None,
     };
     let no_zero_check_verifier_input = NoZerosCheckVerifierInput {

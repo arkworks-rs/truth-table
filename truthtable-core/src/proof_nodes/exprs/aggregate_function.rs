@@ -182,8 +182,8 @@ where
                 ACTIVATOR_COL_NAME => output_activator_entry = Some(poly.clone()),
                 GROUP_OUTPUT_FOLDED_COL_NAME => {
                     output_folded_entry = Some((field.clone(), poly.clone()))
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -215,8 +215,8 @@ where
                 ACTIVATOR_COL_NAME => input_activator_entry = Some(poly.clone()),
                 GROUP_INPUT_FOLDED_COL_NAME => {
                     input_folded_entry = Some((field.clone(), poly.clone()))
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -410,9 +410,9 @@ where
                 GROUP_MULTIPLICITY_COL_NAME => multiplicity_oracle = Some(oracle.clone()),
                 GROUP_OUTPUT_FOLDED_COL_NAME => {
                     output_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                },
+                }
                 ACTIVATOR_COL_NAME => output_activator_entry = Some(oracle.clone()),
-                _ => {},
+                _ => {}
             }
         }
         let group_multiplicity_oracle =
@@ -431,9 +431,9 @@ where
             match field.name().as_str() {
                 GROUP_INPUT_FOLDED_COL_NAME => {
                     input_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                },
+                }
                 ACTIVATOR_COL_NAME => input_activator_entry = Some(oracle.clone()),
-                _ => {},
+                _ => {}
             }
         }
         let (input_folded_field, input_folded_oracle) = input_folded_oracle_entry

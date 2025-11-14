@@ -128,7 +128,7 @@ fn sort_check_test_helper<
     let activator_poly = match activator_evals {
         Some(vals) => {
             Some(prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, vals))?)
-        },
+        }
         None => None,
     };
 

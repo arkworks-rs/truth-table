@@ -574,7 +574,7 @@ where
                     ),
                     verifier_ctx,
                 )
-            },
+            }
             df::LogicalPlan::Union(_) => todo!(),
             df::LogicalPlan::Extension(_ext) => todo!(),
             df::LogicalPlan::Join(_) => Self::new(

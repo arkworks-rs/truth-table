@@ -474,7 +474,7 @@ pub(crate) fn multi_col_sort_check_test_helper<
                 &DataType::Boolean,
                 "tie_indicator",
             )?)
-        },
+        }
         None => None,
     };
 
@@ -569,7 +569,7 @@ pub(crate) fn multi_col_sort_check_soundness_helper<
             ))) => Ok(()),
             Ok(_) => {
                 panic!("expected contig multi-column sort check to fail under honest-prover mode")
-            },
+            }
             Err(err) => Err(err),
         }
     }

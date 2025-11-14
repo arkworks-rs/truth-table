@@ -212,27 +212,27 @@ where
                     v += phat_mle[i] * m_evals[i] * selector_evals[i];
                 }
                 (&(&phat * &m) * activator, v)
-            },
+            }
             (None, Some(m)) => {
                 let m_evals = m.evaluations();
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i] * m_evals[i];
                 }
                 (&phat * &m, v)
-            },
+            }
             (Some(activator), None) => {
                 let selector_evals = &activator.evaluations();
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i] * selector_evals[i];
                 }
                 (&phat * activator, v)
-            },
+            }
             (None, None) => {
                 for i in 0..2_usize.pow(nv as u32) {
                     v += phat_mle[i];
                 }
                 (phat.clone(), v)
-            },
+            }
         };
 
         // Create Zerocheck claim for proving phat(x) is created correctly,
