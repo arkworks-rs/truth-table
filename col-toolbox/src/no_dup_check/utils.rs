@@ -229,7 +229,7 @@ mod test {
     #[test]
     fn test_compute_derivative_poly() {
         let gamma = Fr::from(10);
-        let c_evals = vec![
+        let c_evals = [
             Fr::from(8),
             Fr::from(5),
             Fr::from(4),
