@@ -10,7 +10,6 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
-#[cfg(debug_assertions)]
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
