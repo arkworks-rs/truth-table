@@ -7,7 +7,6 @@ use crate::{
         cost::ProvingCost,
         id::NodeId,
         lps::sort::{
-            self,
             hints::{
                 LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
                 TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,

@@ -19,10 +19,8 @@ use indexmap::IndexMap;
 use proof_planner::create_prover_proof_tree_with_ctx;
 use tracing::instrument;
 use truthtable_core::prover::trees::{
-    arithmetized_tree::{ProverArithmetizedTree, display::DisplayableProverArithmetizedTree},
-    hint_tree::{ProverHintTree, display::DisplayableProverHintTree},
-    piop_tree::ProverPIOPTree,
-    tracked_tree::ProverTrackedTree,
+    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+    piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
 };
 
 use crate::{

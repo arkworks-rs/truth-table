@@ -21,7 +21,7 @@ use ark_piop::{
 };
 use datafusion::{
     logical_expr::{
-        self, LogicalPlan, {self as df},
+        LogicalPlan, {self as df},
     },
     prelude::{Expr, SessionContext},
 };
@@ -434,16 +434,6 @@ where
                 ),
                 verifier_ctx,
             ),
-            Expr::Wildcard { .. } => Self::new(
-                Arc::new(<expr_verifier::VerifierWildcardExprNode<F, MvPCS, UvPCS> as VerifierNode<
-                    F,
-                    MvPCS,
-                    UvPCS,
-                >>::from_expr(
-                    ctx, verifier_ctx.clone(), expr, parent_node_id.clone()
-                )),
-                verifier_ctx,
-            ),
             Expr::GroupingSet(_) => Self::new(
                 Arc::new(<expr_verifier::VerifierGroupingSetExprNode<F, MvPCS, UvPCS> as VerifierNode<
                     F,
@@ -486,6 +476,7 @@ where
                 )),
                 verifier_ctx,
             ),
+            _ => panic!(),
         }
     }
 

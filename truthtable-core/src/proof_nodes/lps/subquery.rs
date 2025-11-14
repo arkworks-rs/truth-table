@@ -12,7 +12,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{logical_expr::Subquery, prelude::SessionContext};
+use datafusion::prelude::SessionContext;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;

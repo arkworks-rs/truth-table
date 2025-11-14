@@ -5,22 +5,18 @@ use crate::{
         HintGenerationPlan, OUTPUT_PLAN_KEY,
         cost::ProvingCost,
         id::NodeId,
-        lps::join::{
-            self,
-            hints::{
-                JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
-                JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
-            },
+        lps::join::hints::{
+            JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
+            JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
         },
         prover::ProverNode,
         verifier::VerifierNode,
     },
     prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree,
-        piop_tree::{self, ProverPIOPTree},
+        arithmetized_tree::ProverArithmetizedTree, piop_tree::ProverPIOPTree,
         proof_tree::ProverProofTree,
     },
-    verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{
     ACTIVATOR_COL_NAME,
@@ -37,7 +33,7 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema},
-    logical_expr::{self as df, Join},
+    logical_expr::Join,
     prelude::SessionContext,
 };
 use datafusion_expr::{Expr, LogicalPlan};
@@ -47,6 +43,7 @@ use ra_toolbox::lp_piop::join_check::{
 };
 use std::{collections::HashSet, sync::Arc};
 
+#[allow(clippy::type_complexity)]
 pub struct ProverJoinNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -63,6 +60,7 @@ where
     pub node_id: NodeId,
 }
 
+#[allow(clippy::type_complexity)]
 pub struct VerifierJoinNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -100,7 +98,7 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
     }
@@ -109,7 +107,7 @@ where
         ctx: &SessionContext,
         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -135,6 +133,7 @@ where
         )
         .root();
 
+        #[allow(clippy::type_complexity)]
         let on_proof_tree_roots: Vec<(
             Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
             Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
@@ -206,7 +205,7 @@ where
             labels.push(Some(format!("on[{idx}].lhs")));
             labels.push(Some(format!("on[{idx}].rhs")));
         }
-        if let Some(_) = &self.filter_proof_tree_root {
+        if self.filter_proof_tree_root.is_some() {
             labels.push(Some("filter".to_string()));
         }
         labels
@@ -419,6 +418,7 @@ where
         )
         .root();
 
+        #[allow(clippy::type_complexity)]
         let on_proof_tree_roots: Vec<(
             Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
             Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
@@ -490,7 +490,7 @@ where
             labels.push(Some(format!("on[{idx}].lhs")));
             labels.push(Some(format!("on[{idx}].rhs")));
         }
-        if let Some(_) = &self.filter_proof_tree_root {
+        if self.filter_proof_tree_root.is_some() {
             labels.push(Some("filter".to_string()));
         }
         labels

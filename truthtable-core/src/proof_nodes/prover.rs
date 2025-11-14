@@ -3,7 +3,7 @@
 
 use super::cost::ProvingCost;
 use crate::{
-    proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId},
+    proof_nodes::{HintGenerationPlan, id::NodeId},
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, piop_tree::ProverPIOPTree,
         proof_tree::ProverProofTree,
@@ -18,7 +18,7 @@ use ark_piop::{
     prover::Prover,
 };
 use datafusion::{
-    arrow::datatypes::{Schema, SchemaRef},
+    arrow::datatypes::SchemaRef,
     common::Statistics,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},

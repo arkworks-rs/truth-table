@@ -13,15 +13,9 @@ use datafusion_expr::{
 };
 use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
-use tracing::{debug, info};
+use tracing::info;
 
-use crate::{
-    proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId, prover::ProverNode, verifier::VerifierNode,
-    },
-    prover::trees::proof_tree::ProverProofTree,
-    verifier::trees::proof_tree::VerifierProofTree,
-};
+use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId};
 
 pub(crate) const JOIN_LEFT_KEY_SUPP: &str = "__join_left_key_supp__";
 pub(crate) const JOIN_RIGHT_KEY_SUPP: &str = "__join_right_key_supp__";
@@ -76,14 +70,11 @@ where
         hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
     );
     let (left_supp_plan, left_diff_plan) =
-        build_left_supp_generation_plan::<F, MvPCS, UvPCS>(join, &filtered_left_lp, &out_supp_plan);
+        build_left_supp_generation_plan(join, &filtered_left_lp, &out_supp_plan);
     plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
 
-    let (right_supp_plan, right_diff_plan) = build_right_supp_generation_plan::<F, MvPCS, UvPCS>(
-        join,
-        &filtered_right_lp,
-        &out_supp_plan,
-    );
+    let (right_supp_plan, right_diff_plan) =
+        build_right_supp_generation_plan(join, &filtered_right_lp, &out_supp_plan);
     plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
     plans.insert(
         JOIN_ALL_KEY_SUPP.to_string(),
@@ -404,16 +395,11 @@ fn tag_support_plan(plan: LogicalPlan, tag: u32) -> LogicalPlan {
 
 /// Build the left-key support plan by selecting the join's left key columns,
 /// projecting them, and aggregating to retain only distinct tuples.
-pub(crate) fn build_left_supp_generation_plan<F, MvPCS, UvPCS>(
+pub(crate) fn build_left_supp_generation_plan(
     join: &Join,
     filtered_left_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> (HintGenerationPlan, LogicalPlan)
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
+) -> (HintGenerationPlan, LogicalPlan) {
     let left_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -444,16 +430,11 @@ where
 
 /// Build the right-key support plan by selecting the join's right key columns,
 /// projecting them, and aggregating to retain only distinct tuples.
-pub(crate) fn build_right_supp_generation_plan<F, MvPCS, UvPCS>(
+pub(crate) fn build_right_supp_generation_plan(
     join: &Join,
     filtered_right_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> (HintGenerationPlan, LogicalPlan)
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
+) -> (HintGenerationPlan, LogicalPlan) {
     let right_key_exprs: Vec<Expr> = join
         .on
         .iter()

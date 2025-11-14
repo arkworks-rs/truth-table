@@ -3,15 +3,14 @@ use crate::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
         verifier::VerifierNode,
     },
-    prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
-    verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
+    prover::trees::proof_tree::ProverProofTree,
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    piop::PIOP,
 };
 use datafusion::{
     logical_expr::{self as df, LogicalPlan, LogicalPlanBuilder},
@@ -82,7 +81,7 @@ where
         ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

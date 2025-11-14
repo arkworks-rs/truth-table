@@ -227,7 +227,7 @@ where
                 MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
                 Ok(())
             },
-            "max" => Self::Verify_max_min(
+            "max" => Self::verify_max_min(
                 aggregated_col_oracle,
                 input_folded_col_oracle,
                 output_folded_col_oracle,
@@ -235,7 +235,7 @@ where
                 sign_check::Sign::NoneNegative,
                 verifier,
             ),
-            "min" => Self::Verify_max_min(
+            "min" => Self::verify_max_min(
                 aggregated_col_oracle,
                 input_folded_col_oracle,
                 output_folded_col_oracle,
@@ -342,7 +342,7 @@ where
         Ok(())
     }
 
-    fn Verify_max_min(
+    fn verify_max_min(
         aggregated_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
         input_folded_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
         output_folded_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,

@@ -11,7 +11,6 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::{logical_expr::Expr, prelude::SessionContext};
-use datafusion_expr::LogicalPlan;
 use std::sync::Arc;
 
 #[derive(Clone)]

@@ -554,7 +554,7 @@ where
         ctx: &SessionContext,
         verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -751,7 +751,7 @@ where
 
         let mut group_entries: Vec<(FieldRef, TrackedOracle<F, MvPCS, UvPCS>)> =
             Vec::with_capacity(group_col_count);
-        for (idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
+        for (_idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
             let group_table = piop_tree
                 .tracked_table_oracle(&group_node.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {

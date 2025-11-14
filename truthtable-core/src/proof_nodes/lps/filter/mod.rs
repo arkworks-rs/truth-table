@@ -11,7 +11,6 @@ use arithmetic::{
 };
 use ark_ff::PrimeField;
 #[cfg(debug_assertions)]
-use ark_ff::Zero;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -28,7 +27,7 @@ use indexmap::IndexMap;
 use ra_toolbox::lp_piop::filter_check::{
     FilterPIOP, FilterPIOPProverInput, FilterPIOPVerifierInput,
 };
-use std::{hint, sync::Arc};
+use std::sync::Arc;
 
 /// The implementation of a filter node in the prover proof tree.
 pub struct ProverFilterNode<F, MvPCS, UvPCS>
@@ -75,7 +74,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
-        parent_node_id: NodeId,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,

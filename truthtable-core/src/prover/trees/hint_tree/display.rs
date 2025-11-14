@@ -5,7 +5,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::{arrow::record_batch::RecordBatch, logical_expr::LogicalPlan, prelude::Expr};
+use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
@@ -28,7 +28,6 @@ fn escape_edge_label(raw: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
 }
-
 
 /// Display helper that renders a Graphviz DOT tree for a ProverHintTree.
 pub struct DisplayableProverHintTree<'a, F, MvPCS, UvPCS>
@@ -178,11 +177,11 @@ fn expr_variant_name(expr: &Expr) -> &'static str {
         Expr::Exists(_) => "Exists",
         Expr::InSubquery(_) => "InSubquery",
         Expr::ScalarSubquery(_) => "ScalarSubquery",
-        Expr::Wildcard { .. } => "Wildcard",
         Expr::GroupingSet(_) => "GroupingSet",
         Expr::Placeholder(_) => "Placeholder",
         Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
         Expr::Unnest(_) => "Unnest",
+        _ => panic!(),
     }
 }
 

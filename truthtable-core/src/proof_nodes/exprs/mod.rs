@@ -95,10 +95,10 @@ pub mod prover {
         }
 
         fn from_expr(
-            ctx: &datafusion::prelude::SessionContext,
+            _ctx: &datafusion::prelude::SessionContext,
             _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-            expr: Expr,
-            parent_node_id: NodeId,
+            _expr: Expr,
+            _parent_node_id: NodeId,
         ) -> Self
         where
             Self: Sized,
@@ -126,7 +126,7 @@ pub mod prover {
 
         fn add_virtual_witness(
             &self,
-            piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+            _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
             _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         ) {
             todo!()
@@ -134,7 +134,7 @@ pub mod prover {
         fn prove_piop(
             &self,
             _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-            piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+            _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         ) -> SnarkResult<()> {
             todo!()
         }
@@ -185,7 +185,7 @@ pub mod verifier {
         errors::SnarkResult,
         pcs::PCS,
     };
-    use datafusion::{arrow::datatypes::SchemaRef, logical_expr::Expr};
+    use datafusion::logical_expr::Expr;
 
     #[derive(Clone)]
     pub struct RawExprNode {
@@ -217,10 +217,10 @@ pub mod verifier {
         }
 
         fn from_expr(
-            ctx: &datafusion::prelude::SessionContext,
+            _ctx: &datafusion::prelude::SessionContext,
             _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-            expr: Expr,
-            parent_node_id: NodeId,
+            _expr: Expr,
+            _parent_node_id: NodeId,
         ) -> Self
         where
             Self: Sized,
@@ -230,7 +230,7 @@ pub mod verifier {
 
         fn add_virtual_witness(
             &self,
-            piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+            _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
             _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         ) {
             todo!()
@@ -238,7 +238,7 @@ pub mod verifier {
         fn verify_piop(
             &self,
             _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-            piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+            _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         ) -> SnarkResult<()> {
             todo!()
         }

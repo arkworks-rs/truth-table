@@ -25,7 +25,6 @@ use datafusion::{
     error::{DataFusionError, Result as DFResult},
     prelude::SessionContext,
 };
-use datafusion_expr::{LogicalPlan, LogicalPlanBuilder, col};
 
 use futures::{
     FutureExt,
