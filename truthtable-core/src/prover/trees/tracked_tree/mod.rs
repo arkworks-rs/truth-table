@@ -114,6 +114,7 @@ where
         display::DisplayableProverTrackedTree::new(self)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn into_parts(
         self,
     ) -> (

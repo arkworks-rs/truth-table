@@ -101,7 +101,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
         // TODO: honest-prover check
         Ok(())
     }

@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! end_to_end_tests {
     ($tables:expr => [$($name:ident => $sql:expr),+ $(,)?]) => {
         $(
@@ -10,5 +11,3 @@ macro_rules! end_to_end_tests {
         )+
     };
 }
-
-pub(crate) use end_to_end_tests;

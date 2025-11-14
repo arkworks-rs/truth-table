@@ -214,8 +214,8 @@ pub(crate) fn build_tie_indicator_plan_impl(
     let mut tie_cols: Vec<Expr> = Vec::with_capacity(num_sort_exprs - 1);
     for i in 1..num_sort_exprs {
         let mut predicates: Vec<Expr> = Vec::with_capacity(i);
-        for k in 0..i {
-            let lhs = order_by_exprs[k].expr.clone();
+        for (k, sort_expr) in order_by_exprs.iter().take(i).enumerate() {
+            let lhs = sort_expr.expr.clone();
             let rhs = col(next_alias(k));
             predicates.push(binary_expr(lhs, Operator::IsNotDistinctFrom, rhs));
         }

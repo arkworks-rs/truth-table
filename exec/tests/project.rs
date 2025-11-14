@@ -1,7 +1,6 @@
 #![cfg(feature = "test-utils")]
 
 mod support;
-use support::end_to_end_tests;
 
 end_to_end_tests!(&["lineitem"] => [
     project_returns_flag_status => r#"SELECT l_returnflag, l_linestatus FROM lineitem"#,

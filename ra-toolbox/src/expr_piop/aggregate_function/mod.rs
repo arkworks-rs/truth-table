@@ -139,7 +139,7 @@ where
             aggregate,
             input_folded_col,
             output_folded_col,
-            group_multiplicty_tracked_poly,
+            group_multiplicty_tracked_poly: _,
             aggregated_col,
             input_col,
         } = input;
@@ -209,7 +209,7 @@ where
     ) -> SnarkResult<Self::VerifierOutput> {
         let AggregateFunctionPIOPVerifierInput {
             aggregate,
-            group_multiplicty_tracked_oracle,
+            group_multiplicty_tracked_oracle: _,
             input_folded_col_oracle,
             output_folded_col_oracle,
             aggregated_col_oracle,

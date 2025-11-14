@@ -62,6 +62,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn into_parts(
         self,
     ) -> (

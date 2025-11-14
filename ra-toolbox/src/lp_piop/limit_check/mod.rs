@@ -134,9 +134,7 @@ where
         let end_idx = end_idx.min(total_len);
         let mut mask_values = vec![F::zero(); total_len];
         if start_idx < end_idx {
-            for idx in start_idx..end_idx {
-                mask_values[idx] = activator_evals[idx];
-            }
+            mask_values[start_idx..end_idx].clone_from_slice(&activator_evals[start_idx..end_idx]);
         }
 
         Ok(MLE::from_evaluations_vec(log_size, mask_values))

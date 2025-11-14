@@ -60,11 +60,8 @@ where
     );
 
     let base_output_support_plan = compute_output_support_plan(join, &base_output_plan);
-    let out_supp_plan = build_out_supp_generation_plan::<F, MvPCS, UvPCS>(
-        join,
-        &output_plan,
-        &base_output_support_plan,
-    );
+    let out_supp_plan =
+        build_out_supp_generation_plan::<F>(join, &output_plan, &base_output_support_plan);
     plans.insert(
         JOIN_OUTPUT_KEY_SUPP.to_string(),
         hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
@@ -88,19 +85,11 @@ where
 
     plans.insert(
         JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source::<F, MvPCS, UvPCS>(
-            &filtered_left_lp,
-            &filtered_right_lp,
-            join.clone(),
-        ),
+        join_left_key_source::<F>(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source::<F, MvPCS, UvPCS>(
-            &filtered_left_lp,
-            &filtered_right_lp,
-            join.clone(),
-        ),
+        join_right_key_source::<F>(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans
 }
@@ -464,15 +453,13 @@ pub(crate) fn build_right_supp_generation_plan(
 }
 
 /// Build the output-key support plan from the join result itself.
-pub(crate) fn build_out_supp_generation_plan<F, MvPCS, UvPCS>(
+pub(crate) fn build_out_supp_generation_plan<F>(
     join: &Join,
     join_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
 ) -> LogicalPlan
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     let output_key_exprs: Vec<Expr> = join
         .on
@@ -544,15 +531,13 @@ where
     hint_with_true_activator(JOIN_ALL_KEY_SUPP, &final_plan)
 }
 
-pub(crate) fn join_left_key_source<F, MvPCS, UvPCS>(
+pub(crate) fn join_left_key_source<F>(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     let left_key_exprs: Vec<Expr> = join
         .on
@@ -610,15 +595,13 @@ where
     hint_with_true_activator(JOIN_LEFT_KEY_SOURCE, &projection)
 }
 
-pub(crate) fn join_right_key_source<F, MvPCS, UvPCS>(
+pub(crate) fn join_right_key_source<F>(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
 ) -> HintGenerationPlan
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     let right_key_exprs: Vec<Expr> = join
         .on

@@ -1,5 +1,4 @@
 mod support;
-use support::end_to_end_tests;
 
 end_to_end_tests!(&["lineitem"] => [
     project_sort => r#"

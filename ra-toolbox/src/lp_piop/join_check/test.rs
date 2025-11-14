@@ -47,6 +47,7 @@ struct InnerJoinTestInput<E: Pairing> {
     pub join_right_source_data: Vec<E::ScalarField>,
 }
 
+#[allow(clippy::type_complexity)]
 fn assemble_table_columns<F, MvPCS, UvPCS>(
     label: &str,
     data_polys: &[TrackedPoly<F, MvPCS, UvPCS>],
@@ -542,6 +543,8 @@ fn inner_join_is_complete_with_multiple_key_columns() -> SnarkResult<()> {
     Ok(())
 }
 
+//TODO: Add soundness tests
+#[allow(dead_code)]
 fn inner_join_test_soundness_helper(input: InnerJoinTestInput<Bls12_381>) -> SnarkResult<()> {
     let err =
         inner_join_test_helper::<Bls12_381, PST13<Bls12_381>, KZG10<Bls12_381>>(input).unwrap_err();

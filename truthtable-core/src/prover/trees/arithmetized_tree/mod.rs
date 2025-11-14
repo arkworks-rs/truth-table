@@ -118,6 +118,7 @@ where
 
         let num_total_cols = schema_ref.fields().len();
 
+        #[allow(clippy::type_complexity)]
         let encoded_columns: Result<Vec<Vec<(FieldRef, Vec<F>)>>, EncodeError> =
             cfg_into_iter!(0..num_total_cols)
                 .map(|col_idx| {
@@ -213,6 +214,7 @@ where
         display::DisplayableProverArithmetizedTree::new(self)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn into_parts(
         self,
     ) -> (
