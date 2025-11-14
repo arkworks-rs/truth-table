@@ -229,7 +229,7 @@ where
         for node in nodes {
             let node_id = node.node_id();
             let ptr_id = node_ptr_id(&node);
-            let mut entry = by_id.remove(&ptr_id).unwrap_or_default();
+            let mut entry = by_id.shift_remove(&ptr_id).unwrap_or_default();
             if entry.len() <= 1 {
                 results_by_node_id.insert(node_id, entry);
                 continue;
@@ -238,7 +238,7 @@ where
             let mut ordered_entry = IndexMap::with_capacity(entry.len());
             let hint_plan_order = node.hint_generation_plans(&proof_tree);
             for label in hint_plan_order.keys() {
-                if let Some(batches) = entry.remove(label) {
+                if let Some(batches) = entry.shift_remove(label) {
                     ordered_entry.insert(label.clone(), batches);
                 }
             }

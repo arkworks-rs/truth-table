@@ -91,9 +91,6 @@ WHERE
     "#
 ]);
 
-type F = ark_test_curves::bls12_381::Fr;
-type MvPCS = ark_piop::pcs::pst13::PST13<ark_test_curves::bls12_381::Bls12_381>;
-type UvPCS = ark_piop::pcs::kzg10::KZG10<ark_test_curves::bls12_381::Bls12_381>;
 
 // #[tokio::test]
 // #[ignore = "Visualization-focused test"]

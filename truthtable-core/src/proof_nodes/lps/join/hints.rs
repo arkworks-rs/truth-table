@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_COL_NAME;
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
 use datafusion::{common::Column, scalar::ScalarValue};
 use datafusion_expr::{
     BinaryExpr, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder, Operator, WindowFrame,
@@ -25,14 +20,9 @@ pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
 const SUPPORT_SOURCE_COL: &str = "__join_support_source__";
 
-pub(crate) fn build_join_hint_generation_plans<F, MvPCS, UvPCS>(
+pub(crate) fn build_join_hint_generation_plans(
     node_id: NodeId,
-) -> IndexMap<String, HintGenerationPlan>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
+) -> IndexMap<String, HintGenerationPlan> {
     let mut plans = IndexMap::new();
     let orig_join_lp = node_id.to_lp().unwrap().clone();
     let join = match &orig_join_lp {
@@ -61,7 +51,7 @@ where
 
     let base_output_support_plan = compute_output_support_plan(join, &base_output_plan);
     let out_supp_plan =
-        build_out_supp_generation_plan::<F>(join, &output_plan, &base_output_support_plan);
+        build_out_supp_generation_plan(join, &output_plan, &base_output_support_plan);
     plans.insert(
         JOIN_OUTPUT_KEY_SUPP.to_string(),
         hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
@@ -75,21 +65,16 @@ where
     plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
     plans.insert(
         JOIN_ALL_KEY_SUPP.to_string(),
-        build_all_supp_generation_plan::<F, MvPCS, UvPCS>(
-            join,
-            &out_supp_plan,
-            left_diff_plan,
-            right_diff_plan,
-        ),
+        build_all_supp_generation_plan(join, &out_supp_plan, left_diff_plan, right_diff_plan),
     );
 
     plans.insert(
         JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source::<F>(&filtered_left_lp, &filtered_right_lp, join.clone()),
+        join_left_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans.insert(
         JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source::<F>(&filtered_left_lp, &filtered_right_lp, join.clone()),
+        join_right_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
     );
     plans
 }
@@ -453,14 +438,11 @@ pub(crate) fn build_right_supp_generation_plan(
 }
 
 /// Build the output-key support plan from the join result itself.
-pub(crate) fn build_out_supp_generation_plan<F>(
+pub(crate) fn build_out_supp_generation_plan(
     join: &Join,
     join_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> LogicalPlan
-where
-    F: PrimeField,
-{
+) -> LogicalPlan {
     let output_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -488,17 +470,12 @@ where
 
 /// Build the all-key support plan by unioning the left/right key supports and
 /// deduplicating the combined relation.
-pub(crate) fn build_all_supp_generation_plan<F, MvPCS, UvPCS>(
+pub(crate) fn build_all_supp_generation_plan(
     join: &Join,
     output_key_supp_plan: &LogicalPlan,
     left_diff_plan: LogicalPlan,
     right_diff_plan: LogicalPlan,
-) -> HintGenerationPlan
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
+) -> HintGenerationPlan {
     assert!(
         !join.on.is_empty(),
         "join must contain at least one key column"
@@ -531,14 +508,11 @@ where
     hint_with_true_activator(JOIN_ALL_KEY_SUPP, &final_plan)
 }
 
-pub(crate) fn join_left_key_source<F>(
+pub(crate) fn join_left_key_source(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
-) -> HintGenerationPlan
-where
-    F: PrimeField,
-{
+) -> HintGenerationPlan {
     let left_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -595,14 +569,11 @@ where
     hint_with_true_activator(JOIN_LEFT_KEY_SOURCE, &projection)
 }
 
-pub(crate) fn join_right_key_source<F>(
+pub(crate) fn join_right_key_source(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
-) -> HintGenerationPlan
-where
-    F: PrimeField,
-{
+) -> HintGenerationPlan {
     let right_key_exprs: Vec<Expr> = join
         .on
         .iter()

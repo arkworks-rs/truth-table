@@ -23,9 +23,6 @@ impl fmt::Display for BenchQuery {
     }
 }
 
-const DUMMY_QUERY: &str = "SELECT l_orderkey FROM lineitem WHERE l_linenumber = 1";
-const DUMMY_TABLES: &[&str] = &["lineitem"];
-
 fn prover_bench_queries() -> &'static [BenchQuery] {
     static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
     QUERIES.get_or_init(|| {

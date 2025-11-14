@@ -100,7 +100,7 @@ where
         &self,
         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
+        build_join_hint_generation_plans(self.node_id.clone())
     }
 
     fn from_lp(
@@ -385,7 +385,7 @@ where
         &self,
         _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
-        build_join_hint_generation_plans::<F, MvPCS, UvPCS>(self.node_id.clone())
+        build_join_hint_generation_plans(self.node_id.clone())
     }
 
     fn from_lp(

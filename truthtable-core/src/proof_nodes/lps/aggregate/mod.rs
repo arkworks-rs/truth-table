@@ -702,7 +702,7 @@ where
         let aggr_field_names: Vec<_> = (0..aggregate_col_count)
             .map(|idx| agg_schema.field(group_col_count + idx).name().clone())
             .collect();
-
+        #[allow(clippy::type_complexity)]
         let mut aggregate_entries: IndexMap<String, (Arc<Field>, TrackedOracle<F, MvPCS, UvPCS>)> =
             IndexMap::with_capacity(aggregate_col_count);
         let mut activator_entry = None;

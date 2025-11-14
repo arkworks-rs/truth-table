@@ -203,11 +203,11 @@ fn expr_variant_name(expr: &Expr) -> &'static str {
         Expr::Exists(_) => "Exists",
         Expr::InSubquery(_) => "InSubquery",
         Expr::ScalarSubquery(_) => "ScalarSubquery",
-        Expr::Wildcard { .. } => "Wildcard",
         Expr::GroupingSet(_) => "GroupingSet",
         Expr::Placeholder(_) => "Placeholder",
         Expr::OuterReferenceColumn(..) => "OuterReferenceColumn",
         Expr::Unnest(_) => "Unnest",
+        _ => "Other",
     }
 }
 

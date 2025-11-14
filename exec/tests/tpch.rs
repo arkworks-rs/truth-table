@@ -17,7 +17,7 @@ type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_proof_tree() {
-    let spec = query_spec(5);
+    let _spec = query_spec(5);
 
     let ctx = new_session_context_with_custom_analyzer();
     let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
@@ -74,8 +74,6 @@ async fn tpch_q1_proof_tree() {
     )
     .await
     .expect("register orders table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
-    // display_prover_proof_tree(&proof_tree).await;
 }
 
 #[tokio::test]

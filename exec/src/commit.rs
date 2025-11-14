@@ -203,6 +203,7 @@ async fn commit_parquet_with_pk(
     Ok(output_path.to_path_buf())
 }
 
+#[allow(clippy::type_complexity)]
 fn load_prover_verifier(
     pk_path: &Path,
 ) -> Result<(Prover<F, MvPCS, UvPCS>, Verifier<F, MvPCS, UvPCS>)> {
