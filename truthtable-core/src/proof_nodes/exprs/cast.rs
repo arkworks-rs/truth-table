@@ -165,7 +165,6 @@ where
 
             piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
         } else {
-
             let child_table = match piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
             {
                 Some(table) => table.clone(),
@@ -327,7 +326,6 @@ where
                 table,
             );
         } else {
-
             let child_table =
                 match piop_tree.tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY) {
                     Some(table) => table.clone(),

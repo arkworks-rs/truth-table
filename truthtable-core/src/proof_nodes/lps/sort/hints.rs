@@ -216,13 +216,13 @@ pub(crate) fn build_tie_indicator_plan_impl(
         let mut predicates: Vec<Expr> = Vec::with_capacity(i);
         for k in 0..i {
             let lhs = order_by_exprs[k].expr.clone();
-            let rhs = col(&next_alias(k));
+            let rhs = col(next_alias(k));
             predicates.push(binary_expr(lhs, Operator::IsNotDistinctFrom, rhs));
         }
         let prefix_match = and_all(predicates);
         let tie_expr = col(HAS_NEXT_ALIAS)
             .and(prefix_match)
-            .alias(&format!("tie_{}", i));
+            .alias(format!("tie_{}", i));
         tie_cols.push(tie_expr);
     }
 

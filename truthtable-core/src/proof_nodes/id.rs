@@ -11,7 +11,7 @@ pub enum NodeId {
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NodeId::LP(plan) => write!(f, "LogicalPlan({})", plan.to_string()),
+            NodeId::LP(plan) => write!(f, "LogicalPlan({})", plan),
             NodeId::Expr(expr) => write!(f, "Expr({})", expr),
             NodeId::None => write!(f, "None"),
         }

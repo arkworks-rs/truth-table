@@ -1,5 +1,4 @@
 mod support;
-use support::end_to_end_tests;
 
 // end_to_end_tests!(&["lineitem"] => [
 //     aggregate_count_by_1_col => r#"SELECT l_suppkey, COUNT(*) FROM lineitem GROUP BY l_suppkey"#,

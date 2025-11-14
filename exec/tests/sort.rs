@@ -1,6 +1,4 @@
 mod support;
-use datafusion::prelude::ParquetReadOptions;
-use proof_planner::{create_prover_proof_tree, new_session_context_with_custom_analyzer};
 use support::end_to_end_tests;
 
 end_to_end_tests!(&["lineitem"] => [

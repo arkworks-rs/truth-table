@@ -28,6 +28,12 @@ pub struct SetupBuilder {
     vk_path: Option<PathBuf>,
 }
 
+impl Default for SetupBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetupBuilder {
     pub fn new() -> Self {
         Self {
@@ -137,11 +143,11 @@ pub fn default_vk_filename(log_size: usize) -> String {
 }
 
 fn write_key<T: CanonicalSerialize>(value: &T, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
     let mut file = fs::File::create(path)

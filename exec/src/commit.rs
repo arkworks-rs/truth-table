@@ -36,6 +36,12 @@ pub struct CommitBuilder {
     output_root: Option<PathBuf>,
 }
 
+impl Default for CommitBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommitBuilder {
     pub fn new() -> Self {
         Self {
@@ -176,16 +182,15 @@ async fn commit_parquet_with_pk(
 
     let mut tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
     for (node_id, tables) in &tables_by_node {
-        if let NodeId::LP(plan) = node_id {
-            if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
-                if let Some(table) = tables.get(OUTPUT_PLAN_KEY) {
-                    tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
-                        table.clone(),
-                        &mut verifier,
-                    )?);
-                    break;
-                }
-            }
+        if let NodeId::LP(plan) = node_id
+            && matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_))
+            && let Some(table) = tables.get(OUTPUT_PLAN_KEY)
+        {
+            tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
+                table.clone(),
+                &mut verifier,
+            )?);
+            break;
         }
     }
 
@@ -214,11 +219,11 @@ fn write_oracle(
     serializable: &ArithTableOracle<F, MvPCS, UvPCS>,
     output_path: &Path,
 ) -> Result<()> {
-    if let Some(parent) = output_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
+    if let Some(parent) = output_path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
     let file = File::create(output_path)

@@ -309,7 +309,7 @@ where
         // activator are materialized on this node.
         let mut group_entries: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
             Vec::with_capacity(group_col_count);
-        for (_idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
+        for group_node in self.group_expr_proof_tree_roots.iter() {
             let group_table = piop_tree
                 .tracked_table(&group_node.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {
@@ -751,7 +751,7 @@ where
 
         let mut group_entries: Vec<(FieldRef, TrackedOracle<F, MvPCS, UvPCS>)> =
             Vec::with_capacity(group_col_count);
-        for (_idx, group_node) in self.group_expr_proof_tree_roots.iter().enumerate() {
+        for group_node in self.group_expr_proof_tree_roots.iter() {
             let group_table = piop_tree
                 .tracked_table_oracle(&group_node.node_id(), OUTPUT_PLAN_KEY)
                 .unwrap_or_else(|| {

@@ -134,7 +134,7 @@ where
                             base_field.clone()
                         } else {
                             Arc::new(Field::new(
-                                &format!("{}__enc{}", base_field.name(), segment_idx),
+                                format!("{}__enc{}", base_field.name(), segment_idx),
                                 base_field.data_type().clone(),
                                 base_field.is_nullable(),
                             ))

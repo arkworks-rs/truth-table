@@ -15,10 +15,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::Prover,
-    verifier::{
-        Verifier,
-        structs::oracle::Oracle,
-    },
+    verifier::{Verifier, structs::oracle::Oracle},
 };
 use col_toolbox::{
     bezout_based_multi_col_supp_check::{
@@ -623,10 +620,10 @@ fn log_inclusion_diff<F, MvPCS, UvPCS>(
     for i in 0..len {
         let included_active = included_act_evals
             .as_ref()
-            .map_or(true, |act| act[i] != F::zero());
+            .is_none_or(|act| act[i] != F::zero());
         let super_active = super_act_evals
             .as_ref()
-            .map_or(true, |act| act[i] != F::zero());
+            .is_none_or(|act| act[i] != F::zero());
 
         if !(included_active && super_active) {
             continue;

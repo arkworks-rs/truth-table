@@ -77,13 +77,10 @@ impl HintGenerationPlan {
         let schema = self.plan.schema();
         let projection_exprs: Vec<Expr> = schema
             .iter()
-            .filter_map(|(qualifier, field)| {
-                self.should_materialize
-                    .get(field)
-                    .copied()
-                    .unwrap_or(false)
-                    .then(|| Expr::from((qualifier, field)))
+            .filter(|&(qualifier, field)| {
+                self.should_materialize.get(field).copied().unwrap_or(false)
             })
+            .map(|(qualifier, field)| Expr::from((qualifier, field)))
             .collect();
 
         if projection_exprs.len() == schema.fields().len() {

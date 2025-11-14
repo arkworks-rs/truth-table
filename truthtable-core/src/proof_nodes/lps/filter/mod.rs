@@ -125,7 +125,7 @@ where
         let input_plan = proof_tree
             .node(&self.input_prover_node.node_id())
             .unwrap()
-            .hint_generation_plans(&proof_tree)
+            .hint_generation_plans(proof_tree)
             .get(OUTPUT_PLAN_KEY)
             .unwrap()
             .plan()
@@ -389,7 +389,7 @@ where
         let input_plan = proof_tree
             .node(&self.input_verifier_node.node_id())
             .unwrap()
-            .hint_generation_plans(&proof_tree)
+            .hint_generation_plans(proof_tree)
             .get(OUTPUT_PLAN_KEY)
             .unwrap()
             .plan()

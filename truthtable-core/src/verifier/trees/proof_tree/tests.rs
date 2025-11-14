@@ -7,7 +7,7 @@ use crate::{
         piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
     },
     test_utils::test_df_plan,
-    verifier::trees::{proof_tree::VerifierProofTree, tracked_tree::VerifierTrackedTree},
+    verifier::trees::proof_tree::VerifierProofTree,
 };
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
@@ -17,7 +17,6 @@ use ark_piop::{
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
-use datafusion_expr::LogicalPlanBuilder;
 use indexmap::IndexMap;
 use tpch_data::test_data_path;
 

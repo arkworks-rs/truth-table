@@ -11,7 +11,8 @@ use crate::proof_nodes::{
         ProverLiteralExprNode, ProverNegativeExprNode, ProverNotExprNode,
         ProverOuterReferenceColumnExprNode, ProverPlaceholderExprNode,
         ProverScalarFunctionExprNode, ProverScalarSubqueryExprNode, ProverScalarVariableExprNode,
-        ProverSimilarToExprNode, ProverTryCastExprNode, ProverUnnestExprNode, ProverWindowFunctionExprNode,
+        ProverSimilarToExprNode, ProverTryCastExprNode, ProverUnnestExprNode,
+        ProverWindowFunctionExprNode,
     },
     id::NodeId,
     lps::prover::{

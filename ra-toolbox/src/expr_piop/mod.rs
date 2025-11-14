@@ -30,7 +30,6 @@ pub mod unnest;
 pub mod wildcard;
 pub mod window_function;
 
-
 use ark_piop::errors::SnarkResult;
 
 pub type ExprPIOPResult = SnarkResult<()>;

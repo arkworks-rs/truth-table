@@ -74,16 +74,15 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 
         let mut tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
         for (node_id, tables) in &tables_by_node {
-            if let NodeId::LP(plan) = node_id {
-                if matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
-                    if let Some(table) = tables.get(OUTPUT_PLAN_KEY) {
-                        tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
-                            table.clone(),
-                            &mut verifier,
-                        )?);
-                        break;
-                    }
-                }
+            if let NodeId::LP(plan) = node_id
+                && matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_))
+                && let Some(table) = tables.get(OUTPUT_PLAN_KEY)
+            {
+                tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
+                    table.clone(),
+                    &mut verifier,
+                )?);
+                break;
             }
         }
 

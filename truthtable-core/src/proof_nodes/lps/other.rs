@@ -37,15 +37,15 @@ where
     }
     fn hint_generation_plans(
         &self,
-         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
     fn from_lp(
-         _ctx: &SessionContext,
+        _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-         _plan: LogicalPlan,
+        _plan: LogicalPlan,
         _parent_node_id: NodeId,
     ) -> Self
     where
@@ -86,7 +86,7 @@ where
 
     fn add_virtual_witness(
         &self,
-         _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         todo!()
@@ -94,7 +94,7 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-         _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }
@@ -120,7 +120,7 @@ where
     }
     fn hint_generation_plans(
         &self,
-         _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> IndexMap<String, HintGenerationPlan> {
         todo!()
     }
@@ -128,8 +128,8 @@ where
     fn from_lp(
         _ctx: &SessionContext,
         _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-         _plan: LogicalPlan,
-         _parent_node_id: NodeId,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
@@ -162,7 +162,7 @@ where
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         todo!()
     }

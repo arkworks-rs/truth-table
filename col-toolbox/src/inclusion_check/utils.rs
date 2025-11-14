@@ -39,11 +39,11 @@ where
     let mut super_col_mult_evals = Vec::with_capacity(super_col_len);
 
     for (i, &val) in super_col_evals.iter().enumerate() {
-        if let Some(ref activator_evals) = super_col_activator_evals {
-            if activator_evals[i] == F::zero() {
-                super_col_mult_evals.push(F::zero());
-                continue;
-            }
+        if let Some(ref activator_evals) = super_col_activator_evals
+            && activator_evals[i] == F::zero()
+        {
+            super_col_mult_evals.push(F::zero());
+            continue;
         }
 
         if let Some(&included_col_mult) = included_col_mults_map.get(&val) {

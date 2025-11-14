@@ -12,10 +12,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::{
-    logical_expr::LogicalPlan,
-    prelude::SessionContext,
-};
+use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 use indexmap::IndexMap;
 use std::sync::Arc;
 

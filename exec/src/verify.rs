@@ -34,6 +34,12 @@ pub struct VerifyBuilder {
     vk_path: Option<PathBuf>,
 }
 
+impl Default for VerifyBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VerifyBuilder {
     pub fn new() -> Self {
         Self {

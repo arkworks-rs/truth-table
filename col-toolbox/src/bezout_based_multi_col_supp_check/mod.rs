@@ -5,9 +5,7 @@ use crate::{
     bezout_based_multi_col_nodup::{
         BezoutBasedMultiNoDup, BezoutBasedMultiNoDupProverInput, BezoutBasedMultiNoDupVerifierInput,
     },
-    inclusion_check::{
-        InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput,
-    },
+    inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use arithmetic::{

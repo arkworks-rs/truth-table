@@ -2,10 +2,7 @@ use crate::proof_nodes::prover::ProverNode;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
-use crate::proof_nodes::{
-    id::NodeId,
-    lps::prover::ProverTableScanNode,
-};
+use crate::proof_nodes::{id::NodeId, lps::prover::ProverTableScanNode};
 use arithmetic::ACTIVATOR_COL_NAME;
 use indexmap::IndexMap;
 use std::{fmt, sync::Arc};

@@ -13,7 +13,7 @@ pub async fn test_df_plan(
     table_names: &[&str],
 ) -> DFResult<LogicalPlan> {
     for &table_name in table_names {
-        let parquet_path = test_data_path(&format!("{table_name}.parquet"));
+        let parquet_path = test_data_path(format!("{table_name}.parquet"));
         assert!(
             parquet_path.exists(),
             "Missing Parquet at {:?}",
@@ -30,7 +30,7 @@ pub async fn test_df_plan(
         .await?;
     }
     let state = ctx.state();
-    let mut plan = state.create_logical_plan(query).await?;
+    let plan = state.create_logical_plan(query).await?;
     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![];
 
     let optimizer = Optimizer::with_rules(rules);

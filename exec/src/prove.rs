@@ -40,6 +40,12 @@ pub struct ProveBuilder {
     output_path: Option<PathBuf>,
 }
 
+impl Default for ProveBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProveBuilder {
     pub fn new() -> Self {
         Self {
@@ -343,11 +349,11 @@ fn write_proof(
     proof: &ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>,
     path: &Path,
 ) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
     let file = File::create(path)

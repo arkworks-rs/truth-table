@@ -93,9 +93,7 @@ where
                     let lines: Vec<_> = entries
                         .into_iter()
                         .filter_map(|(label, hint_plan)| {
-                            if hint_plan.project_materialized().is_none() {
-                                return None;
-                            }
+                            hint_plan.project_materialized()?;
                             let batches_opt = self.tree.batches_for(&node_kind, label.as_str());
                             let (rows, cols, activated_true) = batches_opt
                                 .map(|batches| rows_cols_activated(batches.as_slice()))
