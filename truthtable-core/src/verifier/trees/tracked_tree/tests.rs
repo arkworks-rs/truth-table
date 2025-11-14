@@ -17,7 +17,6 @@ use ark_piop::{
 use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
-use datafusion_expr::LogicalPlanBuilder;
 use indexmap::IndexMap;
 use tpch_data::test_data_path;
 

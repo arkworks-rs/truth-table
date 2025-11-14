@@ -6,11 +6,9 @@ use crate::{
         HintGenerationPlan, OUTPUT_PLAN_KEY,
         cost::ProvingCost,
         id::NodeId,
-        lps::sort::{
-            hints::{
-                LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
-                TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
-            },
+        lps::sort::hints::{
+            LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
+            TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
         },
         prover::ProverNode,
         verifier::VerifierNode,
@@ -18,9 +16,7 @@ use crate::{
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
-use arithmetic::{
-    ACTIVATOR_COL_NAME, col::TrackedCol, table::TrackedTable, table_oracle::TrackedTableOracle,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},

@@ -1,26 +1,14 @@
-use crate::{
-    proof_nodes::id::NodeId,
-    prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree,
-        hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree,
-        proof_tree::{self, ProverProofTree},
-        tracked_tree::ProverTrackedTree,
-    },
-    test_utils::test_df_plan,
+use crate::prover::trees::{
+    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
+    piop_tree::ProverPIOPTree, proof_tree::ProverProofTree, tracked_tree::ProverTrackedTree,
 };
-use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
     test_utils::{init_tracing_for_tests, test_prelude},
 };
-use ark_serialize::CanonicalDeserialize;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
-use indexmap::IndexMap;
-use std::{fs::File, io::BufReader};
-use tpch_data::test_data_path;
 
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;

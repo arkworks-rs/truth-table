@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, time::Instant};
+use std::{fs::File, io::BufReader};
 
 use crate::{
     proof_nodes::id::NodeId,
