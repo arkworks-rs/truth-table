@@ -16,6 +16,8 @@ use datafusion::{
     logical_expr::{self as df, LogicalPlan, LogicalPlanBuilder},
     prelude::SessionContext,
 };
+use datafusion::prelude::DataFrame;
+
 use datafusion_expr::{
     Limit, SortExpr,
     logical_plan::{FetchType, SkipType},
@@ -59,22 +61,11 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let child_plans = self.input.hint_generation_plans(proof_tree);
-        let input_plan = child_plans
-            .get(OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| panic!("input proof node must expose {OUTPUT_PLAN_KEY}"))
-            .plan()
-            .clone();
-
-        let output_plan = build_limit_hint_output_plan(input_plan, &self.limit);
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
-        )])
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
 
 
     fn cost(
@@ -85,48 +76,49 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.node_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
+        todo!()
     }
+
 
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        Ok(())
-        // let input_table = piop_tree
-        //     .tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
-        //     .unwrap_or_else(|| {
-        //         panic!(
-        //             "missing input tracked table for limit prover node {}",
-        //             self.node_id
-        //         )
-        //     });
-        // let output_table = piop_tree
-        //     .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-        //     .unwrap_or_else(|| {
-        //         panic!(
-        //             "missing output tracked table for limit prover node {}",
-        //             self.node_id
-        //         )
-        //     });
-
-        // let limit_piop_input = LimitPIOPProverInput {
-        //     limit: self.limit.clone(),
-        //     input_activator_tracked_poly:
-        // input_table.activator_tracked_poly(),
-        //     output_activator_tracked_poly:
-        // output_table.activator_tracked_poly(), };
-
-        // LimitPIOP::<F, MvPCS, UvPCS>::prove(prover, limit_piop_input)
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverLimitNode<F, MvPCS, UvPCS>
@@ -200,7 +192,7 @@ where
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
         // let input_table = piop_tree
         //     .tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)

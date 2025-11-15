@@ -19,6 +19,8 @@ use datafusion::{
     logical_expr::Expr,
     prelude::SessionContext,
 };
+use datafusion::prelude::DataFrame;
+
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -64,69 +66,56 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
+
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        let alias_name = match &self.node_id {
-            NodeId::Expr(Expr::Alias(alias)) => alias.name.clone(),
-            _ => panic!("expected alias expression node"),
-        };
-
-        if let Some(table) = piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY) {
-            let mut tracked_polys: IndexMap<
-                FieldRef,
-                ark_piop::prover::structs::polynomial::TrackedPoly<F, MvPCS, UvPCS>,
-            > = IndexMap::new();
-            let mut schema_fields: Vec<FieldRef> = Vec::new();
-            let mut alias_applied = false;
-
-            for (field, poly) in table.tracked_polys_iter() {
-                let new_field = if !alias_applied && field.name() != ACTIVATOR_COL_NAME {
-                    alias_applied = true;
-                    Arc::new(Field::new(
-                        alias_name.clone(),
-                        field.data_type().clone(),
-                        field.is_nullable(),
-                    ))
-                } else {
-                    field.clone()
-                };
-                schema_fields.push(new_field.clone());
-                tracked_polys.insert(new_field, poly.clone());
-            }
-
-            let fields: Vec<Field> = schema_fields
-                .iter()
-                .map(|field_ref| field_ref.as_ref().clone())
-                .collect();
-            // Rebuild a schema that reflects the aliased column name so later lookups can
-            // resolve it.
-            let new_schema = table
-                .schema_ref()
-                .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
-                .or_else(|| Some(Schema::new(fields)));
-
-            let aliased_table = TrackedTable::new(new_schema, tracked_polys, table.log_size());
-
-            piop_tree.add_table(
-                self.node_id.clone(),
-                OUTPUT_PLAN_KEY.to_string(),
-                aliased_table,
-            );
-        }
+        todo!()
     }
+
+    fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
+    }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverAliasExprNode<F, MvPCS, UvPCS>

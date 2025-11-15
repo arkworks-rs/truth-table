@@ -3,7 +3,7 @@
 
 use super::cost::ProvingCost;
 use crate::{
-    proof_nodes::{HintGenerationPlan, id::NodeId},
+    proof_nodes::id::NodeId,
     prover::trees::{
         arithmetized_tree::ProverArithmetizedTree, piop_tree::ProverPIOPTree,
         proof_tree::ProverProofTree,
@@ -23,6 +23,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
+use datafusion::prelude::DataFrame;
 use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
@@ -77,30 +78,28 @@ where
     /// function.
     fn hint_generation_plans(
         &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        IndexMap::new()
-    }
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame>;
     fn arithmetic_post_process(
         &self,
-        arithmetized_tree: &mut ProverArithmetizedTree<F, MvPCS, UvPCS>,
-    ) {
-        let _ = arithmetized_tree;
-    }
+        arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    );
+
+    fn output_data_frame(&self, _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>) -> DataFrame;
+
+    fn is_public(&self) -> bool;
 
     /// Complete the piop plan
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-    ) {
-        let _ = (piop_tree, prover);
-    }
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    );
 
     fn add_virtual_witness_recursive(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
         for child in self.children() {
             child.add_virtual_witness_recursive(piop_tree, prover);
@@ -114,18 +113,15 @@ where
 
     fn prove_piop(
         &self,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        let _ = piop_tree;
-        Ok(())
-    }
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> SnarkResult<()>;
 
     fn prove_piop_recursive(
         &self,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         self.prove_piop(prover, piop_tree)?;
         for child in self.children() {
             child.prove_piop_recursive(prover, piop_tree)?;
@@ -136,7 +132,7 @@ where
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
     fn ctx_lp_node(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>;
 }
 
@@ -151,6 +147,58 @@ where
     pub fn as_any(&self) -> &dyn Any {
         self
     }
+    fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
+    }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+    fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
+
 }
 
 pub trait ProverLpNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync

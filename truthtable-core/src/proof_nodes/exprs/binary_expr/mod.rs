@@ -2,7 +2,11 @@ use crate::proof_nodes::HintGenerationPlan;
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
+        OUTPUT_PLAN_KEY,
+        cost::ProvingCost,
+        id::NodeId,
+        prover::{ProverExprNode, ProverNode},
+        verifier::{VerifierExprNode, VerifierNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -21,10 +25,12 @@ use ark_piop::{
     prover::Prover,
     verifier::structs::oracle::TrackedOracle,
 };
+use datafusion::prelude::DataFrame;
 use datafusion::{
     arrow::datatypes::{DataType, Field},
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Operator},
 };
+
 use indexmap::IndexMap;
 use ra_toolbox::expr_piop::binary_expr::{
     BinaryExprPIOP, BinaryExprPIOPProverInput, BinaryExprPIOPVerifierInput,
@@ -71,36 +77,10 @@ where
     }
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        // Extract the binary expression from the node ID
-        let bin_expr = match self.node_id.to_expr().unwrap() {
-            Expr::BinaryExpr(b) => b.clone(),
-            _ => panic!("expected binary expression"),
-        };
-        // Prefer using the ctx LP plan first so joins can reference both sides,
-        // then fall back to scanning every table scan in order until projection works.
-        let ctx_plan = self
-            .ctx_lp_node(proof_tree)
-            .hint_generation_plans(proof_tree)
-            .get(OUTPUT_PLAN_KEY)
-            .map(|hint| hint.plan().clone());
-        let table_scan_plans = tablescan_plans_prover(proof_tree);
-        let Some(output_plan) =
-            build_bin_expr_hint_generation_plans(&bin_expr, ctx_plan, table_scan_plans.into_iter())
-        else {
-            panic!("no valid plan found for binary expression");
-        };
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            if Self::requires_materialized_witness(bin_expr.op) {
-                HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), output_plan)
-            } else {
-                HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan)
-            },
-        )])
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
-
 
     fn cost(
         &self,
@@ -114,10 +94,7 @@ where
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
 
     fn add_virtual_witness(
@@ -125,82 +102,37 @@ where
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        if let Expr::BinaryExpr(bin_expr) = self.node_id.to_expr().unwrap() {
-            let (log_size, left_col) = {
-                let table = piop_tree
-                    .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .expect("missing left child output for binary expr");
-                (table.log_size(), table.tracked_col_by_ind(0).clone())
-            };
-            let right_col = {
-                let table = piop_tree
-                    .tracked_table(&self.right_prover_node.node_id(), OUTPUT_PLAN_KEY)
-                    .expect("missing right child output for binary expr");
-                table.tracked_col_by_ind(0).clone()
-            };
-
-            if !Self::requires_materialized_witness(bin_expr.op) {
-                piop_tree.add_table(
-                    self.node_id.clone(),
-                    OUTPUT_PLAN_KEY.to_string(),
-                    Self::output_virtual_table(bin_expr, &left_col, &right_col, log_size),
-                );
-            } else {
-                Self::append_activator_to_materialized(
-                    piop_tree,
-                    &self.node_id,
-                    &left_col,
-                    &right_col,
-                );
-            }
-        }
+        todo!()
     }
+
     fn prove_piop(
         &self,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        let op = match self.node_id.to_expr().unwrap() {
-            Expr::BinaryExpr(b) => b.op,
-            _ => panic!("expected binary expression"),
-        };
-        let left_col = piop_tree
-            .tracked_table(&self.left_prover_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .tracked_col_by_ind(0)
-            .clone();
-        let right_col = piop_tree
-            .tracked_table(&self.right_prover_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .tracked_col_by_ind(0)
-            .clone();
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
 
-        let raw_output_col = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap()
-            .tracked_col_by_ind(0)
-            .clone();
-        let output_activator = match (
-            left_col.activator_tracked_poly(),
-            raw_output_col.activator_tracked_poly(),
-        ) {
-            (Some(left_act), _) => Some(left_act),
-            (None, existing) => existing,
-        };
-        let output_col = TrackedCol::new(
-            raw_output_col.data_tracked_poly(),
-            output_activator,
-            raw_output_col.field_ref(),
-        );
-        let binary_expr_piop_prover_input: BinaryExprPIOPProverInput<F, MvPCS, UvPCS> =
-            BinaryExprPIOPProverInput {
-                op,
-                left_col,
-                right_col,
-                output_col,
-            };
-        BinaryExprPIOP::<F, MvPCS, UvPCS>::prove(prover, binary_expr_piop_prover_input)?;
-        Ok(())
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
+            F,
+            MvPCS,
+            UvPCS,
+        >,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
     }
 }
 
@@ -275,7 +207,7 @@ where
     }
 
     fn append_activator_to_materialized(
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         node_id: &NodeId,
         left_col: &TrackedCol<F, MvPCS, UvPCS>,
         right_col: &TrackedCol<F, MvPCS, UvPCS>,
@@ -379,7 +311,6 @@ where
         )])
     }
 
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
@@ -424,7 +355,7 @@ where
         &self,
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         let op = match self.node_id.to_expr().unwrap() {
             Expr::BinaryExpr(b) => b.op,
             _ => panic!("expected binary expression"),
@@ -529,7 +460,6 @@ where
         }
     }
 }
-
 
 impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
 where
@@ -637,24 +567,25 @@ fn build_bin_expr_hint_generation_plans(
 }
 
 fn tablescan_plans_prover<F, MvPCS, UvPCS>(
-    proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
 ) -> Vec<LogicalPlan>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    proof_tree
-        .arena()
-        .iter()
-        .filter_map(|(node_id, node)| match node_id {
-            NodeId::LP(LogicalPlan::TableScan(_)) => node
-                .hint_generation_plans(proof_tree)
-                .get(OUTPUT_PLAN_KEY)
-                .map(|hint| hint.plan().clone()),
-            _ => None,
-        })
-        .collect()
+    todo!()
+    // proof_tree
+    //     .arena()
+    //     .iter()
+    //     .filter_map(|(node_id, node)| match node_id {
+    //         NodeId::LP(LogicalPlan::TableScan(_)) => node
+    //             .hint_generation_plans(proof_tree)
+    //             .get(OUTPUT_PLAN_KEY)
+    //             .map(|hint| hint.plan().clone()),
+    //         _ => None,
+    //     })
+    //     .collect()
 }
 
 fn tablescan_plans_verifier<F, MvPCS, UvPCS>(

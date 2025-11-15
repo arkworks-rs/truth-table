@@ -30,6 +30,8 @@ use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
     prelude::SessionContext,
 };
+use datafusion::prelude::DataFrame;
+
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput};
@@ -99,22 +101,11 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let base_plan = self
-            .input_prover_node
-            .hint_generation_plans(proof_tree)
-            .get(OUTPUT_PLAN_KEY)
-            .map(|hint| hint.plan().clone())
-            .expect("input node missing OUTPUT_PLAN hint");
-
-        let sort_lp = match self.node_id.to_lp() {
-            Some(LogicalPlan::Sort(sort)) => sort,
-            _ => panic!("expected sort logical plan"),
-        };
-
-        build_sort_hint_generation_plans(base_plan, sort_lp)
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
 
 
     fn node_id(&self) -> NodeId {
@@ -129,162 +120,49 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        self.input_prover_node.clone()
+        todo!()
     }
+
 
     fn prove_piop(
         &self,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        // Extract the sort logical plan
-        let sort_lp = match self.node_id.to_lp() {
-            Some(LogicalPlan::Sort(sort)) => sort.clone(),
-            _ => panic!("expected sort logical plan"),
-        };
-
-        // First, we wire the actual non-sorted table, which is produced by the output
-        // plan of the input node
-        let tracked_table = piop_tree
-            .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort input node {}",
-                    OUTPUT_PLAN_KEY,
-                    self.input_prover_node.node_id()
-                )
-            });
-        // Then, we wire the lexicographically sorted table, which is produced by the
-        // output of the current sort node
-        let lex_sorted_tracked_table = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort node {}",
-                    OUTPUT_PLAN_KEY, self.node_id
-                )
-            });
-        // We also wire the lexicographically sorted version of the sort expressions,
-        // assembled in a table
-        let lex_sorted_sort_exprs_tracked_table = piop_tree
-            .tracked_table(&self.node_id, LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort node {}",
-                    LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
-                )
-            });
-
-        // Now, let's assemble the sort expressions. Note that the evaluations of sort
-        // expressions does not give us sorted columns; rather, they give us the columns
-        // that were used to sort the original table.
-        let mut sort_expr_cols: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> =
-            IndexMap::with_capacity(self.sort_exprs.len());
-        for sort_expr_node in &self.sort_exprs {
-            // Get the output table of the sort expression node
-            let expr_table = piop_tree
-                .tracked_table(&sort_expr_node.expr.node_id(), OUTPUT_PLAN_KEY)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing {} table for sort expression node {}",
-                        OUTPUT_PLAN_KEY,
-                        sort_expr_node.expr.node_id()
-                    )
-                });
-            // Get the first data column produced by the sort expression node
-            // Since expression nodes have only one data column, and at most one activator
-            let mut data_cols = expr_table
-                .tracked_polys()
-                .into_iter()
-                .filter(|(field, _)| field.name() != ACTIVATOR_COL_NAME);
-
-            let (field, poly) = data_cols.next().unwrap_or_else(|| {
-                panic!(
-                    "sort expression node {} produced no data column",
-                    sort_expr_node.expr.node_id()
-                )
-            });
-            if data_cols.next().is_some() {
-                panic!(
-                    "sort expression node {} produced more than one data column",
-                    sort_expr_node.expr.node_id()
-                );
-            }
-
-            sort_expr_cols.insert(field.clone(), poly);
-        }
-        if tracked_table.activator_tracked_poly().is_some() {
-            sort_expr_cols.insert(
-                FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::UInt64, false)),
-                tracked_table.activator_tracked_poly().unwrap(),
-            );
-        };
-        let sort_exprs_tracked_table_log_size = sort_expr_cols[0].log_size();
-        let sort_exprs_tracked_table = TrackedTable::new(
-            None,
-            sort_expr_cols.clone(),
-            sort_exprs_tracked_table_log_size,
-        );
-
-        let shifted_lex_sorted_sort_exprs_tracked_table = piop_tree
-            .tracked_table(&self.node_id, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing {} table for sort node {}",
-                    SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, self.node_id
-                )
-            });
-
-        let tie_indicators_tracked_table = if self.sort_exprs.len() == 1 {
-            None
-        } else {
-            Some(
-                piop_tree
-                    .tracked_table(&self.node_id, TIE_INDICATOR_PLAN_KEY)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "missing {} table for sort node {}",
-                            TIE_INDICATOR_PLAN_KEY, self.node_id
-                        )
-                    }),
-            )
-        };
-
-        let ascending_vec = self
-            .sort_exprs
-            .iter()
-            .map(|expr| expr.asc)
-            .collect::<Vec<bool>>();
-        let null_first_vec = self
-            .sort_exprs
-            .iter()
-            .map(|expr| expr.nulls_first)
-            .collect::<Vec<bool>>();
-
-        let sort_prover_input = SortPIOPProverInput {
-            sort_lp,
-            sort_exprs_tracked_table,
-            lex_sorted_sort_exprs_tracked_table,
-            shifted_lex_sorted_sort_exprs_tracked_table,
-            tie_indicators_tracked_table,
-            tracked_table,
-            lex_sorted_tracked_table,
-            ascending_vec,
-            null_first_vec,
-        };
-        SortPIOP::prove(prover, sort_prover_input)?;
-
-        Ok(())
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
@@ -390,7 +268,7 @@ where
         &self,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Extract the sort logical plan
         let sort_lp = match self.node_id.to_lp() {
             Some(LogicalPlan::Sort(sort)) => sort.clone(),

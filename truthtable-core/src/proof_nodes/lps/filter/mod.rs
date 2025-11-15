@@ -22,6 +22,8 @@ use datafusion::{
     logical_expr::{self as df, ExprSchemable, LogicalPlan, LogicalPlanBuilder},
     prelude::{Expr, SessionContext},
 };
+use datafusion::prelude::DataFrame;
+
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::filter_check::{
     FilterPIOP, FilterPIOPProverInput, FilterPIOPVerifierInput,
@@ -79,76 +81,11 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let input_plan = proof_tree
-            .node(&self.input_prover_node.node_id())
-            .unwrap()
-            .hint_generation_plans(proof_tree)
-            .get(OUTPUT_PLAN_KEY)
-            .unwrap()
-            .plan()
-            .clone();
-        // Determine activator's datatype from input schema
-        let schema = input_plan.schema().clone();
-        let activator_field = schema
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
-        let activator_dtype = activator_field.data_type().clone();
-
-        // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-        let predicate_expr = self.predicate_expr.clone();
-        let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
-        let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
-            try_bool_and.alias(ACTIVATOR_COL_NAME)
-        } else {
-            // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
-            // if bitwise not supported)
-            let one = df::lit(1)
-                .cast_to(&activator_dtype, schema.as_ref())
-                .unwrap();
-            let zero = df::lit(0)
-                .cast_to(&activator_dtype, schema.as_ref())
-                .unwrap();
-            let mask = df::when(predicate_expr.clone(), one.clone())
-                .otherwise(zero.clone())
-                .unwrap();
-
-            // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
-            // replacement
-            let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
-            if try_bit_and.get_type(schema.as_ref()).is_ok() {
-                try_bit_and.alias(ACTIVATOR_COL_NAME)
-            } else {
-                // CASE WHEN predicate THEN activator ELSE 0
-                df::when(predicate_expr, df::col(ACTIVATOR_COL_NAME))
-                    .otherwise(zero)
-                    .unwrap()
-                    .alias(ACTIVATOR_COL_NAME)
-            }
-        };
-
-        // Pass through all other columns unchanged
-        let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
-        for f in schema.fields() {
-            if f.name() == ACTIVATOR_COL_NAME {
-                proj_exprs.push(new_activator.clone());
-            } else {
-                proj_exprs.push(df::col(f.name()));
-            }
-        }
-
-        let output_plan = LogicalPlanBuilder::from(input_plan)
-            .project(proj_exprs)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
-        )])
+        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
 
     fn cost(
         &self,
@@ -158,133 +95,49 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        self.input_prover_node.clone()
+        todo!()
     }
+
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        // Fetch the input tracked_table
-        let input_table =
-            match piop_tree.tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY) {
-                Some(table) => table,
-                None => return,
-            };
-        // Fetch the predicate tracked_table
-        let predicate_table =
-            match piop_tree.tracked_table(&self.predicate_prover_node.node_id(), OUTPUT_PLAN_KEY) {
-                Some(table) => table,
-                None => return,
-            };
-        // Fetch the The predicate tracked colummn from the predicate table
-        let predicate_tracked_col = predicate_table.tracked_col_by_ind(0);
-        // Fetch the predicate tracked polynomial from the predicate tracked column
-        let mut predicate_tracked_poly = predicate_tracked_col.data_tracked_poly();
-
-        // update the predicate tracked polynomial by multiplying it with its own
-        // activator
-        if let Some(pred_activator) = predicate_tracked_col.activator_tracked_poly() {
-            predicate_tracked_poly = &predicate_tracked_poly * &pred_activator;
-        }
-        // update the predicate tracked polynomial by multiplying it with the input
-        // table activator
-        if let Some(input_activator) = input_table.activator_tracked_poly() {
-            predicate_tracked_poly = &predicate_tracked_poly * &input_activator;
-        }
-
-        // Create a field for the activator column
-        let activator_field = Field::new(
-            ACTIVATOR_COL_NAME,
-            predicate_tracked_col
-                .field_ref()
-                .map(|f| f.data_type().clone())
-                .unwrap_or(DataType::Boolean),
-            true,
-        );
-        let activator_field_ref = FieldRef::new(activator_field);
-        // Prepare the columns for the output table of the current filter node
-        let mut columns = IndexMap::new();
-        let mut activator_poly = Some(predicate_tracked_poly);
-        // The output table of the current node is the same as the input table except
-        // the activator is replaced with the new predicate tracked polynomial. Reuse
-        // the original column ordering to keep schemas aligned.
-        for (field, poly) in input_table.tracked_polys_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                let new_poly = activator_poly
-                    .take()
-                    .expect("activator polynomial should be present exactly once");
-                columns.insert(activator_field_ref.clone(), new_poly);
-            } else {
-                columns.insert(field.clone(), poly.clone());
-            }
-        }
-        if let Some(poly) = activator_poly {
-            columns.insert(activator_field_ref.clone(), poly);
-        }
-
-        let output_schema = input_table.schema_ref().map(|schema| {
-            let updated_fields: Vec<Field> = schema
-                .fields()
-                .iter()
-                .map(|field| {
-                    if field.name() == ACTIVATOR_COL_NAME {
-                        activator_field_ref.as_ref().clone()
-                    } else {
-                        field.as_ref().clone()
-                    }
-                })
-                .collect();
-            Schema::new(updated_fields)
-        });
-
-        // Data columns are unchanged; the activator becomes
-        // `input_activator AND predicate`.
-        let output_table = TrackedTable::new(output_schema, columns, input_table.log_size());
-        piop_tree.add_table(
-            self.node_id.clone(),
-            OUTPUT_PLAN_KEY.to_string(),
-            output_table,
-        );
+        todo!()
     }
+
     fn prove_piop(
         &self,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        let filter = match self.node_id().to_lp().unwrap() {
-            LogicalPlan::Filter(f) => f.clone(),
-            _ => panic!("expected filter logical plan"),
-        };
-
-        let predicate_col = piop_tree
-            .tracked_table(&self.predicate_prover_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .tracked_col_by_ind(0);
-        let input_tracked_table = piop_tree
-            .tracked_table(&self.input_prover_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .clone();
-        let output_tracked_table = piop_tree
-            .tracked_table(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap()
-            .clone();
-
-        let filter_piop_prover_input = FilterPIOPProverInput {
-            filter,
-            predicate_col,
-            input_tracked_table,
-            output_tracked_table,
-        };
-
-        FilterPIOP::<F, MvPCS, UvPCS>::prove(prover, filter_piop_prover_input)?;
-        Ok(())
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
@@ -525,7 +378,7 @@ where
         &self,
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         let filter = match self.node_id().to_lp().unwrap() {
             LogicalPlan::Filter(f) => f.clone(),
             _ => panic!("expected filter logical plan"),

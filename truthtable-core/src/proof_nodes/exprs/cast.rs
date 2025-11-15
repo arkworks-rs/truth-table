@@ -22,6 +22,8 @@ use datafusion::{
     logical_expr::Expr,
     prelude::SessionContext,
 };
+use datafusion::prelude::DataFrame;
+
 use indexmap::IndexMap;
 use std::sync::Arc;
 #[derive(Clone)]
@@ -69,127 +71,56 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
+
 
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        let cast_expr = match self.node_id.to_expr() {
-            Some(Expr::Cast(cast)) => cast.clone(),
-            _ => panic!("expected cast expression"),
-        };
-
-        if let Some(Expr::Literal(scalar)) = self.input.node_id().to_expr() {
-            let scalar = scalar
-                .cast_to(&cast_expr.data_type)
-                .expect("failed to cast literal value for cast expression");
-            let array = scalar
-                .to_array()
-                .expect("failed to convert scalar into arrow array");
-
-            let mut column_values = encode_arrow_array_to_field::<F>(&array)
-                .expect("failed to encode literal into field elements")
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| vec![F::zero()]);
-
-            if column_values.len() > 1 {
-                panic!("literal encoding resulted in multiple field elements");
-            }
-
-            let constant_value = column_values.pop().unwrap_or_else(F::zero);
-            let log_size = {
-                let ctx_node = self.ctx_lp_node(piop_tree.proof_tree());
-                piop_tree
-                    .tracked_table(&ctx_node.node_id(), OUTPUT_PLAN_KEY)
-                    .map(|table| table.log_size())
-                    .unwrap_or(0)
-            };
-            let tracked_poly = prover.track_mat_mv_cnst_poly(log_size, constant_value);
-
-            let data_type = scalar.data_type();
-
-            let schema = Schema::new(vec![Field::new(
-                "literal",
-                data_type.clone(),
-                scalar.is_null(),
-            )]);
-
-            let table = TrackedTable::new(
-                Some(schema),
-                IndexMap::from([(
-                    Arc::new(Field::new("literal", data_type, scalar.is_null())),
-                    tracked_poly,
-                )]),
-                log_size,
-            );
-
-            piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
-        } else {
-            let child_table = match piop_tree.tracked_table(&self.input.node_id(), OUTPUT_PLAN_KEY)
-            {
-                Some(table) => table.clone(),
-                None => return,
-            };
-
-            let target_type = cast_expr.data_type.clone();
-
-            let mut columns = IndexMap::with_capacity(child_table.tracked_polys().len());
-            for (field, poly) in child_table.tracked_polys() {
-                let new_field = if field.name() == ACTIVATOR_COL_NAME {
-                    field.clone()
-                } else {
-                    let base = field.as_ref();
-                    let mut updated =
-                        Field::new(base.name(), target_type.clone(), base.is_nullable());
-                    if !base.metadata().is_empty() {
-                        updated = updated.with_metadata(base.metadata().clone());
-                    }
-                    Arc::new(updated)
-                };
-                columns.insert(new_field, poly.clone());
-            }
-
-            let new_schema = child_table.schema().map(|schema| {
-                let fields: Vec<Field> = schema
-                    .fields()
-                    .iter()
-                    .map(|f| {
-                        let base = f.as_ref();
-                        if base.name() == ACTIVATOR_COL_NAME {
-                            base.clone()
-                        } else {
-                            let mut updated =
-                                Field::new(base.name(), target_type.clone(), base.is_nullable());
-                            if !base.metadata().is_empty() {
-                                updated = updated.with_metadata(base.metadata().clone());
-                            }
-                            updated
-                        }
-                    })
-                    .collect();
-                let mut new_schema = Schema::new(fields);
-                if !schema.metadata().is_empty() {
-                    new_schema = new_schema.with_metadata(schema.metadata().clone());
-                }
-                new_schema
-            });
-
-            let new_table = TrackedTable::new(new_schema, columns, child_table.log_size());
-
-            piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_string(), new_table);
-        }
+        todo!()
     }
+
+    fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
+    }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverCastExprNode<F, MvPCS, UvPCS>

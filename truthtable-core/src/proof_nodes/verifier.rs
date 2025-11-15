@@ -81,7 +81,7 @@ where
         &self,
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         let _ = piop_tree;
         Ok(())
     }
@@ -90,7 +90,7 @@ where
         &self,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         self.verify_piop(verifier, piop_tree)?;
         for child in self.children() {
             child.verify_piop_recursive(verifier, piop_tree)?;

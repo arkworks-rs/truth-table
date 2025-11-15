@@ -36,6 +36,8 @@ use datafusion::{
     logical_expr::Join,
     prelude::SessionContext,
 };
+use datafusion::prelude::DataFrame;
+
 use datafusion_expr::{Expr, LogicalPlan};
 use indexmap::IndexMap;
 use ra_toolbox::lp_piop::join_check::{
@@ -98,10 +100,11 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        build_join_hint_generation_plans(self.node_id.clone())
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
 
 
     fn node_id(&self) -> NodeId {
@@ -144,143 +147,50 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.node_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
+        todo!()
     }
+
 
     fn arithmetic_post_process(
         &self,
-        arithmetized_tree: &mut ProverArithmetizedTree<F, MvPCS, UvPCS>,
+        arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
     ) {
-        let Some(node_tables) = arithmetized_tree.arithmetized_tables_for_mut(&self.node_id) else {
-            return;
-        };
-        let Some(all_key_supp_table) = node_tables.get(JOIN_ALL_KEY_SUPP) else {
-            return;
-        };
-
-        let target_log_size = all_key_supp_table.log_size();
-        let target_size = 1usize << target_log_size;
-
-        let mut pad_table = |label: &str| {
-            let Some(table) = node_tables.get_mut(label) else {
-                return;
-            };
-            let current_size = 1usize << table.log_size();
-            if current_size >= target_size {
-                return;
-            }
-
-            let mut padded_polys: IndexMap<FieldRef, Arc<MLE<F>>> =
-                IndexMap::with_capacity(table.polynomials().len());
-            for (field_ref, poly) in table.polynomials() {
-                let mut evals = poly.evaluations();
-                evals.resize(target_size, F::zero());
-                let padded_poly = Arc::new(MLE::from_evaluations_vec(target_log_size, evals));
-                padded_polys.insert(field_ref.clone(), padded_poly);
-            }
-
-            let padded_table = ArithTable::new(table.schema(), padded_polys, target_log_size);
-            *table = padded_table;
-        };
-
-        // Pad the support tables to match the union table and then drop any
-        // right-key columns from the materialized output so the prover and
-        // verifier commit to the same set of columns.
-        pad_table(JOIN_OUTPUT_KEY_SUPP);
-        pad_table(JOIN_LEFT_KEY_SUPP);
-        pad_table(JOIN_RIGHT_KEY_SUPP);
-        prune_output_right_keys(node_tables, &self.node_id);
+        todo!()
     }
+
 
     fn prove_piop(
         &self,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
-        let join_plan = match self.node_id().to_lp().unwrap() {
-            LogicalPlan::Join(join) => join.clone(),
-            _ => panic!("expected join logical plan"),
-        };
-        let left_key_names = join_key_names(&join_plan, true);
-        let right_key_names = join_key_names(&join_plan, false);
-        ////////////////////////////////////////
-        let left_tracked_table = piop_tree
-            .tracked_table(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap();
-        let reordered_left_tracked_table =
-            reorder_tracked_table_columns(left_tracked_table, &left_key_names);
-
-        ///////////////////////////////////////
-        let right_tracked_table = piop_tree
-            .tracked_table(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap();
-        let reordered_right_tracked_table =
-            reorder_tracked_table_columns(right_tracked_table, &right_key_names);
-        /////////////////////////////////////////
-        let out_tracked_table = piop_tree
-            .tracked_table(&self.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap();
-        let reordered_out_tracked_table =
-            reorder_tracked_table_columns(out_tracked_table, &left_key_names);
-        /////////////////////////////////////////
-        let left_key_supprt_table = piop_tree
-            .tracked_table(&self.node_id(), JOIN_LEFT_KEY_SUPP)
-            .unwrap();
-        let reordered_left_key_support_table =
-            reorder_tracked_table_columns(left_key_supprt_table, &left_key_names);
-
-        /////////////////////////////////////////
-        let right_key_supprt_table = piop_tree
-            .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SUPP)
-            .unwrap();
-        let reordered_right_key_support_table =
-            reorder_tracked_table_columns(right_key_supprt_table, &right_key_names);
-        /////////////////////////////////////////
-        let out_key_supprt_table = piop_tree
-            .tracked_table(&self.node_id, JOIN_OUTPUT_KEY_SUPP)
-            .unwrap();
-        let reordered_out_key_support_table =
-            reorder_tracked_table_columns(out_key_supprt_table, &left_key_names);
-        /////////////////////////////////////////
-        let all_key_supprt_table = piop_tree
-            .tracked_table(&self.node_id, JOIN_ALL_KEY_SUPP)
-            .unwrap();
-        let reordered_all_key_support_table =
-            reorder_tracked_table_columns(all_key_supprt_table, &left_key_names);
-        /////////////////////////////////////////
-        let join_left_source_tracked_table = piop_tree
-            .tracked_table(&self.node_id, JOIN_LEFT_KEY_SOURCE)
-            .unwrap();
-        let join_left_source = join_left_source_tracked_table
-            .tracked_col_by_ind(join_left_source_tracked_table.data_tracked_polys_indices()[0]);
-
-        ///////////////////////////////////////
-        let join_right_source_tracked_table = piop_tree
-            .tracked_table(&self.node_id, JOIN_RIGHT_KEY_SOURCE)
-            .unwrap();
-        let join_right_source = join_right_source_tracked_table
-            .tracked_col_by_ind(join_right_source_tracked_table.data_tracked_polys_indices()[0]);
-
-        let inner_join_piop_prover_input = InnerJoinProverInput {
-            left_table: reordered_left_tracked_table,
-            right_table: reordered_right_tracked_table,
-            out_table: reordered_out_tracked_table,
-            left_key_support_table: reordered_left_key_support_table,
-            right_key_support_table: reordered_right_key_support_table,
-            out_key_support_table: reordered_out_key_support_table,
-            all_key_support_table: reordered_all_key_support_table,
-            join_left_source,
-            join_right_source,
-        };
-        InnerJoinPIOP::<F, MvPCS, UvPCS>::prove(prover, inner_join_piop_prover_input)
+        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverJoinNode<F, MvPCS, UvPCS>
@@ -433,7 +343,7 @@ where
         &self,
         verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    ) -> ark_piop::errors::SnarkResult<()> {
         let join_plan = match self.node_id().to_lp().unwrap() {
             LogicalPlan::Join(join) => join.clone(),
             _ => panic!("expected join logical plan"),

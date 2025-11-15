@@ -139,119 +139,120 @@ where
         ctx: &SessionContext,
         proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DFResult<Self> {
-        let nodes: Vec<_> = proof_tree.arena().values().cloned().collect();
+        todo!()
+        // let nodes: Vec<_> = proof_tree.arena().values().cloned().collect();
 
-        #[allow(clippy::type_complexity)]
-        let mut futures: Vec<
-            BoxFuture<'static, DFResult<(usize, String, Vec<RecordBatch>)>>,
-        > = Vec::new();
+        // #[allow(clippy::type_complexity)]
+        // let mut futures: Vec<
+        //     BoxFuture<'static, DFResult<(usize, String, Vec<RecordBatch>)>>,
+        // > = Vec::new();
 
-        for node in &nodes {
-            let trees = node.hint_generation_plans(&proof_tree);
-            for (label, hint_plan) in trees {
-                if let Some(projected_plan) = hint_plan.project_materialized() {
-                    let ctx = ctx.clone();
-                    let node = Arc::clone(node);
-                    let label_clone = label.clone();
-                    futures.push(
-                        async move {
-                            // Optimize and materialize the hint plan tied to this
-                            // node/label pair.
-                            debug!(
-                                node = tree_label(&node),
-                                tree_label = %label_clone,
-                                "executing hint tree"
-                            );
-                            // let plan_with_filter =
-                            // ensure_activator_filter(projected_plan.clone());
-                            let optimized_plan = ctx.state().optimize(&projected_plan).unwrap();
-                            let df = ctx.execute_logical_plan(optimized_plan).await?;
-                            // Collect per-partition batches and flatten them in partition order
-                            // so we keep a deterministic row ordering even when the executor
-                            // runs partitions in parallel.
-                            let mut batches = df
-                                .collect_partitioned()
-                                .await?
-                                .into_iter()
-                                .flatten()
-                                .collect::<Vec<_>>();
+        // for node in &nodes {
+        //     let trees = node.hint_generation_plans(&proof_tree);
+        //     for (label, hint_plan) in trees {
+        //         if let Some(projected_plan) = hint_plan.project_materialized() {
+        //             let ctx = ctx.clone();
+        //             let node = Arc::clone(node);
+        //             let label_clone = label.clone();
+        //             futures.push(
+        //                 async move {
+        //                     // Optimize and materialize the hint plan tied to this
+        //                     // node/label pair.
+        //                     debug!(
+        //                         node = tree_label(&node),
+        //                         tree_label = %label_clone,
+        //                         "executing hint tree"
+        //                     );
+        //                     // let plan_with_filter =
+        //                     // ensure_activator_filter(projected_plan.clone());
+        //                     let optimized_plan = ctx.state().optimize(&projected_plan).unwrap();
+        //                     let df = ctx.execute_logical_plan(optimized_plan).await?;
+        //                     // Collect per-partition batches and flatten them in partition order
+        //                     // so we keep a deterministic row ordering even when the executor
+        //                     // runs partitions in parallel.
+        //                     let mut batches = df
+        //                         .collect_partitioned()
+        //                         .await?
+        //                         .into_iter()
+        //                         .flatten()
+        //                         .collect::<Vec<_>>();
 
-                            batches = add_activator_and_pad_power_of_two(batches)?;
+        //                     batches = add_activator_and_pad_power_of_two(batches)?;
 
-                            if label_clone == "output_tree"
-                                && node
-                                    .as_any()
-                                    .downcast_ref::<ProverTableScanNode>()
-                                    .is_some()
-                            {
-                                let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-                                assert!(
-                                    rows != 0 && (rows & (rows - 1)) == 0,
-                                    "TableScan rows not power-of-two: {}",
-                                    rows
-                                );
-                            }
+        //                     if label_clone == "output_tree"
+        //                         && node
+        //                             .as_any()
+        //                             .downcast_ref::<ProverTableScanNode>()
+        //                             .is_some()
+        //                     {
+        //                         let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        //                         assert!(
+        //                             rows != 0 && (rows & (rows - 1)) == 0,
+        //                             "TableScan rows not power-of-two: {}",
+        //                             rows
+        //                         );
+        //                     }
 
-                            let (rows, cols, activated) = rows_cols_activated(&batches);
-                            trace!(
-                                node = tree_label(&node),
-                                tree_label = %label_clone,
-                                rows,
-                                cols,
-                                activated_true = activated.unwrap_or(rows),
-                                "hint batches collected"
-                            );
+        //                     let (rows, cols, activated) = rows_cols_activated(&batches);
+        //                     trace!(
+        //                         node = tree_label(&node),
+        //                         tree_label = %label_clone,
+        //                         rows,
+        //                         cols,
+        //                         activated_true = activated.unwrap_or(rows),
+        //                         "hint batches collected"
+        //                     );
 
-                            Ok((node_ptr_id(&node), label_clone, batches))
-                        }
-                        .boxed(),
-                    );
-                }
-            }
-        }
+        //                     Ok((node_ptr_id(&node), label_clone, batches))
+        //                 }
+        //                 .boxed(),
+        //             );
+        //         }
+        //     }
+        // }
 
-        // Wait for all hint plans to finish and bucket the batches by node id.
-        let results = try_join_all(futures).await?;
+        // // Wait for all hint plans to finish and bucket the batches by node id.
+        // let results = try_join_all(futures).await?;
 
-        let mut by_id: IndexMap<usize, IndexMap<String, Vec<RecordBatch>>> = IndexMap::new();
-        for (id, label, batches) in results {
-            by_id.entry(id).or_default().insert(label, batches);
-        }
+        // let mut by_id: IndexMap<usize, IndexMap<String, Vec<RecordBatch>>> = IndexMap::new();
+        // for (id, label, batches) in results {
+        //     by_id.entry(id).or_default().insert(label, batches);
+        // }
 
-        // Guarantee every proof-tree node has a map entry, even if it produced no
-        // hints, so consumers always find a placeholder structure.
-        for node in &nodes {
-            by_id.entry(node_ptr_id(node)).or_default();
-        }
+        // // Guarantee every proof-tree node has a map entry, even if it produced no
+        // // hints, so consumers always find a placeholder structure.
+        // for node in &nodes {
+        //     by_id.entry(node_ptr_id(node)).or_default();
+        // }
 
-        let mut results_by_node_id: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> =
-            IndexMap::with_capacity(nodes.len());
-        for node in nodes {
-            let node_id = node.node_id();
-            let ptr_id = node_ptr_id(&node);
-            let mut entry = by_id.shift_remove(&ptr_id).unwrap_or_default();
-            if entry.len() <= 1 {
-                results_by_node_id.insert(node_id, entry);
-                continue;
-            }
+        // let mut results_by_node_id: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>> =
+        //     IndexMap::with_capacity(nodes.len());
+        // for node in nodes {
+        //     let node_id = node.node_id();
+        //     let ptr_id = node_ptr_id(&node);
+        //     let mut entry = by_id.shift_remove(&ptr_id).unwrap_or_default();
+        //     if entry.len() <= 1 {
+        //         results_by_node_id.insert(node_id, entry);
+        //         continue;
+        //     }
 
-            let mut ordered_entry = IndexMap::with_capacity(entry.len());
-            let hint_plan_order = node.hint_generation_plans(&proof_tree);
-            for label in hint_plan_order.keys() {
-                if let Some(batches) = entry.shift_remove(label) {
-                    ordered_entry.insert(label.clone(), batches);
-                }
-            }
-            // Preserve any additional labels that might have been produced but not present
-            // in the plan order (e.g. dynamic hints) in their existing insertion order.
-            for (label, batches) in entry {
-                ordered_entry.insert(label, batches);
-            }
+        //     let mut ordered_entry = IndexMap::with_capacity(entry.len());
+        //     let hint_plan_order = node.hint_generation_plans(&proof_tree);
+        //     for label in hint_plan_order.keys() {
+        //         if let Some(batches) = entry.shift_remove(label) {
+        //             ordered_entry.insert(label.clone(), batches);
+        //         }
+        //     }
+        //     // Preserve any additional labels that might have been produced but not present
+        //     // in the plan order (e.g. dynamic hints) in their existing insertion order.
+        //     for (label, batches) in entry {
+        //         ordered_entry.insert(label, batches);
+        //     }
 
-            results_by_node_id.insert(node_id, ordered_entry);
-        }
+        //     results_by_node_id.insert(node_id, ordered_entry);
+        // }
 
-        Ok(Self::new(proof_tree, results_by_node_id))
+        // Ok(Self::new(proof_tree, results_by_node_id))
     }
 }
 

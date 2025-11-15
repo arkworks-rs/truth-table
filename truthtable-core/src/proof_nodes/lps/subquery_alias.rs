@@ -12,6 +12,7 @@ use ark_piop::{
     pcs::PCS,
 };
 use datafusion::prelude::SessionContext;
+use datafusion::prelude::DataFrame;
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -46,10 +47,11 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        IndexMap::new()
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
 
 
     fn node_id(&self) -> NodeId {
@@ -75,30 +77,49 @@ where
         todo!()
     }
 
+
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        self.input_proof_tree_root.clone()
+        todo!()
     }
+
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut ProverPIOPTree<F, MvPCS, UvPCS>,
+        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        // Subquery alias wraps its input without modifying the data, so reuse the
-        // child's output plan table as this node's output plan.
-        if let Some(input_tables) =
-            piop_tree.tracked_table(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-        {
-            piop_tree.add_table(
-                self.node_id.clone(),
-                OUTPUT_PLAN_KEY.to_string(),
-                input_tables.clone(),
-            );
-        }
+        todo!()
     }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+    fn prove_piop(
+        &self,
+        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSubqueryAliasNode<F, MvPCS, UvPCS>

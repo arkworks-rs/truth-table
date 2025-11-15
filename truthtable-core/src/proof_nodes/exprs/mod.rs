@@ -65,6 +65,7 @@ pub mod prover {
         pcs::PCS,
     };
     use datafusion::logical_expr::Expr;
+use datafusion::prelude::DataFrame;
     #[derive(Clone)]
     pub struct RawExprNode {
         relative_expr: Expr,
@@ -103,15 +104,14 @@ pub mod prover {
             todo!()
         }
 
+
         fn ctx_lp_node(
             &self,
-            proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+            proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
         ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-            proof_tree
-                .node(&self.parent_node_id)
-                .unwrap()
-                .ctx_lp_node(proof_tree)
+            todo!()
         }
+
 
         fn add_virtual_witness(
             &self,
@@ -120,14 +120,41 @@ pub mod prover {
         ) {
             todo!()
         }
+
         fn prove_piop(
             &self,
             _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
             _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-        ) -> SnarkResult<()> {
+        ) -> ark_piop::errors::SnarkResult<()> {
             todo!()
         }
+
+        fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+    fn arithmetic_post_process(
+        &self,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
+}
 
     impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for RawExprNode
     where
@@ -236,7 +263,7 @@ pub mod verifier {
             &self,
             _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
             _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
-        ) -> SnarkResult<()> {
+        ) -> ark_piop::errors::SnarkResult<()> {
             todo!()
         }
         fn ctx_lp_node(

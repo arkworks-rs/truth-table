@@ -50,98 +50,99 @@ where
     }
 
     pub fn graphviz(&self) -> String {
-        let mut out = String::new();
-        out.push_str("digraph ProverHintTree {\n");
-        out.push_str("  node [shape=box];\n");
+        todo!()
+        // let mut out = String::new();
+        // out.push_str("digraph ProverHintTree {\n");
+        // out.push_str("  node [shape=box];\n");
 
-        let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
-        q.push_back(self.tree.proof_tree().root());
+        // let mut visited: HashSet<usize> = HashSet::new();
+        // let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
+        // q.push_back(self.tree.proof_tree().root());
 
-        while let Some(node) = q.pop_front() {
-            let id = node_ptr_id(&node);
-            if !visited.insert(id) {
-                continue;
-            }
+        // while let Some(node) = q.pop_front() {
+        //     let id = node_ptr_id(&node);
+        //     if !visited.insert(id) {
+        //         continue;
+        //     }
 
-            let node_kind = node.node_id();
-            let (node_label, variant_label) = match &node_kind {
-                NodeId::LP(plan) => (
-                    "LogicalPlan",
-                    format!("{} | {}", logical_plan_variant_name(plan), plan.display()),
-                ),
-                NodeId::Expr(expr) => (
-                    "Expr",
-                    format!("{} | {}", expr_variant_name(expr), expr_detail(expr)),
-                ),
-                NodeId::None => ("None", "None".to_string()),
-            };
+        //     let node_kind = node.node_id();
+        //     let (node_label, variant_label) = match &node_kind {
+        //         NodeId::LP(plan) => (
+        //             "LogicalPlan",
+        //             format!("{} | {}", logical_plan_variant_name(plan), plan.display()),
+        //         ),
+        //         NodeId::Expr(expr) => (
+        //             "Expr",
+        //             format!("{} | {}", expr_variant_name(expr), expr_detail(expr)),
+        //         ),
+        //         NodeId::None => ("None", "None".to_string()),
+        //     };
 
-            let hint_keys = self
-                .tree
-                .proof_tree()
-                .node(&node_kind)
-                .and_then(|original_node| {
-                    let mut entries: Vec<_> = original_node
-                        .hint_generation_plans(self.tree.proof_tree())
-                        .into_iter()
-                        .collect();
-                    if entries.is_empty() {
-                        return None;
-                    }
-                    entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    let lines: Vec<_> = entries
-                        .into_iter()
-                        .filter_map(|(label, hint_plan)| {
-                            hint_plan.project_materialized()?;
-                            let batches_opt = self.tree.batches_for(&node_kind, label.as_str());
-                            let (rows, cols, activated_true) = batches_opt
-                                .map(|batches| rows_cols_activated(batches.as_slice()))
-                                .unwrap_or((0, 0, None));
-                            let activated = activated_true.unwrap_or(rows);
-                            Some(format!(
-                                "{} ( {} rows, {} activated, {} columns)",
-                                label, rows, activated, cols
-                            ))
-                        })
-                        .collect();
-                    if lines.is_empty() {
-                        None
-                    } else {
-                        Some(lines.join(", "))
-                    }
-                });
+        //     let hint_keys = self
+        //         .tree
+        //         .proof_tree()
+        //         .node(&node_kind)
+        //         .and_then(|original_node| {
+        //             let mut entries: Vec<_> = original_node
+        //                 .hint_generation_plans(self.tree.proof_tree())
+        //                 .into_iter()
+        //                 .collect();
+        //             if entries.is_empty() {
+        //                 return None;
+        //             }
+        //             entries.sort_by(|a, b| a.0.cmp(&b.0));
+        //             let lines: Vec<_> = entries
+        //                 .into_iter()
+        //                 .filter_map(|(label, hint_plan)| {
+        //                     hint_plan.project_materialized()?;
+        //                     let batches_opt = self.tree.batches_for(&node_kind, label.as_str());
+        //                     let (rows, cols, activated_true) = batches_opt
+        //                         .map(|batches| rows_cols_activated(batches.as_slice()))
+        //                         .unwrap_or((0, 0, None));
+        //                     let activated = activated_true.unwrap_or(rows);
+        //                     Some(format!(
+        //                         "{} ( {} rows, {} activated, {} columns)",
+        //                         label, rows, activated, cols
+        //                     ))
+        //                 })
+        //                 .collect();
+        //             if lines.is_empty() {
+        //                 None
+        //             } else {
+        //                 Some(lines.join(", "))
+        //             }
+        //         });
 
-            let base = format!("{} ({})", node_label, variant_label);
-            let base_html = esc_html(&base).replace('\n', "<BR ALIGN=\"LEFT\"/>");
+        //     let base = format!("{} ({})", node_label, variant_label);
+        //     let base_html = esc_html(&base).replace('\n', "<BR ALIGN=\"LEFT\"/>");
 
-            let label = if let Some(keys) = hint_keys {
-                let keys_html = esc_html(&keys).replace('\n', "<BR ALIGN=\"LEFT\"/>");
-                format!(
-                    "  n{} [label=<{}<BR/><FONT COLOR=\"green\">hint: {}</FONT>>];\n",
-                    id, base_html, keys_html
-                )
-            } else {
-                format!("  n{} [label=<{}>];\n", id, base_html)
-            };
-            out.push_str(&label);
+        //     let label = if let Some(keys) = hint_keys {
+        //         let keys_html = esc_html(&keys).replace('\n', "<BR ALIGN=\"LEFT\"/>");
+        //         format!(
+        //             "  n{} [label=<{}<BR/><FONT COLOR=\"green\">hint: {}</FONT>>];\n",
+        //             id, base_html, keys_html
+        //         )
+        //     } else {
+        //         format!("  n{} [label=<{}>];\n", id, base_html)
+        //     };
+        //     out.push_str(&label);
 
-            let children = node.children();
-            let edge_labels = node.child_edge_labels();
-            for (idx, child) in children.into_iter().enumerate() {
-                let cid = node_ptr_id(child);
-                if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
-                    let escaped = escape_edge_label(label);
-                    out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, cid, escaped));
-                } else {
-                    out.push_str(&format!("  n{} -> n{};\n", id, cid));
-                }
-                q.push_back(Arc::clone(child));
-            }
-        }
+        //     let children = node.children();
+        //     let edge_labels = node.child_edge_labels();
+        //     for (idx, child) in children.into_iter().enumerate() {
+        //         let cid = node_ptr_id(child);
+        //         if let Some(label) = edge_labels.get(idx).and_then(|opt| opt.as_ref()) {
+        //             let escaped = escape_edge_label(label);
+        //             out.push_str(&format!("  n{} -> n{} [label=\"{}\"];\n", id, cid, escaped));
+        //         } else {
+        //             out.push_str(&format!("  n{} -> n{};\n", id, cid));
+        //         }
+        //         q.push_back(Arc::clone(child));
+        //     }
+        // }
 
-        out.push_str("}\n");
-        out
+        // out.push_str("}\n");
+        // out
     }
 }
 
