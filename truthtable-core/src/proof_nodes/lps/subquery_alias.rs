@@ -171,10 +171,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        IndexMap::new()
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
 
 
     fn node_id(&self) -> NodeId {
@@ -194,27 +196,43 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        // Mirror the prover behaviour: expose the child's output plan as this node's
-        // output.
-        if let Some(input_table_oracle) =
-            piop_tree.tracked_table_oracle(&self.input_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-        {
-            piop_tree.add_tracked_table_oracle(
-                self.node_id.clone(),
-                OUTPUT_PLAN_KEY.to_string(),
-                input_table_oracle.clone(),
-            );
-        }
+        todo!()
     }
+
+
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        self.input_proof_tree_root.clone()
+        todo!()
     }
+
+
+
+    fn verify_piop(
+        &self,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierSubqueryAliasNode<F, MvPCS, UvPCS>

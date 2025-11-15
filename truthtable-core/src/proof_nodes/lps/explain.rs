@@ -156,10 +156,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
         todo!()
     }
+
+
 
     fn node_id(&self) -> NodeId {
         todo!()
@@ -178,11 +180,13 @@ where
 
     fn add_virtual_witness(
         &self,
-        _piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
         todo!()
     }
+
+
     fn verify_piop(
         &self,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
@@ -191,12 +195,29 @@ where
         todo!()
     }
 
+
+
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
+
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierExplainNode<F, MvPCS, UvPCS>

@@ -146,29 +146,9 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let literal_expr = match &self.node_id {
-            NodeId::Expr(expr @ Expr::Literal(_)) => expr.clone(),
-            _ => return IndexMap::new(),
-        };
-
-        let base_plan = if let Some(entry) = first_tablescan_plan_verifier(proof_tree) {
-            entry
-        } else {
-            panic!("no tablescan plan found");
-        };
-
-        let literal_plan = LogicalPlanBuilder::from(base_plan)
-            .project(vec![literal_expr.alias("literal")])
-            .unwrap()
-            .build()
-            .unwrap();
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), literal_plan),
-        )])
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
@@ -177,64 +157,36 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        let scalar = match &self.node_id {
-            NodeId::Expr(Expr::Literal(value)) => value.clone(),
-            _ => panic!("literal node expected literal expression"),
-        };
-        let array = scalar
-            .to_array()
-            .expect("failed to convert scalar into arrow array");
-
-        let mut column_values = encode_arrow_array_to_field::<F>(&array)
-            .expect("failed to encode literal into field elements")
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| vec![F::zero()]);
-
-        if column_values.len() > 1 {
-            panic!("literal encoding resulted in multiple field elements");
-        }
-
-        let constant_value = column_values.pop().unwrap_or_else(F::zero);
-        let log_size = {
-            let ctx_node = self.ctx_lp_node(piop_tree.proof_tree());
-            piop_tree
-                .tracked_table_oracle(&ctx_node.node_id(), OUTPUT_PLAN_KEY)
-                .map(|table| table.log_size())
-                .unwrap_or(0)
-        };
-        let tracked_poly = verifier.track_mat_mv_cnst_oracle(log_size, constant_value);
-
-        let data_type = scalar.data_type();
-
-        let schema = Schema::new(vec![Field::new(
-            "literal",
-            data_type.clone(),
-            scalar.is_null(),
-        )]);
-
-        let table = TrackedTableOracle::new(
-            Some(schema),
-            IndexMap::from([(
-                Arc::new(Field::new("literal", data_type, scalar.is_null())),
-                tracked_poly,
-            )]),
-            log_size,
-        );
-
-        piop_tree.add_tracked_table_oracle(self.node_id.clone(), OUTPUT_PLAN_KEY.to_owned(), table);
+        todo!()
     }
+
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
+    }
+
+    fn verify_piop(
+        &self,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn is_public(&self) -> bool {
+        todo!()
     }
 }
 
@@ -289,14 +241,15 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    proof_tree
-        .arena()
-        .iter()
-        .find_map(|(node_id, node)| match node_id {
-            NodeId::LP(LogicalPlan::TableScan(_)) => node
-                .hint_generation_plans(proof_tree)
-                .get(OUTPUT_PLAN_KEY)
-                .map(|hint| hint.plan().clone()),
-            _ => None,
-        })
+    todo!()
+    // proof_tree
+    //     .arena()
+    //     .iter()
+    //     .find_map(|(node_id, node)| match node_id {
+    //         NodeId::LP(LogicalPlan::TableScan(_)) => node
+    //             .hint_generation_plans(proof_tree)
+    //             .get(OUTPUT_PLAN_KEY)
+    //             .map(|hint| hint.plan().clone()),
+    //         _ => None,
+    //     })
 }

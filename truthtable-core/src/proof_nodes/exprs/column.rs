@@ -149,64 +149,12 @@ where
 {
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let column_expr = match &self.node_id {
-            NodeId::Expr(Expr::Column(column)) => column.clone(),
-            _ => return IndexMap::new(),
-        };
-
-        let base_entry = column_expr
-            .relation
-            .as_ref()
-            .and_then(|relation| {
-                proof_tree
-                    .arena()
-                    .iter()
-                    .find_map(|(node_id, node)| match node_id {
-                        NodeId::LP(LogicalPlan::TableScan(scan_plan))
-                            if relation.resolved_eq(&scan_plan.table_name) =>
-                        {
-                            node.hint_generation_plans(proof_tree)
-                                .get(OUTPUT_PLAN_KEY)
-                                .cloned()
-                        }
-                        NodeId::LP(LogicalPlan::SubqueryAlias(alias_plan))
-                            if relation.resolved_eq(&alias_plan.alias) =>
-                        {
-                            node.hint_generation_plans(proof_tree)
-                                .get(OUTPUT_PLAN_KEY)
-                                .cloned()
-                        }
-                        _ => None,
-                    })
-            })
-            .or_else(|| {
-                proof_tree.node(&self.parent_node_id).and_then(|parent| {
-                    parent
-                        .hint_generation_plans(proof_tree)
-                        .get(OUTPUT_PLAN_KEY)
-                        .cloned()
-                })
-            });
-        let base_plan = match base_entry {
-            Some(entry) => entry.plan().clone(),
-            None => return IndexMap::new(),
-        };
-
-        let projection_exprs = vec![Expr::Column(column_expr.clone())];
-
-        let output_plan = LogicalPlanBuilder::from(base_plan)
-            .project(projection_exprs)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
-        )])
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
     }
@@ -218,51 +166,44 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        // Fetch the columns expression
-        let column_expr = match &self.node_id {
-            NodeId::Expr(Expr::Column(column)) => column,
-            _ => todo!(),
-        };
-        let col = self.resolve_col_oracle(column_expr, piop_tree);
-        let mut tracked_polys: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> = IndexMap::new();
-        tracked_polys.insert(
-            col.field_ref()
-                .expect("Column data type should not be None"),
-            col.data_tracked_oracle(),
-        );
-
-        let activator_field: FieldRef = Arc::new(datafusion::arrow::datatypes::Field::new(
-            ACTIVATOR_COL_NAME,
-            datafusion::arrow::datatypes::DataType::UInt8,
-            true,
-        ));
-        tracked_polys.insert(
-            activator_field,
-            col.activator_tracked_oracle()
-                .expect("Column activator polynomial should not be None"),
-        );
-
-        let output_table = TrackedTableOracle::new(None, tracked_polys, col.log_size());
-
-        piop_tree.add_tracked_table_oracle(
-            self.node_id.clone(),
-            OUTPUT_PLAN_KEY.to_owned(),
-            output_table,
-        );
+        todo!()
     }
+
+
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
+
+
+
+    fn verify_piop(
+        &self,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for VerifierColumnExprNode

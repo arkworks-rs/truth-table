@@ -301,10 +301,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        build_join_hint_generation_plans(self.node_id.clone())
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
 
 
     fn node_id(&self) -> NodeId {
@@ -341,110 +343,44 @@ where
 
     fn verify_piop(
         &self,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let join_plan = match self.node_id().to_lp().unwrap() {
-            LogicalPlan::Join(join) => join.clone(),
-            _ => panic!("expected join logical plan"),
-        };
-        let left_key_names = join_key_names(&join_plan, true);
-        let right_key_names = join_key_names(&join_plan, false);
-
-        let left_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.left_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .cloned()
-            .expect("left join input table missing from PIOP tree");
-
-        let reordered_left_tracked_table_oracle =
-            reorder_tracked_table_oracle_columns(&left_tracked_table_oracle, &left_key_names);
-        ////////////////////////////////////////////
-        let right_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.right_proof_tree_root.node_id(), OUTPUT_PLAN_KEY)
-            .cloned()
-            .expect("right join input table missing from PIOP tree");
-
-        let reordered_right_tracked_table_oracle =
-            reorder_tracked_table_oracle_columns(&right_tracked_table_oracle, &right_key_names);
-        ////////////////////////////////////////////
-        let out_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id(), OUTPUT_PLAN_KEY)
-            .cloned()
-            .expect("join output table missing from PIOP tree");
-        let reordered_out_tracked_table_oracle =
-            reorder_tracked_table_oracle_columns(&out_tracked_table_oracle, &left_key_names);
-        ////////////////////////////////////////////
-        let left_key_support_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_LEFT_KEY_SUPP)
-            .cloned()
-            .expect("join left key support table missing from PIOP tree");
-
-        let reordered_left_key_support_table_oracle =
-            reorder_tracked_table_oracle_columns(&left_key_support_table_oracle, &left_key_names);
-
-        //////////////////////////////////////////////
-        let right_key_support_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_RIGHT_KEY_SUPP)
-            .cloned()
-            .expect("join right key support table missing from PIOP tree");
-
-        let reordered_right_key_support_table_oracle =
-            reorder_tracked_table_oracle_columns(&right_key_support_table_oracle, &right_key_names);
-
-        ////////////////////////////////////////////
-        let out_key_support_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_OUTPUT_KEY_SUPP)
-            .cloned()
-            .expect("join output key support table missing from PIOP tree");
-
-        let reordered_out_key_support_table_oracle =
-            reorder_tracked_table_oracle_columns(&out_key_support_table_oracle, &left_key_names);
-        ////////////////////////////////////////////
-        let all_key_support_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_ALL_KEY_SUPP)
-            .cloned()
-            .expect("join union key support table missing from PIOP tree");
-
-        let reordered_all_key_support_table_oracle =
-            reorder_tracked_table_oracle_columns(&all_key_support_table_oracle, &left_key_names);
-        ////////////////////////////////////////////
-        let join_left_source_table = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_LEFT_KEY_SOURCE)
-            .cloned()
-            .expect("join left source column missing from PIOP tree");
-        let join_left_source_table_oracle = join_left_source_table
-            .tracked_col_oracle_by_ind(join_left_source_table.data_tracked_oracles_indices()[0]);
-        ////////////////////////////////////////////
-        let join_right_source_table = piop_tree
-            .tracked_table_oracle(&self.node_id(), JOIN_RIGHT_KEY_SOURCE)
-            .cloned()
-            .expect("join right source column missing from PIOP tree");
-        let join_right_source_table_oracle = join_right_source_table
-            .tracked_col_oracle_by_ind(join_right_source_table.data_tracked_oracles_indices()[0]);
-        let verifier_input = InnerJoinVerifierInput {
-            left_tracked_table_oracle: reordered_left_tracked_table_oracle,
-            right_tracked_table_oracle: reordered_right_tracked_table_oracle,
-            out_tracked_table_oracle: reordered_out_tracked_table_oracle,
-            left_key_support_table_oracle: reordered_left_key_support_table_oracle,
-            right_key_support_table_oracle: reordered_right_key_support_table_oracle,
-            out_key_support_table_oracle: reordered_out_key_support_table_oracle,
-            all_key_support_table_oracle: reordered_all_key_support_table_oracle,
-            join_left_source_table_oracle,
-            join_right_source_table_oracle,
-        };
-
-        InnerJoinPIOP::<F, MvPCS, UvPCS>::verify(verifier, verifier_input)
+        todo!()
     }
+
+
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.node_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
+        todo!()
     }
+
+
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierJoinNode<F, MvPCS, UvPCS>

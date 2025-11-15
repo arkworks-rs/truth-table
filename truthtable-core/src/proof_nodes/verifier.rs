@@ -1,7 +1,7 @@
 //! Verifier-side proof tree nodes and trait definitions.
 pub use super::{exprs, lps};
 use crate::{
-    proof_nodes::{HintGenerationPlan, id::NodeId},
+    proof_nodes::id::NodeId,
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
 };
 use arithmetic::ctx::SharedCtx;
@@ -16,6 +16,7 @@ use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
+use datafusion::prelude::DataFrame;
 use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
@@ -50,17 +51,20 @@ where
     fn hint_generation_plans(
         &self,
         _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        IndexMap::new()
-    }
+    ) -> IndexMap<String, DataFrame>;
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame;
+
+    fn is_public(&self) -> bool;
 
     fn add_virtual_witness(
         &self,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    ) {
-        let _ = (piop_tree, verifier);
-    }
+    );
 
     fn add_virtual_witness_recursive(
         &self,
@@ -81,10 +85,7 @@ where
         &self,
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
         piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        let _ = piop_tree;
-        Ok(())
-    }
+    ) -> ark_piop::errors::SnarkResult<()>;
 
     fn verify_piop_recursive(
         &self,

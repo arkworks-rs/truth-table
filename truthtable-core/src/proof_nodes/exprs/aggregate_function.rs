@@ -195,163 +195,49 @@ where
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        // let mut collected_cols = IndexMap::new();
-        // let mut table_log_size: Option<usize> = None;
-
-        // for child in &self.inputs {
-        //     let table = piop_tree
-        //         .tracked_table_oracle(&child.node_id(), OUTPUT_PLAN_KEY)
-        //         .unwrap_or_else(|| {
-        //             panic!(
-        //                 "missing output_plan table for aggregate argument
-        // {}",                 child.name()
-        //             )
-        //         });
-
-        //     let child_log_size = table.log_size();
-        //     if let Some(expected) = table_log_size {
-        //         assert_eq!(
-        //             expected, child_log_size,
-        //             "aggregate arguments must share the same table log size",
-        //         );
-        //     } else {
-        //         table_log_size = Some(child_log_size);
-        //     }
-        //     let col = table.tracked_col_oracle_by_ind(0);
-        //     let field = col.field_ref().unwrap();
-        //     collected_cols.insert(field, col.data_tracked_oracle().clone());
-        // }
-
-        // if collected_cols.is_empty() {
-        //     return;
-        // }
-
-        // let output_table =
-        //     TrackedTableOracle::new(None, collected_cols,
-        // table_log_size.unwrap_or(0));
-        // piop_tree.add_tracked_table_oracle(
-        //     self.node_id().clone(),
-        //     OUTPUT_PLAN_KEY.to_string(),
-        //     output_table,
-        // );
+        todo!()
     }
+
+
     fn verify_piop(
         &self,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let aggregate_expr = match &self.node_id {
-            NodeId::Expr(Expr::AggregateFunction(agg)) => agg.clone(),
-            _ => panic!("aggregate function node expected AggregateFunction expression"),
-        };
-
-        let auxiliary_in_table = piop_tree
-            .tracked_table_oracle(&self.parent_node_id, "auxiliary_in")
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing auxiliary_in oracle table for aggregate node {}",
-                    self.name()
-                )
-            });
-        let auxiliary_out_table = piop_tree
-            .tracked_table_oracle(&self.parent_node_id, "auxiliary_out")
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing auxiliary_out oracle table for aggregate node {}",
-                    self.name()
-                )
-            });
-
-        let mut multiplicity_oracle = None;
-        let mut output_folded_oracle_entry = None;
-        let mut output_activator_entry = None;
-        for (field, oracle) in auxiliary_out_table.tracked_oracles() {
-            match field.name().as_str() {
-                GROUP_MULTIPLICITY_COL_NAME => multiplicity_oracle = Some(oracle.clone()),
-                GROUP_OUTPUT_FOLDED_COL_NAME => {
-                    output_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                }
-                ACTIVATOR_COL_NAME => output_activator_entry = Some(oracle.clone()),
-                _ => {}
-            }
-        }
-        let group_multiplicity_oracle =
-            multiplicity_oracle.expect("auxiliary_out oracle table missing multiplicity oracle");
-        let (output_folded_field, output_folded_oracle) = output_folded_oracle_entry
-            .expect("auxiliary_out oracle table missing output folded column oracle");
-        let output_folded_col_oracle = TrackedColOracle::new(
-            output_folded_oracle,
-            output_activator_entry,
-            Some(output_folded_field),
-        );
-
-        let mut input_folded_oracle_entry = None;
-        let mut input_activator_entry = None;
-        for (field, oracle) in auxiliary_in_table.tracked_oracles() {
-            match field.name().as_str() {
-                GROUP_INPUT_FOLDED_COL_NAME => {
-                    input_folded_oracle_entry = Some((field.clone(), oracle.clone()))
-                }
-                ACTIVATOR_COL_NAME => input_activator_entry = Some(oracle.clone()),
-                _ => {}
-            }
-        }
-        let (input_folded_field, input_folded_oracle) = input_folded_oracle_entry
-            .expect("auxiliary_in oracle table missing input folded column oracle");
-        let input_folded_col_oracle = TrackedColOracle::new(
-            input_folded_oracle,
-            input_activator_entry,
-            Some(input_folded_field),
-        );
-
-        let output_table = piop_tree
-            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing output oracle table for aggregate function {}",
-                    self.name()
-                )
-            });
-        let aggregated_col_oracle: TrackedColOracle<F, MvPCS, UvPCS> =
-            output_table.tracked_col_oracle_by_ind(0);
-
-        let input_node = self
-            .inputs
-            .first()
-            .unwrap_or_else(|| panic!("aggregate function {} missing argument", self.name()));
-        let input_table = piop_tree
-            .tracked_table_oracle(&input_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing output oracle table for aggregate argument {}",
-                    input_node.name()
-                )
-            });
-        let input_col_oracle: TrackedColOracle<F, MvPCS, UvPCS> =
-            input_table.tracked_col_oracle_by_ind(0);
-
-        let piop_input = AggregateFunctionPIOPVerifierInput {
-            aggregate: aggregate_expr,
-            input_folded_col_oracle,
-            output_folded_col_oracle,
-            group_multiplicty_tracked_oracle: group_multiplicity_oracle,
-            aggregated_col_oracle,
-            input_col_oracle,
-        };
-        AggregateFunctionExprPIOP::verify(verifier, piop_input)?;
-
-        Ok(())
+        todo!()
     }
+
+
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
+
+
+
+    fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS>

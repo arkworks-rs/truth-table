@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 pub mod cost;
 pub mod display;
 pub mod exprs;
+pub mod gadgets;
 pub mod id;
 pub mod lps;
 pub mod prover;

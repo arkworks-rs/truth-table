@@ -205,76 +205,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let input_plan = proof_tree
-            .node(&self.input_verifier_node.node_id())
-            .unwrap()
-            .hint_generation_plans(proof_tree)
-            .get(OUTPUT_PLAN_KEY)
-            .unwrap()
-            .plan()
-            .clone();
-        // Determine activator's datatype from input schema
-        let schema = input_plan.schema().clone();
-        let activator_field = schema
-            .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-            .unwrap_or_else(|_| panic!("'activator' column not found in input schema"));
-        let activator_dtype = activator_field.data_type().clone();
-
-        // Try boolean AND first; if types mismatch, fall back to 0/1 mask with CASE
-        let predicate_expr = self.predicate_expr.clone();
-        let try_bool_and = df::and(df::col(ACTIVATOR_COL_NAME), predicate_expr.clone());
-        let new_activator = if try_bool_and.get_type(schema.as_ref()).is_ok() {
-            try_bool_and.alias(ACTIVATOR_COL_NAME)
-        } else {
-            // Build a 0/1 mask of the same type as activator and bitwise-AND (or use CASE
-            // if bitwise not supported)
-            let one = df::lit(1)
-                .cast_to(&activator_dtype, schema.as_ref())
-                .unwrap();
-            let zero = df::lit(0)
-                .cast_to(&activator_dtype, schema.as_ref())
-                .unwrap();
-            let mask = df::when(predicate_expr.clone(), one.clone())
-                .otherwise(zero.clone())
-                .unwrap();
-
-            // Prefer bitwise AND if valid for this dtype, otherwise fallback to CASE
-            // replacement
-            let try_bit_and = df::bitwise_and(df::col(ACTIVATOR_COL_NAME), mask.clone());
-            if try_bit_and.get_type(schema.as_ref()).is_ok() {
-                try_bit_and.alias(ACTIVATOR_COL_NAME)
-            } else {
-                // CASE WHEN predicate THEN activator ELSE 0
-                df::when(predicate_expr, df::col(ACTIVATOR_COL_NAME))
-                    .otherwise(zero)
-                    .unwrap()
-                    .alias(ACTIVATOR_COL_NAME)
-            }
-        };
-
-        // Pass through all other columns unchanged
-        let mut proj_exprs: Vec<df::Expr> = Vec::with_capacity(schema.fields().len());
-        for f in schema.fields() {
-            if f.name() == ACTIVATOR_COL_NAME {
-                proj_exprs.push(new_activator.clone());
-            } else {
-                proj_exprs.push(df::col(f.name()));
-            }
-        }
-
-        let output_plan = LogicalPlanBuilder::from(input_plan)
-            .project(proj_exprs)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
-        )])
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
@@ -289,131 +225,44 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        // Fetch the input tracked_table
-        let input_table = match piop_tree
-            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-        {
-            Some(table) => table,
-            None => return,
-        };
-        // Fetch the predicate tracked_table
-        let predicate_table = match piop_tree
-            .tracked_table_oracle(&self.predicate_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-        {
-            Some(table) => table,
-            None => return,
-        };
-        // Fetch the The predicate tracked colummn from the predicate table
-        let predicate_col_oracle = predicate_table.tracked_col_oracle_by_ind(0);
-        // Fetch the predicate tracked polynomial from the predicate tracked column
-        let mut output_activator_oracle = predicate_col_oracle.data_tracked_oracle();
-        // update the predicate tracked polynomial by multiplying it with its own
-        // activator
-        if let Some(pred_activator) = predicate_col_oracle.activator_tracked_oracle() {
-            output_activator_oracle = &output_activator_oracle * &pred_activator;
-        }
-        // update the predicate tracked polynomial by multiplying it with the input
-        // table activator
-        if let Some(input_activator) = input_table.activator_tracked_poly() {
-            output_activator_oracle = &output_activator_oracle * &input_activator;
-        }
-        // Create a field for the activator column
-
-        let activator_field = Field::new(
-            ACTIVATOR_COL_NAME,
-            predicate_col_oracle
-                .field_ref()
-                .map(|f| f.data_type().clone())
-                .unwrap_or(datafusion::arrow::datatypes::DataType::Boolean),
-            true,
-        );
-        // Prepare the columns for the output table of the current filter node
-        let activator_field_ref = datafusion::arrow::datatypes::FieldRef::new(activator_field);
-        let mut columns = IndexMap::new();
-        let mut activator_oracle = Some(output_activator_oracle);
-        // The output table of the current node is the same as the input table except
-        // the activator is replaced with the new predicate tracked polynomial.
-        for (field, oracle) in input_table.tracked_oracles().iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                let new_oracle = activator_oracle
-                    .take()
-                    .expect("activator oracle should be present exactly once");
-                columns.insert(activator_field_ref.clone(), new_oracle);
-            } else {
-                columns.insert(field.clone(), oracle.clone());
-            }
-        }
-        if let Some(oracle) = activator_oracle {
-            columns.insert(activator_field_ref.clone(), oracle);
-        }
-
-        let output_schema = input_table.schema().map(|schema| {
-            let updated_fields: Vec<Field> = schema
-                .fields()
-                .iter()
-                .map(|field| {
-                    if field.name() == ACTIVATOR_COL_NAME {
-                        activator_field_ref.as_ref().clone()
-                    } else {
-                        field.as_ref().clone()
-                    }
-                })
-                .collect();
-            Schema::new(updated_fields)
-        });
-
-        // Data columns are unchanged; the activator becomes
-        // `input_activator AND predicate`.
-        let output_table = TrackedTableOracle::new(output_schema, columns, input_table.log_size());
-        piop_tree.add_tracked_table_oracle(
-            self.node_id.clone(),
-            OUTPUT_PLAN_KEY.to_string(),
-            output_table,
-        );
+        todo!()
     }
+
+
     fn verify_piop(
         &self,
-        verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let filter = match self.node_id().to_lp().unwrap() {
-            LogicalPlan::Filter(f) => f.clone(),
-            _ => panic!("expected filter logical plan"),
-        };
-
-        let predicate_oracle = piop_tree
-            .tracked_table_oracle(&self.predicate_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .tracked_col_oracle_by_ind(0);
-        let input_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.input_verifier_node.node_id(), OUTPUT_PLAN_KEY)
-            .unwrap()
-            .clone();
-        let output_tracked_table_oracle = piop_tree
-            .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
-            .unwrap()
-            .clone();
-
-        let filter_piop_verifier_input = FilterPIOPVerifierInput {
-            filter,
-            predicate_oracle,
-            input_tracked_table_oracle,
-            output_tracked_table_oracle,
-        };
-
-        FilterPIOP::<F, MvPCS, UvPCS>::verify(verifier, filter_piop_verifier_input)?;
-        Ok(())
+        todo!()
     }
+
+
 
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        self.input_verifier_node.clone()
+        todo!()
     }
+
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierFilterNode<F, MvPCS, UvPCS>

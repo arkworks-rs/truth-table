@@ -171,65 +171,51 @@ where
 
     fn add_virtual_witness(
         &self,
-        piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
     ) {
-        let alias_name = match &self.node_id {
-            NodeId::Expr(Expr::Alias(alias)) => alias.name.clone(),
-            _ => panic!("expected alias expression node"),
-        };
-
-        if let Some(table) = piop_tree.tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)
-        {
-            let mut tracked_oracles: IndexMap<FieldRef, _> = IndexMap::new();
-            let mut schema_fields: Vec<FieldRef> = Vec::new();
-            let mut alias_applied = false;
-
-            for (field, oracle) in table.tracked_oracles() {
-                let new_field = if !alias_applied && field.name() != ACTIVATOR_COL_NAME {
-                    alias_applied = true;
-                    Arc::new(Field::new(
-                        alias_name.clone(),
-                        field.data_type().clone(),
-                        field.is_nullable(),
-                    ))
-                } else {
-                    field.clone()
-                };
-                schema_fields.push(new_field.clone());
-                tracked_oracles.insert(new_field, oracle);
-            }
-
-            let fields: Vec<Field> = schema_fields
-                .iter()
-                .map(|field_ref| field_ref.as_ref().clone())
-                .collect();
-            // Mirror the prover path: attach a schema carrying the alias for verifier
-            // column resolution.
-            let new_schema = table
-                .schema()
-                .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
-                .or_else(|| Some(Schema::new(fields)));
-
-            let aliased_table =
-                TrackedTableOracle::new(new_schema, tracked_oracles, table.log_size());
-
-            piop_tree.add_tracked_table_oracle(
-                self.node_id.clone(),
-                OUTPUT_PLAN_KEY.to_string(),
-                aliased_table,
-            );
-        }
+        todo!()
     }
+
+
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.parent_node_id)
-            .unwrap()
-            .ctx_lp_node(proof_tree)
+        todo!()
     }
+
+
+
+    fn hint_generation_plans(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
+    }
+
+
+    fn verify_piop(
+        &self,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for VerifierAliasExprNode<F, MvPCS, UvPCS>

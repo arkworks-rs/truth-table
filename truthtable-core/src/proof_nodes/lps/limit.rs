@@ -170,22 +170,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let child_plans = self.input.hint_generation_plans(proof_tree);
-        let input_plan = child_plans
-            .get(OUTPUT_PLAN_KEY)
-            .unwrap_or_else(|| panic!("input proof node must expose {OUTPUT_PLAN_KEY}"))
-            .plan()
-            .clone();
-
-        let output_plan = build_limit_hint_output_plan(input_plan, &self.limit);
-
-        IndexMap::from([(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_virtual(OUTPUT_PLAN_KEY.to_string(), output_plan),
-        )])
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
 
 
     fn verify_piop(
@@ -193,42 +183,41 @@ where
         _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-        // let input_table = piop_tree
-        //     .tracked_table_oracle(&self.input.node_id(), OUTPUT_PLAN_KEY)
-        //     .unwrap_or_else(|| {
-        //         panic!(
-        //             "missing input tracked table oracle for limit verifier
-        // node {}",             self.node_id
-        //         )
-        //     });
-        // let output_table = piop_tree
-        //     .tracked_table_oracle(&self.node_id, OUTPUT_PLAN_KEY)
-        //     .unwrap_or_else(|| {
-        //         panic!(
-        //             "missing output tracked table oracle for limit verifier
-        // node {}",             self.node_id
-        //         )
-        //     });
-
-        // let limit_piop_input = LimitPIOPVerifierInput {
-        //     limit: self.limit.clone(),
-        //     input_activator: input_table.activator_tracked_poly(),
-        //     output_activator: output_table.activator_tracked_poly(),
-        // };
-
-        // LimitPIOP::<F, MvPCS, UvPCS>::verify(verifier, limit_piop_input)
+        todo!()
     }
+
+
 
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
-        proof_tree
-            .node(&self.node_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
+        todo!()
     }
+
+
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierLimitNode<F, MvPCS, UvPCS>

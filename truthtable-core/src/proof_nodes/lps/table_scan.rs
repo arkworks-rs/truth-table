@@ -157,16 +157,12 @@ where
 
     fn hint_generation_plans(
         &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintGenerationPlan> {
-        let mut hint_generation_plans = IndexMap::new();
-
-        hint_generation_plans.insert(
-            OUTPUT_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), self.plan.clone()),
-        );
-        hint_generation_plans
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, DataFrame> {
+        todo!()
     }
+
+
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
         for child in self.children() {
@@ -181,6 +177,39 @@ where
     ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>> {
         todo!()
     }
+
+
+
+    fn add_virtual_witness(
+        &self,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+    ) {
+        todo!()
+    }
+
+
+    fn verify_piop(
+        &self,
+        _verifier: &mut ark_piop::verifier::Verifier<F, MvPCS, UvPCS>,
+        _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+
+    fn is_public(&self) -> bool {
+        todo!()
+    }
+
 }
 
 impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierTableScanNode
