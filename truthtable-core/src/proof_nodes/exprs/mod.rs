@@ -55,7 +55,7 @@ pub mod prover {
         wildcard::ProverWildcardExprNode, window_function::ProverWindowFunctionExprNode,
     };
     use crate::{
-        proof_nodes::{cost::ProvingCost, id::NodeId, prover::ProverNode},
+        proof_nodes::{cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}},
         prover::trees::proof_tree::ProverProofTree,
     };
     use ark_ff::PrimeField;
@@ -94,17 +94,6 @@ pub mod prover {
             NodeId::Expr(self.relative_expr.clone())
         }
 
-        fn from_expr(
-            _ctx: &datafusion::prelude::SessionContext,
-            _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-            _expr: Expr,
-            _parent_node_id: NodeId,
-        ) -> Self
-        where
-            Self: Sized,
-        {
-            todo!()
-        }
 
         fn cost(
             &self,
@@ -139,6 +128,25 @@ pub mod prover {
             todo!()
         }
     }
+
+    impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for RawExprNode
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        fn from_expr(
+            _ctx: &datafusion::prelude::SessionContext,
+            _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+            _expr: Expr,
+            _parent_node_id: NodeId,
+        ) -> Self
+        where
+            Self: Sized,
+        {
+            todo!()
+        }
+}
 
     pub fn wrap_logical_expr<F, MvPCS, UvPCS>(
         expr: Expr,

@@ -9,7 +9,7 @@ use crate::{
             JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
             JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
         },
-        prover::ProverNode,
+        prover::{ProverLpNode, ProverNode},
         verifier::VerifierNode,
     },
     prover::trees::{
@@ -103,85 +103,6 @@ where
         build_join_hint_generation_plans(self.node_id.clone())
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let join = match &plan {
-            LogicalPlan::Join(join) => join,
-            _ => panic!("expected join logical plan"),
-        };
-        let node_id = NodeId::LP(plan.clone());
-        let left_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            &join.left,
-            &node_id,
-        )
-        .root();
-
-        let right_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            &join.right,
-            &node_id,
-        )
-        .root();
-
-        #[allow(clippy::type_complexity)]
-        let on_proof_tree_roots: Vec<(
-            Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-            Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
-        )> = join
-            .on
-            .iter()
-            .map(|(left_expr, right_expr)| {
-                let left_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    left_expr.clone(),
-                    &node_id,
-                );
-                let right_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    right_expr.clone(),
-                    &node_id,
-                );
-                (
-                    Arc::clone(&left_tree.root()),
-                    Arc::clone(&right_tree.root()),
-                )
-            })
-            .collect();
-
-        let filter_proof_tree_root: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> =
-            match &join.filter {
-                Some(filter_expr) => {
-                    let filter_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                        ctx,
-                        prover_ctx.clone(),
-                        filter_expr.clone(),
-                        &node_id,
-                    );
-                    Some(Arc::clone(&filter_tree.root()))
-                }
-                None => None,
-            };
-
-        Self {
-            left_proof_tree_root,
-            right_proof_tree_root,
-            on_proof_tree_roots,
-            filter_proof_tree_root,
-            node_id,
-        }
-    }
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
@@ -359,6 +280,93 @@ where
             join_right_source,
         };
         InnerJoinPIOP::<F, MvPCS, UvPCS>::prove(prover, inner_join_piop_prover_input)
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverJoinNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let join = match &plan {
+            LogicalPlan::Join(join) => join,
+            _ => panic!("expected join logical plan"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+        let left_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &join.left,
+            &node_id,
+        )
+        .root();
+
+        let right_proof_tree_root = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &join.right,
+            &node_id,
+        )
+        .root();
+
+        #[allow(clippy::type_complexity)]
+        let on_proof_tree_roots: Vec<(
+            Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+            Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+        )> = join
+            .on
+            .iter()
+            .map(|(left_expr, right_expr)| {
+                let left_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    left_expr.clone(),
+                    &node_id,
+                );
+                let right_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    right_expr.clone(),
+                    &node_id,
+                );
+                (
+                    Arc::clone(&left_tree.root()),
+                    Arc::clone(&right_tree.root()),
+                )
+            })
+            .collect();
+
+        let filter_proof_tree_root: Option<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> =
+            match &join.filter {
+                Some(filter_expr) => {
+                    let filter_tree = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                        ctx,
+                        prover_ctx.clone(),
+                        filter_expr.clone(),
+                        &node_id,
+                    );
+                    Some(Arc::clone(&filter_tree.root()))
+                }
+                None => None,
+            };
+
+        Self {
+            left_proof_tree_root,
+            right_proof_tree_root,
+            on_proof_tree_roots,
+            filter_proof_tree_root,
+            node_id,
+        }
     }
 }
 

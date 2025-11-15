@@ -2,7 +2,7 @@ use crate::proof_nodes::HintGenerationPlan;
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode}, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -127,74 +127,6 @@ where
         )])
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        // Get the projection object from the logical plan
-        let projection = match &plan {
-            Projection(p) => p,
-            _ => panic!("expected projection logical plan"),
-        };
-        // Build the node id for this projection node
-        let node_id = NodeId::LP(plan.clone());
-
-        let activator_expr_indexes: Vec<usize> = projection
-            .schema
-            .fields()
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, field)| {
-                if field.name() == ACTIVATOR_COL_NAME {
-                    Some(idx)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Recurse into the input subtree and fetch the logical plan that feeds this
-        // projection.
-        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            &projection.input,
-            &node_id,
-        )
-        .root();
-        // Build expression proof plans for the projection expressions (excluding the
-        // retained activator).
-        let expr_prover_nodes = projection
-            .expr
-            .clone()
-            .into_iter()
-            .map(|expr| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    expr,
-                    &node_id,
-                )
-                .root()
-            })
-            .collect();
-
-        // Projection does not have any materialized witness
-        let hint_generation_plans = IndexMap::new();
-
-        Self {
-            expr_prover_nodes,
-            activator_expr_indexes,
-            input_prover_node,
-            node_id,
-            hint_generation_plans,
-        }
-    }
 
     fn name(&self) -> String {
         self.node_id().to_string()
@@ -302,6 +234,82 @@ where
             OUTPUT_PLAN_KEY.to_string(),
             output_table,
         );
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the projection object from the logical plan
+        let projection = match &plan {
+            Projection(p) => p,
+            _ => panic!("expected projection logical plan"),
+        };
+        // Build the node id for this projection node
+        let node_id = NodeId::LP(plan.clone());
+
+        let activator_expr_indexes: Vec<usize> = projection
+            .schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, field)| {
+                if field.name() == ACTIVATOR_COL_NAME {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Recurse into the input subtree and fetch the logical plan that feeds this
+        // projection.
+        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &projection.input,
+            &node_id,
+        )
+        .root();
+        // Build expression proof plans for the projection expressions (excluding the
+        // retained activator).
+        let expr_prover_nodes = projection
+            .expr
+            .clone()
+            .into_iter()
+            .map(|expr| {
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr,
+                    &node_id,
+                )
+                .root()
+            })
+            .collect();
+
+        // Projection does not have any materialized witness
+        let hint_generation_plans = IndexMap::new();
+
+        Self {
+            expr_prover_nodes,
+            activator_expr_indexes,
+            input_prover_node,
+            node_id,
+            hint_generation_plans,
+        }
     }
 }
 

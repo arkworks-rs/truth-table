@@ -38,33 +38,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    /// Constructs a proof plan node from a DataFusion expression and its parent
-    /// logical plan.
-    // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(
-        _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _expr: Expr,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
-    /// Constructs a proof plan node from a DataFusion logical plan.
-    // TODO: We might not need ctx here
-    fn from_lp(
-        _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
     /// Short name for the ProverNode node, such as `FilterNode`.
     /// Children of this node expressed as proof plan trait objects. Leaf nodes
     /// return an empty list.
@@ -178,4 +151,41 @@ where
     pub fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub trait ProverLpNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    /// Constructs a proof plan node from a DataFusion logical plan.
+    // TODO: We might not need ctx here
+    fn from_lp(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
+}
+
+pub trait ProverExprNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    /// Constructs a proof plan node from a DataFusion expression and its parent
+    /// logical plan.
+    // TODO: We might not need ctx and parent_logical_plan here
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _expr: Expr,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
 }

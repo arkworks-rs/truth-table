@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode,
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -38,17 +38,6 @@ where
         self.inputs.iter().collect()
     }
 
-    fn from_expr(
-        _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _expr: Expr,
-        _parent_logical_plan: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
 
     fn cost(
         &self,
@@ -80,6 +69,25 @@ where
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
         _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
+        todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverScalarSubqueryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _expr: Expr,
+        _parent_logical_plan: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }

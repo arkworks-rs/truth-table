@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
         verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -76,31 +76,6 @@ where
         )])
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let limit = match &plan {
-            LogicalPlan::Limit(limit) => limit,
-            _ => panic!("Expected Limit plan"),
-        };
-        let node_id = NodeId::LP(plan.clone());
-
-        let input_node =
-            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, _prover_ctx, &limit.input, &node_id)
-                .root();
-
-        Self {
-            input: input_node,
-            node_id,
-            limit: limit.clone(),
-        }
-    }
 
     fn cost(
         &self,
@@ -151,6 +126,39 @@ where
         // output_table.activator_tracked_poly(), };
 
         // LimitPIOP::<F, MvPCS, UvPCS>::prove(prover, limit_piop_input)
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverLimitNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let limit = match &plan {
+            LogicalPlan::Limit(limit) => limit,
+            _ => panic!("Expected Limit plan"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+
+        let input_node =
+            ProverProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, _prover_ctx, &limit.input, &node_id)
+                .root();
+
+        Self {
+            input: input_node,
+            node_id,
+            limit: limit.clone(),
+        }
     }
 }
 

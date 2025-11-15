@@ -10,7 +10,7 @@ use crate::{
             LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
             TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
         },
-        prover::ProverNode,
+        prover::{ProverLpNode, ProverNode},
         verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -116,56 +116,6 @@ where
         build_sort_hint_generation_plans(base_plan, sort_lp)
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let sort_lp = match &plan {
-            LogicalPlan::Sort(sort) => sort,
-            _ => panic!("expected sort logical plan"),
-        };
-
-        let node_id = NodeId::LP(plan.clone());
-
-        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            sort_lp.input.as_ref(),
-            &node_id,
-        )
-        .root();
-
-        let sort_exprs = sort_lp
-            .expr
-            .iter()
-            .map(|sort_expr| {
-                let expr_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    sort_expr.expr.clone(),
-                    &node_id,
-                )
-                .root();
-
-                ProverSortExprNode {
-                    expr: expr_node,
-                    asc: sort_expr.asc,
-                    nulls_first: sort_expr.nulls_first,
-                }
-            })
-            .collect();
-
-        Self {
-            sort_exprs,
-            input_prover_node,
-            node_id,
-        }
-    }
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
@@ -334,6 +284,64 @@ where
         SortPIOP::prove(prover, sort_prover_input)?;
 
         Ok(())
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let sort_lp = match &plan {
+            LogicalPlan::Sort(sort) => sort,
+            _ => panic!("expected sort logical plan"),
+        };
+
+        let node_id = NodeId::LP(plan.clone());
+
+        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            sort_lp.input.as_ref(),
+            &node_id,
+        )
+        .root();
+
+        let sort_exprs = sort_lp
+            .expr
+            .iter()
+            .map(|sort_expr| {
+                let expr_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    sort_expr.expr.clone(),
+                    &node_id,
+                )
+                .root();
+
+                ProverSortExprNode {
+                    expr: expr_node,
+                    asc: sort_expr.asc,
+                    nulls_first: sort_expr.nulls_first,
+                }
+            })
+            .collect();
+
+        Self {
+            sort_exprs,
+            input_prover_node,
+            node_id,
+        }
     }
 }
 

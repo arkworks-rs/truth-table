@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode},
         verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
@@ -116,20 +116,6 @@ where
         Vec::new()
     }
 
-    fn from_expr(
-        _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            node_id: NodeId::Expr(expr),
-            parent_node_id,
-        }
-    }
 
     fn cost(
         &self,
@@ -187,6 +173,28 @@ where
             OUTPUT_PLAN_KEY.to_owned(),
             output_table,
         );
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            node_id: NodeId::Expr(expr),
+            parent_node_id,
+        }
     }
 }
 

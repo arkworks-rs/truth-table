@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode,
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
         verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -33,26 +33,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_lp(
-        _ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        debug_assert!(
-            plan.schema()
-                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-                .is_ok(),
-            "table scan plan missing activator column"
-        );
-        Self {
-            plan: plan.clone(),
-            node_id: NodeId::LP(plan),
-        }
-    }
 
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
         Vec::new()
@@ -95,6 +75,34 @@ where
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverTableScanNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        debug_assert!(
+            plan.schema()
+                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+                .is_ok(),
+            "table scan plan missing activator column"
+        );
+        Self {
+            plan: plan.clone(),
+            node_id: NodeId::LP(plan),
+        }
     }
 }
 

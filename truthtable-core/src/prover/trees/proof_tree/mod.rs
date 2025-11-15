@@ -1,4 +1,4 @@
-use crate::proof_nodes::prover::ProverNode;
+use crate::proof_nodes::prover::{ProverExprNode, ProverLpNode, ProverNode};
 pub mod display;
 use crate::proof_nodes::{
     exprs::prover::{
@@ -152,7 +152,7 @@ where
     {
         match expr.clone() {
             Expr::Alias(_) => Self::new(
-                Arc::new(<ProverAliasExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverAliasExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -163,7 +163,7 @@ where
             ),
             Expr::Column(_) => Self::new(
                 Arc::new(
-                    <ProverColumnExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                    <ProverColumnExprNode as ProverExprNode<F, MvPCS, UvPCS>>::from_expr(
                         ctx,
                         prover_ctx.clone(),
                         expr,
@@ -174,7 +174,7 @@ where
             ),
             Expr::ScalarVariable(..) => Self::new(
                 Arc::new(
-                    <ProverScalarVariableExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverScalarVariableExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -186,7 +186,7 @@ where
             ),
             Expr::Literal(_) => Self::new(
                 Arc::new(
-                    <ProverLiteralExprNode as ProverNode<F, MvPCS, UvPCS>>::from_expr(
+                    <ProverLiteralExprNode as ProverExprNode<F, MvPCS, UvPCS>>::from_expr(
                         ctx,
                         prover_ctx.clone(),
                         expr,
@@ -196,7 +196,7 @@ where
                 prover_ctx,
             ),
             Expr::BinaryExpr(_) => Self::new(
-                Arc::new(<ProverBinaryExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverBinaryExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -206,7 +206,7 @@ where
                 prover_ctx,
             ),
             Expr::Like(_) => Self::new(
-                Arc::new(<ProverLikeExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverLikeExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -216,7 +216,7 @@ where
                 prover_ctx,
             ),
             Expr::SimilarTo(_) => Self::new(
-                Arc::new(<ProverSimilarToExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverSimilarToExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -226,7 +226,7 @@ where
                 prover_ctx,
             ),
             Expr::Not(_) => Self::new(
-                Arc::new(<ProverNotExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverNotExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -236,7 +236,7 @@ where
                 prover_ctx,
             ),
             Expr::IsNotNull(_) => Self::new(
-                Arc::new(<ProverIsNotNullExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsNotNullExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -246,7 +246,7 @@ where
                 prover_ctx,
             ),
             Expr::IsNull(_) => Self::new(
-                Arc::new(<ProverIsNullExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsNullExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -256,7 +256,7 @@ where
                 prover_ctx,
             ),
             Expr::IsTrue(_) => Self::new(
-                Arc::new(<ProverIsTrueExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsTrueExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -266,7 +266,7 @@ where
                 prover_ctx,
             ),
             Expr::IsFalse(_) => Self::new(
-                Arc::new(<ProverIsFalseExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsFalseExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -276,7 +276,7 @@ where
                 prover_ctx,
             ),
             Expr::IsUnknown(_) => Self::new(
-                Arc::new(<ProverIsUnknownExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsUnknownExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -286,7 +286,7 @@ where
                 prover_ctx,
             ),
             Expr::IsNotTrue(_) => Self::new(
-                Arc::new(<ProverIsNotTrueExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsNotTrueExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -296,7 +296,7 @@ where
                 prover_ctx,
             ),
             Expr::IsNotFalse(_) => Self::new(
-                Arc::new(<ProverIsNotFalseExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverIsNotFalseExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -308,7 +308,7 @@ where
             Expr::IsNotUnknown(_) => {
                 Self::new(
                     Arc::new(
-                        <ProverIsNotUnknownExprNode<F, MvPCS, UvPCS> as ProverNode<
+                        <ProverIsNotUnknownExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                             F,
                             MvPCS,
                             UvPCS,
@@ -320,7 +320,7 @@ where
                 )
             }
             Expr::Negative(_) => Self::new(
-                Arc::new(<ProverNegativeExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverNegativeExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -330,7 +330,7 @@ where
                 prover_ctx,
             ),
             Expr::Between(_) => Self::new(
-                Arc::new(<ProverBetweenExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverBetweenExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -340,7 +340,7 @@ where
                 prover_ctx,
             ),
             Expr::Case(_) => Self::new(
-                Arc::new(<ProverCaseExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverCaseExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -350,7 +350,7 @@ where
                 prover_ctx,
             ),
             Expr::Cast(_) => Self::new(
-                Arc::new(<ProverCastExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverCastExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -360,7 +360,7 @@ where
                 prover_ctx,
             ),
             Expr::TryCast(_) => Self::new(
-                Arc::new(<ProverTryCastExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverTryCastExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -371,7 +371,7 @@ where
             ),
             Expr::ScalarFunction(_) => Self::new(
                 Arc::new(
-                    <ProverScalarFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverScalarFunctionExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -383,7 +383,7 @@ where
             ),
             Expr::AggregateFunction(_) => Self::new(
                 Arc::new(
-                    <ProverAggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverAggregateFunctionExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -395,7 +395,7 @@ where
             ),
             Expr::WindowFunction(_) => Self::new(
                 Arc::new(
-                    <ProverWindowFunctionExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverWindowFunctionExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -406,7 +406,7 @@ where
                 prover_ctx,
             ),
             Expr::InList(_) => Self::new(
-                Arc::new(<ProverInListExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverInListExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -416,7 +416,7 @@ where
                 prover_ctx,
             ),
             Expr::Exists(_) => Self::new(
-                Arc::new(<ProverExistsExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverExistsExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -426,7 +426,7 @@ where
                 prover_ctx,
             ),
             Expr::InSubquery(_) => Self::new(
-                Arc::new(<ProverInSubqueryExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverInSubqueryExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -437,7 +437,7 @@ where
             ),
             Expr::ScalarSubquery(_) => Self::new(
                 Arc::new(
-                    <ProverScalarSubqueryExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverScalarSubqueryExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -449,7 +449,7 @@ where
             ),
 
             Expr::GroupingSet(_) => Self::new(
-                Arc::new(<ProverGroupingSetExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverGroupingSetExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -459,7 +459,7 @@ where
                 prover_ctx,
             ),
             Expr::Placeholder(_) => Self::new(
-                Arc::new(<ProverPlaceholderExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverPlaceholderExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -470,7 +470,7 @@ where
             ),
             Expr::OuterReferenceColumn(..) => Self::new(
                 Arc::new(
-                    <ProverOuterReferenceColumnExprNode<F, MvPCS, UvPCS> as ProverNode<
+                    <ProverOuterReferenceColumnExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                         F,
                         MvPCS,
                         UvPCS,
@@ -481,7 +481,7 @@ where
                 prover_ctx,
             ),
             Expr::Unnest(_) => Self::new(
-                Arc::new(<ProverUnnestExprNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverUnnestExprNode<F, MvPCS, UvPCS> as ProverExprNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -507,7 +507,7 @@ where
         match plan {
             df::LogicalPlan::TableScan(_ts) => Self::new(
                 Arc::new(
-                    <ProverTableScanNode as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                    <ProverTableScanNode as ProverLpNode<F, MvPCS, UvPCS>>::from_lp(
                         ctx,
                         prover_ctx.clone(),
                         plan.clone(),
@@ -518,7 +518,7 @@ where
             ),
             df::LogicalPlan::Values(_vals) => todo!(),
             df::LogicalPlan::Projection(_) => Self::new(
-                Arc::new(<ProverProjectionNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverProjectionNode<F, MvPCS, UvPCS> as ProverLpNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -531,7 +531,7 @@ where
                 prover_ctx,
             ),
             df::LogicalPlan::Filter(_) => Self::new(
-                Arc::new(<ProverFilterNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverFilterNode<F, MvPCS, UvPCS> as ProverLpNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -545,7 +545,7 @@ where
             ),
             df::LogicalPlan::Window(_w) => todo!(),
             df::LogicalPlan::Aggregate(_aggr) => Self::new(
-                Arc::new(<ProverAggregateNode<F, MvPCS, UvPCS> as ProverNode<
+                Arc::new(<ProverAggregateNode<F, MvPCS, UvPCS> as ProverLpNode<
                     F,
                     MvPCS,
                     UvPCS,
@@ -562,7 +562,7 @@ where
                     F,
                     MvPCS,
                     UvPCS,
-                > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                > as ProverLpNode<F, MvPCS, UvPCS>>::from_lp(
                     ctx,
                     prover_ctx.clone(),
                     plan.clone(),
@@ -580,7 +580,7 @@ where
                         F,
                         MvPCS,
                         UvPCS,
-                    > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                    > as ProverLpNode<F, MvPCS, UvPCS>>::from_lp(
                         ctx,
                         prover_ctx.clone(),
                         plan.clone(),
@@ -596,7 +596,7 @@ where
                     F,
                     MvPCS,
                     UvPCS,
-                > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                > as ProverLpNode<F, MvPCS, UvPCS>>::from_lp(
                     ctx,
                     prover_ctx.clone(),
                     plan.clone(),
@@ -609,7 +609,7 @@ where
                     F,
                     MvPCS,
                     UvPCS,
-                > as ProverNode<F, MvPCS, UvPCS>>::from_lp(
+                > as ProverLpNode<F, MvPCS, UvPCS>>::from_lp(
                     ctx,
                     prover_ctx.clone(),
                     plan.clone(),

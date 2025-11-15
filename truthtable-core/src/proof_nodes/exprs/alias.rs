@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode,
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::proof_tree::VerifierProofTree,
@@ -59,34 +59,6 @@ where
         vec![&self.input]
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_logical_plan: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let alias = match expr.clone() {
-            Expr::Alias(alias) => alias,
-            _ => panic!("expected alias expression"),
-        };
-        let node_id = NodeId::Expr(expr.clone());
-        let input_expr = (*alias.expr).clone();
-        let child = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-            ctx,
-            prover_ctx,
-            input_expr,
-            &node_id.clone(),
-        )
-        .root();
-        Self {
-            node_id,
-            input: child,
-            parent_node_id: parent_logical_plan,
-        }
-    }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
@@ -153,6 +125,42 @@ where
                 OUTPUT_PLAN_KEY.to_string(),
                 aliased_table,
             );
+        }
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverAliasExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn from_expr(
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_logical_plan: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let alias = match expr.clone() {
+            Expr::Alias(alias) => alias,
+            _ => panic!("expected alias expression"),
+        };
+        let node_id = NodeId::Expr(expr.clone());
+        let input_expr = (*alias.expr).clone();
+        let child = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            input_expr,
+            &node_id.clone(),
+        )
+        .root();
+        Self {
+            node_id,
+            input: child,
+            parent_node_id: parent_logical_plan,
         }
     }
 }

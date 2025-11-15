@@ -3,7 +3,7 @@
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::ProverNode, verifier::VerifierNode,
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -60,35 +60,6 @@ where
         vec![&self.input]
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_logical_plan: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let child_expr = match &expr {
-            Expr::Cast(cast) => (*cast.expr).clone(),
-            _ => panic!("expected cast or try_cast expression"),
-        };
-
-        let node_id = NodeId::Expr(expr);
-        let child_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-            ctx,
-            prover_ctx.clone(),
-            child_expr,
-            &parent_logical_plan,
-        )
-        .root();
-
-        Self {
-            node_id,
-            parent_node_id: parent_logical_plan,
-            input: child_node,
-        }
-    }
 
     fn cost(
         &self,
@@ -217,6 +188,43 @@ where
             let new_table = TrackedTable::new(new_schema, columns, child_table.log_size());
 
             piop_tree.add_table(self.node_id.clone(), OUTPUT_PLAN_KEY.to_string(), new_table);
+        }
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverCastExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn from_expr(
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_logical_plan: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let child_expr = match &expr {
+            Expr::Cast(cast) => (*cast.expr).clone(),
+            _ => panic!("expected cast or try_cast expression"),
+        };
+
+        let node_id = NodeId::Expr(expr);
+        let child_node = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            child_expr,
+            &parent_logical_plan,
+        )
+        .root();
+
+        Self {
+            node_id,
+            parent_node_id: parent_logical_plan,
+            input: child_node,
         }
     }
 }

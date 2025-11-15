@@ -31,7 +31,7 @@ use ra_toolbox::expr_piop::aggregate_function::{
 };
 use std::sync::Arc;
 
-use crate::proof_nodes::{cost::ProvingCost, prover::ProverNode, verifier::VerifierNode};
+use crate::proof_nodes::{cost::ProvingCost, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode};
 #[derive(Clone)]
 pub struct ProverAggregateFunctionExprNode<F, MvPCS, UvPCS>
 where
@@ -59,41 +59,6 @@ where
         self.inputs.iter().collect()
     }
 
-    fn from_expr(
-        ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_logical_plan: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let aggregate_expr = match expr.clone() {
-            Expr::AggregateFunction(agg) => agg,
-            _ => panic!("expected aggregate function expression"),
-        };
-        let node_id = NodeId::Expr(expr.clone());
-        let inputs = aggregate_expr
-            .params
-            .args
-            .iter()
-            .map(|arg| {
-                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    prover_ctx.clone(),
-                    arg.clone(),
-                    &node_id,
-                )
-                .root()
-            })
-            .collect();
-
-        Self {
-            node_id,
-            inputs,
-            parent_node_id: parent_logical_plan,
-        }
-    }
 
     fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
         todo!()
@@ -264,6 +229,50 @@ where
         AggregateFunctionExprPIOP::prove(prover, piop_input)?;
 
         Ok(())
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS>
+    for ProverAggregateFunctionExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_expr(
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_logical_plan: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let aggregate_expr = match expr.clone() {
+            Expr::AggregateFunction(agg) => agg,
+            _ => panic!("expected aggregate function expression"),
+        };
+        let node_id = NodeId::Expr(expr.clone());
+        let inputs = aggregate_expr
+            .params
+            .args
+            .iter()
+            .map(|arg| {
+                ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    arg.clone(),
+                    &node_id,
+                )
+                .root()
+            })
+            .collect();
+
+        Self {
+            node_id,
+            inputs,
+            parent_node_id: parent_logical_plan,
+        }
     }
 }
 
