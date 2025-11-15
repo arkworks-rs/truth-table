@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode,
+    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -120,17 +120,6 @@ where
         self.inputs.iter().collect()
     }
 
-    fn from_expr(
-        _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _expr: Expr,
-        _parent_logical_plan: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
 
     fn add_virtual_witness(
         &self,
@@ -157,3 +146,24 @@ where
             .ctx_lp_node(proof_tree)
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS>
+    for VerifierScalarVariableExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _expr: Expr,
+        _parent_logical_plan: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+}
+

@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierExprNode, VerifierNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -210,20 +210,6 @@ where
         Vec::new()
     }
 
-    fn from_expr(
-        _ctx: &SessionContext,
-        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            node_id: NodeId::Expr(expr),
-            parent_node_id,
-        }
-    }
 
     fn add_virtual_witness(
         &self,
@@ -287,6 +273,29 @@ where
             .ctx_lp_node(proof_tree)
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for VerifierLiteralExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            node_id: NodeId::Expr(expr),
+            parent_node_id,
+        }
+    }
+}
+
 
 fn first_tablescan_plan_prover<F, MvPCS, UvPCS>(
     proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,

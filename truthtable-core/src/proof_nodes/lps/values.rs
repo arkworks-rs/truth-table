@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -110,17 +110,6 @@ where
         todo!()
     }
 
-    fn from_lp(
-        _ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        _plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
 
     fn node_id(&self) -> NodeId {
         todo!()
@@ -147,3 +136,23 @@ where
         todo!()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierValuesNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+}
+

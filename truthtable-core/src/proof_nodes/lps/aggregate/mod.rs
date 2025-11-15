@@ -3,7 +3,7 @@ use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
         prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -558,81 +558,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_lp(
-        ctx: &SessionContext,
-        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        // Get the aggregate logical plan
-        let aggregate = match &plan {
-            LogicalPlan::Aggregate(agg) => agg,
-            _ => panic!("expected aggregate logical plan"),
-        };
-        let node_id = NodeId::LP(plan.clone());
-        // Recursively build the input proof tree
-        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            verifier_ctx.clone(),
-            &aggregate.input,
-            &node_id,
-        )
-        .root();
-
-        // Recursively build the children by first building a tree for the grouping
-        // expressions Note that their parent logical plan is unusually set to
-        // be the input logical plan of the aggregate
-        let group_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
-            .group_expr
-            .iter()
-            .map(|expr| {
-                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr.clone(),
-                    &node_id.clone(),
-                )
-                .root()
-            })
-            .collect();
-
-        for expr in &aggregate.aggr_expr {
-            let is_valid_aggregate = match expr {
-                Expr::AggregateFunction(_) => true,
-                Expr::Alias(alias) => matches!(alias.expr.as_ref(), Expr::AggregateFunction(_)),
-                _ => false,
-            };
-
-            if !is_valid_aggregate {
-                panic!(
-                    "expected aggregate expression to be AggregateFunction (optionally wrapped in an alias), got {expr}"
-                );
-            }
-        }
-        let aggr_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
-            .aggr_expr
-            .iter()
-            .map(|expr| {
-                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    expr.clone(),
-                    &node_id.clone(),
-                )
-                .root()
-            })
-            .collect();
-
-        Self {
-            group_expr_proof_tree_roots,
-            aggr_expr_proof_tree_roots,
-            input_proof_tree_root,
-            node_id,
-        }
-    }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         let mut children = Vec::new();
@@ -999,3 +924,87 @@ where
         self.node_id().to_string()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierAggregateNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the aggregate logical plan
+        let aggregate = match &plan {
+            LogicalPlan::Aggregate(agg) => agg,
+            _ => panic!("expected aggregate logical plan"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the input proof tree
+        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            verifier_ctx.clone(),
+            &aggregate.input,
+            &node_id,
+        )
+        .root();
+
+        // Recursively build the children by first building a tree for the grouping
+        // expressions Note that their parent logical plan is unusually set to
+        // be the input logical plan of the aggregate
+        let group_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
+            .group_expr
+            .iter()
+            .map(|expr| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr.clone(),
+                    &node_id.clone(),
+                )
+                .root()
+            })
+            .collect();
+
+        for expr in &aggregate.aggr_expr {
+            let is_valid_aggregate = match expr {
+                Expr::AggregateFunction(_) => true,
+                Expr::Alias(alias) => matches!(alias.expr.as_ref(), Expr::AggregateFunction(_)),
+                _ => false,
+            };
+
+            if !is_valid_aggregate {
+                panic!(
+                    "expected aggregate expression to be AggregateFunction (optionally wrapped in an alias), got {expr}"
+                );
+            }
+        }
+        let aggr_expr_proof_tree_roots: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> = aggregate
+            .aggr_expr
+            .iter()
+            .map(|expr| {
+                VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    expr.clone(),
+                    &node_id.clone(),
+                )
+                .root()
+            })
+            .collect();
+
+        Self {
+            group_expr_proof_tree_roots,
+            aggr_expr_proof_tree_roots,
+            input_proof_tree_root,
+            node_id,
+        }
+    }
+}
+

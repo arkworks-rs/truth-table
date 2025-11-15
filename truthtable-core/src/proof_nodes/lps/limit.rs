@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -195,31 +195,6 @@ where
         )])
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let limit = match &plan {
-            LogicalPlan::Limit(limit) => limit,
-            _ => panic!("Expected Limit plan"),
-        };
-        let node_id = NodeId::LP(plan.clone());
-
-        let input_node =
-            VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, _prover_ctx, &limit.input, &node_id)
-                .root();
-
-        Self {
-            input: input_node,
-            node_id,
-            limit: limit.clone(),
-        }
-    }
 
     fn verify_piop(
         &self,
@@ -263,6 +238,40 @@ where
             .unwrap_or_else(|| panic!("join node {} missing from proof tree", self.node_id))
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierLimitNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let limit = match &plan {
+            LogicalPlan::Limit(limit) => limit,
+            _ => panic!("Expected Limit plan"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+
+        let input_node =
+            VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(ctx, _prover_ctx, &limit.input, &node_id)
+                .root();
+
+        Self {
+            input: input_node,
+            node_id,
+            limit: limit.clone(),
+        }
+    }
+}
+
 
 fn build_limit_hint_output_plan(base_plan: LogicalPlan, limit: &Limit) -> LogicalPlan {
     let (skip, fetch) = resolve_limit_bounds(limit);

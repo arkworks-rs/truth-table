@@ -11,7 +11,7 @@ use crate::{
             TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
         },
         prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierLpNode, VerifierNode},
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -381,56 +381,6 @@ where
         build_sort_hint_generation_plans(base_plan, sort_lp)
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        let sort_lp = match &plan {
-            LogicalPlan::Sort(sort) => sort,
-            _ => panic!("expected sort logical plan"),
-        };
-
-        let node_id = NodeId::LP(plan.clone());
-
-        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            verifier_ctx.clone(),
-            sort_lp.input.as_ref(),
-            &node_id,
-        )
-        .root();
-
-        let sort_exprs = sort_lp
-            .expr
-            .iter()
-            .map(|sort_expr| {
-                let expr_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-                    ctx,
-                    verifier_ctx.clone(),
-                    sort_expr.expr.clone(),
-                    &node_id,
-                )
-                .root();
-
-                VerifierSortExprNode {
-                    expr: expr_node,
-                    asc: sort_expr.asc,
-                    nulls_first: sort_expr.nulls_first,
-                }
-            })
-            .collect();
-
-        Self {
-            sort_exprs,
-            input_verifier_node,
-            node_id,
-        }
-    }
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
@@ -584,3 +534,62 @@ where
         self.input_verifier_node.clone()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierSortNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let sort_lp = match &plan {
+            LogicalPlan::Sort(sort) => sort,
+            _ => panic!("expected sort logical plan"),
+        };
+
+        let node_id = NodeId::LP(plan.clone());
+
+        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            verifier_ctx.clone(),
+            sort_lp.input.as_ref(),
+            &node_id,
+        )
+        .root();
+
+        let sort_exprs = sort_lp
+            .expr
+            .iter()
+            .map(|sort_expr| {
+                let expr_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+                    ctx,
+                    verifier_ctx.clone(),
+                    sort_expr.expr.clone(),
+                    &node_id,
+                )
+                .root();
+
+                VerifierSortExprNode {
+                    expr: expr_node,
+                    asc: sort_expr.asc,
+                    nulls_first: sort_expr.nulls_first,
+                }
+            })
+            .collect();
+
+        Self {
+            sort_exprs,
+            input_verifier_node,
+            node_id,
+        }
+    }
+}
+

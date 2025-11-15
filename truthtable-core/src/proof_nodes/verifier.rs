@@ -26,29 +26,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_expr(
-        _ctx: &SessionContext,
-        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _expr: Expr,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
-
-    fn from_lp(
-        _ctx: &SessionContext,
-        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        _plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>;
 
     fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>) {
@@ -136,4 +113,36 @@ where
     pub fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub trait VerifierExprNode<F, MvPCS, UvPCS>: VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _expr: Expr,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
+}
+
+pub trait VerifierLpNode<F, MvPCS, UvPCS>: VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        _ctx: &SessionContext,
+        _verifier_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
 }

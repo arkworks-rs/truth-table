@@ -2,7 +2,7 @@ use crate::proof_nodes::HintGenerationPlan;
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::VerifierNode,
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -379,49 +379,6 @@ where
         )])
     }
 
-    fn from_expr(
-        ctx: &datafusion::prelude::SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        expr: Expr,
-        parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        // Get the Binary Expression
-        let bin_expr = match expr.clone() {
-            Expr::BinaryExpr(b) => b,
-            _ => panic!("expected binary expression"),
-        };
-        // Builf the id for the current node
-        let node_id = NodeId::Expr(expr.clone());
-        // Recursively build the left child node
-        let left_expr = bin_expr.left.as_ref().clone();
-        let left_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-            ctx,
-            prover_ctx.clone(),
-            left_expr.clone(),
-            &node_id,
-        )
-        .root();
-        // Recursively build the right child node
-
-        let right_expr = bin_expr.right.as_ref().clone();
-        let right_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-            ctx,
-            prover_ctx.clone(),
-            right_expr.clone(),
-            &node_id,
-        )
-        .root();
-
-        Self {
-            node_id,
-            left_verifier_node,
-            right_verifier_node,
-            parent_node_id,
-        }
-    }
 
     fn add_virtual_witness(
         &self,
@@ -521,6 +478,58 @@ where
             .ctx_lp_node(proof_tree)
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for VerifierBinaryExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
+    fn from_expr(
+        ctx: &datafusion::prelude::SessionContext,
+        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        expr: Expr,
+        parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the Binary Expression
+        let bin_expr = match expr.clone() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
+        // Builf the id for the current node
+        let node_id = NodeId::Expr(expr.clone());
+        // Recursively build the left child node
+        let left_expr = bin_expr.left.as_ref().clone();
+        let left_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            left_expr.clone(),
+            &node_id,
+        )
+        .root();
+        // Recursively build the right child node
+
+        let right_expr = bin_expr.right.as_ref().clone();
+        let right_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx.clone(),
+            right_expr.clone(),
+            &node_id,
+        )
+        .root();
+
+        Self {
+            node_id,
+            left_verifier_node,
+            right_verifier_node,
+            parent_node_id,
+        }
+    }
+}
+
 
 impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
 where

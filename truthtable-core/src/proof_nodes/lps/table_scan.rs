@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierLpNode, VerifierNode},
     },
     prover::trees::proof_tree::ProverProofTree,
     verifier::trees::proof_tree::VerifierProofTree,
@@ -114,26 +114,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_lp(
-        _ctx: &SessionContext,
-        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        debug_assert!(
-            plan.schema()
-                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
-                .is_ok(),
-            "table scan plan missing activator column"
-        );
-        Self {
-            plan: plan.clone(),
-            node_id: NodeId::LP(plan),
-        }
-    }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         Vec::new()
@@ -170,3 +150,32 @@ where
         todo!()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierTableScanNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        _ctx: &SessionContext,
+        _prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        debug_assert!(
+            plan.schema()
+                .field_with_unqualified_name(ACTIVATOR_COL_NAME)
+                .is_ok(),
+            "table scan plan missing activator column"
+        );
+        Self {
+            plan: plan.clone(),
+            node_id: NodeId::LP(plan),
+        }
+    }
+}
+

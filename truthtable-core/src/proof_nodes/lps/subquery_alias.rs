@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -155,35 +155,6 @@ where
         IndexMap::new()
     }
 
-    fn from_lp(
-        ctx: &SessionContext,
-        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        // Get the subquery_alias logical plan
-        let subquery_alias = match &plan {
-            LogicalPlan::SubqueryAlias(subquery_alias) => subquery_alias,
-            _ => panic!("expected subquery alias logical plan"),
-        };
-        // Get the node id of the current node
-        let node_id = NodeId::LP(plan.clone());
-        // Recursively build the input proof tree
-        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            verifier_ctx.clone(),
-            &subquery_alias.input,
-            &node_id,
-        )
-        .root();
-        Self {
-            input_proof_tree_root,
-            node_id,
-        }
-    }
 
     fn node_id(&self) -> NodeId {
         self.node_id.clone()
@@ -224,3 +195,41 @@ where
         self.input_proof_tree_root.clone()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the subquery_alias logical plan
+        let subquery_alias = match &plan {
+            LogicalPlan::SubqueryAlias(subquery_alias) => subquery_alias,
+            _ => panic!("expected subquery alias logical plan"),
+        };
+        // Get the node id of the current node
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the input proof tree
+        let input_proof_tree_root = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            verifier_ctx.clone(),
+            &subquery_alias.input,
+            &node_id,
+        )
+        .root();
+        Self {
+            input_proof_tree_root,
+            node_id,
+        }
+    }
+}
+

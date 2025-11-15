@@ -184,7 +184,7 @@ pub mod verifier {
         wildcard::VerifierWildcardExprNode, window_function::VerifierWindowFunctionExprNode,
     };
     use crate::{
-        proof_nodes::{id::NodeId, verifier::VerifierNode},
+        proof_nodes::{id::NodeId, verifier::{VerifierExprNode, VerifierNode}},
         verifier::trees::proof_tree::VerifierProofTree,
     };
     use ark_ff::PrimeField;
@@ -224,17 +224,6 @@ pub mod verifier {
             NodeId::Expr(self.relative_expr.clone())
         }
 
-        fn from_expr(
-            _ctx: &datafusion::prelude::SessionContext,
-            _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
-            _expr: Expr,
-            _parent_node_id: NodeId,
-        ) -> Self
-        where
-            Self: Sized,
-        {
-            todo!()
-        }
 
         fn add_virtual_witness(
             &self,
@@ -260,6 +249,26 @@ pub mod verifier {
                 .ctx_lp_node(proof_tree)
         }
     }
+
+    impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for RawExprNode
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
+        fn from_expr(
+            _ctx: &datafusion::prelude::SessionContext,
+            _verifier_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+            _expr: Expr,
+            _parent_node_id: NodeId,
+        ) -> Self
+        where
+            Self: Sized,
+        {
+            todo!()
+        }
+}
+
 
     pub fn wrap_logical_expr<F, MvPCS, UvPCS>(
         expr: Expr,

@@ -1,7 +1,7 @@
 use crate::{
     proof_nodes::{
         HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
-        verifier::VerifierNode,
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -342,46 +342,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    fn from_lp(
-        ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
-        plan: LogicalPlan,
-        _parent_node_id: NodeId,
-    ) -> Self
-    where
-        Self: Sized,
-    {
-        // Get the inner filter object
-        let filter = match &plan {
-            df::LogicalPlan::Filter(f) => f,
-            _ => panic!("expected filter logical plan"),
-        };
-        // Build the node id for this filter node
-        let node_id = NodeId::LP(plan.clone());
-        // Recursively build the prover proof node for the input logical plan
-        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
-            ctx,
-            prover_ctx.clone(),
-            &filter.input,
-            &node_id,
-        )
-        .root();
-        // The predicate is an expr and needs to be proved
-        let predicate_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
-            ctx,
-            prover_ctx,
-            filter.predicate.clone(),
-            &node_id,
-        )
-        .root();
-        // Building the witness generation plans map
-        Self {
-            predicate_verifier_node,
-            input_verifier_node,
-            node_id,
-            predicate_expr: filter.predicate.clone(),
-        }
-    }
 
     fn children(&self) -> Vec<&Arc<dyn VerifierNode<F, MvPCS, UvPCS>>> {
         vec![&self.input_verifier_node, &self.predicate_verifier_node]
@@ -602,3 +562,52 @@ where
         self.input_verifier_node.clone()
     }
 }
+
+impl<F, MvPCS, UvPCS> VerifierLpNode<F, MvPCS, UvPCS> for VerifierFilterNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn from_lp(
+        ctx: &SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the inner filter object
+        let filter = match &plan {
+            df::LogicalPlan::Filter(f) => f,
+            _ => panic!("expected filter logical plan"),
+        };
+        // Build the node id for this filter node
+        let node_id = NodeId::LP(plan.clone());
+        // Recursively build the prover proof node for the input logical plan
+        let input_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &filter.input,
+            &node_id,
+        )
+        .root();
+        // The predicate is an expr and needs to be proved
+        let predicate_verifier_node = VerifierProofTree::<F, MvPCS, UvPCS>::from_expr(
+            ctx,
+            prover_ctx,
+            filter.predicate.clone(),
+            &node_id,
+        )
+        .root();
+        // Building the witness generation plans map
+        Self {
+            predicate_verifier_node,
+            input_verifier_node,
+            node_id,
+            predicate_expr: filter.predicate.clone(),
+        }
+    }
+}
+
