@@ -2,7 +2,9 @@ use crate::proof_nodes::HintGenerationPlan;
 
 use crate::{
     proof_nodes::{
-        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode}, verifier::{VerifierNode, VerifierLpNode},
+        OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
+        prover::{ProverGadgetNode, ProverLpNode, ProverNode},
+        verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
     verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
@@ -84,7 +86,8 @@ fn build_projection_hint_plan(base_plan: LogicalPlan, projection: &df::Projectio
         .expect("failed to finalize projection hint plan")
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS>
+    for ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -125,14 +128,6 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
-
-
     fn add_virtual_witness(
         &self,
         piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -148,17 +143,6 @@ where
         todo!()
     }
 
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
-
-    fn is_public(&self) -> bool {
-        todo!()
-    }
-
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
@@ -167,6 +151,27 @@ where
         todo!()
     }
 
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
@@ -401,4 +406,3 @@ where
         }
     }
 }
-

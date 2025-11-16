@@ -1,6 +1,6 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode},
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverNode},
         verifier::{VerifierExprNode, VerifierNode},
     },
     prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree},
@@ -43,7 +43,7 @@ pub fn format_column_detail(column: &datafusion::common::Column) -> String {
         None => column.flat_name(),
     }
 }
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -75,12 +75,6 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
 
 
     fn add_virtual_witness(
@@ -98,16 +92,7 @@ where
         todo!()
     }
 
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
 
-    fn is_public(&self) -> bool {
-        todo!()
-    }
 
     fn prove_piop(
         &self,
@@ -117,7 +102,32 @@ where
         todo!()
     }
 
+
 }
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+
+        todo!()
+    }
+}
+
+
 
 impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where

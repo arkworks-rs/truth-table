@@ -1,6 +1,7 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
+        HintGenerationPlan, cost::ProvingCost, id::NodeId,
+        prover::{ProverGadgetNode, ProverLpNode, ProverNode},
         verifier::{VerifierNode, VerifierLpNode},
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -26,7 +27,8 @@ where
     pub input: Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverSubqueryNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS>
+    for ProverSubqueryNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -58,14 +60,6 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
-
-
     fn add_virtual_witness(
         &self,
         _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -89,6 +83,14 @@ where
         todo!()
     }
 
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverSubqueryNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
     fn output_data_frame(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -96,10 +98,12 @@ where
         todo!()
     }
 
-    fn is_public(&self) -> bool {
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         todo!()
     }
-
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSubqueryNode<F, MvPCS, UvPCS>
@@ -214,4 +218,3 @@ where
         todo!()
     }
 }
-

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::proof_nodes::{id::NodeId, prover::ProverNode, verifier::VerifierNode};
+use crate::proof_nodes::{id::NodeId, prover::{ProverGadgetNode, ProverNode}, verifier::VerifierNode};
 use crate::prover::trees::{piop_tree::ProverPIOPTree, proof_tree::ProverProofTree};
 use crate::verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree};
 use ark_ff::PrimeField;
@@ -44,7 +44,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverNoDuplicateGadget<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverNoDuplicateGadget<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -72,16 +72,7 @@ where
         todo!()
     }
 
-    fn output_data_frame(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
 
-    fn is_public(&self) -> bool {
-        todo!()
-    }
 
     fn add_virtual_witness(
         &self,
@@ -103,13 +94,10 @@ where
         todo!()
     }
 
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
+
 }
+
+
 
 #[derive(Clone)]
 pub struct VerifierNoDuplicateGadget<F, MvPCS, UvPCS>

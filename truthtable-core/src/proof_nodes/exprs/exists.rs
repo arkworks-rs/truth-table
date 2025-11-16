@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
+    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -23,7 +23,7 @@ where
     pub parent_node_id: NodeId,
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -47,12 +47,6 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
 
 
     fn add_virtual_witness(
@@ -85,6 +79,17 @@ where
         todo!()
     }
 
+
+
+
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>>,
+    UvPCS: PCS<F, Poly = LDE<F>>,
+{
     fn output_data_frame(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -92,11 +97,16 @@ where
         todo!()
     }
 
-    fn is_public(&self) -> bool {
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+
         todo!()
     }
-
 }
+
+
 
 impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
 where

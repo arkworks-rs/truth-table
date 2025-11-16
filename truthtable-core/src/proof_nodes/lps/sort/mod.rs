@@ -10,7 +10,7 @@ use crate::{
             LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
             TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
         },
-        prover::{ProverLpNode, ProverNode},
+        prover::{ProverGadgetNode, ProverLpNode, ProverNode},
         verifier::{VerifierLpNode, VerifierNode},
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -83,7 +83,8 @@ where
     pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
     pub node_id: NodeId,
 }
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS>
+    for ProverSortNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -121,14 +122,6 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
-
-
     fn prove_piop(
         &self,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
@@ -144,17 +137,6 @@ where
         todo!()
     }
 
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
-
-    fn is_public(&self) -> bool {
-        todo!()
-    }
-
     fn add_virtual_witness(
         &self,
         _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
@@ -163,6 +145,27 @@ where
         todo!()
     }
 
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
@@ -351,4 +354,3 @@ where
         }
     }
 }
-

@@ -1,6 +1,7 @@
 use crate::{
     proof_nodes::{
-        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId, prover::{ProverLpNode, ProverNode},
+        HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, id::NodeId,
+        prover::{ProverGadgetNode, ProverLpNode, ProverNode},
         verifier::{VerifierLpNode, VerifierNode},
     },
     prover::trees::proof_tree::ProverProofTree,
@@ -28,7 +29,7 @@ pub struct VerifierTableScanNode {
 
 // TODO: Add the table scan output comitments (the root ones) in the prover
 // initial state as a mapping from table names to comitments
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverTableScanNode
+impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverTableScanNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -67,28 +68,10 @@ where
     }
 
 
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
-
     fn arithmetic_post_process(
         &self,
         _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
     ) {
-        todo!()
-    }
-
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
-
-    fn is_public(&self) -> bool {
         todo!()
     }
 
@@ -108,6 +91,27 @@ where
         todo!()
     }
 
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverTableScanNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverTableScanNode
@@ -239,4 +243,3 @@ where
         }
     }
 }
-

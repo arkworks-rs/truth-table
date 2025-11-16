@@ -55,7 +55,7 @@ pub mod prover {
         wildcard::ProverWildcardExprNode, window_function::ProverWindowFunctionExprNode,
     };
     use crate::{
-        proof_nodes::{cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverNode}},
+        proof_nodes::{cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverNode}},
         prover::trees::proof_tree::ProverProofTree,
     };
     use ark_ff::PrimeField;
@@ -81,7 +81,7 @@ use datafusion::prelude::DataFrame;
         }
     }
 
-    impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for RawExprNode
+    impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for RawExprNode
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -105,12 +105,6 @@ use datafusion::prelude::DataFrame;
         }
 
 
-        fn ctx_lp_node(
-            &self,
-            proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-        ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-            todo!()
-        }
 
 
         fn add_virtual_witness(
@@ -143,6 +137,17 @@ use datafusion::prelude::DataFrame;
         todo!()
     }
 
+
+
+
+}
+
+impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for RawExprNode
+    where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    {
     fn output_data_frame(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -150,11 +155,16 @@ use datafusion::prelude::DataFrame;
         todo!()
     }
 
-    fn is_public(&self) -> bool {
+    fn ctx_lp_node(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+
         todo!()
     }
-
 }
+
+
 
     impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for RawExprNode
     where

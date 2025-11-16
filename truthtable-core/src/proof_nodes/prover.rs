@@ -17,23 +17,19 @@ use ark_piop::{
     pcs::PCS,
     prover::Prover,
 };
+use datafusion::prelude::DataFrame;
 use datafusion::{
     arrow::datatypes::SchemaRef,
     common::Statistics,
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
-use datafusion::prelude::DataFrame;
-use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
 
 pub use super::{cost, display, exprs, lps};
 
-/// Common interface for a proof plan node.
-///
-/// A proof plan is a tree of nodes, where each node represents a proof unit.
-pub trait ProverNode<F, MvPCS, UvPCS>: Any + Send + Sync
+pub trait ProverGadgetNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -44,23 +40,6 @@ where
     /// return an empty list.
     fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>>;
 
-    /// Appends all the descendants of this node in 'post-order' to the given
-    /// mutable vector.
-    /// Post-order over descendants: for each child, traverse its descendants
-    /// first, then push the child; the current node itself is not included.
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
-        for child in self.children() {
-            child.append_sorted_descendants(out);
-            out.push(Arc::clone(child));
-        }
-    }
-
-    /// Optional human-readable labels for each child edge.
-    /// Default implementation leaves every edge unlabeled.
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        self.children().into_iter().map(|_| None).collect()
-    }
-
     /// A human-readable name for this node
     fn name(&self) -> String {
         self.node_id().to_string()
@@ -68,6 +47,12 @@ where
 
     /// Classification of this node (used for optional metadata extraction).
     fn node_id(&self) -> NodeId;
+
+    /// Optional human-readable labels for each child edge.
+    /// Default implementation leaves every edge unlabeled.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        self.children().into_iter().map(|_| None).collect()
+    }
 
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
@@ -82,12 +67,12 @@ where
     ) -> indexmap::IndexMap<String, DataFrame>;
     fn arithmetic_post_process(
         &self,
-        arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+        arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
+            F,
+            MvPCS,
+            UvPCS,
+        >,
     );
-
-    fn output_data_frame(&self, _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>) -> DataFrame;
-
-    fn is_public(&self) -> bool;
 
     /// Complete the piop plan
     fn add_virtual_witness(
@@ -130,6 +115,33 @@ where
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+
+    /// Appends all the descendants of this node in 'post-order' to the given
+    /// mutable vector.
+    /// Post-order over descendants: for each child, traverse its descendants
+    /// first, then push the child; the current node itself is not included.
+    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
+        for child in self.children() {
+            child.append_sorted_descendants(out);
+            out.push(Arc::clone(child));
+        }
+    }
+}
+
+/// Common interface for a proof plan node.
+///
+/// A proof plan is a tree of nodes, where each node represents a proof unit.
+pub trait ProverNode<F, MvPCS, UvPCS>:
+    ProverGadgetNode<F, MvPCS, UvPCS> + Any + Send + Sync
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+{
+    fn output_data_frame(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DataFrame;
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -156,7 +168,11 @@ where
 
     fn arithmetic_post_process(
         &self,
-        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
+            F,
+            MvPCS,
+            UvPCS,
+        >,
     ) {
         todo!()
     }
@@ -198,7 +214,6 @@ where
     ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
         todo!()
     }
-
 }
 
 pub trait ProverLpNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync
