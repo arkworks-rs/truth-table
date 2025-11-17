@@ -29,11 +29,11 @@ async fn builds_proof_tree_from_simple_query() {
     ctx.register_batch("dummy_table", batch).unwrap();
 
     let df = ctx
-        .sql("SELECT value FROM dummy_table WHERE value > 1")
+        .sql("SELECT value FROM dummy_table")
         .await
         .unwrap();
     let plan = df.into_unoptimized_plan();
     let shared_ctx: SharedCtx<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> = SharedCtx::default();
     let proof_tree = ProverProofTree::from_lp(&ctx, shared_ctx, &plan, &None);
-    println!("{}", proof_tree.display());
+    println!("{}", proof_tree.graphviz_display());
 }

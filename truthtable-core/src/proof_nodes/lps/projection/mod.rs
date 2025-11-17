@@ -43,12 +43,20 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn children(&self) -> Vec<&Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        todo!()
+    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
+        let mut children = Vec::with_capacity(1 + self.expr_prover_nodes.len());
+        children.push(self.input_prover_node.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>);
+        children.extend(
+            self.expr_prover_nodes
+                .iter()
+                .cloned()
+                .map(|child| child as Arc<dyn Node<F, MvPCS, UvPCS>>),
+        );
+        children
     }
 
     fn node_id(&self) -> NodeId {
-        todo!()
+        NodeId::LP(LogicalPlan::Projection(self.projection.clone()))
     }
 }
 
@@ -109,6 +117,13 @@ where
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
         self.input_prover_node.clone()
+    }
+
+    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        let mut children = Vec::with_capacity(1 + self.expr_prover_nodes.len());
+        children.push(self.input_prover_node.clone());
+        children.extend(self.expr_prover_nodes.iter().cloned());
+        children
     }
 }
 

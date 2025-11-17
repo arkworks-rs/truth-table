@@ -1,7 +1,8 @@
 use crate::{
     proof_nodes::{
+        exprs::column::ProverColumnExprNode,
         lps::{projection::ProverProjectionNode, table_scan::ProverTableScanNode},
-        prover::{ProverLpNode, ProverPlanNode},
+        prover::{ProverExprNode, ProverLpNode, ProverPlanNode},
     },
     tree::{NodeId, Tree},
 };
@@ -53,7 +54,7 @@ where
     fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::NodeType>> {
         self.arena.get(node_id)
     }
-    fn display(&self) -> String {
+    fn graphviz_display(&self) -> String {
         todo!()
     }
 }
@@ -76,37 +77,8 @@ where
         root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
         ctx: SharedCtx<F, MvPCS, UvPCS>,
     ) -> Self {
-        let arena = Self::sort_nodes(Arc::clone(&root));
+        let arena = build_arena::<F, MvPCS, UvPCS>(&root);
         Self { ctx, root, arena }
-    }
-
-    fn sort_nodes(
-        root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    ) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        fn collect<F, MvPCS, UvPCS>(
-            node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-            out: &mut Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
-        ) where
-            F: PrimeField,
-            MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-            UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-        {
-            // for child in node.children() {
-            //     collect(child, out);
-            // }
-            todo!();
-            out.push(Arc::clone(node));
-        }
-
-        let mut nodes = Vec::new();
-        collect(&root, &mut nodes);
-
-        let mut ordered_map = IndexMap::with_capacity(nodes.len());
-        for node in nodes {
-            ordered_map.insert(node.node_id(), node);
-        }
-
-        ordered_map
     }
 
     // pub fn display_graphviz(&self) -> display::ProverProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
@@ -142,7 +114,19 @@ where
         UvPCS: PCS<F, Poly = LDE<F>> + 'static,
     {
         match expr.clone() {
-            _ => panic!(),
+            Expr::Column(_) => Self::new(
+                Arc::new(ProverColumnExprNode::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::Expr(expr.clone())),
+                )),
+                prover_ctx,
+            ),
+            _ => panic!("unsupported expression node for prover proof tree"),
         }
     }
 
@@ -184,4 +168,35 @@ where
             _ => panic!("unsupported logical plan node for prover proof tree"),
         }
     }
+}
+
+fn build_arena<F, MvPCS, UvPCS>(
+    root: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn dfs<F, MvPCS, UvPCS>(
+        node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+        out: &mut Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    ) where
+        F: PrimeField,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    {
+        for child in node.plan_children() {
+            dfs(&child, out);
+        }
+        out.push(Arc::clone(node));
+    }
+
+    let mut nodes = Vec::new();
+    dfs(root, &mut nodes);
+
+    nodes.into_iter().fold(IndexMap::new(), |mut acc, node| {
+        acc.insert(node.node_id(), node);
+        acc
+    })
 }

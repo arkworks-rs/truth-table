@@ -88,6 +88,10 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
+
+    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        Vec::new()
+    }
 }
 
 pub trait ProverLpNode<F, MvPCS, UvPCS>:

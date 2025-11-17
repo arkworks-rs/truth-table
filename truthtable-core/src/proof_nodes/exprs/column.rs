@@ -36,12 +36,12 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn children(&self) -> Vec<&Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        todo!()
+    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
+        Vec::new()
     }
 
     fn node_id(&self) -> NodeId {
-        todo!()
+        NodeId::Expr(Expr::Column(self.column.clone()))
     }
 }
 
@@ -118,11 +118,18 @@ where
         _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         _expr: datafusion::logical_expr::Expr,
-        _parent_node_id: NodeId,
+        parent_node_id: NodeId,
     ) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        let column = match _expr {
+            Expr::Column(col) => col,
+            _ => panic!(),
+        };
+        Self {
+            parent_node_id,
+            column,
+        }
     }
 }
