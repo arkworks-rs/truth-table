@@ -98,7 +98,7 @@ mod tests {
     use arithmetic::ACTIVATOR_COL_NAME;
     use datafusion::arrow::{
         array::{ArrayRef, BooleanArray, Int32Array, Int64Array},
-        compute::{concat_batches, lexsort_to_indices, take, SortColumn},
+        compute::concat_batches,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
@@ -159,37 +159,7 @@ mod tests {
         .expect("expected batch construction should succeed");
         let combined_batch =
             concat_batches(&batches[0].schema(), &batches).expect("concat batches");
-        let sort_cols = ["group_id", "value"];
-        let sorted_actual = sort_batch(&combined_batch, &sort_cols);
-        let sorted_expected = sort_batch(&expected_batch, &sort_cols);
-        assert_eq!(sorted_actual, sorted_expected);
-    }
-
-    fn sort_batch(batch: &RecordBatch, columns: &[&str]) -> RecordBatch {
-        let schema = batch.schema();
-        let sort_columns: Vec<SortColumn> = columns
-            .iter()
-            .map(|name| {
-                let idx = schema
-                    .index_of(name)
-                    .unwrap_or_else(|_| panic!("column {} not found", name));
-                SortColumn {
-                    values: batch.column(idx).clone(),
-                    options: None,
-                }
-            })
-            .collect();
-        let indices =
-            lexsort_to_indices(&sort_columns, None).expect("lexsort indices");
-        let sorted_cols: Vec<ArrayRef> = (0..batch.num_columns())
-            .map(|idx| {
-                let column = batch.column(idx).clone();
-                take(column.as_ref(), &indices, None)
-                    .expect("take to succeed for sorting")
-            })
-            .collect();
-        RecordBatch::try_new(schema.clone(), sorted_cols)
-            .expect("sorted batch construction should succeed")
+        assert_eq!(combined_batch, expected_batch);
     }
 
     #[tokio::test]
