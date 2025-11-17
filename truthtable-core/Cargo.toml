@@ -36,6 +36,7 @@ arrow-schema = { workspace = true }
 divan = { workspace = true }
 libc = { workspace = true }
 tpch-data = { path = "../tpch-data" }
+datafusion-functions-aggregate = { workspace = true }
 
 
 [features]

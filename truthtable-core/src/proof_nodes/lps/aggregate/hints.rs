@@ -16,10 +16,6 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
 
     // 1. Aggregate only over active rows
     let active_df = df.clone().filter(col("__activator_orig__")).unwrap();
-    let agg_df = active_df
-        .aggregate(aggregate.group_expr.clone(), aggregate.aggr_expr.clone())
-        .unwrap();
-
     // 2. Join aggregates back to *all* rows.
     //
     // For simplicity, assume group_exprs are plain column refs,
@@ -30,18 +26,33 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         .iter()
         .map(|e| match e {
             Expr::Column(c) => c.name.clone(),
-            _ => panic!("Non-column group exprs require a pre-projection step"),
+            _ => panic!("Non-column group exprs require a pre-aggregate step"),
         })
         .collect();
+    let agg_df = active_df
+        .aggregate(aggregate.group_expr.clone(), aggregate.aggr_expr.clone())
+        .unwrap();
+    let agg_group_cols: Vec<String> = group_cols
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| format!("__agg_group_{idx}_{name}"))
+        .collect();
+    let mut renamed_agg_df = agg_df;
+    for (original, renamed) in group_cols.iter().zip(agg_group_cols.iter()) {
+        renamed_agg_df = renamed_agg_df
+            .with_column_renamed(original, renamed)
+            .unwrap();
+    }
 
     let group_cols_str: Vec<&str> = group_cols.iter().map(|s| s.as_str()).collect();
-    let joined = input
-        .clone()
+    let agg_group_cols_str: Vec<&str> =
+        agg_group_cols.iter().map(|s| s.as_str()).collect();
+    let joined = df
         .join(
-            agg_df,
+            renamed_agg_df,
             JoinType::Left,
             &group_cols_str,
-            &group_cols_str,
+            &agg_group_cols_str,
             None,
         )
         .unwrap();
@@ -73,8 +84,11 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let with_new_activator = with_rownum
         .with_column("__activator__", new_activator_expr)
         .unwrap();
+    let mut drop_columns: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();
+    drop_columns.push("__row_number__");
+    drop_columns.push("__activator_orig__");
     with_new_activator
-        .drop_columns(&["__row_number__", "__activator_orig__"])
+        .drop_columns(&drop_columns)
         .unwrap()
 }
 
@@ -83,22 +97,21 @@ mod tests {
     use super::build_output_dataframe;
     use arithmetic::ACTIVATOR_COL_NAME;
     use datafusion::arrow::{
-        array::{ArrayRef, BooleanArray, Date32Array, Int32Array},
+        array::{ArrayRef, BooleanArray, Int32Array, Int64Array},
+        compute::{concat_batches, lexsort_to_indices, take, SortColumn},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
     use datafusion::prelude::SessionContext;
-    use datafusion_common::{ScalarValue, TableReference};
-    use datafusion_expr::{
-        Aggregate, Expr, Operator, col,
-        expr::{Alias, BinaryExpr},
-    };
+    use datafusion_expr::{Expr, LogicalPlan, col};
+    use datafusion_functions_aggregate::expr_fn::count;
     use std::sync::Arc;
 
-    async fn run_projection_test(
+    async fn run_aggregate_test(
         ctx: &SessionContext,
         input_columns: &[(Field, ArrayRef)],
-        exprs: &[Expr],
+        group_exprs: &[Expr],
+        aggr_exprs: &[Expr],
         expected_columns: &[(Field, ArrayRef)],
     ) {
         let input_schema = Arc::new(Schema::new(
@@ -118,98 +131,113 @@ mod tests {
         let input_df = ctx
             .read_batch(input_batch)
             .expect("failed to read batch into DataFrame");
-        todo!();
-        // let projection =
-        //     Projection::try_new(exprs.to_vec(), Arc::new(input_df.logical_plan().clone()))
-        //         .expect("projection creation should succeed");
-        // let projected = build_output_dataframe(&input_df, &projection);
-        // let batches = projected.collect().await.unwrap();
-        // let expected_schema = Arc::new(Schema::new(
-        //     expected_columns
-        //         .iter()
-        //         .map(|(field, _)| field.clone())
-        //         .collect::<Vec<_>>(),
-        // ));
-        // let expected_batch = RecordBatch::try_new(
-        //     expected_schema,
-        //     expected_columns
-        //         .iter()
-        //         .map(|(_, array)| Arc::clone(array))
-        //         .collect(),
-        // )
-        // .expect("expected batch construction should succeed");
-        // assert_eq!(batches, vec![expected_batch]);
+
+        let aggregate_plan = input_df
+            .clone()
+            .aggregate(group_exprs.to_vec(), aggr_exprs.to_vec())
+            .expect("aggregate creation should succeed")
+            .into_unoptimized_plan();
+        let LogicalPlan::Aggregate(aggregate) = aggregate_plan else {
+            panic!("expected aggregate logical plan");
+        };
+
+        let projected = build_output_dataframe(&input_df, &aggregate);
+        let batches = projected.collect().await.unwrap();
+        let expected_schema = Arc::new(Schema::new(
+            expected_columns
+                .iter()
+                .map(|(field, _)| field.clone())
+                .collect::<Vec<_>>(),
+        ));
+        let expected_batch = RecordBatch::try_new(
+            expected_schema,
+            expected_columns
+                .iter()
+                .map(|(_, array)| Arc::clone(array))
+                .collect(),
+        )
+        .expect("expected batch construction should succeed");
+        let combined_batch =
+            concat_batches(&batches[0].schema(), &batches).expect("concat batches");
+        let sort_cols = ["group_id", "value"];
+        let sorted_actual = sort_batch(&combined_batch, &sort_cols);
+        let sorted_expected = sort_batch(&expected_batch, &sort_cols);
+        assert_eq!(sorted_actual, sorted_expected);
+    }
+
+    fn sort_batch(batch: &RecordBatch, columns: &[&str]) -> RecordBatch {
+        let schema = batch.schema();
+        let sort_columns: Vec<SortColumn> = columns
+            .iter()
+            .map(|name| {
+                let idx = schema
+                    .index_of(name)
+                    .unwrap_or_else(|_| panic!("column {} not found", name));
+                SortColumn {
+                    values: batch.column(idx).clone(),
+                    options: None,
+                }
+            })
+            .collect();
+        let indices =
+            lexsort_to_indices(&sort_columns, None).expect("lexsort indices");
+        let sorted_cols: Vec<ArrayRef> = (0..batch.num_columns())
+            .map(|idx| {
+                let column = batch.column(idx).clone();
+                take(column.as_ref(), &indices, None)
+                    .expect("take to succeed for sorting")
+            })
+            .collect();
+        RecordBatch::try_new(schema.clone(), sorted_cols)
+            .expect("sorted batch construction should succeed")
     }
 
     #[tokio::test]
-    async fn projection_node_output_is_correct() {
+    async fn aggregate_node_count_output_is_correct() {
         let ctx = SessionContext::new();
 
-        run_projection_test(
-            &ctx,
-            &[
-                (
-                    Field::new("val1", DataType::Int32, false),
-                    Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
-                ),
-                (
-                    Field::new("val2", DataType::Date32, false),
-                    Arc::new(Date32Array::from(vec![18628, 18629, 18630, 18631])),
-                ),
-                (
-                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
-                    Arc::new(BooleanArray::from(vec![true, false, true, true])),
-                ),
-            ],
-            &[Expr::Alias(Alias::new(
-                col("val2"),
-                None::<TableReference>,
-                "projected_val2",
-            ))],
-            &[
-                (
-                    Field::new("projected_val2", DataType::Date32, false),
-                    Arc::new(Date32Array::from(vec![18628, 18629, 18630, 18631])),
-                ),
-                (
-                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
-                    Arc::new(BooleanArray::from(vec![true, false, true, true])),
-                ),
-            ],
-        )
-        .await;
+        let input_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("value", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![10, 20, 30, 40, 50, 60])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![true, true, false, true, false, true])) as ArrayRef,
+            ),
+        ];
 
-        run_projection_test(
+        let expected_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("value", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![10, 20, 30, 40, 50, 60])) as ArrayRef,
+            ),
+            (
+                Field::new("active_count", DataType::Int64, true),
+                Arc::new(Int64Array::from(vec![2, 2, 2, 2, 2, 2])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![
+                    true, false, false, true, false, false,
+                ])) as ArrayRef,
+            ),
+        ];
+
+        run_aggregate_test(
             &ctx,
-            &[
-                (
-                    Field::new("val1", DataType::Int32, false),
-                    Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
-                ),
-                (
-                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
-                    Arc::new(BooleanArray::from(vec![true, false, true, true])),
-                ),
-            ],
-            &[Expr::Alias(Alias::new(
-                Expr::BinaryExpr(BinaryExpr::new(
-                    Box::new(col("val1")),
-                    Operator::Plus,
-                    Box::new(Expr::Literal(ScalarValue::Int64(Some(2)))),
-                )),
-                None::<TableReference>,
-                "val1_plus_two",
-            ))],
-            &[
-                (
-                    Field::new("val1_plus_two", DataType::Int32, false),
-                    Arc::new(Int32Array::from(vec![3, 4, 5, 6])),
-                ),
-                (
-                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
-                    Arc::new(BooleanArray::from(vec![true, false, true, true])),
-                ),
-            ],
+            &input_columns,
+            &[col("group_id")],
+            &[count(col("value")).alias("active_count")],
+            &expected_columns,
         )
         .await;
     }
