@@ -6,7 +6,7 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use col_toolbox::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
 
@@ -98,7 +98,7 @@ pub(super) fn perm_verify<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     // First, compute enough challenges to fold all data columns of the table

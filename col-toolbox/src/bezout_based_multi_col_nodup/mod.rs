@@ -33,7 +33,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, errors::VerifierError},
+    verifier::{ArgVerifier, errors::VerifierError},
 };
 use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
@@ -209,7 +209,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let challenges = (0..input.tracked_table_oracle.num_data_tracked_col_oracles())

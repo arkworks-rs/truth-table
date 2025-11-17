@@ -3,7 +3,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    verifier::{errors::VerifierError, structs::oracle::TrackedOracle, Verifier},
+    verifier::{errors::VerifierError, structs::oracle::TrackedOracle, ArgVerifier},
 };
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
@@ -327,7 +327,7 @@ where
     /// polynomials being tracked
     pub fn from_tracked_table(
         table: TrackedTable<F, MvPCS, UvPCS>,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Self> {
         let schema = table.schema().clone();
         let log_size = table.log_size();

@@ -14,7 +14,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
@@ -98,7 +98,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let col_poly = verifier_input

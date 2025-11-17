@@ -3,7 +3,7 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
-    verifier::{structs::oracle::TrackedOracle, Verifier},
+    verifier::{structs::oracle::TrackedOracle, ArgVerifier},
 };
 use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
@@ -107,9 +107,9 @@ where
     }
 
     /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> Verifier<F, MvPCS, UvPCS> {
+    pub fn tracker_ref(&self) -> ArgVerifier<F, MvPCS, UvPCS> {
         // We have the guarantee at construction that activator tracked also agrees
-        Verifier::new_from_tracker_rc(self.data_tracked_oracle.tracker().clone())
+        ArgVerifier::new_from_tracker_rc(self.data_tracked_oracle.tracker().clone())
     }
 
     /// Returns the effective tracked oracle of the column, which is the product

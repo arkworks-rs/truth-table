@@ -19,7 +19,7 @@ use ark_piop::{
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     verifier::{
-        Verifier,
+        ArgVerifier,
         errors::VerifierError::{self, VerifierInputShapeError},
         structs::oracle::TrackedOracle,
     },
@@ -102,7 +102,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         // check input shapes are correct
@@ -245,7 +245,7 @@ where
     }
 
     fn verify_generate_subclaims(
-        tracker: &mut Verifier<F, MvPCS, UvPCS>,
+        tracker:&mut ArgVerifier<F, MvPCS, UvPCS>,
         col: TrackedColOracle<F, MvPCS, UvPCS>,
         m: Option<TrackedOracle<F, MvPCS, UvPCS>>,
         gamma: F,

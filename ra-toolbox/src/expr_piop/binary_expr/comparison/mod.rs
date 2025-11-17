@@ -19,7 +19,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use col_toolbox::binary_check::{
     BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput,
@@ -150,7 +150,7 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let binary_check_verifier_input = BinaryCheckVerifierInput {

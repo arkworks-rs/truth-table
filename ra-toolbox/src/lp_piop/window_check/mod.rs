@@ -5,7 +5,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use datafusion::logical_expr::Window;
 
@@ -40,7 +40,7 @@ where
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         _input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         Ok(())

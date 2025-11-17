@@ -9,7 +9,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use datafusion::logical_expr::Operator;
 use derivative::Derivative;
@@ -129,7 +129,7 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         if is_comparison_op(&input.op) {

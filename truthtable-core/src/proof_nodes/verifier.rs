@@ -7,7 +7,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use datafusion::prelude::DataFrame;
 use datafusion::{
@@ -51,9 +51,9 @@ where
 
     fn is_public(&self) -> bool;
 
-    fn add_virtual_witness(&self, verifier: &mut Verifier<F, MvPCS, UvPCS>);
+    fn add_virtual_witness(&self, verifier: &mut ArgVerifier<F, MvPCS, UvPCS>);
 
-    fn add_virtual_witness_recursive(&self, verifier: &mut Verifier<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness_recursive(&self, verifier: &mut ArgVerifier<F, MvPCS, UvPCS>) {
         trace!(
             "Verifier finished add_virtual_witness_recursive: {}",
             self.name()
@@ -62,12 +62,12 @@ where
 
     fn verify_piop(
         &self,
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()>;
 
     fn verify_piop_recursive(
         &self,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

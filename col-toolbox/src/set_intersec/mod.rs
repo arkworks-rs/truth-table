@@ -13,7 +13,7 @@ use ark_piop::{
     piop::{DeepClone, PIOP},
     prover::ArgProver,
     verifier::{
-        Verifier,
+        ArgVerifier,
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
@@ -221,7 +221,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<()> {
         assert_eq!(input.col_inter.log_size(), input.col_union.log_size());

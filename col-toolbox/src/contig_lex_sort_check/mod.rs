@@ -14,7 +14,7 @@ use ark_piop::{
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
-        Verifier,
+        ArgVerifier,
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
@@ -153,7 +153,7 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let num_col_oracles = input.tracked_table_oracle.num_data_tracked_col_oracles();
@@ -230,7 +230,7 @@ where
     }
 
     fn first_tie_indicator_col_oracle(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         num_vars: usize,
         activator_tracked_oracle: Option<TrackedOracle<F, MvPCS, UvPCS>>,
     ) -> TrackedColOracle<F, MvPCS, UvPCS> {

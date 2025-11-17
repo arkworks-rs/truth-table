@@ -9,7 +9,7 @@ use ark_piop::{
     structs::TrackerID,
     test_utils::test_prelude,
     to_field_vec,
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::arrow::datatypes::{DataType, Field};
@@ -413,7 +413,7 @@ fn track_oracle_cached<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     id: TrackerID,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
 ) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
@@ -489,7 +489,7 @@ fn build_tracked_table<
 }
 
 fn table_to_oracle<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     table: TrackedTable<F, MvPCS, UvPCS>,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
 ) -> SnarkResult<TrackedTableOracle<F, MvPCS, UvPCS>> {

@@ -9,7 +9,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 
 use col_toolbox::bezout_based_multi_col_supp_check::{
@@ -137,7 +137,7 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let multi_col_supp_check_verifier_input = BezoutMultiColSuppCheckVerifierInput {

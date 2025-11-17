@@ -15,7 +15,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
-    verifier::{Verifier, structs::oracle::Oracle},
+    verifier::{ArgVerifier, structs::oracle::Oracle},
 };
 use col_toolbox::{
     bezout_based_multi_col_supp_check::{
@@ -324,7 +324,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         debug_assert!(

@@ -5,7 +5,7 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use col_toolbox::contig_lex_sort_check::{
     ContigLexSortCheckPIOP, ContigLexSortCheckProverInput, ContigLexSortCheckVerifierInput,
@@ -38,7 +38,7 @@ pub(super) fn lex_sort_verify<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    verifier: &mut Verifier<F, MvPCS, UvPCS>,
+    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let contig_lex_sort_check_verifier_input = ContigLexSortCheckVerifierInput {

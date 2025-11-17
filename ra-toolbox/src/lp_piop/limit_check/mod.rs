@@ -7,7 +7,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use datafusion::logical_expr::{FetchType, Limit, SkipType};
 use derivative::Derivative;
@@ -93,7 +93,7 @@ where
     }
 
     fn verify_inner(
-        _verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        _verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         _input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         Ok(())

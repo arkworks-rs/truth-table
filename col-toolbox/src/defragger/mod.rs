@@ -9,7 +9,7 @@ use ark_piop::{
     pcs::PCS,
     piop::PIOP,
     prover::ArgProver,
-    verifier::Verifier,
+    verifier::ArgVerifier,
 };
 use ark_std::log2;
 use num_bigint::BigUint;
@@ -98,7 +98,7 @@ where
     }
 
     pub fn defrag_tracked_col_oracle(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
         if tracked_col_oracle.activator_tracked_oracle().is_none() {

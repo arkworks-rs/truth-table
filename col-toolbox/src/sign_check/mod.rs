@@ -23,7 +23,7 @@ use ark_piop::{
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
-        Verifier,
+        ArgVerifier,
         structs::oracle::{Oracle, TrackedOracle},
     },
 };
@@ -112,7 +112,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         match verifier_input.sign {
@@ -146,7 +146,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     pub fn verify_positive(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Self::verify_non_neg(verifier, tracked_col_oracle)?;
@@ -169,7 +169,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     pub fn verify_negative(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Self::verify_none_positive(verifier, tracked_col_oracle)?;
@@ -195,7 +195,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     pub fn verify_none_positive(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let negated_comm = TrackedColOracle::new(
@@ -396,7 +396,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     pub fn verify_non_neg(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let field_ref = tracked_col_oracle.field_ref().unwrap();
@@ -710,7 +710,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint32(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
@@ -839,7 +839,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int32(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
@@ -968,7 +968,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint64(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
@@ -1097,7 +1097,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int64(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,
@@ -1201,7 +1201,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint128(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
@@ -1276,7 +1276,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint256(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
@@ -1354,7 +1354,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int128(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedColOracle<F, MvPCS, UvPCS>,

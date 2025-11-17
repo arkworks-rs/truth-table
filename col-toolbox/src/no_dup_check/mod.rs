@@ -33,7 +33,7 @@ use ark_piop::{
     pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{Verifier, errors::VerifierError},
+    verifier::{ArgVerifier, errors::VerifierError},
 };
 use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
@@ -208,7 +208,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
     fn verify_inner(
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         ///////////////////// Deduplication check /////////////////////
