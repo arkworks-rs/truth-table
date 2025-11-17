@@ -1,7 +1,9 @@
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_expr::{Aggregate, Expr, ExprFunctionExt, JoinType, col, expr_fn::when, lit};
+use datafusion_expr::{
+    Aggregate, Expr, ExprFunctionExt, JoinType, col, expr::Sort as SortExpr, expr_fn::when, lit,
+};
 /// Expand an aggregate so that:
 /// - only active rows contribute to the aggregate
 /// - all rows keep their row-level detail, with aggregate values duplicated
@@ -84,10 +86,19 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let with_new_activator = with_rownum
         .with_column("__activator__", new_activator_expr)
         .unwrap();
+    // To keep deterministic output across executions, order the rows by the
+    // grouping columns (if any) and then by the representative flag.
+    let mut sort_exprs: Vec<SortExpr> = aggregate
+        .group_expr
+        .iter()
+        .map(|expr| expr.clone().sort(true, true))
+        .collect();
+    sort_exprs.push(col("__row_number__").sort(true, true));
+    let sorted = with_new_activator.sort(sort_exprs).unwrap();
     let mut drop_columns: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();
     drop_columns.push("__row_number__");
     drop_columns.push("__activator_orig__");
-    with_new_activator
+    sorted
         .drop_columns(&drop_columns)
         .unwrap()
 }
