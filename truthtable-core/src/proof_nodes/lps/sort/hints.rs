@@ -22,46 +22,47 @@ pub(super) fn build_sort_hint_generation_plans(
     base_plan: LogicalPlan,
     sort_plan: &datafusion_expr::logical_plan::Sort,
 ) -> IndexMap<String, HintGenerationPlan> {
-    let normalized_sorts = normalize_sort_expressions(sort_plan, &base_plan);
+    todo!()
+    // let normalized_sorts = normalize_sort_expressions(sort_plan, &base_plan);
 
-    let sort_expr_plan = build_sorted_plan(base_plan, sort_plan, &normalized_sorts);
-    let sorted_output_plan = project_sorted_output_plan(&sort_expr_plan);
-    let lex_sorted_sort_expressions_plan =
-        build_lex_sorted_sort_exprs_plan(&sort_expr_plan, &normalized_sorts);
-    let shifted_lex_sorted_sort_expressions_plan =
-        build_shifted_lex_sorted_sort_exprs_plan(&lex_sorted_sort_expressions_plan);
-    let tie_indicator_plan = build_tie_indicator_plan(&sort_expr_plan, normalized_sorts.len());
+    // let sort_expr_plan = build_sorted_plan(base_plan, sort_plan, &normalized_sorts);
+    // let sorted_output_plan = project_sorted_output_plan(&sort_expr_plan);
+    // let lex_sorted_sort_expressions_plan =
+    //     build_lex_sorted_sort_exprs_plan(&sort_expr_plan, &normalized_sorts);
+    // let shifted_lex_sorted_sort_expressions_plan =
+    //     build_shifted_lex_sorted_sort_exprs_plan(&lex_sorted_sort_expressions_plan);
+    // let tie_indicator_plan = build_tie_indicator_plan(&sort_expr_plan, normalized_sorts.len());
 
-    let mut plans = IndexMap::new();
-    plans.insert(
-        OUTPUT_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_output_plan),
-    );
-    plans.insert(
-        super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(
-            super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            lex_sorted_sort_expressions_plan.clone(),
-        ),
-    );
-    plans.insert(
-        super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-        HintGenerationPlan::new_materialized(
-            super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-            shifted_lex_sorted_sort_expressions_plan,
-        ),
-    );
-    if let Some(tie_plan) = tie_indicator_plan {
-        plans.insert(
-            super::TIE_INDICATOR_PLAN_KEY.to_string(),
-            HintGenerationPlan::new_materialized(
-                super::TIE_INDICATOR_PLAN_KEY.to_string(),
-                tie_plan,
-            ),
-        );
-    }
+    // let mut plans = IndexMap::new();
+    // plans.insert(
+    //     OUTPUT_PLAN_KEY.to_string(),
+    //     HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_output_plan),
+    // );
+    // plans.insert(
+    //     super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+    //     HintGenerationPlan::new_materialized(
+    //         super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+    //         lex_sorted_sort_expressions_plan.clone(),
+    //     ),
+    // );
+    // plans.insert(
+    //     super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+    //     HintGenerationPlan::new_materialized(
+    //         super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
+    //         shifted_lex_sorted_sort_expressions_plan,
+    //     ),
+    // );
+    // if let Some(tie_plan) = tie_indicator_plan {
+    //     plans.insert(
+    //         super::TIE_INDICATOR_PLAN_KEY.to_string(),
+    //         HintGenerationPlan::new_materialized(
+    //             super::TIE_INDICATOR_PLAN_KEY.to_string(),
+    //             tie_plan,
+    //         ),
+    //     );
+    // }
 
-    plans
+    // plans
 }
 
 fn normalize_sort_expressions(

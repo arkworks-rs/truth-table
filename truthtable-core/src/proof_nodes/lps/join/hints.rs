@@ -10,7 +10,7 @@ use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use tracing::info;
 
-use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, id::NodeId};
+use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, tree::NodeId};
 
 pub(crate) const JOIN_LEFT_KEY_SUPP: &str = "__join_left_key_supp__";
 pub(crate) const JOIN_RIGHT_KEY_SUPP: &str = "__join_right_key_supp__";
@@ -23,60 +23,61 @@ const SUPPORT_SOURCE_COL: &str = "__join_support_source__";
 pub(crate) fn build_join_hint_generation_plans(
     node_id: NodeId,
 ) -> IndexMap<String, HintGenerationPlan> {
-    let mut plans = IndexMap::new();
-    let orig_join_lp = node_id.to_lp().unwrap().clone();
-    let join = match &orig_join_lp {
-        LogicalPlan::Join(join) => join,
-        _ => panic!("Expected Join logical plan"),
-    };
-    let orig_left_lp = join.left.as_ref();
-    let orig_right_lp = join.right.as_ref();
+    todo!()
+    // let mut plans = IndexMap::new();
+    // let orig_join_lp = node_id.to_lp().unwrap().clone();
+    // let join = match &orig_join_lp {
+    //     LogicalPlan::Join(join) => join,
+    //     _ => panic!("Expected Join logical plan"),
+    // };
+    // let orig_left_lp = join.left.as_ref();
+    // let orig_right_lp = join.right.as_ref();
 
-    let filtered_left_lp = filter_active_rows(orig_left_lp);
-    let filtered_right_lp = filter_active_rows(orig_right_lp);
-    let _preprocessed_left_lp = strip_activator(&filtered_left_lp);
-    let _preprocessed_right_lp = strip_activator(&filtered_right_lp);
+    // let filtered_left_lp = filter_active_rows(orig_left_lp);
+    // let filtered_right_lp = filter_active_rows(orig_right_lp);
+    // let _preprocessed_left_lp = strip_activator(&filtered_left_lp);
+    // let _preprocessed_right_lp = strip_activator(&filtered_right_lp);
 
-    let base_output_plan = build_output_plan(join, &filtered_left_lp, &filtered_right_lp);
-    let output_plan = ensure_true_activator(&base_output_plan);
-    info!(
-        node = %node_id,
-        "join output plan:\n{}",
-        output_plan.display_indent()
-    );
-    plans.insert(
-        OUTPUT_PLAN_KEY.to_string(),
-        hint_with_true_activator(OUTPUT_PLAN_KEY, &output_plan),
-    );
+    // let base_output_plan = build_output_plan(join, &filtered_left_lp, &filtered_right_lp);
+    // let output_plan = ensure_true_activator(&base_output_plan);
+    // info!(
+    //     node = %node_id,
+    //     "join output plan:\n{}",
+    //     output_plan.display_indent()
+    // );
+    // plans.insert(
+    //     OUTPUT_PLAN_KEY.to_string(),
+    //     hint_with_true_activator(OUTPUT_PLAN_KEY, &output_plan),
+    // );
 
-    let base_output_support_plan = compute_output_support_plan(join, &base_output_plan);
-    let out_supp_plan =
-        build_out_supp_generation_plan(join, &output_plan, &base_output_support_plan);
-    plans.insert(
-        JOIN_OUTPUT_KEY_SUPP.to_string(),
-        hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
-    );
-    let (left_supp_plan, left_diff_plan) =
-        build_left_supp_generation_plan(join, &filtered_left_lp, &out_supp_plan);
-    plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
+    // let base_output_support_plan = compute_output_support_plan(join, &base_output_plan);
+    // let out_supp_plan =
+    //     build_out_supp_generation_plan(join, &output_plan, &base_output_support_plan);
+    // plans.insert(
+    //     JOIN_OUTPUT_KEY_SUPP.to_string(),
+    //     hint_with_true_activator(JOIN_OUTPUT_KEY_SUPP, &out_supp_plan),
+    // );
+    // let (left_supp_plan, left_diff_plan) =
+    //     build_left_supp_generation_plan(join, &filtered_left_lp, &out_supp_plan);
+    // plans.insert(JOIN_LEFT_KEY_SUPP.to_string(), left_supp_plan);
 
-    let (right_supp_plan, right_diff_plan) =
-        build_right_supp_generation_plan(join, &filtered_right_lp, &out_supp_plan);
-    plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
-    plans.insert(
-        JOIN_ALL_KEY_SUPP.to_string(),
-        build_all_supp_generation_plan(join, &out_supp_plan, left_diff_plan, right_diff_plan),
-    );
+    // let (right_supp_plan, right_diff_plan) =
+    //     build_right_supp_generation_plan(join, &filtered_right_lp, &out_supp_plan);
+    // plans.insert(JOIN_RIGHT_KEY_SUPP.to_string(), right_supp_plan);
+    // plans.insert(
+    //     JOIN_ALL_KEY_SUPP.to_string(),
+    //     build_all_supp_generation_plan(join, &out_supp_plan, left_diff_plan, right_diff_plan),
+    // );
 
-    plans.insert(
-        JOIN_LEFT_KEY_SOURCE.to_string(),
-        join_left_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
-    );
-    plans.insert(
-        JOIN_RIGHT_KEY_SOURCE.to_string(),
-        join_right_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
-    );
-    plans
+    // plans.insert(
+    //     JOIN_LEFT_KEY_SOURCE.to_string(),
+    //     join_left_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
+    // );
+    // plans.insert(
+    //     JOIN_RIGHT_KEY_SOURCE.to_string(),
+    //     join_right_key_source(&filtered_left_lp, &filtered_right_lp, join.clone()),
+    // );
+    // plans
 }
 
 #[allow(dead_code)]
@@ -234,7 +235,8 @@ fn ensure_true_activator(plan: &LogicalPlan) -> LogicalPlan {
 }
 
 fn hint_with_true_activator(label: &str, plan: &LogicalPlan) -> HintGenerationPlan {
-    HintGenerationPlan::new_materialized(label.to_string(), ensure_true_activator(plan))
+    todo!()
+    // HintGenerationPlan::new_materialized(label.to_string(), ensure_true_activator(plan))
 }
 
 fn compute_output_support_plan(join: &Join, join_lp: &LogicalPlan) -> LogicalPlan {

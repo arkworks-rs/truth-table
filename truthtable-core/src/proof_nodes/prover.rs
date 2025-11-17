@@ -3,11 +3,9 @@
 
 use super::cost::ProvingCost;
 use crate::{
-    proof_nodes::id::NodeId,
-    prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree, piop_tree::ProverPIOPTree,
-        proof_tree::ProverProofTree,
-    },
+    proof_nodes::HintGenerationPlan,
+    prover::trees::proof_tree::ProverProofTree,
+    tree::{Node, NodeId},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -15,9 +13,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    prover::Prover,
 };
-use datafusion::prelude::DataFrame;
 use datafusion::{
     arrow::datatypes::SchemaRef,
     common::Statistics,
@@ -29,31 +25,12 @@ use tracing::trace;
 
 pub use super::{cost, display, exprs, lps};
 
-pub trait ProverGadgetNode<F, MvPCS, UvPCS>: Any + Send + Sync
+pub trait ProverGadgetNode<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    /// Short name for the ProverNode node, such as `FilterNode`.
-    /// Children of this node expressed as proof plan trait objects. Leaf nodes
-    /// return an empty list.
-    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>>;
-
-    /// A human-readable name for this node
-    fn name(&self) -> String {
-        self.node_id().to_string()
-    }
-
-    /// Classification of this node (used for optional metadata extraction).
-    fn node_id(&self) -> NodeId;
-
-    /// Optional human-readable labels for each child edge.
-    /// Default implementation leaves every edge unlabeled.
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        self.children().into_iter().map(|_| None).collect()
-    }
-
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
     /// the key `OUTPUT_PLAN_KEY`.
@@ -63,33 +40,18 @@ where
     /// function.
     fn hint_generation_plans(
         &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame>;
-    fn arithmetic_post_process(
-        &self,
-        arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
-            F,
-            MvPCS,
-            UvPCS,
-        >,
-    );
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, HintGenerationPlan>;
+
+    fn arithmetic_post_process(&self);
 
     /// Complete the piop plan
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    );
+    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>);
 
     fn add_virtual_witness_recursive(
         &self,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
     ) {
-        for child in self.children() {
-            child.add_virtual_witness_recursive(piop_tree, prover);
-        }
-        self.add_virtual_witness(piop_tree, prover);
         trace!(
             "Prover finished add_virtual_witness_recursive: {}",
             self.name()
@@ -99,128 +61,41 @@ where
     fn prove_piop(
         &self,
         _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()>;
 
     fn prove_piop_recursive(
         &self,
         prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        self.prove_piop(prover, piop_tree)?;
-        for child in self.children() {
-            child.prove_piop_recursive(prover, piop_tree)?;
-        }
         Ok(())
     }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-
-    /// Appends all the descendants of this node in 'post-order' to the given
-    /// mutable vector.
-    /// Post-order over descendants: for each child, traverse its descendants
-    /// first, then push the child; the current node itself is not included.
-    fn append_sorted_descendants(&self, out: &mut Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>) {
-        for child in self.children() {
-            child.append_sorted_descendants(out);
-            out.push(Arc::clone(child));
-        }
-    }
 }
 
 /// Common interface for a proof plan node.
 ///
 /// A proof plan is a tree of nodes, where each node represents a proof unit.
-pub trait ProverNode<F, MvPCS, UvPCS>:
+pub trait ProverPlanNode<F, MvPCS, UvPCS>:
     ProverGadgetNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame;
+    fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintGenerationPlan;
     fn ctx_lp_node(
         &self,
-        proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>>;
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
 }
 
-impl<F, MvPCS, UvPCS> dyn ProverNode<F, MvPCS, UvPCS> + '_
+pub trait ProverLpNode<F, MvPCS, UvPCS>:
+    ProverPlanNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    /// Returns the Proof plan as `Any` so that it can be downcast to a specific
-    /// implementation.
-    pub fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn hint_generation_plans(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame> {
-        todo!()
-    }
-
-    fn arithmetic_post_process(
-        &self,
-        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
-            F,
-            MvPCS,
-            UvPCS,
-        >,
-    ) {
-        todo!()
-    }
-
-    fn output_data_frame(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame {
-        todo!()
-    }
-
-    fn is_public(&self) -> bool {
-        todo!()
-    }
-
-    fn add_virtual_witness(
-        &self,
-        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-    ) {
-        todo!()
-    }
-
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
-        _piop_tree: &mut crate::prover::trees::piop_tree::ProverPIOPTree<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
-
-    fn cost(&self, _statistics: Statistics, _schema: SchemaRef) -> ProvingCost {
-        todo!()
-    }
-
-    fn ctx_lp_node(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-        todo!()
-    }
-}
-
-pub trait ProverLpNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
@@ -234,11 +109,12 @@ where
         Self: Sized;
 }
 
-pub trait ProverExprNode<F, MvPCS, UvPCS>: ProverNode<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait ProverExprNode<F, MvPCS, UvPCS>:
+    ProverPlanNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.

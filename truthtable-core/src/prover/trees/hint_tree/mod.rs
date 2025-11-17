@@ -1,4 +1,4 @@
-use crate::proof_nodes::prover::ProverNode;
+use crate::proof_nodes::prover::ProverPlanNode;
 pub mod display;
 #[cfg(test)]
 pub mod tests;
@@ -345,7 +345,7 @@ impl<'a> fmt::Debug for NodeIdDebug<'a> {
 }
 
 pub(crate) fn tree_label<F, MvPCS, UvPCS>(
-    node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>,
+    node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
 ) -> &'static str
 where
     F: PrimeField,
@@ -361,8 +361,8 @@ where
 
 /// Stable-ish identifier for a node based on its vtable pointer, used to join
 /// asynchronous hint results back to the tree shape.
-fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
-    let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
+fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>) -> usize {
+    let data_ptr = &**p as *const dyn ProverPlanNode<F, MvPCS, UvPCS> as *const ();
     data_ptr as usize
 }
 

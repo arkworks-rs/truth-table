@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
+    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode}, verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -8,6 +8,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
+use crate::proof_nodes::HintGenerationPlan;
 use datafusion::{logical_expr::Expr, prelude::SessionContext};
 use datafusion::prelude::DataFrame;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ where
 {
     pub relative_expr: Expr,
     pub output_expr: Expr,
-    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub inputs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
     pub parent_node_id: NodeId,
 }
 
@@ -35,7 +36,7 @@ where
         NodeId::Expr(self.relative_expr.clone())
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
 
@@ -70,7 +71,7 @@ where
     fn hint_generation_plans(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame> {
+    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
@@ -86,13 +87,13 @@ where
 
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverIsUnknownExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverIsUnknownExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn output_data_frame(
+    fn output(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DataFrame {
@@ -102,7 +103,7 @@ where
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
 
         todo!()
     }
@@ -188,12 +189,12 @@ where
     fn hint_generation_plans(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame> {
+    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
 
-    fn output_data_frame(
+    fn output(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> DataFrame {

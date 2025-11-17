@@ -5,7 +5,7 @@ use datafusion::{
     arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
 use datafusion_common::{
-    tree_node::{Transformed, TreeNode},
+    tree_node::{Transformed, Node},
     DFSchema, Result,
 };
 use datafusion_expr::{
@@ -63,7 +63,7 @@ impl<'a> AlignBinaryOperandsRewriter<'a> {
     }
 }
 
-impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsRewriter<'a> {
+impl<'a> datafusion_common::tree_node::NodeRewriter for AlignBinaryOperandsRewriter<'a> {
     type Node = Expr;
 
     fn f_up(&mut self, expr: Expr) -> Result<Transformed<Expr>> {

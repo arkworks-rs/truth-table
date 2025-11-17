@@ -1,4 +1,4 @@
-use crate::proof_nodes::{exprs::column::format_column_detail, prover::ProverNode};
+use crate::proof_nodes::{exprs::column::format_column_detail, prover::ProverPlanNode};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
@@ -15,13 +15,13 @@ use ark_piop::{
 };
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 
-fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize
+fn node_ptr_id<F, MvPCS, UvPCS>(node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>) -> usize
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    node.as_ref() as *const dyn ProverNode<F, MvPCS, UvPCS> as *const () as usize
+    node.as_ref() as *const dyn ProverPlanNode<F, MvPCS, UvPCS> as *const () as usize
 }
 
 fn esc_html(s: &str) -> String {
@@ -57,7 +57,7 @@ where
         out.push_str("  node [shape=box];\n");
 
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
+        let mut q: VecDeque<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         q.push_back(self.plan.proof_tree().root());
 
         while let Some(node) = q.pop_front() {

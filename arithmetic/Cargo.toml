@@ -19,6 +19,7 @@ ark-piop = { workspace = true }
 ark-serialize = { workspace = true }
 # datafusion dependencies
 datafusion = { workspace = true }
+datafusion-expr = { workspace = true }
 
 # other dependencies
 thiserror = { workspace = true }
@@ -27,6 +28,7 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 indexmap = { workspace = true }
+once_cell = { workspace = true }
 
 [dev-dependencies]
 ark-test-curves = { workspace = true }

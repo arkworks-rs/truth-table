@@ -1,5 +1,5 @@
 use super::{ProverHintTree, rows_cols_activated};
-use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, prover::ProverNode};
+use crate::proof_nodes::{exprs::column::format_column_detail, id::NodeId, prover::ProverPlanNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -12,8 +12,8 @@ use std::{
     sync::Arc,
 };
 
-fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverNode<F, MvPCS, UvPCS>>) -> usize {
-    let data_ptr = &**p as *const dyn ProverNode<F, MvPCS, UvPCS> as *const ();
+fn node_ptr_id<F, MvPCS, UvPCS>(p: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>) -> usize {
+    let data_ptr = &**p as *const dyn ProverPlanNode<F, MvPCS, UvPCS> as *const ();
     data_ptr as usize
 }
 
@@ -56,7 +56,7 @@ where
         // out.push_str("  node [shape=box];\n");
 
         // let mut visited: HashSet<usize> = HashSet::new();
-        // let mut q: VecDeque<Arc<dyn ProverNode<F, MvPCS, UvPCS>>> = VecDeque::new();
+        // let mut q: VecDeque<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> = VecDeque::new();
         // q.push_back(self.tree.proof_tree().root());
 
         // while let Some(node) = q.pop_front() {

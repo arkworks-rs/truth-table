@@ -1,6 +1,7 @@
 use datafusion::{
     arrow::datatypes::FieldRef,
     logical_expr::{Expr, LogicalPlanBuilder},
+    prelude::DataFrame,
 };
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
@@ -8,62 +9,48 @@ use indexmap::IndexMap;
 pub mod cost;
 pub mod display;
 pub mod exprs;
-pub mod gadgets;
-pub mod id;
+// pub mod gadgets;
 pub mod lps;
 pub mod prover;
 pub mod verifier;
 
-pub const OUTPUT_PLAN_KEY: &str = "output_plan";
-
 #[derive(Clone)]
 pub struct HintGenerationPlan {
-    name: String,
-    plan: LogicalPlan,
+    data_fram: DataFrame,
     should_materialize: IndexMap<FieldRef, bool>,
 }
 
 impl HintGenerationPlan {
-    pub fn new(
-        name: String,
-        plan: LogicalPlan,
-        should_materialize: IndexMap<FieldRef, bool>,
-    ) -> Self {
+    pub fn new(data_fram: DataFrame, should_materialize: IndexMap<FieldRef, bool>) -> Self {
         Self {
-            name,
-            plan,
+            data_fram,
             should_materialize,
         }
     }
 
-    pub fn new_materialized(name: String, plan: LogicalPlan) -> Self {
-        Self::new_with_mat_flag(name, plan, true)
+    pub fn new_materialized(plan: DataFrame) -> Self {
+        Self::new_with_mat_flag(plan, true)
     }
 
-    pub fn new_virtual(name: String, plan: LogicalPlan) -> Self {
-        Self::new_with_mat_flag(name, plan, false)
+    pub fn new_virtual(plan: DataFrame) -> Self {
+        Self::new_with_mat_flag(plan, false)
     }
 
-    fn new_with_mat_flag(name: String, plan: LogicalPlan, materialized: bool) -> Self {
-        let should_materialize = plan
+    fn new_with_mat_flag(data_fram: DataFrame, materialized: bool) -> Self {
+        let should_materialize = data_fram
             .schema()
             .fields()
             .iter()
             .map(|field| (field.clone(), materialized))
             .collect();
         Self {
-            name,
-            plan,
+            data_fram,
             should_materialize,
         }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn plan(&self) -> &LogicalPlan {
-        &self.plan
+    pub fn data_frame(&self) -> &DataFrame {
+        &self.data_fram
     }
 
     pub fn should_materialize(&self, field: &FieldRef) -> Option<&bool> {
@@ -75,27 +62,28 @@ impl HintGenerationPlan {
     }
 
     pub fn project_materialized(&self) -> Option<LogicalPlan> {
-        let schema = self.plan.schema();
-        let projection_exprs: Vec<Expr> = schema
-            .iter()
-            .filter(|&(_qualifier, field)| {
-                self.should_materialize.get(field).copied().unwrap_or(false)
-            })
-            .map(|(qualifier, field)| Expr::from((qualifier, field)))
-            .collect();
+        todo!()
+        // let schema = self.plan.schema();
+        // let projection_exprs: Vec<Expr> = schema
+        //     .iter()
+        //     .filter(|&(_qualifier, field)| {
+        //         self.should_materialize.get(field).copied().unwrap_or(false)
+        //     })
+        //     .map(|(qualifier, field)| Expr::from((qualifier, field)))
+        //     .collect();
 
-        if projection_exprs.len() == schema.fields().len() {
-            return Some(self.plan.clone());
-        }
+        // if projection_exprs.len() == schema.fields().len() {
+        //     return Some(self.plan.clone());
+        // }
 
-        if projection_exprs.is_empty() {
-            return None;
-        }
+        // if projection_exprs.is_empty() {
+        //     return None;
+        // }
 
-        LogicalPlanBuilder::from(self.plan.clone())
-            .project(projection_exprs)
-            .expect("failed to build projection for materialized columns")
-            .build()
-            .ok()
+        // LogicalPlanBuilder::from(self.plan.clone())
+        //     .project(projection_exprs)
+        //     .expect("failed to build projection for materialized columns")
+        //     .build()
+        //     .ok()
     }
 }

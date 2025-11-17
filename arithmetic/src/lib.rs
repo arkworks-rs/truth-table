@@ -12,5 +12,6 @@ pub mod encoding;
 pub mod errors;
 pub mod table;
 pub mod table_oracle;
+pub mod activator;
 
-pub const ACTIVATOR_COL_NAME: &str = "activator";
+pub use activator::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};

@@ -1,9 +1,6 @@
 //! Verifier-side proof tree nodes and trait definitions.
 pub use super::{exprs, lps};
-use crate::{
-    proof_nodes::id::NodeId,
-    verifier::trees::{piop_tree::VerifierPIOPTree, proof_tree::VerifierProofTree},
-};
+use crate::{proof_nodes::HintGenerationPlan, tree::NodeId};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -12,11 +9,11 @@ use ark_piop::{
     pcs::PCS,
     verifier::Verifier,
 };
+use datafusion::prelude::DataFrame;
 use datafusion::{
     logical_expr::LogicalPlan,
     prelude::{Expr, SessionContext},
 };
-use datafusion::prelude::DataFrame;
 use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
@@ -48,33 +45,15 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_generation_plans(
-        &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, DataFrame>;
+    fn hint_generation_plans(&self) -> IndexMap<String, HintGenerationPlan>;
 
-    fn output_data_frame(
-        &self,
-        _proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> DataFrame;
+    fn output(&self) -> DataFrame;
 
     fn is_public(&self) -> bool;
 
-    fn add_virtual_witness(
-        &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    );
+    fn add_virtual_witness(&self, verifier: &mut Verifier<F, MvPCS, UvPCS>);
 
-    fn add_virtual_witness_recursive(
-        &self,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
-        verifier: &mut Verifier<F, MvPCS, UvPCS>,
-    ) {
-        for child in self.children() {
-            child.add_virtual_witness_recursive(piop_tree, verifier);
-        }
-        self.add_virtual_witness(piop_tree, verifier);
+    fn add_virtual_witness_recursive(&self, verifier: &mut Verifier<F, MvPCS, UvPCS>) {
         trace!(
             "Verifier finished add_virtual_witness_recursive: {}",
             self.name()
@@ -84,24 +63,15 @@ where
     fn verify_piop(
         &self,
         _verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()>;
 
     fn verify_piop_recursive(
         &self,
         verifier: &mut Verifier<F, MvPCS, UvPCS>,
-        piop_tree: &mut VerifierPIOPTree<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        self.verify_piop(verifier, piop_tree)?;
-        for child in self.children() {
-            child.verify_piop_recursive(verifier, piop_tree)?;
-        }
         Ok(())
     }
-    fn ctx_lp_node(
-        &self,
-        proof_tree: &VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>;
+    fn ctx_lp_node(&self) -> Arc<dyn VerifierNode<F, MvPCS, UvPCS>>;
 }
 
 impl<F, MvPCS, UvPCS> dyn VerifierNode<F, MvPCS, UvPCS> + '_
@@ -116,7 +86,8 @@ where
     }
 }
 
-pub trait VerifierExprNode<F, MvPCS, UvPCS>: VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait VerifierExprNode<F, MvPCS, UvPCS>:
+    VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -132,7 +103,8 @@ where
         Self: Sized;
 }
 
-pub trait VerifierLpNode<F, MvPCS, UvPCS>: VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait VerifierLpNode<F, MvPCS, UvPCS>:
+    VerifierNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

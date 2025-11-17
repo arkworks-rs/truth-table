@@ -1,5 +1,9 @@
+use crate::proof_nodes::HintGenerationPlan;
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverNode}, verifier::{VerifierExprNode, VerifierNode},
+    cost::ProvingCost,
+    id::NodeId,
+    prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode},
+    verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
@@ -8,8 +12,8 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::{logical_expr::Expr, prelude::SessionContext};
 use datafusion::prelude::DataFrame;
+use datafusion::{logical_expr::Expr, prelude::SessionContext};
 use std::sync::Arc;
 #[derive(Clone)]
 pub struct ProverExistsExprNode<F, MvPCS, UvPCS>
@@ -18,7 +22,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub inputs: Vec<Arc<dyn ProverNode<F, MvPCS, UvPCS>>>,
+    pub inputs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
     pub node_id: NodeId,
     pub parent_node_id: NodeId,
 }
@@ -33,10 +37,9 @@ where
         self.node_id.clone()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ProverNode<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         self.inputs.iter().collect()
     }
-
 
     fn cost(
         &self,
@@ -45,9 +48,6 @@ where
     ) -> ProvingCost {
         todo!()
     }
-
-
-
 
     fn add_virtual_witness(
         &self,
@@ -68,29 +68,29 @@ where
     fn hint_generation_plans(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame> {
+    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
     fn arithmetic_post_process(
         &self,
-        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<F, MvPCS, UvPCS>,
+        _arithmetized_tree: &mut crate::prover::trees::arithmetized_tree::ProverArithmetizedTree<
+            F,
+            MvPCS,
+            UvPCS,
+        >,
     ) {
         todo!()
     }
-
-
-
-
 }
 
-impl<F, MvPCS, UvPCS> ProverNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn output_data_frame(
+    fn output(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
     ) -> DataFrame {
@@ -100,13 +100,10 @@ where
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverNode<F, MvPCS, UvPCS>> {
-
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
         todo!()
     }
 }
-
-
 
 impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverExistsExprNode<F, MvPCS, UvPCS>
 where
@@ -153,7 +150,6 @@ where
         self.inputs.iter().collect()
     }
 
-
     fn add_virtual_witness(
         &self,
         _piop_tree: &mut crate::verifier::trees::piop_tree::VerifierPIOPTree<F, MvPCS, UvPCS>,
@@ -161,7 +157,6 @@ where
     ) {
         todo!()
     }
-
 
     fn verify_piop(
         &self,
@@ -171,8 +166,6 @@ where
         todo!()
     }
 
-
-
     fn ctx_lp_node(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
@@ -180,28 +173,23 @@ where
         todo!()
     }
 
-
-
     fn hint_generation_plans(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, DataFrame> {
+    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
-
-    fn output_data_frame(
+    fn output(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
     ) -> DataFrame {
         todo!()
     }
 
-
     fn is_public(&self) -> bool {
         todo!()
     }
-
 }
 
 impl<F, MvPCS, UvPCS> VerifierExprNode<F, MvPCS, UvPCS> for VerifierExistsExprNode<F, MvPCS, UvPCS>
@@ -222,4 +210,3 @@ where
         todo!()
     }
 }
-
