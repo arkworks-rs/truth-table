@@ -18,7 +18,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use col_toolbox::binary_check::{
@@ -52,7 +52,7 @@ pub struct InnerComparisonPIOPProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for InnerComparisonPIOPProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             bin_expr_piop_prover_input: self.bin_expr_piop_prover_input.deep_clone(prover.clone()),
             selected_left_minus_right_col: self
@@ -92,7 +92,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let binary_check_prover_input = BinaryCheckProverInput {

@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    cost::ProvingCost, id::NodeId, prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode}, verifier::{VerifierExprNode, VerifierNode},
+    cost::ProvingCost, id::NodeId, prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode}, verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;

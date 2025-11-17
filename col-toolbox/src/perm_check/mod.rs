@@ -11,7 +11,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use derivative::Derivative;
@@ -42,7 +42,7 @@ pub struct PermPIOPProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for PermPIOPProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             left_col: self.left_col.deep_clone(prover.clone()),
             right_col: self.right_col.deep_clone(prover),
@@ -94,7 +94,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let multiplicity_check_prover_input = MultiplicityCheckProverInput {

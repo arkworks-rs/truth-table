@@ -14,7 +14,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -47,7 +47,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             included_cols: self
                 .included_cols
@@ -101,7 +101,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             included_cols: self
                 .included_cols
@@ -177,7 +177,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         assert_eq!(
@@ -284,7 +284,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let super_col_m_mles = input

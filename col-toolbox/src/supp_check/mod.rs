@@ -24,7 +24,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
@@ -55,7 +55,7 @@ pub struct HintedSuppCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for HintedSuppCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         HintedSuppCheckProverInput {
             col: self.col.deep_clone(new_prover.clone()),
             supp: self.supp.deep_clone(new_prover.clone()),
@@ -93,7 +93,7 @@ pub struct SuppCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for SuppCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         SuppCheckProverInput {
             col: self.col.deep_clone(new_prover.clone()),
             supp: self.supp.deep_clone(new_prover),
@@ -182,7 +182,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let hinted_inclusion_check_prover_input = HintedInclusionCheckProverInput {
@@ -293,7 +293,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let super_set_multiplicity_p =

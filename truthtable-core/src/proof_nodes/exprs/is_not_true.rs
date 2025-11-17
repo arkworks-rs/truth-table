@@ -1,7 +1,7 @@
 use crate::proof_nodes::{
     cost::ProvingCost,
     id::NodeId,
-    prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 

@@ -5,7 +5,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use col_toolbox::{
@@ -69,7 +69,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             aggregate: self.aggregate.clone(),
             input_folded_col: self.input_folded_col.deep_clone(new_prover.clone()),
@@ -132,7 +132,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let AggregateFunctionPIOPProverInput {
@@ -286,7 +286,7 @@ where
         output_folded_col: TrackedCol<F, MvPCS, UvPCS>,
         input_col: TrackedCol<F, MvPCS, UvPCS>,
         sign: sign_check::Sign,
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let broadcast_tracked_col = TrackedCol::new(
             aggregated_col.data_tracked_poly(),

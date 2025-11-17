@@ -16,7 +16,7 @@ use ark_piop::{
     },
     pcs::PCS,
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     verifier::{
         Verifier,
@@ -74,7 +74,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
@@ -187,7 +187,7 @@ where
     F: PrimeField,
 {
     fn prove_generate_subclaims(
-        tracker: &mut Prover<F, MvPCS, UvPCS>,
+        tracker: &mut ArgProver<F, MvPCS, UvPCS>,
         col: TrackedCol<F, MvPCS, UvPCS>,
         m: Option<TrackedPoly<F, MvPCS, UvPCS>>,
         gamma: F,

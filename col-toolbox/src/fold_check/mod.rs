@@ -14,7 +14,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use derivative::Derivative;
@@ -43,7 +43,7 @@ pub struct FoldCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for FoldCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             in_cols: self
                 .in_cols
@@ -119,7 +119,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let mut tartracked_poly = input.folded_col.activated_data_tracked_poly().clone();

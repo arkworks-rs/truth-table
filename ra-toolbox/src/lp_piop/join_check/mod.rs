@@ -14,7 +14,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::{Verifier, structs::oracle::Oracle},
 };
 use col_toolbox::{
@@ -59,7 +59,7 @@ pub struct InnerJoinProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for InnerJoinProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             left_table: self.left_table.deep_clone(prover.clone()),
             right_table: self.right_table.deep_clone(prover.clone()),
@@ -107,7 +107,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         debug_assert!(

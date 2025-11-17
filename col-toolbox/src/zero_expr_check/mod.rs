@@ -1,12 +1,7 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    piop::{DeepClone, PIOP},
-    prover::Prover,
-    verifier::Verifier,
+    arithmetic::mat_poly::{lde::LDE, mle::MLE}, errors::SnarkResult, pcs::PCS, piop::{DeepClone, PIOP}, prover::ArgProver, verifier::Verifier
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
@@ -33,7 +28,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             tracked_col: self.tracked_col.deep_clone(prover.clone()),
             selector_col: self.selector_col.deep_clone(prover),
@@ -75,7 +70,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let ZeroExprCheckProverInput {

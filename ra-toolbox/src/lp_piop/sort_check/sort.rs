@@ -4,7 +4,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use col_toolbox::contig_lex_sort_check::{
@@ -19,7 +19,7 @@ pub(super) fn lex_sort_prove<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
+    prover: &mut ArgProver<F, MvPCS, UvPCS>,
     input: &SortPIOPProverInput<F, MvPCS, UvPCS>,
 ) -> SnarkResult<()> {
     let contig_lex_sort_check_prover_input = ContigLexSortCheckProverInput {

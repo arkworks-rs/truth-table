@@ -11,7 +11,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -43,7 +43,7 @@ pub struct PredicateLimitCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for PredicateLimitCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             input_predicate: self.input_predicate.deep_clone(prover.clone()),
             output_predicate: self.output_predicate.deep_clone(prover),
@@ -223,7 +223,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let PredicateLimitCheckProverInput {

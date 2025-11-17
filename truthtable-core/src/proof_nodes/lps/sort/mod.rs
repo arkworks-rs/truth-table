@@ -8,7 +8,7 @@ use crate::proof_nodes::{
         LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
         TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
     },
-    prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
     verifier::{VerifierLpNode, VerifierNode},
 };
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};

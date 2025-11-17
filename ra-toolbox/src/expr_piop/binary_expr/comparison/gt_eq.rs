@@ -8,7 +8,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use col_toolbox::sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
@@ -38,7 +38,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let non_neg_sign_check_prover_input = SignCheckProverInput {

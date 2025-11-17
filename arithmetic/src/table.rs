@@ -7,7 +7,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::DeepClone,
-    prover::{structs::polynomial::TrackedPoly, Prover},
+    prover::{structs::polynomial::TrackedPoly, ArgProver},
 };
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
@@ -76,7 +76,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         let tracked_polys = self
             .tracked_polys
             .iter()

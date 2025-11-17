@@ -4,7 +4,7 @@ use crate::proof_nodes::tree::NodeId;
 use crate::proof_nodes::{
     OUTPUT_PLAN_KEY,
     cost::ProvingCost,
-    prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 

@@ -4,7 +4,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use datafusion::logical_expr::TableScan;
@@ -38,7 +38,7 @@ where
     }
 
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
         _input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         Ok(())
@@ -58,7 +58,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, _new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, _new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         self.clone()
     }
 }

@@ -7,7 +7,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use datafusion::logical_expr::Sort;
@@ -89,7 +89,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             sort_lp: self.sort_lp.clone(),
             sort_exprs_tracked_table: self.sort_exprs_tracked_table.deep_clone(new_prover.clone()),
@@ -140,7 +140,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         // First, Prove that the table coupled with the original sort

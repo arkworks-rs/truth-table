@@ -5,7 +5,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::Prover,
+    prover::ArgProver,
     structs::TrackerID,
     test_utils::test_prelude,
     to_field_vec,
@@ -430,7 +430,7 @@ fn build_tracked_table<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
+    prover: &mut ArgProver<F, MvPCS, UvPCS>,
     column_values: &[Vec<F>],
     shared_activator: Option<&[F]>,
     data_type: &DataType,

@@ -21,7 +21,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -59,7 +59,7 @@ pub struct SignCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for SignCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         SignCheckProverInput {
             col: self.col.deep_clone(new_prover),
             sign: self.sign,
@@ -91,7 +91,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         match prover_input.sign {
@@ -137,7 +137,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     SignCheckPIOP<F, MvPCS, UvPCS>
 {
     pub fn prove_positive(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Self::prove_non_neg(prover, col)?;
@@ -160,7 +160,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     pub fn prove_negative(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         Self::prove_none_positive(prover, col)?;
@@ -182,7 +182,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
     pub fn prove_none_positive(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let negated_col = TrackedCol::new(
@@ -207,7 +207,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
         Ok(())
     }
     pub fn prove_non_neg(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()> {
         let field_ref = col.field_ref().unwrap();
@@ -639,7 +639,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint32(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedCol<F, MvPCS, UvPCS>,
@@ -768,7 +768,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int32(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedCol<F, MvPCS, UvPCS>,
@@ -897,7 +897,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint64(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedCol<F, MvPCS, UvPCS>,
@@ -1026,7 +1026,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int64(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<(
         TrackedCol<F, MvPCS, UvPCS>,
@@ -1155,7 +1155,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint128(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
         let evaluations = col.data_tracked_poly().evaluations();
@@ -1233,7 +1233,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint256(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
         let evaluations = col.data_tracked_poly().evaluations();
@@ -1308,7 +1308,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int128(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
         let evaluations = col.data_tracked_poly().evaluations();

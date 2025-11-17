@@ -12,7 +12,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
         Verifier,
         structs::oracle::{Oracle, TrackedOracle},
@@ -53,7 +53,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
             tie_indicator_tracked_table: self
@@ -104,7 +104,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let num_cols = input.tracked_table.num_data_tracked_cols();
@@ -214,7 +214,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
     fn first_tie_indicator_col(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         num_vars: usize,
         activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
     ) -> TrackedCol<F, MvPCS, UvPCS> {

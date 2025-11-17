@@ -1,7 +1,7 @@
 use crate::proof_nodes::{
     HintGenerationPlan, OUTPUT_PLAN_KEY,
     cost::ProvingCost,
-    prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
     tree::NodeId,
     verifier::{VerifierLpNode, VerifierNode},
 };

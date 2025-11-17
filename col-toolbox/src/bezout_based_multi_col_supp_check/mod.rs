@@ -18,7 +18,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
@@ -48,7 +48,7 @@ pub struct BezoutMultiColSuppCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for BezoutMultiColSuppCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         BezoutMultiColSuppCheckProverInput {
             orig_tracked_table: self.orig_tracked_table.deep_clone(new_prover.clone()),
             supp_tracked_table: self.supp_tracked_table.deep_clone(new_prover.clone()),
@@ -104,7 +104,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let table_folding_challs = (0..prover_input.orig_tracked_table.num_data_tracked_cols())

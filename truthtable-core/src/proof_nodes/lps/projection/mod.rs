@@ -1,12 +1,9 @@
 use crate::proof_nodes::HintGenerationPlan;
-use crate::proof_nodes::prover::ProverGadgetNode;
+use crate::proof_nodes::prover::{ProverGadgetNode, ProverLpNode};
 use crate::prover::trees::proof_tree::ProverProofTree;
 use crate::tree::{Node, NodeId};
 use crate::{
-    proof_nodes::{
-        prover::{ProverLpNode, ProverPlanNode},
-        verifier::VerifierNode,
-    },
+    proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode},
     tree::Tree,
 };
 use ark_ff::PrimeField;
@@ -63,8 +60,8 @@ where
 {
     fn hint_generation_plans(
         &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintGenerationPlan> {
+        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
         todo!()
     }
 
@@ -72,13 +69,13 @@ where
         todo!()
     }
 
-    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
         todo!()
     }
 
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
         todo!()
     }
@@ -144,7 +141,7 @@ where
             ctx,
             prover_ctx.clone(),
             &projection.input,
-            &node_id,
+            &Some(node_id.clone()),
         )
         .root()
         .clone();
@@ -160,7 +157,7 @@ where
                     ctx,
                     prover_ctx.clone(),
                     expr,
-                    &node_id,
+                    &Some(node_id.clone()),
                 )
                 .root()
                 .clone()

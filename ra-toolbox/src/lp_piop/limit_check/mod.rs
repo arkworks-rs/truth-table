@@ -6,7 +6,7 @@ use ark_piop::{
     errors::{SnarkError, SnarkResult},
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use datafusion::logical_expr::{FetchType, Limit, SkipType};
@@ -52,7 +52,7 @@ where
     type VerifierInput = LimitPIOPVerifierInput<F, MvPCS, UvPCS>;
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let LimitPIOPProverInput {
@@ -179,7 +179,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    fn deep_clone(&self, _new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, _new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             limit: self.limit.clone(),
             input_activator_tracked_poly: self

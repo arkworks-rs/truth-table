@@ -7,7 +7,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     structs::TrackerID,
     test_utils::test_prelude,
     verifier::{Verifier, structs::oracle::TrackedOracle},
@@ -351,7 +351,7 @@ fn table_with_activator<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
+    prover: &mut ArgProver<F, MvPCS, UvPCS>,
     base_table: &TrackedTable<F, MvPCS, UvPCS>,
     activator: Option<&[F]>,
 ) -> SnarkResult<TrackedTable<F, MvPCS, UvPCS>> {
@@ -387,7 +387,7 @@ fn build_tracked_table<
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 >(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
+    prover: &mut ArgProver<F, MvPCS, UvPCS>,
     column_values: &[Vec<F>],
     shared_activator: Option<&[F]>,
     data_type: &DataType,
@@ -446,7 +446,7 @@ fn build_tracked_table<
 }
 
 fn build_tracked_poly<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
-    prover: &mut Prover<F, MvPCS, UvPCS>,
+    prover: &mut ArgProver<F, MvPCS, UvPCS>,
     values: &[F],
     expected_len: usize,
     label: &str,

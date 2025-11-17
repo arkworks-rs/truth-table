@@ -2,7 +2,7 @@ mod hints;
 use crate::proof_nodes::{
     HintGenerationPlan, OUTPUT_PLAN_KEY,
     cost::ProvingCost,
-    prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
     tree::NodeId,
     verifier::{VerifierLpNode, VerifierNode},
 };
@@ -15,7 +15,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::prelude::DataFrame;

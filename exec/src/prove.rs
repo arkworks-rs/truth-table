@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
-    prover::Prover,
+    prover::ArgProver,
     setup::structs::SNARKPk,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

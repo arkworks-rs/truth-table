@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode}, tree::NodeId, verifier::{VerifierExprNode, VerifierNode}
+    HintGenerationPlan, OUTPUT_PLAN_KEY, cost::ProvingCost, prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode}, tree::NodeId, verifier::{VerifierExprNode, VerifierNode}
 };
 use arithmetic::{
     ctx::SharedCtx, encoding::encode_arrow_array_to_field, table::TrackedTable,

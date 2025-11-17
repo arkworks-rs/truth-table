@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::proof_nodes::HintGenerationPlan;
 use crate::proof_nodes::tree::NodeId;
 use crate::proof_nodes::{
-    prover::{ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverPlanNode},
     verifier::VerifierNode,
 };
 use ark_ff::PrimeField;

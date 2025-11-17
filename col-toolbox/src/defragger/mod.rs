@@ -8,7 +8,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use ark_std::log2;
@@ -35,7 +35,7 @@ where
     F: PrimeField,
 {
     pub fn defrag_col(
-        tracker: &mut Prover<F, MvPCS, UvPCS>,
+        tracker: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
         if col.activator_tracked_poly().is_none() {

@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crate::proof_nodes::{
     cost::ProvingCost,
-    prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 #[derive(Clone)]

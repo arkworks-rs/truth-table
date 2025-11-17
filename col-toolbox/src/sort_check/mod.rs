@@ -11,7 +11,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
-    prover::{Prover, structs::polynomial::TrackedPoly},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{Verifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
@@ -46,7 +46,7 @@ pub struct SortCheckProverInput<
 impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     DeepClone<F, MvPCS, UvPCS> for SortCheckProverInput<F, MvPCS, UvPCS>
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             tracked_col: self.tracked_col.deep_clone(prover.clone()),
             ascending: self.ascending,
@@ -105,7 +105,7 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 
     fn prove_inner(
-        prover: &mut Prover<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let new_col =
@@ -325,7 +325,7 @@ where
         ))
     }
     fn truncate_activator_mle(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
         col: &TrackedCol<F, MvPCS, UvPCS>,
     ) -> MLE<F> {
         if let Some(activator) = col.activator_tracked_poly() {

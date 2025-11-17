@@ -4,7 +4,7 @@ use ark_piop::{
     errors::SnarkResult,
     pcs::PCS,
     piop::PIOP,
-    prover::Prover,
+    prover::ArgProver,
     verifier::Verifier,
 };
 use datafusion::logical_expr::Subquery;
@@ -35,7 +35,7 @@ where
     type VerifierInput = ScalarSubqueryPIOPVerifierInput;
 
     fn prove_inner(
-        _prover: &mut Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let _ = input;

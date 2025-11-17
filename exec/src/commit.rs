@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
-    prover::Prover,
+    prover::ArgProver,
     setup::structs::SNARKVk,
     verifier::Verifier,
 };

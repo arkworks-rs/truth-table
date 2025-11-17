@@ -46,11 +46,11 @@ where
     fn arithmetic_post_process(&self);
 
     /// Complete the piop plan
-    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>);
+    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>);
 
     fn add_virtual_witness_recursive(
         &self,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
     ) {
         trace!(
             "Prover finished add_virtual_witness_recursive: {}",
@@ -60,12 +60,12 @@ where
 
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
     ) -> SnarkResult<()>;
 
     fn prove_piop_recursive(
         &self,
-        prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

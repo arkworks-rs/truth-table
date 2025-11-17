@@ -6,7 +6,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     piop::DeepClone,
-    prover::{structs::polynomial::TrackedPoly, Prover},
+    prover::{structs::polynomial::TrackedPoly, ArgProver},
 };
 use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
@@ -181,9 +181,9 @@ where
     }
 
     /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> Prover<F, MvPCS, UvPCS> {
+    pub fn tracker_ref(&self) -> ArgProver<F, MvPCS, UvPCS> {
         // We have the guarantee at construction that activator tracked also agrees
-        Prover::new_from_tracker_rc(self.data_tracked_poly.tracker())
+        ArgProver::new_from_tracker_rc(self.data_tracked_poly.tracker())
     }
 
     /// Returns the effective tracked polynomial of the column, which is the
@@ -301,7 +301,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Clone,
     UvPCS: PCS<F, Poly = LDE<F>> + Clone,
 {
-    fn deep_clone(&self, new_prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             data_tracked_poly: self.data_tracked_poly.deep_clone(new_prover.clone()),
             activator_tracked_poly: self

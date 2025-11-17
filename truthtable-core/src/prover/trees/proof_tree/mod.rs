@@ -1,5 +1,8 @@
 use crate::{
-    proof_nodes::prover::ProverPlanNode,
+    proof_nodes::{
+        lps::{projection::ProverProjectionNode, table_scan::ProverTableScanNode},
+        prover::{ProverLpNode, ProverPlanNode},
+    },
     tree::{NodeId, Tree},
 };
 pub mod display;
@@ -114,7 +117,6 @@ where
         &self.arena
     }
 
-
     /// Returns a map from node identifier to the corresponding prover node.
     pub fn flatten(&self) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>
     where
@@ -132,7 +134,7 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         expr: Expr,
-        parent_node_id: &NodeId,
+        parent_node_id: &Option<NodeId>,
     ) -> Self
     where
         F: PrimeField,
@@ -152,10 +154,34 @@ where
         ctx: &SessionContext,
         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: &LogicalPlan,
-        parent_node_id: &NodeId,
+        parent_node_id: &Option<NodeId>,
     ) -> Self {
         match plan {
-            _ => panic!(),
+            LogicalPlan::Projection(_) => Self::new(
+                Arc::new(ProverProjectionNode::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::LP(plan.clone())),
+                )),
+                prover_ctx,
+            ),
+            LogicalPlan::TableScan(_) => Self::new(
+                Arc::new(ProverTableScanNode::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::LP(plan.clone())),
+                )),
+                prover_ctx,
+            ),
+            _ => panic!("unsupported logical plan node for prover proof tree"),
         }
     }
 }

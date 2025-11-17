@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::proof_nodes::{
-    HintGenerationPlan, prover::{ProverGadgetNode, ProverPlanNode}, tree::NodeId, verifier::VerifierNode
+    HintGenerationPlan, prover::{ArgProverGadgetNode, ProverPlanNode}, tree::NodeId, verifier::VerifierNode
 };
 use ark_ff::PrimeField;
 use ark_piop::{

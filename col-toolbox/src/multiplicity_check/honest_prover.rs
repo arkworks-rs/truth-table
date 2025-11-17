@@ -9,7 +9,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     piop::DeepClone,
-    prover::Prover,
+    prover::ArgProver,
 };
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> DeepClone<F, MvPCS, UvPCS>
     for MultiplicityCheckProverInput<F, MvPCS, UvPCS>
@@ -17,7 +17,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Clone,
     UvPCS: PCS<F, Poly = LDE<F>> + Clone,
 {
-    fn deep_clone(&self, prover: Prover<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
             fxs: self
                 .fxs

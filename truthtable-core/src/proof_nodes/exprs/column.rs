@@ -62,13 +62,13 @@ where
         todo!()
     }
 
-    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
         todo!()
     }
 
     fn prove_piop(
         &self,
-        _prover: &mut ark_piop::prover::Prover<F, MvPCS, UvPCS>,
+        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
     ) -> ark_piop::errors::SnarkResult<()> {
         todo!()
     }

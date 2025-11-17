@@ -7,7 +7,7 @@ use crate::proof_nodes::{
         JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
         JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
     },
-    prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
     tree::NodeId,
     verifier::{VerifierLpNode, VerifierNode},
 };

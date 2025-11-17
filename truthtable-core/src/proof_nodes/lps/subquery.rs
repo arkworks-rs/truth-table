@@ -1,7 +1,7 @@
 use crate::proof_nodes::{
     HintGenerationPlan,
     cost::ProvingCost,
-    prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
     verifier::{VerifierLpNode, VerifierNode},
 };
 use ark_ff::PrimeField;
