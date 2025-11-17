@@ -18,7 +18,7 @@ use datafusion::{
     prelude::{Expr, SessionContext},
 };
 use indexmap::IndexMap;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use tracing::instrument;
 #[cfg(test)]
 pub mod tests;
@@ -33,6 +33,34 @@ where
     ctx: SharedCtx<F, MvPCS, UvPCS>,
     root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
     arena: IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+}
+
+impl<F, MvPCS, UvPCS> fmt::Debug for ProverProofTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.display_graphviz())
+    }
+}
+
+impl<F, MvPCS, UvPCS> fmt::Display for ProverProofTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let node_count = self.arena.len();
+        let root_label = self.root.name();
+        write!(
+            f,
+            "ProverProofTree {{ nodes: {}, root: {} }}",
+            node_count, root_label
+        )
+    }
 }
 
 impl<F, MvPCS, UvPCS> Tree<F, MvPCS, UvPCS> for ProverProofTree<F, MvPCS, UvPCS>
@@ -53,9 +81,6 @@ where
 
     fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::NodeType>> {
         self.arena.get(node_id)
-    }
-    fn graphviz_display(&self) -> String {
-        todo!()
     }
 }
 

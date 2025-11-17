@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -25,8 +25,56 @@ where
     fn root(&self) -> &Arc<Self::NodeType>;
     /// Get a reference to a node by its ID.
     fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::NodeType>>;
-    /// Display the tree in a human-readable format.
-    fn graphviz_display(&self) -> String;
+    /// Display the tree in Graphviz DOT format.
+    fn display_graphviz(&self) -> String {
+        fn escape_label(raw: &str) -> String {
+            raw.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r")
+        }
+
+        let mut dot = String::from("digraph Tree {\n");
+        dot.push_str("  node [shape=box];\n");
+        let mut node_names: HashMap<NodeId, String> = HashMap::new();
+
+        for (idx, (node_id, node)) in self.arena().iter().enumerate() {
+            let ident = format!("n{idx}");
+            let label = escape_label(&node.name());
+            dot.push_str(&format!("  {ident} [label=\"{label}\"];\n"));
+            node_names.insert(node_id.clone(), ident);
+        }
+
+        for (node_id, node) in self.arena().iter() {
+            if let Some(parent_ident) = node_names.get(node_id) {
+                let children = node.children();
+                let edge_labels = node.child_edge_labels();
+                for (idx, child) in children.iter().enumerate() {
+                    let child_id = child.node_id();
+                    if let Some(child_ident) = node_names.get(&child_id) {
+                        if let Some(Some(label)) = edge_labels.get(idx) {
+                            let escaped = escape_label(label);
+                            dot.push_str(&format!(
+                                "  {parent} -> {child} [label=\"{label}\"];\n",
+                                parent = parent_ident,
+                                child = child_ident,
+                                label = escaped,
+                            ));
+                        } else {
+                            dot.push_str(&format!(
+                                "  {parent} -> {child};\n",
+                                parent = parent_ident,
+                                child = child_ident
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
 }
 
 pub trait Node<F, MvPCS, UvPCS>: Any + Send + Sync

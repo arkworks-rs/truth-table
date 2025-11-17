@@ -1,4 +1,5 @@
 use super::*;
+use crate::tree::Tree;
 use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::{
@@ -35,5 +36,5 @@ async fn builds_proof_tree_from_simple_query() {
     let plan = df.into_unoptimized_plan();
     let shared_ctx: SharedCtx<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> = SharedCtx::default();
     let proof_tree = ProverProofTree::from_lp(&ctx, shared_ctx, &plan, &None);
-    println!("{}", proof_tree.graphviz_display());
+    println!("{}", proof_tree.display_graphviz());
 }

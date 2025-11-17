@@ -1,4 +1,4 @@
-// pub mod aggregate;
+pub mod aggregate;
 // pub mod analyze;
 // pub mod distinct;
 // pub mod explain;
