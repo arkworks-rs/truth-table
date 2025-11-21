@@ -17,7 +17,7 @@ use crate::{
         verifier::VerifierNode,
     },
     prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId, Tree},
+    tree::{NodeId, ProverPlanTree},
 };
 
 mod hints;
@@ -50,31 +50,17 @@ where
     pub aggregate: Aggregate,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        todo!()
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::LP(LogicalPlan::Aggregate(self.aggregate.clone()))
-    }
-}
-
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_dfs(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> IndexMap<String, HintDF> {
+    fn node_id(&self) -> NodeId {
+        NodeId::LP(LogicalPlan::Aggregate(self.aggregate.clone()))
+    }
+
+    fn hint_dfs(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> IndexMap<String, HintDF> {
         todo!()
     }
 
@@ -250,6 +236,10 @@ where
     fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         todo!()
     }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        todo!()
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
@@ -317,7 +307,6 @@ where
                 .clone()
             })
             .collect::<Vec<_>>();
-        
 
         Self {
             group_exprs,

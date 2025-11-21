@@ -10,21 +10,21 @@ use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use indexmap::IndexMap;
 use std::fmt;
 
+use crate::proof_nodes::prover::ProverPlanNode;
+
 /// The abstraction of a tree structure used in intermediate representations
-pub trait Tree<F, MvPCS, UvPCS>: Any + Send + Sync
+pub trait ProverPlanTree<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
-    /// The type of nodes contained in this tree.
-    type NodeType: Node<F, MvPCS, UvPCS> + ?Sized;
     /// Get the arena that contains all nodes in this tree.
-    fn arena(&self) -> &IndexMap<NodeId, Arc<Self::NodeType>>;
+    fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
     /// Get the root node of this tree.
-    fn root(&self) -> &Arc<Self::NodeType>;
+    fn root(&self) -> &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
     /// Get a reference to a node by its ID.
-    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::NodeType>>;
+    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
     /// Display the tree in Graphviz DOT format.
     fn display_graphviz(&self) -> String {
         fn escape_label(raw: &str) -> String {
@@ -77,39 +77,21 @@ where
     }
 }
 
-pub trait Node<F, MvPCS, UvPCS>: Any + Send + Sync
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>>;
-
-    fn name(&self) -> String {
-        self.node_id().to_string()
-    }
-
-    fn node_id(&self) -> NodeId;
-
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        self.children().into_iter().map(|_| None).collect()
-    }
-}
 pub fn collect_nodes_for<F, MvPCS, UvPCS>(
-    root: &Arc<dyn Node<F, MvPCS, UvPCS>>,
-) -> IndexMap<NodeId, Arc<dyn Node<F, MvPCS, UvPCS>>>
+    root: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn dfs<F, MvPCS, UvPCS>(
-        node: &Arc<dyn Node<F, MvPCS, UvPCS>>,
-        out: &mut Vec<Arc<dyn Node<F, MvPCS, UvPCS>>>,
+        node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+        out: &mut Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
     ) where
         F: PrimeField,
-        MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-        UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
     {
         for child in node.children() {
             dfs::<F, MvPCS, UvPCS>(&child, out);

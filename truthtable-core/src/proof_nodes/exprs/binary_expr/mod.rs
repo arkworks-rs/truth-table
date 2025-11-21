@@ -6,7 +6,7 @@ use crate::{
         prover::{ProverExprNode, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId, Tree},
+    tree::{NodeId, ProverPlanTree},
 };
 use arithmetic::ACTIVATOR_EXPR;
 use ark_ff::PrimeField;
@@ -48,30 +48,15 @@ where
             .map(HintDF::new_virtual)
     }
 }
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        vec![
-            self.left.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>,
-            self.right.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>,
-        ]
-    }
-
-    fn node_id(&self) -> crate::tree::NodeId {
-        NodeId::Expr(Expr::BinaryExpr(self.binary_expression.clone()))
-    }
-}
-
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> crate::tree::NodeId {
+        NodeId::Expr(Expr::BinaryExpr(self.binary_expression.clone()))
+    }
     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         let ctx_df = self.ctx_lp_node(proof_tree).output(proof_tree);
         if let Some(projected) = self.try_project(&ctx_df) {
@@ -127,6 +112,10 @@ where
         statistics: datafusion_common::Statistics,
         schema: datafusion::arrow::datatypes::SchemaRef,
     ) -> crate::proof_nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         todo!()
     }
 }

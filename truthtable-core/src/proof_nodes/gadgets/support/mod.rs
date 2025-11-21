@@ -1,7 +1,7 @@
-use crate::proof_nodes::gadgets::{fingerprint, bezout_uniqueness};
+use crate::proof_nodes::HintDF;
+use crate::proof_nodes::gadgets::{bezout_uniqueness, fingerprint};
 use crate::proof_nodes::prover::ProverGadget;
 use crate::tree::NodeId;
-use crate::{proof_nodes::HintDF, tree::Node};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -27,31 +27,15 @@ where
     input_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    fn children(&self) -> Vec<std::sync::Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        vec![
-            self.nodup.clone(),
-            self.support_fingerprint.clone(),
-            self.input_fingerprint.clone(),
-        ]
-    }
-
-    fn node_id(&self) -> NodeId {
-        todo!()
-    }
-}
-
 impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
+    fn node_id(&self) -> NodeId {
+        todo!()
+    }
     fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF> {
         // First get the inputs
         let input_data_frame = input.get(INPUT_DATA_FRAME_KEY).unwrap();
@@ -80,6 +64,10 @@ where
         all_hints.extend(support_fingerprint_hints);
         //TODO: Trace here
         all_hints
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+        todo!()
     }
 }
 

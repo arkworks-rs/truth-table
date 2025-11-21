@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     proof_nodes::{HintDF, prover::ProverGadget},
-    tree::{Node, NodeId},
+    tree::NodeId,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -28,11 +28,15 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn hint_dfs(
-        &self,
-        input: &IndexMap<String, HintDF>,
-    ) -> indexmap::IndexMap<String, HintDF> {
+    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> indexmap::IndexMap<String, HintDF> {
         indexmap::IndexMap::new()
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+        todo!()
+    }
+    fn node_id(&self) -> NodeId {
+        self.node_id.clone()
     }
 }
 
@@ -50,17 +54,3 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverBinaryGadget<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-
-    fn node_id(&self) -> NodeId {
-        self.node_id.clone()
-    }
-}

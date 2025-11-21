@@ -16,7 +16,7 @@ use crate::{
         prover::{ProverExprNode, ProverGadget, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId, Tree},
+    tree::{NodeId, ProverPlanTree},
 };
 
 #[derive(Clone)]
@@ -30,29 +30,15 @@ pub struct VerifierColumnExprNode {
     pub column: Column,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverColumnExprNode
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::Expr(Expr::Column(self.column.clone()))
-    }
-}
-
-
-
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> NodeId {
+        NodeId::Expr(Expr::Column(self.column.clone()))
+    }
     fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -100,6 +86,10 @@ where
             .get_node(&self.parent_node_id)
             .unwrap()
             .ctx_lp_node(proof_tree)
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        todo!()
     }
 }
 

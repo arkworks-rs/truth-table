@@ -19,7 +19,7 @@ use crate::{
         prover::{ProverLpNode, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId, Tree},
+    tree::{NodeId, ProverPlanTree},
 };
 
 /// The implementation of a filter node in the prover proof tree.
@@ -37,30 +37,15 @@ where
     predicate: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        vec![
-            self.input.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>,
-            self.predicate.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>,
-        ]
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::LP(LogicalPlan::Filter(self.filter.clone()))
-    }
-}
-
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> NodeId {
+        NodeId::LP(LogicalPlan::Filter(self.filter.clone()))
+    }
     fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         todo!()
     }
@@ -100,6 +85,10 @@ where
 
     fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         vec![self.input.clone(), self.predicate.clone()]
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        todo!()
     }
 }
 

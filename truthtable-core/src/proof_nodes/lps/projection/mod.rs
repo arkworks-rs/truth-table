@@ -1,11 +1,9 @@
 use crate::proof_nodes::HintDF;
 use crate::proof_nodes::prover::{ProverGadget, ProverLpNode};
+use crate::proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 use crate::prover::trees::proof_tree::ProverProofTree;
-use crate::tree::{Node, NodeId};
-use crate::{
-    proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode},
-    tree::Tree,
-};
+use crate::tree::NodeId;
+use crate::tree::ProverPlanTree;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -37,34 +35,15 @@ where
     pub expr_verifier_nodes: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        let mut children = Vec::with_capacity(1 + self.expr_prover_nodes.len());
-        children.push(self.input_prover_node.clone() as Arc<dyn Node<F, MvPCS, UvPCS>>);
-        children.extend(
-            self.expr_prover_nodes
-                .iter()
-                .cloned()
-                .map(|child| child as Arc<dyn Node<F, MvPCS, UvPCS>>),
-        );
-        children
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::LP(LogicalPlan::Projection(self.projection.clone()))
-    }
-}
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> NodeId {
+        NodeId::LP(LogicalPlan::Projection(self.projection.clone()))
+    }
     fn hint_dfs(
         &self,
         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
@@ -116,6 +95,10 @@ where
         children.push(self.input_prover_node.clone());
         children.extend(self.expr_prover_nodes.iter().cloned());
         children
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        todo!()
     }
 }
 

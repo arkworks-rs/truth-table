@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     proof_nodes::{HintDF, prover::ProverGadget},
-    tree::{Node, NodeId},
+    tree::NodeId,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -32,18 +32,10 @@ where
     ) -> indexmap::IndexMap<String, HintDF> {
         indexmap::IndexMap::new()
     }
-}
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverPermutationGadget<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    fn children(&self) -> Vec<std::sync::Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
+    fn children(&self) -> Vec<std::sync::Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+        todo!()
     }
-
     fn node_id(&self) -> NodeId {
         todo!()
     }

@@ -10,7 +10,7 @@ use crate::{
         },
         prover::{ProverExprNode, ProverLpNode, ProverPlanNode},
     },
-    tree::{NodeId, Tree},
+    tree::{NodeId, ProverPlanTree},
 };
 pub mod display;
 use arithmetic::ctx::SharedCtx;
@@ -69,23 +69,21 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Tree<F, MvPCS, UvPCS> for ProverProofTree<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverPlanTree<F, MvPCS, UvPCS> for ProverProofTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    type NodeType = dyn ProverPlanNode<F, MvPCS, UvPCS>;
-
-    fn arena(&self) -> &IndexMap<NodeId, Arc<Self::NodeType>> {
+    fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         &self.arena
     }
 
-    fn root(&self) -> &Arc<Self::NodeType> {
+    fn root(&self) -> &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
         &self.root
     }
 
-    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::NodeType>> {
+    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         self.arena.get(node_id)
     }
 }

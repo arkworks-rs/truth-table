@@ -8,27 +8,12 @@ use ark_piop::{
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 
-use crate::tree::{Node, NodeId};
+use crate::tree::NodeId;
 
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
     pub literal: ScalarValue,
     pub parent_node_id: NodeId,
-}
-
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverLiteralExprNode
-where
-    F: ark_ff::PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::Expr(Expr::Literal(self.literal.clone()))
-    }
 }
 
 impl<F, MvPCS, UvPCS> crate::proof_nodes::prover::ProverPlanNode<F, MvPCS, UvPCS>
@@ -38,6 +23,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> NodeId {
+        NodeId::Expr(Expr::Literal(self.literal.clone()))
+    }
     fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -79,6 +67,12 @@ where
         statistics: datafusion_common::Statistics,
         schema: datafusion::arrow::datatypes::SchemaRef,
     ) -> crate::proof_nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn children(
+        &self,
+    ) -> Vec<Arc<dyn crate::proof_nodes::prover::ProverPlanNode<F, MvPCS, UvPCS>>> {
         todo!()
     }
 }

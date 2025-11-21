@@ -2,11 +2,7 @@
 //! DataFusion logical plan.
 
 use super::cost::ProvingCost;
-use crate::{
-    proof_nodes::HintDF,
-    prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId},
-};
+use crate::{proof_nodes::HintDF, prover::trees::proof_tree::ProverProofTree, tree::NodeId};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -26,28 +22,44 @@ use tracing::trace;
 
 pub use super::{cost, display, exprs, lps};
 
-pub trait ProverGadget<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait ProverGadget<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_dfs(
-        &self,
-        input: &IndexMap<String, HintDF>,
-    ) -> IndexMap<String, HintDF>;
+    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF>;
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>>;
+    fn name(&self) -> String {
+        self.node_id().to_string()
+    }
 
+    fn node_id(&self) -> NodeId;
+
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        self.children().into_iter().map(|_| None).collect()
+    }
 }
 
 /// Common interface for a proof plan node.
 ///
 /// A proof plan is a tree of nodes, where each node represents a proof unit.
-pub trait ProverPlanNode<F, MvPCS, UvPCS>: Any + Send + Sync + Node<F, MvPCS, UvPCS>
+pub trait ProverPlanNode<F, MvPCS, UvPCS>: Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn name(&self) -> String {
+        self.node_id().to_string()
+    }
+
+    fn node_id(&self) -> NodeId;
+
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        self.children().into_iter().map(|_| None).collect()
+    }
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
     fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF;
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with

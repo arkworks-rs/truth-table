@@ -15,7 +15,7 @@ use crate::{
         prover::{ProverGadget, ProverLpNode, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
-    tree::{Node, NodeId},
+    tree::NodeId,
 };
 
 pub struct ProverTableScanNode {
@@ -25,27 +25,15 @@ pub struct VerifierTableScanNode {
     pub table_scan: TableScan,
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverTableScanNode
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-
-    fn node_id(&self) -> NodeId {
-        NodeId::LP(LogicalPlan::TableScan(self.table_scan.clone()))
-    }
-}
-
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverTableScanNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn node_id(&self) -> NodeId {
+        NodeId::LP(LogicalPlan::TableScan(self.table_scan.clone()))
+    }
     fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
@@ -84,6 +72,10 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         todo!()
     }
 }
