@@ -1,16 +1,15 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::proof_nodes::{
-    HintGenerationPlan, prover::{ArgProverGadgetNode, ProverPlanNode}, tree::NodeId, verifier::VerifierNode
+use crate::{
+    proof_nodes::{HintDF, prover::ProverPlanNode, verifier::VerifierNode},
+    tree::NodeId,
 };
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    prover::Prover,
-    verifier::Verifier,
 };
 use datafusion::{arrow::datatypes::SchemaRef, common::Statistics, prelude::DataFrame};
 use indexmap::IndexMap;

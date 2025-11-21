@@ -1,29 +1,100 @@
-use std::marker::PhantomData;
-use std::sync::Arc;
-
-use crate::proof_nodes::HintGenerationPlan;
-use crate::proof_nodes::tree::NodeId;
-use crate::proof_nodes::{
-    prover::{ArgProverGadgetNode, ProverPlanNode},
-    verifier::VerifierNode,
-};
+use crate::proof_nodes::gadgets::{fingerprint, bezout_uniqueness};
+use crate::proof_nodes::prover::ProverGadget;
+use crate::tree::NodeId;
+use crate::{proof_nodes::HintDF, tree::Node};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
-    prover::Prover,
-    verifier::Verifier,
 };
-use datafusion::{arrow::datatypes::SchemaRef, common::Statistics, prelude::DataFrame};
 use indexmap::IndexMap;
+use indexmap::indexmap;
+use std::sync::Arc;
+
+pub const INPUT_DATA_FRAME_KEY: &str = "__support__input_data_frame__";
+pub const SUPPORT_DATA_FRAME_KEY: &str = "__support__support_data_frame__";
+
 #[derive(Clone)]
-pub struct ProverSupportGadget<F, MvPCS, UvPCS>
+pub struct Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
     node_id: NodeId,
-    _marker: PhantomData<(F, MvPCS, UvPCS)>,
+    nodup: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
+    support_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
+    input_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
+}
+
+impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    fn children(&self) -> Vec<std::sync::Arc<dyn Node<F, MvPCS, UvPCS>>> {
+        vec![
+            self.nodup.clone(),
+            self.support_fingerprint.clone(),
+            self.input_fingerprint.clone(),
+        ]
+    }
+
+    fn node_id(&self) -> NodeId {
+        todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF> {
+        // First get the inputs
+        let input_data_frame = input.get(INPUT_DATA_FRAME_KEY).unwrap();
+        let support_data_frame = input.get(SUPPORT_DATA_FRAME_KEY).unwrap();
+        // Then see on this input what hints are needed for uniqueness
+        let uniqueness_input = indexmap! {
+            bezout_uniqueness::INPUT_DATA_FRAME_KEY.to_string() => support_data_frame.clone(),
+        };
+        let uniqueness_hints = self.nodup.hint_dfs(&uniqueness_input);
+        // Then see on this input what hints are needed for support fingerprint
+        let input_fingerprint_input = indexmap! {
+            fingerprint::INPUT_DATA_FRAME_KEY.to_string() => input_data_frame.clone(),
+        };
+        let input_fingerprint_hints = self.input_fingerprint.hint_dfs(&input_fingerprint_input);
+        // Then see on this input what hints are needed for support fingerprint
+        let support_fingerprint_input = indexmap! {
+            fingerprint::INPUT_DATA_FRAME_KEY.to_string() => support_data_frame.clone(),
+        };
+        let support_fingerprint_hints = self
+            .support_fingerprint
+            .hint_dfs(&support_fingerprint_input);
+        // Combine all hints
+        let mut all_hints = IndexMap::new();
+        all_hints.extend(uniqueness_hints);
+        all_hints.extend(input_fingerprint_hints);
+        all_hints.extend(support_fingerprint_hints);
+        //TODO: Trace here
+        all_hints
+    }
+}
+
+impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    pub fn new(node_id: NodeId) -> Self {
+        Self {
+            node_id,
+            nodup: todo!(),
+            support_fingerprint: todo!(),
+            input_fingerprint: todo!(),
+        }
+    }
 }

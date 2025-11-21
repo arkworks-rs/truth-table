@@ -47,8 +47,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     }
 
     let group_cols_str: Vec<&str> = group_cols.iter().map(|s| s.as_str()).collect();
-    let agg_group_cols_str: Vec<&str> =
-        agg_group_cols.iter().map(|s| s.as_str()).collect();
+    let agg_group_cols_str: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();
     let joined = df
         .join(
             renamed_agg_df,
@@ -98,9 +97,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let mut drop_columns: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();
     drop_columns.push("__row_number__");
     drop_columns.push("__activator_orig__");
-    sorted
-        .drop_columns(&drop_columns)
-        .unwrap()
+    sorted.drop_columns(&drop_columns).unwrap()
 }
 
 #[cfg(test)]
@@ -108,14 +105,14 @@ mod tests {
     use super::build_output_dataframe;
     use arithmetic::ACTIVATOR_COL_NAME;
     use datafusion::arrow::{
-        array::{ArrayRef, BooleanArray, Int32Array, Int64Array},
+        array::{ArrayRef, BooleanArray, Date32Array, Int32Array, Int64Array},
         compute::concat_batches,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
     use datafusion::prelude::SessionContext;
     use datafusion_expr::{Expr, LogicalPlan, col};
-    use datafusion_functions_aggregate::expr_fn::count;
+    use datafusion_functions_aggregate::expr_fn::{count, max, sum};
     use std::sync::Arc;
 
     async fn run_aggregate_test(
@@ -125,6 +122,8 @@ mod tests {
         aggr_exprs: &[Expr],
         expected_columns: &[(Field, ArrayRef)],
     ) {
+        // Build a single input RecordBatch from the provided columns so the test
+        // matches exactly the data passed to the DataFrame.
         let input_schema = Arc::new(Schema::new(
             input_columns
                 .iter()
@@ -143,6 +142,8 @@ mod tests {
             .read_batch(input_batch)
             .expect("failed to read batch into DataFrame");
 
+        // Build a real Aggregate logical plan via DataFusion so we exercise the
+        // same code that the production pipeline uses.
         let aggregate_plan = input_df
             .clone()
             .aggregate(group_exprs.to_vec(), aggr_exprs.to_vec())
@@ -154,6 +155,7 @@ mod tests {
 
         let projected = build_output_dataframe(&input_df, &aggregate);
         let batches = projected.collect().await.unwrap();
+        // Expected batch uses the exact schema/values we want to observe.
         let expected_schema = Arc::new(Schema::new(
             expected_columns
                 .iter()
@@ -188,7 +190,9 @@ mod tests {
             ),
             (
                 Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
-                Arc::new(BooleanArray::from(vec![true, true, false, true, false, true])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![
+                    true, true, false, true, false, true,
+                ])) as ArrayRef,
             ),
         ];
 
@@ -218,6 +222,140 @@ mod tests {
             &input_columns,
             &[col("group_id")],
             &[count(col("value")).alias("active_count")],
+            &expected_columns,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn aggregate_node_sum_output_is_correct() {
+        let ctx = SessionContext::new();
+
+        let input_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("sub_group", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 0, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("value", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![5, 15, 25, 10, 20, 30])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![
+                    true, false, true, true, true, true,
+                ])) as ArrayRef,
+            ),
+        ];
+
+        let expected_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("sub_group", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 0, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("value", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![5, 15, 25, 10, 20, 30])) as ArrayRef,
+            ),
+            (
+                Field::new("active_sum", DataType::Int64, true),
+                Arc::new(Int64Array::from(vec![5, 5, 25, 10, 50, 50])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![
+                    true, false, true, true, true, false,
+                ])) as ArrayRef,
+            ),
+        ];
+
+        run_aggregate_test(
+            &ctx,
+            &input_columns,
+            &[col("group_id"), col("sub_group")],
+            &[sum(col("value")).alias("active_sum")],
+            &expected_columns,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn aggregate_node_max_output_is_correct() {
+        let ctx = SessionContext::new();
+
+        let input_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 0, 1, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("sub_group", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 1, 0, 0, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("region", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 1, 1, 1, 0, 0])) as ArrayRef,
+            ),
+            (
+                Field::new("event_date", DataType::Date32, false),
+                Arc::new(Date32Array::from(vec![
+                    18628, 18635, 18620, 18645, 18630, 18625, 18650, 18610,
+                ])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![
+                    true, false, true, true, true, false, true, true,
+                ])) as ArrayRef,
+            ),
+        ];
+
+        let expected_columns = vec![
+            (
+                Field::new("group_id", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 0, 0, 1, 1, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("sub_group", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 1, 0, 0, 1, 1])) as ArrayRef,
+            ),
+            (
+                Field::new("region", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![0, 0, 1, 1, 1, 1, 0, 0])) as ArrayRef,
+            ),
+            (
+                Field::new("event_date", DataType::Date32, false),
+                Arc::new(Date32Array::from(vec![
+                    18628, 18635, 18620, 18645, 18630, 18625, 18650, 18610,
+                ])) as ArrayRef,
+            ),
+            (
+                Field::new("active_max", DataType::Date32, true),
+                Arc::new(Date32Array::from(vec![
+                    18628, 18628, 18645, 18645, 18630, 18630, 18650, 18650,
+                ])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![
+                    true, false, true, false, true, false, true, false,
+                ])) as ArrayRef,
+            ),
+        ];
+
+        run_aggregate_test(
+            &ctx,
+            &input_columns,
+            &[col("group_id"), col("sub_group"), col("region")],
+            &[max(col("event_date")).alias("active_max")],
             &expected_columns,
         )
         .await;

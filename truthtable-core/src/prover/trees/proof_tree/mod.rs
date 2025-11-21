@@ -1,7 +1,13 @@
 use crate::{
     proof_nodes::{
-        exprs::column::ProverColumnExprNode,
-        lps::{projection::ProverProjectionNode, table_scan::ProverTableScanNode},
+        exprs::{
+            binary_expr::ProverBinaryExprNode, column::ProverColumnExprNode,
+            literal::ProverLiteralExprNode,
+        },
+        lps::{
+            filter::ProverFilterNode, projection::ProverProjectionNode,
+            table_scan::ProverTableScanNode,
+        },
         prover::{ProverExprNode, ProverLpNode, ProverPlanNode},
     },
     tree::{NodeId, Tree},
@@ -151,6 +157,30 @@ where
                 )),
                 prover_ctx,
             ),
+            Expr::Literal(_) => Self::new(
+                Arc::new(ProverLiteralExprNode::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::Expr(expr.clone())),
+                )),
+                prover_ctx,
+            ),
+            Expr::BinaryExpr(_) => Self::new(
+                Arc::new(ProverBinaryExprNode::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::Expr(expr.clone())),
+                )),
+                prover_ctx,
+            ),
             _ => panic!("unsupported expression node for prover proof tree"),
         }
     }
@@ -180,6 +210,19 @@ where
             ),
             LogicalPlan::TableScan(_) => Self::new(
                 Arc::new(ProverTableScanNode::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::LP(plan.clone())),
+                )),
+                prover_ctx,
+            ),
+
+            LogicalPlan::Filter(_) => Self::new(
+                Arc::new(ProverFilterNode::from_lp(
                     ctx,
                     prover_ctx.clone(),
                     plan.clone(),

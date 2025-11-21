@@ -1,6 +1,6 @@
 //! Verifier-side proof tree nodes and trait definitions.
 pub use super::{exprs, lps};
-use crate::{proof_nodes::HintGenerationPlan, tree::NodeId};
+use crate::{proof_nodes::HintDF, tree::NodeId};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -45,7 +45,7 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_generation_plans(&self) -> IndexMap<String, HintGenerationPlan>;
+    fn hint_dfs(&self) -> IndexMap<String, HintDF>;
 
     fn output(&self) -> DataFrame;
 

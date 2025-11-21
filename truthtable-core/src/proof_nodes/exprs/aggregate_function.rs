@@ -1,6 +1,6 @@
 // Combined truthtable-core/src/prover/nodes/exprs/aggregate_function.rs and
 // truthtable-core/src/verifier/nodes/exprs/aggregate_function.rs
-use crate::proof_nodes::HintGenerationPlan;
+use crate::proof_nodes::HintDF;
 use crate::proof_nodes::OUTPUT_PLAN_KEY;
 use crate::proof_nodes::tree::NodeId;
 use arithmetic::{
@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crate::proof_nodes::{
     cost::ProvingCost,
-    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadget, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 #[derive(Clone)]

@@ -2,13 +2,13 @@ pub(crate) mod hints;
 #[cfg(test)]
 mod tests;
 use crate::proof_nodes::{
-    HintGenerationPlan, OUTPUT_PLAN_KEY,
+    HintDF, OUTPUT_PLAN_KEY,
     cost::ProvingCost,
     lps::sort::hints::{
         LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
-        TIE_INDICATOR_PLAN_KEY, build_sort_hint_generation_plans,
+        TIE_INDICATOR_PLAN_KEY, build_sort_hint_dfs,
     },
-    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadget, ProverLpNode, ProverPlanNode},
     verifier::{VerifierLpNode, VerifierNode},
 };
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};

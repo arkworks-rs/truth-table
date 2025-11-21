@@ -11,9 +11,9 @@ use datafusion_expr::{Expr, LogicalPlan};
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan,
+        HintDF,
         lps::projection::ProverProjectionNode,
-        prover::{ProverExprNode, ProverGadgetNode, ProverPlanNode},
+        prover::{ProverExprNode, ProverGadget, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
     tree::{Node, NodeId, Tree},
@@ -45,16 +45,18 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+
+
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverColumnExprNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintGenerationPlan> {
+    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
         todo!()
     }
 
@@ -80,21 +82,14 @@ where
     ) -> crate::proof_nodes::cost::ProvingCost {
         todo!()
     }
-}
 
-impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverColumnExprNode
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintGenerationPlan {
+    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         let ctx_lp_node = self.ctx_lp_node(proof_tree);
         let base_hint_generation_plan = ctx_lp_node.output(proof_tree);
         let base_data_frame = base_hint_generation_plan.data_frame();
         let projection_exprs = vec![Expr::Column(self.column.clone()), ACTIVATOR_EXPR.clone()];
         let projected_data_frame = base_data_frame.clone().select(projection_exprs).unwrap();
-        HintGenerationPlan::new_virtual(projected_data_frame)
+        HintDF::new_virtual(projected_data_frame)
     }
 
     fn ctx_lp_node(

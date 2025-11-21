@@ -1,11 +1,11 @@
 // Combined truthtable-core/src/prover/nodes/exprs/cast.rs and
 // truthtable-core/src/verifier/nodes/exprs/cast.rs
-use crate::proof_nodes::HintGenerationPlan;
+use crate::proof_nodes::HintDF;
 use crate::proof_nodes::tree::NodeId;
 use crate::proof_nodes::{
     OUTPUT_PLAN_KEY,
     cost::ProvingCost,
-    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadget, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::{

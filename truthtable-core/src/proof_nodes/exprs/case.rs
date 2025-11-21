@@ -1,10 +1,10 @@
 // Combined truthtable-core/src/prover/nodes/exprs/case.rs and
 // truthtable-core/src/verifier/nodes/exprs/case.rs
-use crate::proof_nodes::HintGenerationPlan;
+use crate::proof_nodes::HintDF;
 use crate::proof_nodes::{
     cost::ProvingCost,
     id::NodeId,
-    prover::{ArgProverExprNode, ProverGadgetNode, ProverPlanNode},
+    prover::{ArgProverExprNode, ProverGadget, ProverPlanNode},
     verifier::{VerifierExprNode, VerifierNode},
 };
 use arithmetic::ctx::SharedCtx;
@@ -30,7 +30,7 @@ where
     pub parent_node_id: NodeId,
 }
 
-impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverCaseExprNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for ProverCaseExprNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
@@ -68,10 +68,10 @@ where
         todo!()
     }
 
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
+    ) -> indexmap::IndexMap<String, HintDF> {
         todo!()
     }
 
@@ -177,10 +177,10 @@ where
         todo!()
     }
 
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &crate::verifier::trees::proof_tree::VerifierProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
+    ) -> indexmap::IndexMap<String, HintDF> {
         todo!()
     }
 

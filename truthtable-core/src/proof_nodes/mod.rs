@@ -9,18 +9,18 @@ use indexmap::IndexMap;
 pub mod cost;
 pub mod display;
 pub mod exprs;
-// pub mod gadgets;
+pub mod gadgets;
 pub mod lps;
 pub mod prover;
 pub mod verifier;
 
 #[derive(Clone)]
-pub struct HintGenerationPlan {
+pub struct HintDF {
     data_fram: DataFrame,
     should_materialize: IndexMap<FieldRef, bool>,
 }
 
-impl HintGenerationPlan {
+impl HintDF {
     pub fn new(data_fram: DataFrame, should_materialize: IndexMap<FieldRef, bool>) -> Self {
         Self {
             data_fram,

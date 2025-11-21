@@ -10,7 +10,7 @@ use datafusion_functions_window::expr_fn::row_number;
 use indexmap::IndexMap;
 use tracing::info;
 
-use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY, tree::NodeId};
+use crate::proof_nodes::{HintDF, OUTPUT_PLAN_KEY, tree::NodeId};
 
 pub(crate) const JOIN_LEFT_KEY_SUPP: &str = "__join_left_key_supp__";
 pub(crate) const JOIN_RIGHT_KEY_SUPP: &str = "__join_right_key_supp__";
@@ -20,9 +20,9 @@ pub(crate) const JOIN_LEFT_KEY_SOURCE: &str = "__join_left_key_source__";
 pub(crate) const JOIN_RIGHT_KEY_SOURCE: &str = "__join_right_key_source__";
 const SUPPORT_SOURCE_COL: &str = "__join_support_source__";
 
-pub(crate) fn build_join_hint_generation_plans(
+pub(crate) fn build_join_hint_dfs(
     node_id: NodeId,
-) -> IndexMap<String, HintGenerationPlan> {
+) -> IndexMap<String, HintDF> {
     todo!()
     // let mut plans = IndexMap::new();
     // let orig_join_lp = node_id.to_lp().unwrap().clone();
@@ -234,9 +234,9 @@ fn ensure_true_activator(plan: &LogicalPlan) -> LogicalPlan {
         .expect("failed to enforce activator column")
 }
 
-fn hint_with_true_activator(label: &str, plan: &LogicalPlan) -> HintGenerationPlan {
+fn hint_with_true_activator(label: &str, plan: &LogicalPlan) -> HintDF {
     todo!()
-    // HintGenerationPlan::new_materialized(label.to_string(), ensure_true_activator(plan))
+    // HintDF::new_materialized(label.to_string(), ensure_true_activator(plan))
 }
 
 fn compute_output_support_plan(join: &Join, join_lp: &LogicalPlan) -> LogicalPlan {
@@ -375,7 +375,7 @@ pub(crate) fn build_left_supp_generation_plan(
     join: &Join,
     filtered_left_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> (HintGenerationPlan, LogicalPlan) {
+) -> (HintDF, LogicalPlan) {
     let left_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -410,7 +410,7 @@ pub(crate) fn build_right_supp_generation_plan(
     join: &Join,
     filtered_right_lp: &LogicalPlan,
     output_key_supp_plan: &LogicalPlan,
-) -> (HintGenerationPlan, LogicalPlan) {
+) -> (HintDF, LogicalPlan) {
     let right_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -477,7 +477,7 @@ pub(crate) fn build_all_supp_generation_plan(
     output_key_supp_plan: &LogicalPlan,
     left_diff_plan: LogicalPlan,
     right_diff_plan: LogicalPlan,
-) -> HintGenerationPlan {
+) -> HintDF {
     assert!(
         !join.on.is_empty(),
         "join must contain at least one key column"
@@ -514,7 +514,7 @@ pub(crate) fn join_left_key_source(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
-) -> HintGenerationPlan {
+) -> HintDF {
     let left_key_exprs: Vec<Expr> = join
         .on
         .iter()
@@ -575,7 +575,7 @@ pub(crate) fn join_right_key_source(
     filtered_left_lp: &LogicalPlan,
     filtered_right_lp: &LogicalPlan,
     join: Join,
-) -> HintGenerationPlan {
+) -> HintDF {
     let right_key_exprs: Vec<Expr> = join
         .on
         .iter()

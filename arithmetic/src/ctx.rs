@@ -26,8 +26,6 @@ where
     table_oracles: IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
 }
 
-
-
 impl<F, MvPCS, UvPCS> SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,

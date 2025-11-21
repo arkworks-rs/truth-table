@@ -3,7 +3,7 @@ pub mod aggregate;
 // pub mod distinct;
 // pub mod explain;
 // pub mod extension;
-// pub mod filter;
+pub mod filter;
 // pub mod join;
 // pub mod limit;
 // pub mod other;
@@ -16,4 +16,3 @@ pub mod table_scan;
 // pub mod union;
 // pub mod values;
 // pub mod window;
-

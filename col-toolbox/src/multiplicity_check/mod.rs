@@ -245,7 +245,7 @@ where
     }
 
     fn verify_generate_subclaims(
-        tracker:&mut ArgVerifier<F, MvPCS, UvPCS>,
+        tracker: &mut ArgVerifier<F, MvPCS, UvPCS>,
         col: TrackedColOracle<F, MvPCS, UvPCS>,
         m: Option<TrackedOracle<F, MvPCS, UvPCS>>,
         gamma: F,

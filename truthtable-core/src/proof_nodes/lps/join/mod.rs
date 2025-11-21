@@ -1,13 +1,13 @@
 mod hints;
 
 use crate::proof_nodes::{
-    HintGenerationPlan, OUTPUT_PLAN_KEY,
+    HintDF, OUTPUT_PLAN_KEY,
     cost::ProvingCost,
     lps::join::hints::{
         JOIN_ALL_KEY_SUPP, JOIN_LEFT_KEY_SOURCE, JOIN_LEFT_KEY_SUPP, JOIN_OUTPUT_KEY_SUPP,
-        JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_generation_plans,
+        JOIN_RIGHT_KEY_SOURCE, JOIN_RIGHT_KEY_SUPP, build_join_hint_dfs,
     },
-    prover::{ArgProverGadgetNode, ProverLpNode, ProverPlanNode},
+    prover::{ArgProverGadget, ProverLpNode, ProverPlanNode},
     tree::NodeId,
     verifier::{VerifierLpNode, VerifierNode},
 };

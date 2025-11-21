@@ -1,22 +1,20 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::proof_nodes::HintGenerationPlan;
-use crate::proof_nodes::tree::NodeId;
-use crate::proof_nodes::{
-    prover::{ArgProverGadgetNode, ProverPlanNode},
-    verifier::VerifierNode,
-};
+use crate::proof_nodes::HintDF;
+use crate::proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode};
+use crate::tree::NodeId;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
-    prover::Prover,
-    verifier::Verifier,
 };
 use datafusion::{arrow::datatypes::SchemaRef, common::Statistics, prelude::DataFrame};
 use indexmap::IndexMap;
+
+pub const INPUT_DATA_FRAME_KEY: &str = "__fingerprint_input_data_frame__";
+
 #[derive(Clone)]
 pub struct ProverFingerprintGadget<F, MvPCS, UvPCS>
 where

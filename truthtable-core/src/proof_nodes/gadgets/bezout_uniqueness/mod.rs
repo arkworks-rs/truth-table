@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use crate::{
     proof_nodes::{HintDF, prover::ProverGadget},
@@ -9,18 +10,21 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+
+pub const INPUT_DATA_FRAME_KEY: &str = "__bezout_uniqueness__input_data_frame__";
+
 #[derive(Clone)]
-pub struct ProverPermutationGadget<F, MvPCS, UvPCS>
+pub struct ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
     node_id: NodeId,
-    _marker: PhantomData<(F, MvPCS, UvPCS)>,
+    permutation: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
 }
 
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for ProverPermutationGadget<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -30,26 +34,14 @@ where
         &self,
         input: &indexmap::IndexMap<String, HintDF>,
     ) -> indexmap::IndexMap<String, HintDF> {
-        indexmap::IndexMap::new()
+        // First get the input data frame
+        let input_data_frame = input.get(INPUT_DATA_FRAME_KEY).unwrap();
+        // Then see on this input what hints are needed for uniqueness
+        self.permutation.hint_dfs(input)
     }
 }
 
-impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverPermutationGadget<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    fn children(&self) -> Vec<std::sync::Arc<dyn Node<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-
-    fn node_id(&self) -> NodeId {
-        todo!()
-    }
-}
-
-impl<F, MvPCS, UvPCS> ProverPermutationGadget<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -58,7 +50,22 @@ where
     pub fn new(node_id: NodeId) -> Self {
         Self {
             node_id,
-            _marker: PhantomData,
+            permutation: todo!(),
         }
+    }
+}
+
+impl<F, MvPCS, UvPCS> Node<F, MvPCS, UvPCS> for ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    fn children(&self) -> Vec<Arc<dyn Node<F, MvPCS, UvPCS>>> {
+        Vec::new()
+    }
+
+    fn node_id(&self) -> NodeId {
+        self.node_id.clone()
     }
 }

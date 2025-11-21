@@ -1,5 +1,5 @@
-use crate::proof_nodes::HintGenerationPlan;
-use crate::proof_nodes::prover::{ProverGadgetNode, ProverLpNode};
+use crate::proof_nodes::HintDF;
+use crate::proof_nodes::prover::{ProverGadget, ProverLpNode};
 use crate::prover::trees::proof_tree::ProverProofTree;
 use crate::tree::{Node, NodeId};
 use crate::{
@@ -59,17 +59,16 @@ where
         NodeId::LP(LogicalPlan::Projection(self.projection.clone()))
     }
 }
-
-impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintGenerationPlan> {
+    ) -> indexmap::IndexMap<String, HintDF> {
         todo!()
     }
 
@@ -95,21 +94,14 @@ where
     ) -> crate::proof_nodes::cost::ProvingCost {
         todo!()
     }
-}
 
-impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintGenerationPlan {
+    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         // Get the output of the child node as the input hint generation plan
         let input_hint_generation_plan = self.input_prover_node.output(proof_tree);
         // Extract the data frame from the input hint generation plan
         let input = input_hint_generation_plan.data_frame();
         let output = hints::build_output_dataframe(input, &self.projection);
-        HintGenerationPlan::new_virtual(output)
+        HintDF::new_virtual(output)
     }
 
     fn ctx_lp_node(

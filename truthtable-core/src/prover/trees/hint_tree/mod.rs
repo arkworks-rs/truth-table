@@ -148,7 +148,7 @@ where
         // > = Vec::new();
 
         // for node in &nodes {
-        //     let trees = node.hint_generation_plans(&proof_tree);
+        //     let trees = node.hint_dfs(&proof_tree);
         //     for (label, hint_plan) in trees {
         //         if let Some(projected_plan) = hint_plan.project_materialized() {
         //             let ctx = ctx.clone();
@@ -237,7 +237,7 @@ where
         //     }
 
         //     let mut ordered_entry = IndexMap::with_capacity(entry.len());
-        //     let hint_plan_order = node.hint_generation_plans(&proof_tree);
+        //     let hint_plan_order = node.hint_dfs(&proof_tree);
         //     for label in hint_plan_order.keys() {
         //         if let Some(batches) = entry.shift_remove(label) {
         //             ordered_entry.insert(label.clone(), batches);

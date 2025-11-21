@@ -1,5 +1,5 @@
 use crate::proof_nodes::{
-    HintGenerationPlan, OUTPUT_PLAN_KEY,
+    HintDF, OUTPUT_PLAN_KEY,
     cost::ProvingCost,
     prover::ProverPlanNode,
     tree::NodeId,

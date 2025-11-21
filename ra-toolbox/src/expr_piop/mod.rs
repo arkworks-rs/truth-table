@@ -42,7 +42,10 @@ macro_rules! impl_expr_piop_deep_clone {
             MvPCS: PCS<F, Poly = MLE<F>>,
             UvPCS: PCS<F, Poly = LDE<F>>,
         {
-            fn deep_clone(&self, _new_prover: ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) -> Self {
+            fn deep_clone(
+                &self,
+                _new_prover: ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
+            ) -> Self {
                 self.clone()
             }
         }

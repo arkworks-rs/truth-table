@@ -11,8 +11,8 @@ use datafusion_expr::{LogicalPlan, TableScan};
 
 use crate::{
     proof_nodes::{
-        HintGenerationPlan,
-        prover::{ProverGadgetNode, ProverLpNode, ProverPlanNode},
+        HintDF,
+        prover::{ProverGadget, ProverLpNode, ProverPlanNode},
     },
     prover::trees::proof_tree::ProverProofTree,
     tree::{Node, NodeId},
@@ -40,16 +40,16 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ProverGadgetNode<F, MvPCS, UvPCS> for ProverTableScanNode
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverTableScanNode
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintGenerationPlan> {
+    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
         todo!()
     }
 
@@ -75,15 +75,8 @@ where
     ) -> crate::proof_nodes::cost::ProvingCost {
         todo!()
     }
-}
 
-impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverTableScanNode
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintGenerationPlan {
+    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         todo!()
     }
 

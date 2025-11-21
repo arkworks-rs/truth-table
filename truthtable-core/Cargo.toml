@@ -20,6 +20,7 @@ ark-test-curves = { workspace = true }
 # datafusion dependencies
 datafusion = { workspace = true }
 datafusion-functions-window = { workspace = true }
+datafusion-functions-aggregate = { workspace = true }
 datafusion-expr = { workspace = true }
 datafusion-common = { workspace = true }
 

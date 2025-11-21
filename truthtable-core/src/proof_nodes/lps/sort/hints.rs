@@ -1,4 +1,4 @@
-use crate::proof_nodes::{HintGenerationPlan, OUTPUT_PLAN_KEY};
+use crate::proof_nodes::{HintDF, OUTPUT_PLAN_KEY};
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
     common::{DataFusionError, Result, ScalarValue},
@@ -18,10 +18,10 @@ pub(super) const LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str = "__lex_sort_expres
 pub(super) const SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY: &str =
     "__shifted_lex_sort_expressions__";
 pub(super) const TIE_INDICATOR_PLAN_KEY: &str = "__tie_indicators__";
-pub(super) fn build_sort_hint_generation_plans(
+pub(super) fn build_sort_hint_dfs(
     base_plan: LogicalPlan,
     sort_plan: &datafusion_expr::logical_plan::Sort,
-) -> IndexMap<String, HintGenerationPlan> {
+) -> IndexMap<String, HintDF> {
     todo!()
     // let normalized_sorts = normalize_sort_expressions(sort_plan, &base_plan);
 
@@ -36,18 +36,18 @@ pub(super) fn build_sort_hint_generation_plans(
     // let mut plans = IndexMap::new();
     // plans.insert(
     //     OUTPUT_PLAN_KEY.to_string(),
-    //     HintGenerationPlan::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_output_plan),
+    //     HintDF::new_materialized(OUTPUT_PLAN_KEY.to_string(), sorted_output_plan),
     // );
     // plans.insert(
     //     super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-    //     HintGenerationPlan::new_materialized(
+    //     HintDF::new_materialized(
     //         super::LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
     //         lex_sorted_sort_expressions_plan.clone(),
     //     ),
     // );
     // plans.insert(
     //     super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
-    //     HintGenerationPlan::new_materialized(
+    //     HintDF::new_materialized(
     //         super::SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY.to_string(),
     //         shifted_lex_sorted_sort_expressions_plan,
     //     ),
@@ -55,7 +55,7 @@ pub(super) fn build_sort_hint_generation_plans(
     // if let Some(tie_plan) = tie_indicator_plan {
     //     plans.insert(
     //         super::TIE_INDICATOR_PLAN_KEY.to_string(),
-    //         HintGenerationPlan::new_materialized(
+    //         HintDF::new_materialized(
     //             super::TIE_INDICATOR_PLAN_KEY.to_string(),
     //             tie_plan,
     //         ),

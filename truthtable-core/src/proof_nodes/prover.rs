@@ -3,7 +3,7 @@
 
 use super::cost::ProvingCost;
 use crate::{
-    proof_nodes::HintGenerationPlan,
+    proof_nodes::HintDF,
     prover::trees::proof_tree::ProverProofTree,
     tree::{Node, NodeId},
 };
@@ -18,19 +18,37 @@ use datafusion::{
     arrow::datatypes::SchemaRef,
     common::Statistics,
     logical_expr::LogicalPlan,
-    prelude::{Expr, SessionContext},
+    prelude::{DataFrame, Expr, SessionContext},
 };
+use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
 
 pub use super::{cost, display, exprs, lps};
 
-pub trait ProverGadgetNode<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait ProverGadget<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
+    fn hint_dfs(
+        &self,
+        input: &IndexMap<String, HintDF>,
+    ) -> IndexMap<String, HintDF>;
+
+}
+
+/// Common interface for a proof plan node.
+///
+/// A proof plan is a tree of nodes, where each node represents a proof unit.
+pub trait ProverPlanNode<F, MvPCS, UvPCS>: Any + Send + Sync + Node<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF;
     /// A map of named logical plans that can be used to materialize witnesses
     /// for this node. Logical plan nodes typically return a single entry with
     /// the key `OUTPUT_PLAN_KEY`.
@@ -38,11 +56,18 @@ where
     /// Note that if your column can be generated from other columns, It doesn't
     /// need to be materialized and should be added to the 'add_virtual_witness'
     /// function.
-    fn hint_generation_plans(
+    fn hint_dfs(
         &self,
         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintGenerationPlan>;
+    ) -> indexmap::IndexMap<String, HintDF>;
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
 
+    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        Vec::new()
+    }
     fn arithmetic_post_process(&self);
 
     /// Complete the piop plan
@@ -73,27 +98,6 @@ where
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
 }
 
-/// Common interface for a proof plan node.
-///
-/// A proof plan is a tree of nodes, where each node represents a proof unit.
-pub trait ProverPlanNode<F, MvPCS, UvPCS>:
-    ProverGadgetNode<F, MvPCS, UvPCS> + Any + Send + Sync
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintGenerationPlan;
-    fn ctx_lp_node(
-        &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
-
-    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
-}
-
 pub trait ProverLpNode<F, MvPCS, UvPCS>:
     ProverPlanNode<F, MvPCS, UvPCS> + Any + Send + Sync
 where
@@ -107,7 +111,7 @@ where
         _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         _plan: LogicalPlan,
-        _parent_node_id: NodeId,
+        _parent: NodeId,
     ) -> Self
     where
         Self: Sized;
@@ -127,7 +131,7 @@ where
         _ctx: &SessionContext,
         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         _expr: Expr,
-        _parent_node_id: NodeId,
+        _parent: NodeId,
     ) -> Self
     where
         Self: Sized;
