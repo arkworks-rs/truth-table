@@ -97,6 +97,10 @@ where
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         todo!()
     }
+
+    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![self.input.clone(), self.predicate.clone()]
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
