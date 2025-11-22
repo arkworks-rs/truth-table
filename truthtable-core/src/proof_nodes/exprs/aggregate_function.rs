@@ -59,14 +59,6 @@ where
     ) -> crate::proof_nodes::HintDF {
         todo!()
     }
-
-    fn hint_dfs(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
-        todo!()
-    }
-
     fn ctx_lp_node(
         &self,
         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,

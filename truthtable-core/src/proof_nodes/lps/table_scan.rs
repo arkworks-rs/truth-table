@@ -34,12 +34,7 @@ where
     fn node_id(&self) -> NodeId {
         NodeId::LP(LogicalPlan::TableScan(self.table_scan.clone()))
     }
-    fn hint_dfs(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
-        todo!()
-    }
+
 
     fn arithmetic_post_process(&self) {
         todo!()

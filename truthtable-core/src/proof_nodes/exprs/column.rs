@@ -39,13 +39,6 @@ where
     fn node_id(&self) -> NodeId {
         NodeId::Expr(Expr::Column(self.column.clone()))
     }
-    fn hint_dfs(
-        &self,
-        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
-        todo!()
-    }
-
     fn arithmetic_post_process(&self) {
         todo!()
     }
@@ -53,7 +46,6 @@ where
     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
         todo!()
     }
-
 
     fn cost(
         &self,
@@ -85,7 +77,7 @@ where
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         vec![]
     }
-    
+
     fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }

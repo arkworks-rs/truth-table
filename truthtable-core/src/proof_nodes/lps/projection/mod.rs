@@ -48,12 +48,6 @@ where
     fn node_id(&self) -> NodeId {
         NodeId::LP(LogicalPlan::Projection(self.projection.clone()))
     }
-    fn hint_dfs(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintDF> {
-        todo!()
-    }
 
     fn arithmetic_post_process(&self) {
         todo!()

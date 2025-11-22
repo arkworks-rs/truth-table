@@ -36,7 +36,14 @@ where
         for (name, table) in &self.hints {
             let stats = TableProvider::statistics(table).unwrap();
             let rows = stats.num_rows;
-            hint_parts.push(format!("{name}={rows} rows"));
+            let columns = table
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().as_str().to_owned())
+                .collect::<Vec<_>>()
+                .join(", ");
+            hint_parts.push(format!("{name}={rows} rows ({columns})"));
         }
         format!("{base_display} [hints: {}]", hint_parts.join(", "))
     }
@@ -57,13 +64,6 @@ where
         self.inner.output(proof_tree)
     }
 
-    fn hint_dfs(
-        &self,
-        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintDF> {
-        self.inner.hint_dfs(proof_tree)
-    }
-
     fn ctx_lp_node(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
@@ -78,7 +78,6 @@ where
     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
         self.inner.add_virtual_witness(prover)
     }
-
 
     fn cost(
         &self,

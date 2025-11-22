@@ -4,9 +4,13 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+use indexmap::IndexMap;
 use std::sync::Arc;
 
-use crate::proof_nodes::prover::{ProverGadget, ProverPlanNode};
+use crate::proof_nodes::{
+    HintDF,
+    prover::{ProverGadget, ProverPlanNode},
+};
 #[cfg(test)]
 pub mod tests;
 
@@ -18,6 +22,17 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     trees: Vec<Arc<GadgetTree<F, MvPCS, UvPCS>>>,
+}
+
+impl<F, MvPCS, UvPCS> GadgetForest<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn hints(&self) -> IndexMap<String, HintDF> {
+        todo!()
+    }
 }
 
 #[derive(Clone)]

@@ -56,11 +56,6 @@ where
     fn node_id(&self) -> NodeId {
         NodeId::LP(LogicalPlan::Aggregate(self.aggregate.clone()))
     }
-
-    fn hint_dfs(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> IndexMap<String, HintDF> {
-        todo!()
-    }
-
     fn arithmetic_post_process(&self) {
         todo!()
     }

@@ -75,17 +75,6 @@ where
     }
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
     fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF;
-    /// A map of named logical plans that can be used to materialize witnesses
-    /// for this node. Logical plan nodes typically return a single entry with
-    /// the key `OUTPUT_PLAN_KEY`.
-    ///
-    /// Note that if your column can be generated from other columns, It doesn't
-    /// need to be materialized and should be added to the 'add_virtual_witness'
-    /// function.
-    fn hint_dfs(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintDF>;
     fn ctx_lp_node(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
@@ -105,7 +94,6 @@ where
             self.name()
         );
     }
-
 
     fn prove_piop_recursive(
         &self,

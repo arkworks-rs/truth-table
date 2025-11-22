@@ -49,13 +49,6 @@ where
         todo!()
     }
 
-    fn hint_dfs(
-        &self,
-        _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-    ) -> indexmap::IndexMap<String, HintDF> {
-        todo!()
-    }
-
     fn ctx_lp_node(
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
