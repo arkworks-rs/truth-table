@@ -2,7 +2,11 @@
 //! DataFusion logical plan.
 
 use super::cost::ProvingCost;
-use crate::{proof_nodes::HintDF, prover::trees::proof_tree::ProverProofTree, tree::NodeId};
+use crate::{
+    proof_nodes::HintDF,
+    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    tree::NodeId,
+};
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -34,6 +38,10 @@ where
         self.node_id().to_string()
     }
 
+    fn display(&self) -> String {
+        self.name()
+    }
+
     fn node_id(&self) -> NodeId;
 
     fn child_edge_labels(&self) -> Vec<Option<String>> {
@@ -53,6 +61,12 @@ where
     fn name(&self) -> String {
         self.node_id().to_string()
     }
+
+    fn display(&self) -> String {
+        self.name()
+    }
+
+    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS>;
 
     fn node_id(&self) -> NodeId;
 
@@ -77,9 +91,6 @@ where
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
 
-    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        Vec::new()
-    }
     fn arithmetic_post_process(&self);
 
     /// Complete the piop plan
@@ -95,10 +106,6 @@ where
         );
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()>;
 
     fn prove_piop_recursive(
         &self,

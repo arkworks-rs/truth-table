@@ -54,12 +54,6 @@ where
         todo!()
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
 
     fn cost(
         &self,
@@ -89,6 +83,10 @@ where
     }
 
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![]
+    }
+    
+    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }

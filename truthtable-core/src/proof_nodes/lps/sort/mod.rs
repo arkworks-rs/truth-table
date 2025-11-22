@@ -1,59 +1,124 @@
-pub(crate) mod hints;
 #[cfg(test)]
 mod tests;
-use crate::proof_nodes::{
-    HintDF, OUTPUT_PLAN_KEY,
-    cost::ProvingCost,
-    lps::sort::hints::{
-        LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY, SHIFTED_LEX_SORTED_SORT_EXPRESSIONS_PLAN_KEY,
-        TIE_INDICATOR_PLAN_KEY, build_sort_hint_dfs,
-    },
-    prover::{ArgProverGadget, ProverLpNode, ProverPlanNode},
-    verifier::{VerifierLpNode, VerifierNode},
-};
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use std::sync::Arc;
+
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
-    piop::PIOP,
-    prover::structs::polynomial::TrackedPoly,
-    verifier::{Verifier, structs::oracle::TrackedOracle},
+    prover::ArgProver,
 };
-use datafusion::prelude::DataFrame;
-use datafusion::{
-    arrow::datatypes::{DataType, Field, FieldRef},
-    prelude::SessionContext,
-};
-
-use datafusion_expr::LogicalPlan;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion_common::Statistics;
+use datafusion_expr::{LogicalPlan, Sort};
 use indexmap::IndexMap;
-use ra_toolbox::lp_piop::sort_check::{SortPIOP, SortPIOPProverInput, SortPIOPVerifierInput};
-use std::sync::Arc;
 
-pub struct ProverSortExprNode<F, MvPCS, UvPCS>
+use crate::{
+    proof_nodes::{
+        HintDF,
+        cost::ProvingCost,
+        prover::{ProverLpNode, ProverPlanNode},
+        verifier::VerifierNode,
+    },
+    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    tree::{NodeId, ProverPlanTree},
+};
+
+pub struct ProverSortNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub expr: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    /// The direction of the sort
-    pub asc: bool,
-    /// Whether to put Nulls before all other data values
-    pub nulls_first: bool,
+    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    sort: Sort,
 }
 
-pub struct VerifierSortExprNode<F, MvPCS, UvPCS>
+pub struct VerifierSortNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub expr: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    /// The direction of the sort
-    pub asc: bool,
-    /// Whether to put Nulls before all other data values
-    pub nulls_first: bool,
+    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    sort: Sort,
+}
+
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
+        todo!()
+    }
+
+    fn node_id(&self) -> NodeId {
+        NodeId::LP(LogicalPlan::Sort(self.sort.clone()))
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![self.input.clone()]
+    }
+
+    fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+        todo!()
+    }
+
+    fn hint_dfs(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> IndexMap<String, HintDF> {
+        todo!()
+    }
+
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+        todo!()
+    }
+
+    fn arithmetic_post_process(&self) {
+        todo!()
+    }
+
+    fn add_virtual_witness(&self, prover: &mut ArgProver<F, MvPCS, UvPCS>) {
+        todo!()
+    }
+
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn from_lp(
+        ctx: &datafusion::prelude::SessionContext,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        plan: LogicalPlan,
+        _parent: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let sort = match plan.clone() {
+            LogicalPlan::Sort(s) => s,
+            _ => panic!("Expected LogicalPlan::Sort"),
+        };
+        let node_id = NodeId::LP(plan.clone());
+        let input = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+            ctx,
+            prover_ctx.clone(),
+            &sort.input,
+            &Some(node_id.clone()),
+        )
+        .root()
+        .clone();
+        Self { input, sort }
+    }
 }

@@ -1,19 +1,13 @@
-use crate::proof_nodes::{
-    HintDF,
-    cost::ProvingCost,
-    prover::{ArgProverGadget, ProverLpNode, ProverPlanNode},
-    verifier::{VerifierLpNode, VerifierNode},
-};
+use std::sync::Arc;
+
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
     pcs::PCS,
 };
-use datafusion::prelude::DataFrame;
-use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
-use indexmap::IndexMap;
-use std::sync::Arc;
+use datafusion_expr::Distinct;
+
+use crate::proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 
 pub struct ProverDistinctNode<F, MvPCS, UvPCS>
 where
@@ -21,7 +15,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    distinct: Distinct,
 }
 
 pub struct VerifierDistinctNode<F, MvPCS, UvPCS>
@@ -30,5 +25,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    distinct: Distinct,
 }

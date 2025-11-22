@@ -1,15 +1,19 @@
 use crate::proof_nodes::HintDF;
-use crate::proof_nodes::prover::{ProverGadget, ProverLpNode};
+use crate::proof_nodes::prover::ProverLpNode;
 use crate::proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 use crate::prover::trees::proof_tree::ProverProofTree;
 use crate::tree::NodeId;
 use crate::tree::ProverPlanTree;
+use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
+use ark_piop::prover::ArgProver;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
+use datafusion_common::Statistics;
 use datafusion_expr::Projection;
 use std::sync::Arc;
 pub(super) mod hints;
@@ -20,9 +24,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    pub projection: Projection,
-    pub input_prover_node: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    pub expr_prover_nodes: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    projection: Projection,
+    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    expr: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
 }
 pub struct VerifierProjectionNode<F, MvPCS, UvPCS>
 where
@@ -30,9 +34,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub projection: Projection,
-    pub input_verifier_node: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub expr_verifier_nodes: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    projection: Projection,
+    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    expr: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
 }
 
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverProjectionNode<F, MvPCS, UvPCS>
@@ -55,28 +59,22 @@ where
         todo!()
     }
 
-    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+    fn add_virtual_witness(&self, prover: &mut ArgProver<F, MvPCS, UvPCS>) {
         todo!()
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
 
     fn cost(
         &self,
-        statistics: datafusion::common::Statistics,
-        schema: datafusion::arrow::datatypes::SchemaRef,
+        statistics: Statistics,
+        schema: SchemaRef,
     ) -> crate::proof_nodes::cost::ProvingCost {
         todo!()
     }
 
     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
         // Get the output of the child node as the input hint generation plan
-        let input_hint_generation_plan = self.input_prover_node.output(proof_tree);
+        let input_hint_generation_plan = self.input.output(proof_tree);
         // Extract the data frame from the input hint generation plan
         let input = input_hint_generation_plan.data_frame();
         let output = hints::build_output_dataframe(input, &self.projection);
@@ -87,17 +85,17 @@ where
         &self,
         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
-        self.input_prover_node.clone()
-    }
-
-    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        let mut children = Vec::with_capacity(1 + self.expr_prover_nodes.len());
-        children.push(self.input_prover_node.clone());
-        children.extend(self.expr_prover_nodes.iter().cloned());
-        children
+        self.input.clone()
     }
 
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        let mut children = Vec::with_capacity(1 + self.expr.len());
+        children.push(self.input.clone());
+        self.expr.iter().for_each(|e| children.push(e.clone()));
+        children
+    }
+    
+    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }
@@ -110,7 +108,7 @@ where
 {
     fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
         plan: LogicalPlan,
         parent_node_id: NodeId,
     ) -> Self
@@ -127,7 +125,7 @@ where
         let node_id = NodeId::LP(plan.clone());
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.
-        let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+        let input = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
             ctx,
             prover_ctx.clone(),
             &projection.input,
@@ -138,7 +136,7 @@ where
 
         // Build expression proof plans for the projection expressions (excluding the
         // retained activator).
-        let expr_prover_nodes = projection
+        let expr = projection
             .expr
             .clone()
             .into_iter()
@@ -155,8 +153,8 @@ where
             .collect();
         Self {
             projection,
-            input_prover_node,
-            expr_prover_nodes,
+            input,
+            expr,
         }
     }
 }

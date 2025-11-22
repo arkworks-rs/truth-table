@@ -1,11 +1,13 @@
 use crate::{
     proof_nodes::{
         exprs::{
+            aggregate_function::ProverAggregateFunctionExprNode, alias::ProverAliasExprNode,
             binary_expr::ProverBinaryExprNode, column::ProverColumnExprNode,
             literal::ProverLiteralExprNode,
         },
         lps::{
-            filter::ProverFilterNode, projection::ProverProjectionNode,
+            aggregate::ProverAggregateNode, filter::ProverFilterNode,
+            projection::ProverProjectionNode, sort::ProverSortNode,
             table_scan::ProverTableScanNode,
         },
         prover::{ProverExprNode, ProverLpNode, ProverPlanNode},
@@ -75,15 +77,16 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    type Node = dyn ProverPlanNode<F, MvPCS, UvPCS>;
+    fn arena(&self) -> &IndexMap<NodeId, Arc<Self::Node>> {
         &self.arena
     }
 
-    fn root(&self) -> &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+    fn root(&self) -> &Arc<Self::Node> {
         &self.root
     }
 
-    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::Node>> {
         self.arena.get(node_id)
     }
 }
@@ -109,10 +112,6 @@ where
         let arena = build_arena::<F, MvPCS, UvPCS>(&root);
         Self { ctx, root, arena }
     }
-
-    // pub fn display_graphviz(&self) -> display::ProverProofTreeGraphviz<'_, F, MvPCS, UvPCS> {
-    //     display::ProverProofTreeGraphviz::new(&self.root)
-    // }
 
     pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         &self.arena
@@ -179,7 +178,34 @@ where
                 )),
                 prover_ctx,
             ),
-            _ => panic!("unsupported expression node for prover proof tree"),
+            Expr::AggregateFunction(_) => Self::new(
+                Arc::new(ProverAggregateFunctionExprNode::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::Expr(expr.clone())),
+                )),
+                prover_ctx,
+            ),
+            Expr::Alias(_) => Self::new(
+                Arc::new(ProverAliasExprNode::from_expr(
+                    ctx,
+                    prover_ctx.clone(),
+                    expr.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::Expr(expr.clone())),
+                )),
+                prover_ctx,
+            ),
+            _ => panic!(
+                "unsupported expression node for prover proof tree: {}",
+                expr
+            ),
         }
     }
 
@@ -231,6 +257,30 @@ where
                 )),
                 prover_ctx,
             ),
+            LogicalPlan::Aggregate(_) => Self::new(
+                Arc::new(ProverAggregateNode::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::LP(plan.clone())),
+                )),
+                prover_ctx,
+            ),
+            LogicalPlan::Sort(_) => Self::new(
+                Arc::new(ProverSortNode::from_lp(
+                    ctx,
+                    prover_ctx.clone(),
+                    plan.clone(),
+                    parent_node_id
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(NodeId::LP(plan.clone())),
+                )),
+                prover_ctx,
+            ),
             _ => panic!("unsupported logical plan node for prover proof tree"),
         }
     }
@@ -252,7 +302,7 @@ where
         MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
         UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
     {
-        for child in node.plan_children() {
+        for child in node.children() {
             dfs(&child, out);
         }
         out.push(Arc::clone(node));

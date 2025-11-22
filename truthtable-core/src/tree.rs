@@ -19,12 +19,14 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
+    type Node: ProverPlanNode<F, MvPCS, UvPCS> + ?Sized;
+
     /// Get the arena that contains all nodes in this tree.
-    fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
+    fn arena(&self) -> &IndexMap<NodeId, Arc<Self::Node>>;
     /// Get the root node of this tree.
-    fn root(&self) -> &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>;
+    fn root(&self) -> &Arc<Self::Node>;
     /// Get a reference to a node by its ID.
-    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>;
+    fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::Node>>;
     /// Display the tree in Graphviz DOT format.
     fn display_graphviz(&self) -> String {
         fn escape_label(raw: &str) -> String {
@@ -40,7 +42,7 @@ where
 
         for (idx, (node_id, node)) in self.arena().iter().enumerate() {
             let ident = format!("n{idx}");
-            let label = escape_label(&node.name());
+            let label = escape_label(&node.display());
             dot.push_str(&format!("  {ident} [label=\"{label}\"];\n"));
             node_names.insert(node_id.clone(), ident);
         }

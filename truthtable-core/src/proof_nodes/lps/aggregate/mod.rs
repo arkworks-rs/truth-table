@@ -16,7 +16,7 @@ use crate::{
         prover::{ProverGadget, ProverLpNode, ProverPlanNode},
         verifier::VerifierNode,
     },
-    prover::trees::proof_tree::ProverProofTree,
+    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
     tree::{NodeId, ProverPlanTree},
 };
 
@@ -24,18 +24,15 @@ mod hints;
 pub struct ProverAggregateNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     // The aggregate information from datafusion
-    pub aggregate: Aggregate,
+    aggregate: Aggregate,
     // The prover plan children nodes for the group by expressions
-    pub input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    pub group_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
-    pub aggr_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
-    // The piop gadget dependencies for this aggregate node
-    pub binary: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
-    pub support: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    group_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    aggr_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
 }
 
 pub struct VerifierAggregateNode<F, MvPCS, UvPCS>
@@ -44,10 +41,10 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    pub group_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub aggr_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub aggregate: Aggregate,
+    group_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    aggr_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    aggregate: Aggregate,
 }
 
 impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
@@ -202,13 +199,6 @@ where
         // );
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
-
     fn cost(
         &self,
         statistics: datafusion::common::Statistics,
@@ -233,11 +223,19 @@ where
         self.input.clone()
     }
 
-    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        todo!()
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        let mut children: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> = vec![];
+        children.push(self.input.clone());
+        self.group_exprs
+            .iter()
+            .for_each(|e| children.push(e.clone()));
+        self.aggr_exprs
+            .iter()
+            .for_each(|e| children.push(e.clone()));
+        children
     }
 
-    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }
@@ -313,8 +311,6 @@ where
             aggr_exprs,
             input: input_prover_node,
             aggregate,
-            binary: todo!(),
-            support: todo!(),
         }
     }
 }

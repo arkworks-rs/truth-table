@@ -9,8 +9,7 @@ use ark_piop::{
 };
 use datafusion::{arrow::datatypes::SchemaRef, prelude::SessionContext};
 use datafusion_common::Statistics;
-use datafusion_expr::{Expr, Filter, LogicalPlan};
-use rayon::vec;
+use datafusion_expr::{Filter, LogicalPlan};
 
 use crate::{
     proof_nodes::{
@@ -18,7 +17,7 @@ use crate::{
         cost::ProvingCost,
         prover::{ProverLpNode, ProverPlanNode},
     },
-    prover::trees::proof_tree::ProverProofTree,
+    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
     tree::{NodeId, ProverPlanTree},
 };
 
@@ -26,8 +25,8 @@ use crate::{
 pub struct ProverFilterNode<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     // The filter information from DataFusion
     filter: Filter,
@@ -72,22 +71,16 @@ where
         todo!()
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
-    fn plan_children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
         vec![self.input.clone(), self.predicate.clone()]
     }
 
-    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }

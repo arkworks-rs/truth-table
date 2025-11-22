@@ -8,7 +8,7 @@ use ark_piop::{
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 
-use crate::tree::NodeId;
+use crate::{proof_nodes::prover::ProverPlanNode, tree::NodeId};
 
 #[derive(Clone)]
 pub struct ProverLiteralExprNode {
@@ -55,13 +55,6 @@ where
         todo!()
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
-
     fn cost(
         &self,
         statistics: datafusion_common::Statistics,
@@ -70,9 +63,11 @@ where
         todo!()
     }
 
-    fn children(
-        &self,
-    ) -> Vec<Arc<dyn crate::proof_nodes::prover::ProverPlanNode<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![]
+    }
+
+    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }

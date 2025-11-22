@@ -1,19 +1,10 @@
-use crate::proof_nodes::{
-    HintDF, OUTPUT_PLAN_KEY,
-    cost::ProvingCost,
-    prover::{ArgProverGadget, ProverLpNode, ProverPlanNode},
-    tree::NodeId,
-    verifier::{VerifierLpNode, VerifierNode},
-};
+use crate::proof_nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::prelude::DataFrame;
-use datafusion::prelude::SessionContext;
-use datafusion_expr::LogicalPlan;
-use indexmap::IndexMap;
+use datafusion_expr::SubqueryAlias;
 use std::sync::Arc;
 
 pub struct ProverSubqueryAliasNode<F, MvPCS, UvPCS>
@@ -22,8 +13,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub input_proof_tree_root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    pub node_id: NodeId,
+    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    subquery_alias: SubqueryAlias,
 }
 pub struct VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
 where
@@ -31,6 +22,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>>,
     UvPCS: PCS<F, Poly = LDE<F>>,
 {
-    pub input_proof_tree_root: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub node_id: NodeId,
+    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    subquery_alias: SubqueryAlias,
 }

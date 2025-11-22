@@ -1,48 +1,117 @@
-use crate::proof_nodes::{
-    HintDF, OUTPUT_PLAN_KEY,
-    cost::ProvingCost,
-    prover::ProverPlanNode,
-    tree::NodeId,
-    verifier::{VerifierExprNode, VerifierNode},
-};
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ctx::SharedCtx, table::TrackedTable, table_oracle::TrackedTableOracle,
-};
+use std::sync::Arc;
+
+use arithmetic::{ACTIVATOR_EXPR, ctx::SharedCtx};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::prelude::DataFrame;
-use datafusion::{
-    arrow::datatypes::{Field, FieldRef, Schema, SchemaRef},
-    common::Statistics,
-    logical_expr::Expr,
-    prelude::SessionContext,
+use datafusion::prelude::SessionContext;
+use datafusion_expr::{Expr, LogicalPlan, expr::Alias};
+
+use crate::{
+    proof_nodes::{
+        HintDF,
+        lps::projection::ProverProjectionNode,
+        prover::{ProverExprNode, ProverGadget, ProverPlanNode},
+    },
+    prover::trees::proof_tree::ProverProofTree,
+    tree::{NodeId, ProverPlanTree},
 };
 
-use indexmap::IndexMap;
-use std::sync::Arc;
-
 #[derive(Clone)]
-pub struct ProverAliasExprNode<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    pub node_id: NodeId,
-    pub input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+pub struct ProverAliasExprNode {
     pub parent_node_id: NodeId,
+    pub alias: Alias,
 }
 #[derive(Clone)]
-pub struct VerifierAliasExprNode<F, MvPCS, UvPCS>
+pub struct VerifierAliasExprNode {
+    pub parent_node_id: NodeId,
+    pub alias: Alias,
+}
+
+impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverAliasExprNode
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    pub node_id: NodeId,
-    pub input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    pub parent_node_id: NodeId,
+    fn node_id(&self) -> NodeId {
+        NodeId::Expr(Expr::Alias(self.alias.clone()))
+    }
+    fn hint_dfs(
+        &self,
+        _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> indexmap::IndexMap<String, crate::proof_nodes::HintDF> {
+        todo!()
+    }
+
+    fn arithmetic_post_process(&self) {
+        todo!()
+    }
+
+    fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+        todo!()
+    }
+
+    fn cost(
+        &self,
+        statistics: datafusion::common::Statistics,
+        schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> crate::proof_nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+        let ctx_lp_node = self.ctx_lp_node(proof_tree);
+        let base_hint_generation_plan = ctx_lp_node.output(proof_tree);
+        let base_data_frame = base_hint_generation_plan.data_frame();
+        let projection_exprs = vec![Expr::Alias(self.alias.clone()), ACTIVATOR_EXPR.clone()];
+        let projected_data_frame = base_data_frame.clone().select(projection_exprs).unwrap();
+        HintDF::new_virtual(projected_data_frame)
+    }
+
+    fn ctx_lp_node(
+        &self,
+        proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+        proof_tree
+            .get_node(&self.parent_node_id)
+            .unwrap()
+            .ctx_lp_node(proof_tree)
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![]
+    }
+
+    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
+        todo!()
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverAliasExprNode
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _expr: datafusion::logical_expr::Expr,
+        parent_node_id: NodeId,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let alias = match _expr {
+            Expr::Alias(col) => col,
+            _ => panic!(),
+        };
+        Self {
+            parent_node_id,
+            alias,
+        }
+    }
 }

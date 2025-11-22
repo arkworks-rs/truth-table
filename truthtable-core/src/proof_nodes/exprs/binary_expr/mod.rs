@@ -100,13 +100,6 @@ where
         todo!()
     }
 
-    fn prove_piop(
-        &self,
-        _prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
-    }
-
     fn cost(
         &self,
         statistics: datafusion_common::Statistics,
@@ -116,6 +109,10 @@ where
     }
 
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+        vec![self.left.clone(), self.right.clone()]
+    }
+
+    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
         todo!()
     }
 }
