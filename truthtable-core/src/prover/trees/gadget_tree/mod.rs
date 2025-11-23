@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::proof_nodes::{
     HintDF,
-    prover::{ProverGadget, ProverPlanNode},
+    prover::ProverGadget,
 };
 #[cfg(test)]
 pub mod tests;

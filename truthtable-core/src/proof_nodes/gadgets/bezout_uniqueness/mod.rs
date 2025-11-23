@@ -10,7 +10,7 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-
+pub const NAME: &str = "Bezout_Uniqueness_Gadget";
 pub const INPUT_DATA_FRAME_KEY: &str = "__bezout_uniqueness__input_data_frame__";
 
 #[derive(Clone)]
@@ -20,7 +20,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    node_id: NodeId,
     permutation: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
 }
 
@@ -43,8 +42,9 @@ where
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
         todo!()
     }
-    fn node_id(&self) -> NodeId {
-        self.node_id.clone()
+
+    fn name(&self) -> String {
+        NAME.to_string()
     }
 }
 
@@ -54,9 +54,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    pub fn new(node_id: NodeId) -> Self {
+    pub fn new() -> Self {
         Self {
-            node_id,
             permutation: todo!(),
         }
     }

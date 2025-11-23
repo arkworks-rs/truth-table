@@ -11,6 +11,9 @@ use ark_piop::{
     pcs::PCS,
 };
 use indexmap::IndexMap;
+
+pub const NAME: &str = "Binary_Gadget";
+
 #[derive(Clone)]
 pub struct ProverBinaryGadget<F, MvPCS, UvPCS>
 where
@@ -18,7 +21,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    node_id: NodeId,
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
 }
 
@@ -35,8 +37,8 @@ where
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
         todo!()
     }
-    fn node_id(&self) -> NodeId {
-        self.node_id.clone()
+    fn name(&self) -> String {
+        NAME.to_string()
     }
 }
 
@@ -46,11 +48,9 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    pub fn new(node_id: NodeId) -> Self {
+    pub fn new() -> Self {
         Self {
-            node_id,
             _marker: PhantomData,
         }
     }
 }
-

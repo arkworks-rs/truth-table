@@ -13,14 +13,16 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_common::Statistics;
 use datafusion_expr::{LogicalPlan, Sort};
 
+use crate::proof_nodes::{gadgets::ProverSortGadget, lps::sort::gadget::ProverSortLPGadget};
 use crate::{
     proof_nodes::{
         HintDF,
         cost::ProvingCost,
+        gadgets::fingerprint::ProverFingerprintGadget,
         prover::{ProverLpNode, ProverPlanNode},
         verifier::VerifierNode,
     },
-    prover::trees::proof_tree::ProverProofTree,
+    prover::trees::{gadget_tree::GadgetTree, proof_tree::ProverProofTree},
     tree::{NodeId, ProverPlanTree},
 };
 

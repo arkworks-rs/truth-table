@@ -34,16 +34,10 @@ where
 {
     fn hints(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF>;
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>>;
-    fn name(&self) -> String {
-        self.node_id().to_string()
-    }
-
+    fn name(&self) -> String;
     fn display(&self) -> String {
         self.name()
     }
-
-    fn node_id(&self) -> NodeId;
-
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }

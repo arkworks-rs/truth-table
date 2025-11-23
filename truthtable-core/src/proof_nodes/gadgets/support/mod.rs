@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use indexmap::indexmap;
 use std::sync::Arc;
 
+pub const NAME: &str = "Support_Gadget";
 pub const INPUT_DATA_FRAME_KEY: &str = "__support__input_data_frame__";
 pub const SUPPORT_DATA_FRAME_KEY: &str = "__support__support_data_frame__";
 
@@ -33,7 +34,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn node_id(&self) -> NodeId {
+    fn name(&self) -> String {
         todo!()
     }
     fn hints(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF> {
@@ -54,9 +55,7 @@ where
         let support_fingerprint_input = indexmap! {
             fingerprint::INPUT_DATA_FRAME_KEY.to_string() => support_data_frame.clone(),
         };
-        let support_fingerprint_hints = self
-            .support_fingerprint
-            .hints(&support_fingerprint_input);
+        let support_fingerprint_hints = self.support_fingerprint.hints(&support_fingerprint_input);
         // Combine all hints
         let mut all_hints = IndexMap::new();
         all_hints.extend(uniqueness_hints);

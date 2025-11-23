@@ -9,6 +9,9 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
+
+pub const NAME: &str = "Permutation_Gadget";
+
 #[derive(Clone)]
 pub struct ProverPermutationGadget<F, MvPCS, UvPCS>
 where
@@ -16,7 +19,6 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    node_id: NodeId,
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
 }
 
@@ -36,8 +38,8 @@ where
     fn children(&self) -> Vec<std::sync::Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
         todo!()
     }
-    fn node_id(&self) -> NodeId {
-        todo!()
+    fn name(&self) -> String {
+        NAME.to_string()
     }
 }
 
@@ -47,9 +49,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    pub fn new(node_id: NodeId) -> Self {
+    pub fn new() -> Self {
         Self {
-            node_id,
             _marker: PhantomData,
         }
     }

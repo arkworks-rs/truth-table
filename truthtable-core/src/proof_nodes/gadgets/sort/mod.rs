@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::{proof_nodes::{HintDF, prover::ProverPlanNode, verifier::VerifierNode}, tree::NodeId};
+use crate::{
+    proof_nodes::{HintDF, prover::ProverPlanNode, verifier::VerifierNode},
+    tree::NodeId,
+};
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -18,6 +21,18 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    node_id: NodeId,
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
+}
+
+impl<F, MvPCS, UvPCS> ProverSortGadget<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
 }
