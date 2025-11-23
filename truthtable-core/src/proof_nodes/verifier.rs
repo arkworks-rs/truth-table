@@ -45,7 +45,7 @@ where
 
     fn node_id(&self) -> NodeId;
 
-    fn hint_dfs(&self) -> IndexMap<String, HintDF>;
+    fn hints(&self) -> IndexMap<String, HintDF>;
 
     fn output(&self) -> DataFrame;
 

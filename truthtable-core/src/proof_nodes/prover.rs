@@ -4,7 +4,7 @@
 use super::cost::ProvingCost;
 use crate::{
     proof_nodes::HintDF,
-    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    prover::trees::{gadget_tree::GadgetTree, proof_tree::ProverProofTree},
     tree::NodeId,
 };
 use arithmetic::ctx::SharedCtx;
@@ -32,7 +32,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF>;
+    fn hints(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF>;
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>>;
     fn name(&self) -> String {
         self.node_id().to_string()
@@ -66,7 +66,7 @@ where
         self.name()
     }
 
-    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS>;
+    fn gadget_tree(&self) -> GadgetTree<F, MvPCS, UvPCS>;
 
     fn node_id(&self) -> NodeId;
 

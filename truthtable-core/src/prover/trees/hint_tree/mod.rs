@@ -1,11 +1,12 @@
 use crate::{
     proof_nodes::{HintDF, prover::ProverPlanNode},
-    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    prover::trees::proof_tree::ProverProofTree,
     tree::{NodeId, ProverPlanTree},
 };
 // pub mod display;
 // #[cfg(test)]
 // pub mod tests;
+use futures::future::try_join_all;
 use indexmap::IndexMap;
 use std::{fmt, sync::Arc};
 
@@ -14,7 +15,12 @@ use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion::datasource::{MemTable, TableProvider};
+use datafusion::{
+    arrow::record_batch::RecordBatch,
+    datasource::{MemTable, TableProvider},
+    error::{DataFusionError, Result as DFResult},
+    prelude::SessionContext,
+};
 
 pub struct HintedProverPlanNode<F, MvPCS, UvPCS> {
     inner: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
@@ -48,8 +54,8 @@ where
         format!("{base_display} [hints: {}]", hint_parts.join(", "))
     }
 
-    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
-        self.inner.gadget_forest()
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+        todo!()
     }
 
     fn node_id(&self) -> NodeId {
@@ -96,6 +102,8 @@ where
 {
     arena: IndexMap<NodeId, Arc<HintedProverPlanNode<F, MvPCS, UvPCS>>>,
     root: Arc<HintedProverPlanNode<F, MvPCS, UvPCS>>,
+    proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+    hint_batches: IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
 }
 
 impl<F, MvPCS, UvPCS> fmt::Debug for ProverHintTree<F, MvPCS, UvPCS>
@@ -143,5 +151,110 @@ where
 
     fn get_node(&self, node_id: &NodeId) -> Option<&Arc<HintedProverPlanNode<F, MvPCS, UvPCS>>> {
         self.arena.get(node_id)
+    }
+}
+
+impl<F, MvPCS, UvPCS> ProverHintTree<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+{
+    pub async fn from_proof_tree(
+        _ctx: &SessionContext,
+        proof_tree: ProverProofTree<F, MvPCS, UvPCS>,
+    ) -> DFResult<Self> {
+        let root_id = proof_tree.root().node_id();
+
+        // For each node: execute its gadget hints, materialize into record batches,
+        // wrap as MemTables, and collect both tables and raw batches.
+        let node_tasks = proof_tree.arena().iter().map(|(node_id, node)| {
+            let node_id = node_id.clone();
+            let node = Arc::clone(node);
+            async move {
+                let hints = node.gadget_tree().hints();
+                let hint_tasks = hints.into_iter().map(|(label, hint_df)| {
+                    let df = hint_df.data_frame().clone();
+                    async move {
+                        // Collect DataFrame to batches; DataFusion returns DFSchema so grab inner SchemaRef.
+                        let schema = df.schema().inner().clone();
+                        let batches: Vec<RecordBatch> = df.collect().await?;
+                        let mem_table = MemTable::try_new(schema, vec![batches.clone()])?;
+                        Ok::<(String, MemTable, Vec<RecordBatch>), DataFusionError>((
+                            label, mem_table, batches,
+                        ))
+                    }
+                });
+
+                let hint_results: Vec<(String, MemTable, Vec<RecordBatch>)> =
+                    try_join_all(hint_tasks).await?;
+                // Preserve table providers and batches keyed by label.
+                let mut tables = IndexMap::with_capacity(hint_results.len());
+                let mut batches_by_label = IndexMap::with_capacity(hint_results.len());
+                for (label, table, batches) in hint_results {
+                    batches_by_label.insert(label.clone(), batches);
+                    tables.insert(label, table);
+                }
+
+                Ok::<
+                    (
+                        NodeId,
+                        Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+                        IndexMap<String, MemTable>,
+                        IndexMap<String, Vec<RecordBatch>>,
+                    ),
+                    DataFusionError,
+                >((node_id, node, tables, batches_by_label))
+            }
+        });
+
+        // Finish assembling the hinted plan tree plus batch map.
+        let node_results: Vec<(
+            NodeId,
+            Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+            IndexMap<String, MemTable>,
+            IndexMap<String, Vec<RecordBatch>>,
+        )> = try_join_all(node_tasks).await?;
+        let mut arena = IndexMap::with_capacity(node_results.len());
+        let mut hint_batches = IndexMap::with_capacity(node_results.len());
+        let mut root: Option<Arc<HintedProverPlanNode<F, MvPCS, UvPCS>>> = None;
+
+        for (node_id, node, tables, batches) in node_results {
+            let hinted = Arc::new(HintedProverPlanNode {
+                inner: node,
+                hints: tables,
+            });
+            if node_id == root_id {
+                root = Some(Arc::clone(&hinted));
+            }
+            hint_batches.insert(node_id.clone(), batches);
+            arena.insert(node_id, hinted);
+        }
+
+        let root = root.ok_or_else(|| {
+            DataFusionError::Execution("failed to locate root node for hint tree".to_string())
+        })?;
+
+        Ok(Self {
+            arena,
+            root,
+            proof_tree,
+            hint_batches,
+        })
+    }
+
+    pub fn batches_for(&self, node_id: &NodeId, label: &str) -> Option<&Vec<RecordBatch>> {
+        self.hint_batches
+            .get(node_id)
+            .and_then(|by_label| by_label.get(label))
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        ProverProofTree<F, MvPCS, UvPCS>,
+        IndexMap<NodeId, IndexMap<String, Vec<RecordBatch>>>,
+    ) {
+        (self.proof_tree, self.hint_batches)
     }
 }

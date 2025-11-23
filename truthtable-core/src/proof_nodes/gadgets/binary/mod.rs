@@ -28,7 +28,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> indexmap::IndexMap<String, HintDF> {
+    fn hints(&self, input: &IndexMap<String, HintDF>) -> indexmap::IndexMap<String, HintDF> {
         indexmap::IndexMap::new()
     }
 

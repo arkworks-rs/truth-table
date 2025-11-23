@@ -105,7 +105,7 @@ where
         vec![self.left.clone(), self.right.clone()]
     }
 
-    fn gadget_forest(&self) -> crate::prover::trees::gadget_tree::GadgetForest<F, MvPCS, UvPCS> {
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
         todo!()
     }
 }

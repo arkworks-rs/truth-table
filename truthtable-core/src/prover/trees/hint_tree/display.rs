@@ -84,7 +84,7 @@ where
         //         .node(&node_kind)
         //         .and_then(|original_node| {
         //             let mut entries: Vec<_> = original_node
-        //                 .hint_dfs(self.tree.proof_tree())
+        //                 .hints(self.tree.proof_tree())
         //                 .into_iter()
         //                 .collect();
         //             if entries.is_empty() {

@@ -30,14 +30,14 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn hint_dfs(
+    fn hints(
         &self,
         input: &indexmap::IndexMap<String, HintDF>,
     ) -> indexmap::IndexMap<String, HintDF> {
         // First get the input data frame
         let input_data_frame = input.get(INPUT_DATA_FRAME_KEY).unwrap();
         // Then see on this input what hints are needed for uniqueness
-        self.permutation.hint_dfs(input)
+        self.permutation.hints(input)
     }
 
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {

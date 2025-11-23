@@ -17,7 +17,7 @@ use crate::{
         cost::ProvingCost,
         prover::{ProverLpNode, ProverPlanNode},
     },
-    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    prover::trees::proof_tree::ProverProofTree,
     tree::{NodeId, ProverPlanTree},
 };
 
@@ -64,7 +64,6 @@ where
         todo!()
     }
 
-
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         todo!()
     }
@@ -73,7 +72,7 @@ where
         vec![self.input.clone(), self.predicate.clone()]
     }
 
-    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
         todo!()
     }
 }

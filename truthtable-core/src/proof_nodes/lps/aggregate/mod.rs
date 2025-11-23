@@ -16,7 +16,7 @@ use crate::{
         prover::{ProverGadget, ProverLpNode, ProverPlanNode},
         verifier::VerifierNode,
     },
-    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    prover::trees::proof_tree::ProverProofTree,
     tree::{NodeId, ProverPlanTree},
 };
 
@@ -230,7 +230,7 @@ where
         children
     }
 
-    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
         todo!()
     }
 }

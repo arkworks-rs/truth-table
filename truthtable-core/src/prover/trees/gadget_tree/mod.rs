@@ -15,27 +15,6 @@ use crate::proof_nodes::{
 pub mod tests;
 
 #[derive(Clone)]
-pub struct GadgetForest<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    trees: Vec<Arc<GadgetTree<F, MvPCS, UvPCS>>>,
-}
-
-impl<F, MvPCS, UvPCS> GadgetForest<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-{
-    fn hints(&self) -> IndexMap<String, HintDF> {
-        todo!()
-    }
-}
-
-#[derive(Clone)]
 pub struct GadgetTree<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -57,5 +36,9 @@ where
 
     pub fn root(&self) -> Arc<dyn ProverGadget<F, MvPCS, UvPCS>> {
         Arc::clone(&self.root)
+    }
+
+    pub fn hints(&self) -> IndexMap<String, HintDF> {
+        todo!()
     }
 }

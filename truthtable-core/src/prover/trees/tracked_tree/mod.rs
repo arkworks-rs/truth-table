@@ -264,7 +264,7 @@ where
 
             let mut tracked_tables = IndexMap::with_capacity(tables.len());
             if let Some(node) = proof_tree.node(&node_id) {
-                for (label, _) in node.hint_dfs(&proof_tree) {
+                for (label, _) in node.hints(&proof_tree) {
                     if let Some(table) = tables.swap_remove(&label) {
                         let tracked_table = process_table(label.clone(), table);
                         tracked_tables.insert(label, tracked_table);

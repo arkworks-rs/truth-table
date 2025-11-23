@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod tests;
+mod gadget;
+mod output;
 use std::sync::Arc;
 
 use arithmetic::ctx::SharedCtx;
@@ -12,7 +12,6 @@ use ark_piop::{
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_common::Statistics;
 use datafusion_expr::{LogicalPlan, Sort};
-use indexmap::IndexMap;
 
 use crate::{
     proof_nodes::{
@@ -21,7 +20,7 @@ use crate::{
         prover::{ProverLpNode, ProverPlanNode},
         verifier::VerifierNode,
     },
-    prover::trees::{gadget_tree::GadgetForest, proof_tree::ProverProofTree},
+    prover::trees::proof_tree::ProverProofTree,
     tree::{NodeId, ProverPlanTree},
 };
 
@@ -51,7 +50,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn gadget_forest(&self) -> GadgetForest<F, MvPCS, UvPCS> {
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
         todo!()
     }
 
@@ -63,8 +62,13 @@ where
         vec![self.input.clone()]
     }
 
-    fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
-        todo!()
+    fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+        // Get the output of the child node as the input hint generation plan
+        let input_hint_generation_plan = self.input.output(proof_tree);
+        // Extract the data frame from the input hint generation plan
+        let input = input_hint_generation_plan.data_frame();
+        let output = output::build_output_dataframe(input, &self.sort);
+        HintDF::new_virtual(output)
     }
 
     fn ctx_lp_node(

@@ -36,7 +36,7 @@ where
     fn node_id(&self) -> NodeId {
         todo!()
     }
-    fn hint_dfs(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF> {
+    fn hints(&self, input: &IndexMap<String, HintDF>) -> IndexMap<String, HintDF> {
         // First get the inputs
         let input_data_frame = input.get(INPUT_DATA_FRAME_KEY).unwrap();
         let support_data_frame = input.get(SUPPORT_DATA_FRAME_KEY).unwrap();
@@ -44,19 +44,19 @@ where
         let uniqueness_input = indexmap! {
             bezout_uniqueness::INPUT_DATA_FRAME_KEY.to_string() => support_data_frame.clone(),
         };
-        let uniqueness_hints = self.nodup.hint_dfs(&uniqueness_input);
+        let uniqueness_hints = self.nodup.hints(&uniqueness_input);
         // Then see on this input what hints are needed for support fingerprint
         let input_fingerprint_input = indexmap! {
             fingerprint::INPUT_DATA_FRAME_KEY.to_string() => input_data_frame.clone(),
         };
-        let input_fingerprint_hints = self.input_fingerprint.hint_dfs(&input_fingerprint_input);
+        let input_fingerprint_hints = self.input_fingerprint.hints(&input_fingerprint_input);
         // Then see on this input what hints are needed for support fingerprint
         let support_fingerprint_input = indexmap! {
             fingerprint::INPUT_DATA_FRAME_KEY.to_string() => support_data_frame.clone(),
         };
         let support_fingerprint_hints = self
             .support_fingerprint
-            .hint_dfs(&support_fingerprint_input);
+            .hints(&support_fingerprint_input);
         // Combine all hints
         let mut all_hints = IndexMap::new();
         all_hints.extend(uniqueness_hints);
