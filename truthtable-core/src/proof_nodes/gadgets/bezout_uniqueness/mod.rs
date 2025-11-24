@@ -14,7 +14,7 @@ pub const NAME: &str = "Bezout_Uniqueness_Gadget";
 pub const INPUT_DATA_FRAME_KEY: &str = "__bezout_uniqueness__input_data_frame__";
 
 #[derive(Clone)]
-pub struct ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
+pub struct Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -22,8 +22,20 @@ where
 {
     permutation: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
 }
+impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    pub fn new() -> Self {
+        Self {
+            permutation: todo!(),
+        }
+    }
+}
 
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -45,18 +57,5 @@ where
 
     fn name(&self) -> String {
         NAME.to_string()
-    }
-}
-
-impl<F, MvPCS, UvPCS> ProverBezoutUniqunessGadget<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    pub fn new() -> Self {
-        Self {
-            permutation: todo!(),
-        }
     }
 }

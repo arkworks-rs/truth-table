@@ -7,10 +7,7 @@ use ark_piop::{
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-use crate::proof_nodes::{
-    HintDF,
-    prover::ProverGadget,
-};
+use crate::proof_nodes::{HintDF, prover::ProverGadget};
 #[cfg(test)]
 pub mod tests;
 

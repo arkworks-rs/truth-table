@@ -6,6 +6,7 @@ pub mod permutation;
 pub mod prescribed_permutation;
 pub mod sign;
 pub mod sort;
+pub mod contigous_sort;
 pub mod support;
 pub mod bezout_uniqueness;
 

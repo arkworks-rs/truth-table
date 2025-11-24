@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 pub const NAME: &str = "Binary_Gadget";
 
 #[derive(Clone)]
-pub struct ProverBinaryGadget<F, MvPCS, UvPCS>
+pub struct Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -23,8 +23,20 @@ where
 {
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
 }
+impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
+}
 
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for ProverBinaryGadget<F, MvPCS, UvPCS>
+impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -39,18 +51,5 @@ where
     }
     fn name(&self) -> String {
         NAME.to_string()
-    }
-}
-
-impl<F, MvPCS, UvPCS> ProverBinaryGadget<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    pub fn new() -> Self {
-        Self {
-            _marker: PhantomData,
-        }
     }
 }

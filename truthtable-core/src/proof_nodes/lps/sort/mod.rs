@@ -13,12 +13,10 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_common::Statistics;
 use datafusion_expr::{LogicalPlan, Sort};
 
-use crate::proof_nodes::{gadgets::ProverSortGadget, lps::sort::gadget::ProverSortLPGadget};
 use crate::{
     proof_nodes::{
         HintDF,
         cost::ProvingCost,
-        gadgets::fingerprint::ProverFingerprintGadget,
         prover::{ProverLpNode, ProverPlanNode},
         verifier::VerifierNode,
     },
@@ -52,8 +50,8 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
-        todo!()
+    fn gadget_tree(&self) -> GadgetTree<F, MvPCS, UvPCS> {
+        GadgetTree::new(Arc::new(gadget::Prover::new()))
     }
 
     fn node_id(&self) -> NodeId {

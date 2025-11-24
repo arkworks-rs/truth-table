@@ -27,7 +27,21 @@ where
     support_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
     input_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
 }
-
+impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+where
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
+    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
+{
+    pub fn new(node_id: NodeId) -> Self {
+        Self {
+            node_id,
+            nodup: todo!(),
+            support_fingerprint: todo!(),
+            input_fingerprint: todo!(),
+        }
+    }
+}
 impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
 where
     F: PrimeField,
@@ -67,21 +81,5 @@ where
 
     fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
         todo!()
-    }
-}
-
-impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-{
-    pub fn new(node_id: NodeId) -> Self {
-        Self {
-            node_id,
-            nodup: todo!(),
-            support_fingerprint: todo!(),
-            input_fingerprint: todo!(),
-        }
     }
 }
