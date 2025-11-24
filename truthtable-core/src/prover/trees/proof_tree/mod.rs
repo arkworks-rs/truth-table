@@ -14,7 +14,6 @@ use crate::{
     },
     tree::{NodeId, ProverPlanTree},
 };
-pub mod display;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
@@ -50,7 +49,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.display_graphviz())
+        write!(f, "{}", self.display_graphviz(false))
     }
 }
 

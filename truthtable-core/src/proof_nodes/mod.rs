@@ -7,7 +7,6 @@ use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 
 pub mod cost;
-pub mod display;
 pub mod exprs;
 pub mod gadgets;
 pub mod lps;

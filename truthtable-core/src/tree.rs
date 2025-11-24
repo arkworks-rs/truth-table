@@ -28,7 +28,7 @@ where
     /// Get a reference to a node by its ID.
     fn get_node(&self, node_id: &NodeId) -> Option<&Arc<Self::Node>>;
     /// Display the tree in Graphviz DOT format.
-    fn display_graphviz(&self) -> String {
+    fn display_graphviz(&self, inner: bool) -> String {
         fn escape_label(raw: &str) -> String {
             raw.replace('\\', "\\\\")
                 .replace('"', "\\\"")
@@ -42,7 +42,13 @@ where
 
         for (idx, (node_id, node)) in self.arena().iter().enumerate() {
             let ident = format!("n{idx}");
-            let label = escape_label(&node.display());
+            let label = if inner {
+                // Include the gadget tree rendering inside the node label.
+                let gadget = node.gadget_tree().display_graphviz();
+                escape_label(&format!("{}\n{}", node.display(), gadget))
+            } else {
+                escape_label(&node.display())
+            };
             dot.push_str(&format!("  {ident} [label=\"{label}\"];\n"));
             node_names.insert(node_id.clone(), ident);
         }

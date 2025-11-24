@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use std::{any::Any, sync::Arc};
 use tracing::trace;
 
-pub use super::{cost, display, exprs, lps};
+pub use super::{cost, exprs, lps};
 
 pub trait ProverGadget<F, MvPCS, UvPCS>: Any + Send + Sync
 where

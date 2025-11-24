@@ -46,7 +46,7 @@ async fn build_proof_tree_for_query(
 #[tokio::test]
 async fn builds_projection_proof_tree_from_simple_query() {
     let proof_tree = build_proof_tree_for_query("SELECT value FROM dummy_table").await;
-    println!("{}", proof_tree.display_graphviz());
+    println!("{}", proof_tree.display_graphviz(true));
 }
 
 
@@ -54,7 +54,7 @@ async fn builds_projection_proof_tree_from_simple_query() {
 async fn builds_filter_proof_tree_from_simple_query() {
     let proof_tree =
         build_proof_tree_for_query("SELECT value FROM dummy_table WHERE flag > 0").await;
-    println!("{}", proof_tree.display_graphviz());
+    println!("{}", proof_tree.display_graphviz(true));
 }
 
 #[tokio::test]
@@ -62,7 +62,7 @@ async fn builds_aggregate_proof_tree_from_simple_query() {
     let proof_tree =
         build_proof_tree_for_query("SELECT value, COUNT(*) AS cnt FROM dummy_table GROUP BY value")
             .await;
-    println!("{}", proof_tree.display_graphviz());
+    println!("{}", proof_tree.display_graphviz(true));
 }
 #[tokio::test]
 async fn builds_projection_sort_proof_tree_from_simple_query() {
@@ -70,5 +70,5 @@ async fn builds_projection_sort_proof_tree_from_simple_query() {
         "SELECT value, flag, weight FROM dummy_table ORDER BY value, flag, weight",
     )
     .await;
-    println!("{}", proof_tree.display_graphviz());
+    println!("{}", proof_tree.display_graphviz(true));
 }

@@ -113,7 +113,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.display_graphviz())
+        write!(f, "{}", self.display_graphviz(false))
     }
 }
 

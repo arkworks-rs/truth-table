@@ -14,10 +14,10 @@ use crate::{
         HintDF,
         prover::{ProverLpNode, ProverPlanNode},
     },
-    prover::trees::proof_tree::ProverProofTree,
+    prover::trees::{gadget_tree::GadgetTree, proof_tree::ProverProofTree},
     tree::NodeId,
 };
-
+mod gadget;
 pub struct ProverTableScanNode {
     pub table_scan: TableScan,
 }
@@ -35,7 +35,6 @@ where
         NodeId::LP(LogicalPlan::TableScan(self.table_scan.clone()))
     }
 
-
     fn arithmetic_post_process(&self) {
         todo!()
     }
@@ -43,7 +42,6 @@ where
     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
         todo!()
     }
-
 
     fn cost(
         &self,
@@ -65,13 +63,13 @@ where
     }
 
     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-        vec![]
-    }
-    
-    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
-        todo!()
+        Vec::new()
     }
 
+    fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+        let root = gadget::Prover::new();
+        GadgetTree::new(Arc::new(root))
+    }
 }
 
 impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverTableScanNode
