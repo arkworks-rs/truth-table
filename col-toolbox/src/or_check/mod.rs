@@ -21,7 +21,8 @@ use crate::{
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 
-pub struct OrCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+pub struct OrCheckPIOP<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
@@ -31,14 +32,15 @@ pub struct OrCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F
 #[derivative(Debug(bound = ""))]
 pub struct OrCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub in_activator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
     pub res_activator_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for OrCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -55,14 +57,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct OrCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub in_activator_orcls: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
     pub res_activator_orcl: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for OrCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = OrCheckProverInput<F, MvPCS, UvPCS>;

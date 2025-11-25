@@ -27,8 +27,8 @@ use crate::lp_piop::sort_check::{
 pub struct SortPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// The sort logical plan
     pub sort_lp: Sort,
@@ -59,8 +59,8 @@ where
 pub struct SortPIOPVerifierInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// The sort logical plan
     pub sort_lp: Sort,
@@ -86,8 +86,8 @@ where
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for SortPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -114,8 +114,8 @@ where
 pub struct SortPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     _field: std::marker::PhantomData<F>,
     _mvpcs: std::marker::PhantomData<MvPCS>,
@@ -125,8 +125,8 @@ where
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for SortPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = SortPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

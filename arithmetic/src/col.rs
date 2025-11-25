@@ -21,8 +21,8 @@ use derivative::Derivative;
 pub struct TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// A tracked polynomial representing the column values
     data_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
@@ -39,8 +39,8 @@ where
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedCol")
@@ -54,8 +54,8 @@ where
 impl<F, MvPCS, UvPCS> fmt::Display for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let field_name = self
@@ -127,8 +127,8 @@ where
 impl<F, MvPCS, UvPCS> TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// Creates a new tracked column
     pub fn new(
@@ -298,8 +298,8 @@ where
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for TrackedCol<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Clone,
-    UvPCS: PCS<F, Poly = LDE<F>> + Clone,
+    MvPCS: PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
 {
     fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {

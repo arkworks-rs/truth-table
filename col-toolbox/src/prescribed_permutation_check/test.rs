@@ -99,8 +99,8 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
 
 fn prescribed_permutation_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     left_vals: Vec<Fr>,
     right_vals: Vec<Fr>,
@@ -147,8 +147,8 @@ fn prescribed_permutation_test_helper<
 
 fn prescribed_permutation_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     left_vals: Vec<Fr>,
     right_vals: Vec<Fr>,

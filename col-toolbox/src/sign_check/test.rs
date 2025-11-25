@@ -418,8 +418,8 @@ fn negative_check_is_sound() -> SnarkResult<()> {
 }
 fn sign_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     data_type: DataType,
     num_vars: usize,
@@ -458,8 +458,8 @@ fn sign_test_soundness_helper<
 
 fn sign_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     data_type: DataType,
     num_vars: usize,

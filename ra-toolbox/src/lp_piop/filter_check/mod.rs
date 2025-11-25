@@ -23,8 +23,8 @@ use derivative::Derivative;
 )]
 pub struct FilterPIOPProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub filter: Filter,
     pub predicate_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -35,8 +35,8 @@ pub struct FilterPIOPProverInput<
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for FilterPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -56,8 +56,8 @@ where
 )]
 pub struct FilterPIOPVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub filter: Filter,
     pub predicate_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -74,8 +74,8 @@ pub struct FilterPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for FilterPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = FilterPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

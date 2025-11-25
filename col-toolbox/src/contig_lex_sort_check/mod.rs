@@ -37,8 +37,8 @@ mod test;
 #[derivative(Debug(bound = ""))]
 pub struct ContigLexSortCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
@@ -50,8 +50,8 @@ pub struct ContigLexSortCheckProverInput<
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ContigLexSortCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -71,8 +71,8 @@ where
 #[derivative(Debug(bound = ""))]
 pub struct ContigLexSortCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
@@ -90,8 +90,8 @@ pub struct ContigLexSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = ContigLexSortCheckProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();
@@ -210,8 +210,8 @@ where
 impl<F, MvPCS, UvPCS> ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn first_tie_indicator_col(
         prover: &mut ArgProver<F, MvPCS, UvPCS>,

@@ -42,8 +42,8 @@ pub struct InnerJoinPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 #[derivative(Debug(bound = ""))]
 pub struct InnerJoinProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub left_table: TrackedTable<F, MvPCS, UvPCS>,
     pub right_table: TrackedTable<F, MvPCS, UvPCS>,
@@ -56,8 +56,11 @@ pub struct InnerJoinProverInput<
     pub join_right_source: TrackedCol<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    DeepClone<F, MvPCS, UvPCS> for InnerJoinProverInput<F, MvPCS, UvPCS>
+impl<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+> DeepClone<F, MvPCS, UvPCS> for InnerJoinProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -78,8 +81,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 #[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
 pub struct InnerJoinVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub left_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub right_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
@@ -92,7 +95,8 @@ pub struct InnerJoinVerifierInput<
     pub join_right_source_table_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for InnerJoinPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = InnerJoinProverInput<F, MvPCS, UvPCS>;
@@ -595,8 +599,8 @@ fn log_inclusion_diff<F, MvPCS, UvPCS>(
     super_col: &TrackedCol<F, MvPCS, UvPCS>,
 ) where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     if env::var("JOIN_INCL_DEBUG").is_err() {
         return;

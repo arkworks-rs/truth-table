@@ -17,8 +17,8 @@ pub fn calc_inclusion_multiplicity<F, MvPCS, UvPCS>(
 ) -> MLE<F>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     let included_col_evals = included_col.data_tracked_poly().evaluations();
     let super_col_evals = super_col.data_tracked_poly().evaluations();

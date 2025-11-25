@@ -26,8 +26,8 @@ pub fn invert_or_one_in_place<F: Field>(v: &mut [F]) {
 #[cfg(feature = "honest-prover")]
 pub(super) fn activators_match<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     lhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,
     rhs: Option<TrackedPoly<F, MvPCS, UvPCS>>,

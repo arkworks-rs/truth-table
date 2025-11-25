@@ -26,8 +26,8 @@ use derivative::Derivative;
 )]
 pub struct AggregatePIOPProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub aggregate: Aggregate,
     pub input_grouping_table: TrackedTable<F, MvPCS, UvPCS>,
@@ -41,8 +41,8 @@ pub struct AggregatePIOPProverInput<
 )]
 pub struct AggregatePIOPProverOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub input_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -51,8 +51,8 @@ pub struct AggregatePIOPProverOutput<
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for AggregatePIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, _new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         self.clone()
@@ -66,8 +66,8 @@ where
 )]
 pub struct AggregatePIOPVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub aggregate: Aggregate,
     pub input_grouping_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
@@ -81,8 +81,8 @@ pub struct AggregatePIOPVerifierInput<
 )]
 pub struct AggregatePIOPVerifierOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub input_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub output_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -91,8 +91,8 @@ pub struct AggregatePIOPVerifierOutput<
 pub struct AggregatePIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     _field: std::marker::PhantomData<F>,
     _mvpcs: std::marker::PhantomData<MvPCS>,
@@ -102,8 +102,8 @@ where
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for AggregatePIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = AggregatePIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = AggregatePIOPProverOutput<F, MvPCS, UvPCS>;

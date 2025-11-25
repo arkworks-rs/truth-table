@@ -29,8 +29,8 @@ pub struct FoldCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 #[derivative(Debug(bound = ""))]
 pub struct FoldCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     // The input columns to be folded
     pub in_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
@@ -40,7 +40,8 @@ pub struct FoldCheckProverInput<
     pub challs: Vec<F>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for FoldCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -58,8 +59,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct FoldCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     // The input column comitments to be folded
     pub in_cms: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
@@ -72,8 +73,8 @@ pub struct FoldCheckVerifierInput<
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> PIOP<F, MvPCS, UvPCS>
     for FoldCheckPIOP<F, MvPCS, UvPCS>
 where
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = FoldCheckProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

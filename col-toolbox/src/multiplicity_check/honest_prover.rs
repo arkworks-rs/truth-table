@@ -14,8 +14,8 @@ use ark_piop::{
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> DeepClone<F, MvPCS, UvPCS>
     for MultiplicityCheckProverInput<F, MvPCS, UvPCS>
 where
-    MvPCS: PCS<F, Poly = MLE<F>> + Clone,
-    UvPCS: PCS<F, Poly = LDE<F>> + Clone,
+    MvPCS: PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -47,8 +47,8 @@ where
 impl<F, MvPCS, UvPCS> MultiplicityCheck<F, MvPCS, UvPCS>
 where
     F: ark_ff::PrimeField,
-    MvPCS: ark_piop::pcs::PCS<F, Poly = ark_piop::arithmetic::mat_poly::mle::MLE<F>> + Clone,
-    UvPCS: ark_piop::pcs::PCS<F, Poly = LDE<F>> + Clone,
+    MvPCS: ark_piop::pcs::PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
+    UvPCS: ark_piop::pcs::PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
 {
     /// A helper function to check if the prover input is valid.
     /// Since the function is huge, we put it in a seperate file.

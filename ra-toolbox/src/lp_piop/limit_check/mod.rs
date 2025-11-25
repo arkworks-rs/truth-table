@@ -17,8 +17,8 @@ use derivative::Derivative;
 pub struct LimitPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     pub limit: Limit,
     pub input_activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
@@ -30,8 +30,8 @@ where
 pub struct LimitPIOPVerifierInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     pub limit: Limit,
     pub input_activator: Option<TrackedOracle<F, MvPCS, UvPCS>>,
@@ -43,8 +43,8 @@ pub struct LimitPIOP<F, MvPCS, UvPCS>(PhantomData<F>, PhantomData<MvPCS>, Phanto
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for LimitPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = LimitPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();
@@ -103,8 +103,8 @@ where
 impl<F, MvPCS, UvPCS> LimitPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn limit_mask_poly(
         limit: &Limit,
@@ -176,8 +176,8 @@ where
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for LimitPIOPProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, _new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {

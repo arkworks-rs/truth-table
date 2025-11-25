@@ -45,8 +45,8 @@ fn nozeros_check_is_sound() -> SnarkResult<()> {
 
 fn nozero_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv: usize,
     values: Vec<Fr>,
@@ -81,8 +81,8 @@ fn nozero_test_soundness_helper<
 
 fn nozero_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv: usize,
     values: Vec<Fr>,

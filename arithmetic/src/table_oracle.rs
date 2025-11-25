@@ -30,8 +30,8 @@ use std::{convert::TryFrom, sync::Arc};
 pub struct TrackedTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// The schema of the table, if any
     schema: Option<Schema>,
@@ -44,8 +44,8 @@ where
 impl<F, MvPCS, UvPCS> Default for TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn default() -> Self {
         Self {
@@ -59,8 +59,8 @@ where
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTableOracle")
@@ -80,8 +80,8 @@ where
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TrackedTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// Constructs a new `TrackedTableOracle` from the provided schema (if any),
     /// tracked oracles, and log size of the table
@@ -366,8 +366,8 @@ where
 pub struct ArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     _phantom: std::marker::PhantomData<UvPCS>,
     schema: Option<Schema>,
@@ -378,8 +378,8 @@ where
 impl<F, MvPCS, UvPCS> ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// Constructs a new `ArithTableOracle`
     pub fn new(
@@ -472,8 +472,8 @@ where
 impl<F, MvPCS, UvPCS> CanonicalSerialize for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>> + Sync,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     MvPCS::Commitment: CanonicalSerialize + Valid,
 {
     fn serialize_with_mode<W: Write>(
@@ -545,8 +545,8 @@ where
 impl<F, MvPCS, UvPCS> CanonicalDeserialize for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>> + Sync,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     MvPCS::Commitment: CanonicalDeserialize + Valid,
 {
     fn deserialize_with_mode<R: Read>(
@@ -606,8 +606,8 @@ where
 impl<F, MvPCS, UvPCS> Valid for ArithTableOracle<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>> + Sync,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     MvPCS::Commitment: Valid,
 {
     fn check(&self) -> Result<(), SerializationError> {

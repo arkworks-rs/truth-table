@@ -19,7 +19,8 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-pub struct NoZerosCheck<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+pub struct NoZerosCheck<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
@@ -28,13 +29,14 @@ pub struct NoZerosCheck<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<
 #[derivative(Debug(bound = ""))]
 pub struct NoZerosCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for NoZerosCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -46,13 +48,14 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct NoZerosCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for NoZerosCheck<F, MvPCS, UvPCS>
 {
     type ProverInput = NoZerosCheckProverInput<F, MvPCS, UvPCS>;

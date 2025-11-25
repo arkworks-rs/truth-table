@@ -16,8 +16,8 @@ use crate::lp_piop::sort_check::{SortPIOPProverInput, SortPIOPVerifierInput};
 // Prove that the sorted exprs are sorted lexicographically
 pub(super) fn lex_sort_prove<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     prover: &mut ArgProver<F, MvPCS, UvPCS>,
     input: &SortPIOPProverInput<F, MvPCS, UvPCS>,
@@ -35,8 +35,8 @@ pub(super) fn lex_sort_prove<
 
 pub(super) fn lex_sort_verify<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,

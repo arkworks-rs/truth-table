@@ -20,8 +20,8 @@ use crate::table_oracle::ArithTableOracle;
 pub struct SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     table_oracles: IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>,
 }
@@ -29,8 +29,8 @@ where
 impl<F, MvPCS, UvPCS> SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     pub fn new(table_oracles: IndexMap<Schema, ArithTableOracle<F, MvPCS, UvPCS>>) -> Self {
         Self { table_oracles }
@@ -48,8 +48,8 @@ where
 impl<F, MvPCS, UvPCS> Default for SharedCtx<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn default() -> Self {
         Self {

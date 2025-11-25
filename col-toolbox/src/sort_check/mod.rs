@@ -35,15 +35,16 @@ pub struct SortCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 #[derivative(Debug(bound = ""))]
 pub struct SortCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub ascending: bool,
     pub strict: bool,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for SortCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -57,14 +58,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct SortCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub ascending: bool,
     pub strict: bool,
 }
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for SortCheck<F, MvPCS, UvPCS>
 {
     type ProverInput = SortCheckProverInput<F, MvPCS, UvPCS>;
@@ -280,8 +282,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 impl<F, MvPCS, UvPCS> SortCheck<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn p_prep(in_col: &TrackedCol<F, MvPCS, UvPCS>) -> SnarkResult<MLE<F>> {
         let activator_tracked_poly = in_col.activator_tracked_poly().unwrap();

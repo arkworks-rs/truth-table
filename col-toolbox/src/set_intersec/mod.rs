@@ -29,8 +29,8 @@ use crate::{
 
 pub struct SetInterUnionCheckPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -41,8 +41,8 @@ pub struct SetInterUnionCheckPIOP<
 #[derivative(Debug(bound = ""))]
 pub struct SetInterUnionProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col_left: TrackedCol<F, MvPCS, UvPCS>,
     pub col_right: TrackedCol<F, MvPCS, UvPCS>,
@@ -50,7 +50,8 @@ pub struct SetInterUnionProverInput<
     pub col_union: TrackedCol<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for SetInterUnionProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -64,8 +65,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 }
 pub struct SetInterUnionVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col_left: TrackedColOracle<F, MvPCS, UvPCS>,
     pub col_right: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -73,7 +74,8 @@ pub struct SetInterUnionVerifierInput<
     pub col_union: TrackedColOracle<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for SetInterUnionCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = SetInterUnionProverInput<F, MvPCS, UvPCS>;

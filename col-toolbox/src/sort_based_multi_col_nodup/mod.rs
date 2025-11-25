@@ -31,8 +31,8 @@ pub struct SortBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 #[derivative(Debug(bound = ""), Clone(bound = ""))]
 pub struct SortBasedMultiNoDupProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
@@ -40,8 +40,11 @@ pub struct SortBasedMultiNoDupProverInput<
     pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    DeepClone<F, MvPCS, UvPCS> for SortBasedMultiNoDupProverInput<F, MvPCS, UvPCS>
+impl<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+> DeepClone<F, MvPCS, UvPCS> for SortBasedMultiNoDupProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -62,16 +65,19 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 #[derivative(Debug(bound = ""), Clone(bound = ""))]
 pub struct SortBasedMultiNoDupVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
     pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
 }
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    PIOP<F, MvPCS, UvPCS> for SortBasedMultiNoDup<F, MvPCS, UvPCS>
+impl<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+> PIOP<F, MvPCS, UvPCS> for SortBasedMultiNoDup<F, MvPCS, UvPCS>
 {
     type ProverInput = SortBasedMultiNoDupProverInput<F, MvPCS, UvPCS>;
 

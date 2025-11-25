@@ -16,15 +16,15 @@ use std::marker::PhantomData;
 
 pub struct OrBinaryExprPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(PhantomData<F>, PhantomData<MvPCS>, PhantomData<UvPCS>);
 
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for OrBinaryExprPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = BinaryExprPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

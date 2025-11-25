@@ -23,8 +23,8 @@ use crate::{
 #[derivative(Debug(bound = ""))]
 pub struct LocalSingleColSortCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub tie_indicator_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -38,8 +38,8 @@ impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS>
     for LocalSingleColSortCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -57,8 +57,8 @@ where
 #[derivative(Debug(bound = ""))]
 pub struct LocalSingleColSortCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub tie_indicator_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>>,
@@ -72,8 +72,8 @@ pub struct LocalSingleColSortCheckVerifierInput<
 #[derivative(Debug(bound = ""))]
 pub struct LocalSingleColSortCheckProverOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub diff_col: TrackedCol<F, MvPCS, UvPCS>,
 }
@@ -82,8 +82,8 @@ pub struct LocalSingleColSortCheckProverOutput<
 #[derivative(Debug(bound = ""))]
 pub struct LocalSingleColSortCheckVerifierOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub diff_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
 }
@@ -97,8 +97,8 @@ pub struct LocalSingleColSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for LocalSingleColSortCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = LocalSingleColSortCheckProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = LocalSingleColSortCheckProverOutput<F, MvPCS, UvPCS>;

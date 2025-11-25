@@ -26,8 +26,8 @@ use std::marker::PhantomData;
 
 pub struct BezoutMultiColSuppCheckPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -38,15 +38,18 @@ pub struct BezoutMultiColSuppCheckPIOP<
 #[derivative(Debug(bound = ""))]
 pub struct BezoutMultiColSuppCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub orig_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
     pub supp_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    DeepClone<F, MvPCS, UvPCS> for BezoutMultiColSuppCheckProverInput<F, MvPCS, UvPCS>
+impl<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+> DeepClone<F, MvPCS, UvPCS> for BezoutMultiColSuppCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         BezoutMultiColSuppCheckProverInput {
@@ -58,8 +61,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct BezoutMultiColSuppCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub orig_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
     pub supp_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
@@ -69,8 +72,8 @@ pub struct BezoutMultiColSuppCheckVerifierInput<
 #[derivative(Debug(bound = ""))]
 pub struct BezoutMultiColSuppCheckProverOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub orig_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub supp_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -80,16 +83,19 @@ pub struct BezoutMultiColSuppCheckProverOutput<
 #[derivative(Debug(bound = ""))]
 pub struct BezoutMultiColSuppCheckVerifierOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub orig_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub supp_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
-    PIOP<F, MvPCS, UvPCS> for BezoutMultiColSuppCheckPIOP<F, MvPCS, UvPCS>
+impl<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+> PIOP<F, MvPCS, UvPCS> for BezoutMultiColSuppCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = BezoutMultiColSuppCheckProverInput<F, MvPCS, UvPCS>;
     type VerifierInput = BezoutMultiColSuppCheckVerifierInput<F, MvPCS, UvPCS>;

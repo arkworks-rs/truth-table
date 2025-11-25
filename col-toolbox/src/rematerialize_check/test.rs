@@ -89,8 +89,8 @@ fn rematerialize_is_sound() -> SnarkResult<()> {
 
 fn rematerialize_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     input_nv: usize,
     input_vals: Vec<Fr>,
@@ -158,8 +158,8 @@ fn rematerialize_test_helper<
 
 fn rematerialize_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     input_nv: usize,
     input_vals: Vec<Fr>,

@@ -24,8 +24,8 @@ pub struct WindowPIOP;
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for WindowPIOP
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = WindowPIOPProverInput;
     type ProverOutput = ();
@@ -50,8 +50,8 @@ where
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for WindowPIOPProverInput
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, _new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         self.clone()

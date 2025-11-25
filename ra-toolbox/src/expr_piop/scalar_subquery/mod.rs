@@ -26,8 +26,8 @@ impl_expr_piop_deep_clone!(ScalarSubqueryPIOPProverInput);
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ScalarSubqueryExprPIOP
 where
     F: ark_ff::PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = ScalarSubqueryPIOPProverInput;
     type ProverOutput = ();

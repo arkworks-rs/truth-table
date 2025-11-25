@@ -32,8 +32,8 @@ use std::marker::PhantomData;
 
 pub struct HintedSuppCheckPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -44,15 +44,16 @@ pub struct HintedSuppCheckPIOP<
 #[derivative(Debug(bound = ""))]
 pub struct HintedSuppCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col: TrackedCol<F, MvPCS, UvPCS>,
     pub supp: TrackedCol<F, MvPCS, UvPCS>,
     pub multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for HintedSuppCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -66,15 +67,16 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct HintedSuppCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col: TrackedColOracle<F, MvPCS, UvPCS>,
     pub supp: TrackedColOracle<F, MvPCS, UvPCS>,
     pub multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
 }
 
-pub struct SuppCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+pub struct SuppCheckPIOP<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
     #[doc(hidden)] PhantomData<UvPCS>,
@@ -83,14 +85,15 @@ pub struct SuppCheckPIOP<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS
 #[derivative(Debug(bound = ""))]
 pub struct SuppCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col: TrackedCol<F, MvPCS, UvPCS>,
     pub supp: TrackedCol<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for SuppCheckProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -103,8 +106,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct SuppCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub col: TrackedColOracle<F, MvPCS, UvPCS>,
     pub supp: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -112,16 +115,16 @@ pub struct SuppCheckVerifierInput<
 
 pub struct SuppCheckProverOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub super_set_multiplicity_tr_p: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
 pub struct SuppCheckVerifierOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub super_set_multiplicity_tr_com: TrackedOracle<F, MvPCS, UvPCS>,
 }
@@ -136,7 +139,8 @@ pub struct SuppCheckVerifierOutput<
 /// that there is no duplicate in the support (The best way we know to do this
 /// is to show that it's strictly sorted)
 /// IMPORTANT: The supp column should be sorted
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for HintedSuppCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = HintedSuppCheckProverInput<F, MvPCS, UvPCS>;
@@ -245,7 +249,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for SuppCheckPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = SuppCheckProverInput<F, MvPCS, UvPCS>;

@@ -168,15 +168,16 @@ pub struct PrescribedPermutationPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>
 #[derivative(Debug(bound = ""))]
 pub struct PrescribedPermutationPIOPProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub left_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
     pub right_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
     pub permutation_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for PrescribedPermutationPIOPProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -190,14 +191,15 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct PrescribedPermutationPIOPVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub left_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
     pub right_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
     pub permutation_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
 }
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for PrescribedPermutationPIOP<F, MvPCS, UvPCS>
 {
     type ProverInput = PrescribedPermutationPIOPProverInput<F, MvPCS, UvPCS>;

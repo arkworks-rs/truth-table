@@ -10,11 +10,13 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use tracing::instrument;
 use truthtable_core::errors::TTResult;
 
-pub struct TTPk<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>> {
+pub struct TTPk<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,> {
     snark_pk: SNARKPk<F, MvPCS, UvPCS>,
 }
 
-pub struct TTVk<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>> {
+pub struct TTVk<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,> {
     snark_vk: SNARKVk<F, MvPCS, UvPCS>,
 }
 
@@ -39,8 +41,8 @@ pub trait Artifact: Sized {
 impl<F, MvPCS, UvPCS> Artifact for TTVk<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
         canonical_to_vec(&self.snark_vk)
@@ -56,8 +58,8 @@ where
 impl<F, MvPCS, UvPCS> Artifact for TTPk<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     SNARKPk<F, MvPCS, UvPCS>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
@@ -74,8 +76,8 @@ where
 impl<F, MvPCS, UvPCS> TTVk<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     pub fn into_inner(self) -> SNARKVk<F, MvPCS, UvPCS> {
         self.snark_vk
@@ -89,8 +91,8 @@ where
 impl<F, MvPCS, UvPCS> TTPk<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     pub fn into_inner(self) -> SNARKPk<F, MvPCS, UvPCS> {
         self.snark_pk

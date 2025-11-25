@@ -17,8 +17,8 @@ use crate::lp_piop::sort_check::{SortPIOPProverInput, SortPIOPVerifierInput};
 /// expressions
 pub(super) fn perm_prove<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     prover: &mut ArgProver<F, MvPCS, UvPCS>,
     input: &SortPIOPProverInput<F, MvPCS, UvPCS>,
@@ -95,8 +95,8 @@ pub(super) fn perm_prove<
 /// expressions
 pub(super) fn perm_verify<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     input: &SortPIOPVerifierInput<F, MvPCS, UvPCS>,

@@ -79,8 +79,8 @@ fn perm_check_is_sound() -> SnarkResult<()> {
 
 fn permcheck_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     left_nv: usize,
     left_evals: Vec<Fr>,
@@ -125,8 +125,8 @@ fn permcheck_test_soundness_helper<
 
 fn perm_check_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     left_nv: usize,
     left_evals: Vec<Fr>,

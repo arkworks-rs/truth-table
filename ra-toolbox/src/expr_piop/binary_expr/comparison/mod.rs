@@ -29,8 +29,8 @@ use std::marker::PhantomData;
 
 pub struct ComparisonExprPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(PhantomData<F>, PhantomData<MvPCS>, PhantomData<UvPCS>);
 
 #[derive(Derivative)]
@@ -41,15 +41,16 @@ pub struct ComparisonExprPIOP<
 )]
 pub struct InnerComparisonPIOPProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub bin_expr_piop_prover_input: BinaryExprPIOPProverInput<F, MvPCS, UvPCS>,
     pub selected_left_minus_right_col: TrackedCol<F, MvPCS, UvPCS>,
     pub non_selected_left_minus_right_col: TrackedCol<F, MvPCS, UvPCS>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for InnerComparisonPIOPProverInput<F, MvPCS, UvPCS>
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
@@ -67,8 +68,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 pub struct InnerComparisonPIOPVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub bin_expr_piop_verifier_input: BinaryExprPIOPVerifierInput<F, MvPCS, UvPCS>,
     pub selected_left_minus_right_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -78,8 +79,8 @@ pub struct InnerComparisonPIOPVerifierInput<
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ComparisonExprPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = BinaryExprPIOPProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

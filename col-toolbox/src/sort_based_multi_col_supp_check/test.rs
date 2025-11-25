@@ -192,8 +192,8 @@ fn multi_col_supp_check_is_complete() -> SnarkResult<()> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn multi_col_supp_check_test_helper<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     cols_values: Vec<Vec<F>>,
     contig_lex_sorted_supp_cols_values: Vec<Vec<F>>,
@@ -291,8 +291,8 @@ pub(crate) fn multi_col_supp_check_test_helper<
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn multi_col_supp_check_soundness_helper<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     cols_values: Vec<Vec<F>>,
     contig_lex_sorted_supp_cols_values: Vec<Vec<F>>,
@@ -348,8 +348,8 @@ pub(crate) fn multi_col_supp_check_soundness_helper<
 
 fn table_with_activator<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     prover: &mut ArgProver<F, MvPCS, UvPCS>,
     base_table: &TrackedTable<F, MvPCS, UvPCS>,
@@ -384,8 +384,8 @@ fn table_with_activator<
 
 fn build_tracked_table<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     prover: &mut ArgProver<F, MvPCS, UvPCS>,
     column_values: &[Vec<F>],
@@ -445,7 +445,8 @@ fn build_tracked_table<
     Ok(TrackedTable::new(None, tracked_polys, nv))
 }
 
-fn build_tracked_poly<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+fn build_tracked_poly<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
     prover: &mut ArgProver<F, MvPCS, UvPCS>,
     values: &[F],
     expected_len: usize,
@@ -467,8 +468,8 @@ fn build_tracked_poly<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F,
 
 fn track_oracle_cached<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     id: TrackerID,
@@ -482,7 +483,11 @@ fn track_oracle_cached<
     Ok(oracle)
 }
 
-fn table_to_oracle<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>(
+fn table_to_oracle<
+    F: PrimeField,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+>(
     verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
     table: &TrackedTable<F, MvPCS, UvPCS>,
     cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,

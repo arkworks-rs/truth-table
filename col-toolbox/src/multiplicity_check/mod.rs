@@ -37,8 +37,8 @@ pub struct MultiplicityCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 #[derivative(Debug(bound = ""))]
 pub struct MultiplicityCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub fxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub gxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
@@ -48,8 +48,8 @@ pub struct MultiplicityCheckProverInput<
 
 pub struct MultiplicityCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub fxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub gxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
@@ -57,7 +57,8 @@ pub struct MultiplicityCheckVerifierInput<
     pub mgxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for MultiplicityCheck<F, MvPCS, UvPCS>
 {
     type ProverInput = MultiplicityCheckProverInput<F, MvPCS, UvPCS>;
@@ -182,8 +183,8 @@ impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
 
 impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> MultiplicityCheck<F, MvPCS, UvPCS>
 where
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     F: PrimeField,
 {
     fn prove_generate_subclaims(

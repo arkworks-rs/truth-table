@@ -491,8 +491,8 @@ fn special_test() -> SnarkResult<()> {
 #[allow(clippy::too_many_arguments)]
 fn multiplicity_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     f_nvs: Vec<usize>,
     f_vals: Vec<Vec<Fr>>,
@@ -543,8 +543,8 @@ fn multiplicity_test_soundness_helper<
 #[allow(clippy::too_many_arguments)]
 fn multiplicity_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     f_nvs: Vec<usize>,
     f_vals: Vec<Vec<Fr>>,

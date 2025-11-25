@@ -176,8 +176,8 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
 #[allow(clippy::too_many_arguments)]
 fn set_inter_union_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv_left: usize,
     nv_right: usize,
@@ -233,8 +233,8 @@ fn set_inter_union_test_soundness_helper<
 #[allow(clippy::too_many_arguments)]
 fn set_inter_union_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv_left: usize,
     nv_right: usize,

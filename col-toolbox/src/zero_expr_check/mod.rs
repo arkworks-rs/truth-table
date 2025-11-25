@@ -20,8 +20,8 @@ use crate::{
 #[derivative(Debug(bound = ""))]
 pub struct ZeroExprCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
     pub selector_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -30,8 +30,8 @@ pub struct ZeroExprCheckProverInput<
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ZeroExprCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -45,8 +45,8 @@ where
 #[derivative(Debug(bound = ""))]
 pub struct ZeroExprCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
     pub selector_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -61,8 +61,8 @@ pub struct ZeroExprCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
 impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ZeroExprCheckPIOP<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     type ProverInput = ZeroExprCheckProverInput<F, MvPCS, UvPCS>;
     type ProverOutput = ();

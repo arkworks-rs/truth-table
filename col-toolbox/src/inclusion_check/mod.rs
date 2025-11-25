@@ -32,8 +32,8 @@ use crate::multiplicity_check::{
 #[derivative(Debug(bound = ""))]
 pub struct HintedInclusionCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub included_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub super_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -44,8 +44,8 @@ impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS>
     for HintedInclusionCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -66,8 +66,8 @@ where
 
 pub struct HintedInclusionCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub included_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -76,8 +76,8 @@ pub struct HintedInclusionCheckVerifierInput<
 
 pub struct HintedInclusionCheckPIOP<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     #[doc(hidden)] PhantomData<F>,
     #[doc(hidden)] PhantomData<MvPCS>,
@@ -88,8 +88,8 @@ pub struct HintedInclusionCheckPIOP<
 #[derivative(Debug(bound = ""))]
 pub struct InclusionCheckProverInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub included_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
     pub super_col: TrackedCol<F, MvPCS, UvPCS>,
@@ -98,8 +98,8 @@ pub struct InclusionCheckProverInput<
 impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for InclusionCheckProverInput<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         Self {
@@ -115,16 +115,16 @@ where
 
 pub struct InclusionCheckProverOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub super_col_ms: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
 }
 
 pub struct InclusionCheckVerifierInput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub included_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
     pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
@@ -132,8 +132,8 @@ pub struct InclusionCheckVerifierInput<
 
 pub struct InclusionCheckVerifierOutput<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 > {
     pub super_col_m_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
 }
@@ -144,7 +144,8 @@ pub struct InclusionCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
     #[doc(hidden)] PhantomData<UvPCS>,
 );
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for HintedInclusionCheckPIOP<F, MvPCS, UvPCS>
 where
     MvPCS: Clone,
@@ -248,7 +249,8 @@ where
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     PIOP<F, MvPCS, UvPCS> for InclusionCheckPIOP<F, MvPCS, UvPCS>
 where
     MvPCS: Clone,

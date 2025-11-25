@@ -88,8 +88,8 @@ fn predicate_limit_check_is_sound() -> SnarkResult<()> {
 
 fn predicate_limit_check_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     log_size: usize,
     input_evals: Vec<Fr>,
@@ -129,8 +129,8 @@ fn predicate_limit_check_soundness_helper<
 
 fn predicate_limit_check_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     log_size: usize,
     input_evals: Vec<Fr>,

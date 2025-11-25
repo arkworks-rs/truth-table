@@ -108,8 +108,8 @@ fn sort_check_is_sound() -> SnarkResult<()> {
 
 fn sort_check_test_helper<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     data_evals: Vec<F>,
     activator_evals: Option<Vec<F>>,
@@ -167,8 +167,8 @@ fn sort_check_test_helper<
 
 fn sort_check_soundness_helper<
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 >(
     data_evals: Vec<F>,
     activator_evals: Option<Vec<F>>,

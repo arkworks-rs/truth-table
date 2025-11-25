@@ -104,8 +104,8 @@ fn filter_check_is_sound_with_both_activators_set() -> SnarkResult<()> {
 
 fn filter_check_test_soundness_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv: usize,
     predicate_values: Vec<Fr>,
@@ -145,8 +145,8 @@ fn filter_check_test_soundness_helper<
 
 fn filter_check_test_helper<
     Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>>,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>>,
+    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
+    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
 >(
     nv: usize,
     predicate_values: Vec<Fr>,

@@ -28,8 +28,8 @@ use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
 pub struct TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// The schema of the table, if any
     schema: Option<Schema>,
@@ -42,8 +42,8 @@ where
 impl<F, MvPCS, UvPCS> Default for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn default() -> Self {
         Self {
@@ -57,8 +57,8 @@ where
 impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTable")
@@ -69,12 +69,13 @@ where
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F, Poly = MLE<F>>, UvPCS: PCS<F, Poly = LDE<F>>>
+impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
     DeepClone<F, MvPCS, UvPCS> for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
         let tracked_polys = self
@@ -89,8 +90,8 @@ where
 impl<F, MvPCS, UvPCS> fmt::Display for TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.pretty_string())
@@ -100,8 +101,8 @@ where
 impl<F, MvPCS, UvPCS> TrackedTable<F, MvPCS, UvPCS>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     /// Constructs a new `TrackedTable` from the provided schema (if any),
     /// tracked polynomials, and log size of the table
@@ -514,8 +515,8 @@ impl<F: PrimeField> ArithTable<F> {
     /// Constructs an `ArithTable` from a `TrackedTable` by extracting
     pub fn from_tracked_table<MvPCS, UvPCS>(table: &TrackedTable<F, MvPCS, UvPCS>) -> Self
     where
-        MvPCS: PCS<F, Poly = MLE<F>>,
-        UvPCS: PCS<F, Poly = LDE<F>>,
+        MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+        UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
     {
         let schema = table.schema();
         let size = table.size();
@@ -541,8 +542,8 @@ impl<F: PrimeField> ArithTable<F> {
 
 impl<F: PrimeField, MvPCS, UvPCS> From<TrackedTable<F, MvPCS, UvPCS>> for ArithTable<F>
 where
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     fn from(table: TrackedTable<F, MvPCS, UvPCS>) -> Self {
         Self::from_tracked_table(&table)

@@ -58,8 +58,8 @@ fn assemble_table_columns<F, MvPCS, UvPCS>(
 )
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     let mut columns = IndexMap::new();
     let mut fields = Vec::new();
@@ -90,8 +90,8 @@ fn assemble_table_oracles<F, MvPCS, UvPCS>(
 ) -> IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>
 where
     F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>>,
-    UvPCS: PCS<F, Poly = LDE<F>>,
+    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
+    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 {
     let mut columns = IndexMap::new();
     let mut data_iter = data_oracles.iter();
@@ -575,8 +575,8 @@ fn inner_join_test_soundness_helper(input: InnerJoinTestInput<Bls12_381>) -> Sna
 
 fn inner_join_test_helper<
     E: Pairing,
-    MvPCS: PCS<E::ScalarField, Poly = MLE<E::ScalarField>>,
-    UvPCS: PCS<E::ScalarField, Poly = LDE<E::ScalarField>>,
+    MvPCS: PCS<E::ScalarField, Poly = MLE<E::ScalarField>> + 'static + Send + Sync,
+    UvPCS: PCS<E::ScalarField, Poly = LDE<E::ScalarField>> + 'static + Send + Sync,
 >(
     input: InnerJoinTestInput<E>,
 ) -> SnarkResult<()> {
