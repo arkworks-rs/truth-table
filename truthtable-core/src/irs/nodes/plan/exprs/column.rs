@@ -1,14 +1,63 @@
-use crate::nodes::id::NodeId;
+use ark_piop::SnarkBackend;
 use datafusion_common::Column;
-#[derive(Clone)]
-pub struct ProverColumnExprNode {
-    pub parent_node_id: NodeId,
+use datafusion_expr::Expr;
+
+use crate::irs::{
+    nodes::id::{NodeId, PlanNodeId},
+    tree::{ExprNode, Node, PlanNode},
+};
+#[derive(Debug)]
+pub struct ProverNode {
     pub column: Column,
 }
-#[derive(Clone)]
-pub struct VerifierColumnExprNode {
-    pub parent_node_id: NodeId,
-    pub column: Column,
+
+impl<B: SnarkBackend> Node<B> for ProverNode {
+    fn id(&self) -> NodeId {
+        NodeId::PLAN(PlanNodeId::EXPR(Expr::Column(self.column.clone())))
+    }
+
+    fn cost(
+        &self,
+        statistics: datafusion_common::Statistics,
+        schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn as_plan_node(&self) -> Option<&dyn crate::irs::tree::PlanNode<B>> {
+        Some(self)
+    }
+
+    fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
+        None
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> for ProverNode {
+    fn children(&self) -> Vec<std::sync::Arc<dyn Node<B>>> {
+        Vec::new()
+    }
+
+    fn gadget(&self) -> std::sync::Arc<dyn crate::irs::tree::Gadget<B>> {
+        todo!()
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> ExprNode<B> for ProverNode {
+    fn from_expr(expr: datafusion::logical_expr::Expr) -> Self
+    where
+        Self: Sized,
+    {
+        let column = match expr {
+            Expr::Column(col) => col,
+            _ => panic!(),
+        };
+        Self { column }
+    }
 }
 
 // impl<B> ProverPlanNode<B> for ProverColumnExprNode

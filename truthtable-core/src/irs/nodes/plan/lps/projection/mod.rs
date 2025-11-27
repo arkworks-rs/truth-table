@@ -1,8 +1,6 @@
-use crate::nodes::prover::ProverLpNode;
-use crate::nodes::{prover::ProverPlanNode, verifier::VerifierNode};
-use crate::tree::ProverPlanTree;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
+use ark_piop::SnarkBackend;
 use ark_piop::prover::ArgProver;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -12,27 +10,99 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
 use datafusion_common::Statistics;
 use datafusion_expr::Projection;
+use derivative::Derivative;
 use std::sync::Arc;
+
+use crate::irs::nodes::id::{NodeId, PlanNodeId};
+use crate::irs::tree::{LpNode, Node, PlanNode, Tree};
 pub(super) mod hints;
 
-pub struct ProverProjectionNode<B>
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct ProverNode<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     projection: Projection,
-    input: Arc<dyn ProverPlanNode<B>>,
-    expr: Vec<Arc<dyn ProverPlanNode<B>>>,
-}
-pub struct VerifierProjectionNode<B>
-where
-B:SnarkBackend
-{
-    projection: Projection,
-    input: Arc<dyn VerifierNode<B>>,
-    expr: Vec<Arc<dyn VerifierNode<B>>>,
+    input: Arc<dyn Node<B>>,
+    expr: Vec<Arc<dyn Node<B>>>,
 }
 
-// impl<B> ProverPlanNode<B> for ProverProjectionNode<B>
+impl<B: SnarkBackend> Node<B> for ProverNode<B> {
+    fn id(&self) -> crate::irs::nodes::id::NodeId {
+        NodeId::PLAN(PlanNodeId::LP(LogicalPlan::Projection(
+            self.projection.clone(),
+        )))
+    }
+
+    fn cost(
+        &self,
+        statistics: Statistics,
+        schema: SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn as_plan_node(&self) -> Option<&dyn PlanNode<B>> {
+        Some(self)
+    }
+
+    fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
+        None
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> for ProverNode<B> {
+    fn children(&self) -> Vec<Arc<dyn Node<B>>> {
+        let mut children: Vec<Arc<dyn Node<B>>> = Vec::with_capacity(1 + self.expr.len());
+        children.push(Arc::clone(&self.input));
+        children.extend(self.expr.iter().cloned());
+        children
+    }
+
+    fn gadget(&self) -> Arc<dyn crate::irs::tree::Gadget<B>> {
+        todo!()
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> LpNode<B> for ProverNode<B> {
+    fn from_lp(plan: LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the projection object from the logical plan
+        let projection = match &plan {
+            LogicalPlan::Projection(p) => p,
+            _ => panic!("expected projection logical plan"),
+        }
+        .clone();
+        // Build the node id for this projection node
+        let node_id = NodeId::PLAN(PlanNodeId::LP(plan.clone()));
+        // Recurse into the input subtree and fetch the logical plan that feeds this
+        // projection.
+        let input = Tree::<B>::from_logical_plan(&projection.input).root();
+
+        // Build expression proof plans for the projection expressions (excluding the
+        // retained activator).
+        let expr = projection
+            .expr
+            .clone()
+            .into_iter()
+            .map(|expr| Tree::<B>::from_expr(&expr).root())
+            .collect();
+        Self {
+            projection,
+            input,
+            expr,
+        }
+    }
+}
+
+// impl<B> ProverPlanNode<B> for ProverNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -86,7 +156,7 @@ B:SnarkBackend
 //     }
 // }
 
-// impl<B> ProverLpNode<B> for ProverProjectionNode<B>
+// impl<B> ProverLpNode<B> for ProverNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,

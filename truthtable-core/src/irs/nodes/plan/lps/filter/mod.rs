@@ -3,6 +3,7 @@ use std::sync::Arc;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     prover::ArgProver,
@@ -11,22 +12,19 @@ use datafusion::{arrow::datatypes::SchemaRef, prelude::SessionContext};
 use datafusion_common::Statistics;
 use datafusion_expr::{Filter, LogicalPlan};
 
-use crate::nodes::{
-    cost::ProvingCost,
-    prover::{ProverLpNode, ProverPlanNode},
-};
+use crate::irs::tree::PlanNode;
 
 /// The implementation of a filter node in the prover proof tree.
 pub struct ProverFilterNode<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     // The filter information from DataFusion
     filter: Filter,
     // The prover plan children nodes for the Filter expressions
-    input: Arc<dyn ProverPlanNode<B>>,
+    input: Arc<dyn PlanNode<B>>,
     // The prover predicate expression node for the filter condition
-    predicate: Arc<dyn ProverPlanNode<B>>,
+    predicate: Arc<dyn PlanNode<B>>,
 }
 
 // impl<B> ProverPlanNode<B> for ProverFilterNode<B>

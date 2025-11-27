@@ -5,6 +5,7 @@ use std::sync::Arc;
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
     prover::ArgProver,
@@ -13,25 +14,13 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_common::Statistics;
 use datafusion_expr::{LogicalPlan, Sort};
 
-use crate::nodes::{
-    cost::ProvingCost,
-    prover::{ProverLpNode, ProverPlanNode},
-    verifier::VerifierNode,
-};
+use crate::irs::tree::PlanNode;
 
 pub struct ProverSortNode<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
-    input: Arc<dyn ProverPlanNode<B>>,
-    sort: Sort,
-}
-
-pub struct VerifierSortNode<B>
-where
-B:SnarkBackend
-{
-    input: Arc<dyn VerifierNode<B>>,
+    input: Arc<dyn PlanNode<B>>,
     sort: Sort,
 }
 

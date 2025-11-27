@@ -2,42 +2,25 @@ use std::sync::Arc;
 
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
-    prover::ArgProver,
 };
-use datafusion::prelude::SessionContext;
-use datafusion_expr::{Aggregate, LogicalPlan};
-use indexmap::IndexMap;
+use datafusion_expr::Aggregate;
 
-use crate::nodes::{
-    prover::{ProverGadget, ProverLpNode, ProverPlanNode},
-    verifier::VerifierNode,
-};
+use crate::irs::tree::PlanNode;
 
 mod hints;
 pub struct ProverAggregateNode<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     // The aggregate information from datafusion
     aggregate: Aggregate,
     // The prover plan children nodes for the group by expressions
-    input: Arc<dyn ProverPlanNode<B>>,
-    group_exprs: Vec<Arc<dyn ProverPlanNode<B>>>,
-    aggr_exprs: Vec<Arc<dyn ProverPlanNode<B>>>,
-}
-
-pub struct VerifierAggregateNode<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
-    group_exprs: Vec<Arc<dyn VerifierNode<B>>>,
-    aggr_exprs: Vec<Arc<dyn VerifierNode<B>>>,
-    input: Arc<dyn VerifierNode<B>>,
-    aggregate: Aggregate,
+    input: Arc<dyn PlanNode<B>>,
+    group_exprs: Vec<Arc<dyn PlanNode<B>>>,
+    aggr_exprs: Vec<Arc<dyn PlanNode<B>>>,
 }
 
 // impl<B> ProverPlanNode<B> for ProverAggregateNode<B>

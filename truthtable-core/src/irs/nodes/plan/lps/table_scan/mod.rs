@@ -1,21 +1,66 @@
-use std::sync::Arc;
-
-use arithmetic::ctx::SharedCtx;
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use datafusion::prelude::SessionContext;
+use ark_piop::SnarkBackend;
 use datafusion_expr::{LogicalPlan, TableScan};
 
-use crate::nodes::prover::{ProverLpNode, ProverPlanNode};
+use crate::irs::{
+    nodes::id::{NodeId, PlanNodeId},
+    tree::{Gadget, LpNode, Node, PlanNode},
+};
+
 mod gadget;
-pub struct ProverTableScanNode {
+#[derive(Debug)]
+pub struct ProverNode {
     pub table_scan: TableScan,
 }
-pub struct VerifierTableScanNode {
-    pub table_scan: TableScan,
+
+impl<B: SnarkBackend> Node<B> for ProverNode {
+    fn id(&self) -> crate::irs::nodes::id::NodeId {
+        NodeId::PLAN(PlanNodeId::LP(LogicalPlan::TableScan(
+            self.table_scan.clone(),
+        )))
+    }
+
+    fn cost(
+        &self,
+        statistics: datafusion_common::Statistics,
+        schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn as_plan_node(&self) -> Option<&dyn PlanNode<B>> {
+        Some(self)
+    }
+
+    fn as_gadget_node(&self) -> Option<&dyn Gadget<B>> {
+        None
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> for ProverNode {
+    fn children(&self) -> Vec<std::sync::Arc<dyn Node<B>>> {
+        Vec::new()
+    }
+
+    fn gadget(&self) -> std::sync::Arc<dyn Gadget<B>> {
+        todo!()
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> LpNode<B> for ProverNode {
+    fn from_lp(plan: datafusion_expr::LogicalPlan) -> Self
+    where
+        Self: Sized,
+    {
+        let table_scan = match plan {
+            LogicalPlan::TableScan(table_scan) => table_scan,
+            _ => panic!(),
+        };
+        Self { table_scan }
+    }
 }
 
 // impl<B> ProverPlanNode<B> for ProverTableScanNode

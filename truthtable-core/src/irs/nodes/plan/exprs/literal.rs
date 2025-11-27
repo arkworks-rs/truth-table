@@ -1,17 +1,67 @@
 use std::sync::Arc;
 
-use crate::nodes::id::NodeId;
 use arithmetic::ctx::SharedCtx;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
-#[derive(Clone)]
-pub struct ProverLiteralExprNode {
+
+use crate::irs::{
+    nodes::id::NodeId,
+    tree::{ExprNode, Node, PlanNode},
+};
+#[derive(Debug)]
+pub struct ProverNode {
     pub literal: ScalarValue,
     pub parent_node_id: NodeId,
+}
+
+impl<B: SnarkBackend> Node<B> for ProverNode {
+    fn id(&self) -> NodeId {
+        todo!()
+    }
+
+    fn cost(
+        &self,
+        statistics: datafusion_common::Statistics,
+        schema: datafusion::arrow::datatypes::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn as_plan_node(&self) -> Option<&dyn crate::irs::tree::PlanNode<B>> {
+        todo!()
+    }
+
+    fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> for ProverNode {
+    fn children(&self) -> Vec<Arc<dyn Node<B>>> {
+        Vec::new()
+    }
+
+    fn gadget(&self) -> Arc<dyn crate::irs::tree::Gadget<B>> {
+        todo!()
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> ExprNode<B> for ProverNode {
+    fn from_expr(_expr: Expr) -> Self
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }
 
 // impl<B> crate::nodes::prover::ProverPlanNode<B>

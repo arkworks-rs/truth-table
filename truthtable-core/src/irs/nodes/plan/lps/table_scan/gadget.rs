@@ -1,23 +1,14 @@
-use crate::nodes::prover::ProverGadget;
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use indexmap::IndexMap;
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
+
+use ark_piop::SnarkBackend;
 
 pub const NAME: &str = "TableScan_lp_Gadget";
 #[derive(Clone)]
-pub struct Prover<B>(PhantomData<(B)>)
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send;
+pub struct Prover<B>(PhantomData<(B)>);
 
 impl<B> Prover<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     pub fn new() -> Self {
         Self(PhantomData)

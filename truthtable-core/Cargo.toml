@@ -32,6 +32,7 @@ tracing = { workspace = true }
 indexmap = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
+derivative = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 libc = { workspace = true }

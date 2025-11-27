@@ -1,23 +1,9 @@
-use std::sync::Arc;
+use datafusion_expr::expr::Alias;
 
-use arithmetic::{ACTIVATOR_EXPR, ctx::SharedCtx};
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use datafusion::prelude::SessionContext;
-use datafusion_expr::{Expr, LogicalPlan, expr::Alias};
+use crate::irs::nodes::id::NodeId;
 
-use crate::nodes::id::NodeId;
-use crate::nodes::prover::{ProverExprNode, ProverGadget, ProverPlanNode};
 #[derive(Clone)]
 pub struct ProverAliasExprNode {
-    pub parent_node_id: NodeId,
-    pub alias: Alias,
-}
-#[derive(Clone)]
-pub struct VerifierAliasExprNode {
     pub parent_node_id: NodeId,
     pub alias: Alias,
 }

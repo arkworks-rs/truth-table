@@ -1,25 +1,18 @@
 use std::sync::Arc;
 
-use crate::nodes::id::NodeId;
-use crate::nodes::prover::{ProverExprNode, ProverPlanNode};
-use arithmetic::ACTIVATOR_EXPR;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
-use datafusion_expr::Expr;
-use datafusion_expr::{BinaryExpr, LogicalPlan};
+use datafusion_expr::BinaryExpr;
+
+use crate::irs::{nodes::id::NodeId, tree::PlanNode};
 #[derive(Clone)]
-pub struct ProverBinaryExprNode<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static,
-{
+pub struct ProverBinaryExprNode<B> {
     pub binary_expression: BinaryExpr,
-    pub left: Arc<dyn ProverPlanNode<B>>,
-    pub right: Arc<dyn ProverPlanNode<B>>,
+    pub left: Arc<dyn PlanNode<B>>,
+    pub right: Arc<dyn PlanNode<B>>,
     pub parent: NodeId,
 }
 // impl<B> ProverBinaryExprNode<B>

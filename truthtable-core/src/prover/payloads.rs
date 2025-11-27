@@ -14,3 +14,7 @@ pub type DataFramePayload = PayloadStructure<DataFrame>;
 pub type MemTablePayload = PayloadStructure<MemTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
 pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
+
+#[derive(Debug)]
+pub struct EmptyPayload;
+impl Payload for EmptyPayload {}

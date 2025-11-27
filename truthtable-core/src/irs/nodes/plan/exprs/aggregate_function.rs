@@ -1,32 +1,16 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
-use arithmetic::ctx::SharedCtx;
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use datafusion_expr::{Expr, expr::AggregateFunction};
-
-use crate::nodes::prover::{ProverExprNode, ProverPlanNode};
+use ark_piop::SnarkBackend;
+use datafusion_expr::expr::AggregateFunction;
 
 #[derive(Clone)]
 pub struct ProverAggregateFunctionExprNode<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     aggregate_function: AggregateFunction,
     phantom: PhantomData<(B)>,
 }
-#[derive(Clone)]
-pub struct VerifierAggregateFunctionExprNode<B>
-where
-B:SnarkBackend
-{
-    aggregate_function: AggregateFunction,
-    phantom: PhantomData<(B)>,
-}
-
 // impl<B> ProverPlanNode<B>
 //     for ProverAggregateFunctionExprNode<B>
 // where
