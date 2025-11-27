@@ -11,34 +11,30 @@ use datafusion_expr::{Expr, expr::AggregateFunction};
 use crate::nodes::prover::{ProverExprNode, ProverPlanNode};
 
 #[derive(Clone)]
-pub struct ProverAggregateFunctionExprNode<F, MvPCS, UvPCS>
+pub struct ProverAggregateFunctionExprNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     aggregate_function: AggregateFunction,
     phantom: PhantomData<(F, MvPCS, UvPCS)>,
 }
 #[derive(Clone)]
-pub struct VerifierAggregateFunctionExprNode<F, MvPCS, UvPCS>
+pub struct VerifierAggregateFunctionExprNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     aggregate_function: AggregateFunction,
     phantom: PhantomData<(F, MvPCS, UvPCS)>,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS>
-//     for ProverAggregateFunctionExprNode<F, MvPCS, UvPCS>
+// impl<B> ProverPlanNode<B>
+//     for ProverAggregateFunctionExprNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 //     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
 // {
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 
@@ -46,17 +42,17 @@ where
 //         NodeId::Expr(Expr::AggregateFunction(self.aggregate_function.clone()))
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![]
 //     }
 
-//     fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, _proof_tree: &ProverProofTree<B>) -> HintDF {
 //         todo!()
 //     }
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         todo!()
 //     }
 
@@ -64,7 +60,7 @@ where
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -77,8 +73,8 @@ where
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS>
-//     for ProverAggregateFunctionExprNode<F, MvPCS, UvPCS>
+// impl<B> ProverExprNode<B>
+//     for ProverAggregateFunctionExprNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
@@ -86,7 +82,7 @@ where
 // {
 //     fn from_expr(
 //         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: SharedCtx<B>,
 //         expr: Expr,
 //         parent: NodeId,
 //     ) -> Self {

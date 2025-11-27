@@ -13,4 +13,4 @@ impl<T: std::fmt::Debug + 'static> Payload for PayloadStructure<T> {}
 pub type DataFramePayload = PayloadStructure<DataFrame>;
 pub type MemTablePayload = PayloadStructure<MemTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
-pub type TrackedPayload<F, MvPCS, UvPCS> = PayloadStructure<TrackedTable<F, MvPCS, UvPCS>>;
+pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;

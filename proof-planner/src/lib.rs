@@ -41,10 +41,10 @@ pub fn new_session_context_with_custom_analyzer() -> SessionContext {
     SessionContext::new_with_state(state)
 }
 
-pub async fn create_prover_proof_tree<F, MvPCS, UvPCS>(
+pub async fn create_prover_proof_tree<B>(
     df_session_ctx: &SessionContext,
     query: &str,
-) -> ProverProofTree<F, MvPCS, UvPCS>
+) -> ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -62,7 +62,7 @@ where
 
     let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
     println!("{}", optimized_logical_plan.display_graphviz());
-    let shared_ctx = default_shared_ctx::<F, MvPCS, UvPCS>();
+    let shared_ctx = default_shared_ctx::<B>();
     build_prover_proof_tree(
         df_session_ctx,
         unoptimized_logical_plan,
@@ -72,11 +72,11 @@ where
 }
 
 #[instrument(level = "debug", skip_all)]
-pub async fn create_prover_proof_tree_with_ctx<F, MvPCS, UvPCS>(
+pub async fn create_prover_proof_tree_with_ctx<B>(
     df_session_ctx: &SessionContext,
     query: &str,
-    shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
-) -> ProverProofTree<F, MvPCS, UvPCS>
+    shared_ctx: SharedCtx<B>,
+) -> ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -99,10 +99,10 @@ where
     )
 }
 
-pub async fn create_verifier_proof_tree<F, MvPCS, UvPCS>(
+pub async fn create_verifier_proof_tree<B>(
     df_session_ctx: &SessionContext,
     query: &str,
-) -> VerifierProofTree<F, MvPCS, UvPCS>
+) -> VerifierProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -117,7 +117,7 @@ where
     );
 
     let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
-    let shared_ctx = default_shared_ctx::<F, MvPCS, UvPCS>();
+    let shared_ctx = default_shared_ctx::<B>();
     build_verifier_proof_tree(
         df_session_ctx,
         unoptimized_logical_plan,
@@ -126,11 +126,11 @@ where
     )
 }
 
-pub async fn create_verifier_proof_tree_with_ctx<F, MvPCS, UvPCS>(
+pub async fn create_verifier_proof_tree_with_ctx<B>(
     df_session_ctx: &SessionContext,
     query: &str,
-    shared_ctx: SharedCtx<F, MvPCS, UvPCS>,
-) -> VerifierProofTree<F, MvPCS, UvPCS>
+    shared_ctx: SharedCtx<B>,
+) -> VerifierProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,

@@ -2,41 +2,27 @@
 
 #[cfg(test)]
 mod test;
-
-use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-pub struct AndCheckPIOP<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct AndCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct AndCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub in_activator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
-    pub res_activator_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct AndCheckProverInput<B: SnarkBackend> {
+    pub in_activator_tracked_polys: Vec<TrackedPoly<B>>,
+    pub res_activator_tracked_poly: TrackedPoly<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for AndCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for AndCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         let mut in_activator_tracked_polys_cloned = Vec::new();
         for activator_oply in &self.in_activator_tracked_polys {
             in_activator_tracked_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
@@ -48,26 +34,19 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct AndCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub in_activator_orcls: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
-    pub res_activator_orcl: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct AndCheckVerifierInput<B: SnarkBackend> {
+    pub in_activator_orcls: Vec<TrackedOracle<B>>,
+    pub res_activator_orcl: TrackedOracle<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for AndCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = AndCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for AndCheckPIOP<B> {
+    type ProverInput = AndCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = AndCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = AndCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -85,10 +64,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             ),
         ))
     }
-    fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        input: Self::ProverInput,
-    ) -> SnarkResult<()> {
+    fn prove_inner(prover: &mut ArgProver<B>, input: Self::ProverInput) -> SnarkResult<()> {
         // Rust Ownership and borrow rules
         let mut prod_poly = input.in_activator_tracked_polys[0].clone();
         for in_poly in &input.in_activator_tracked_polys {
@@ -99,10 +75,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Ok(())
     }
 
-    fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        input: Self::VerifierInput,
-    ) -> SnarkResult<()> {
+    fn verify_inner(verifier: &mut ArgVerifier<B>, input: Self::VerifierInput) -> SnarkResult<()> {
         let mut prod_orcl = input.in_activator_orcls[0].clone();
         for in_orcl in &input.in_activator_orcls {
             prod_orcl = &prod_orcl * in_orcl;

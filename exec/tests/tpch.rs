@@ -91,7 +91,7 @@ async fn tpch_q1_hint_tree() {
     )
     .await
     .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
+    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
     display_prover_hint_tree(&ctx, proof_tree).await;
 }
 
@@ -111,7 +111,7 @@ async fn tpch_q1_arithmetized_tree() {
     )
     .await
     .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
+    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
     display_prover_arithmetized_tree(&ctx, proof_tree).await;
 }
 
@@ -131,7 +131,7 @@ async fn tpch_q1_tracked_tree() {
     )
     .await
     .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
+    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
     display_prover_tracked_tree(&ctx, proof_tree).await;
 }
 
@@ -151,7 +151,7 @@ async fn tpch_q1_piop_tree() {
     )
     .await
     .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, spec.sql).await;
+    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
     display_prover_piop_tree(&ctx, proof_tree).await;
 }
 

@@ -5,6 +5,7 @@ use super::NoDupPIOP;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{Field, PrimeField};
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -17,19 +18,19 @@ use ark_test_curves::bls12_381::{Bls12_381, Fr};
 #[test]
 fn nodup_check_is_complete() -> SnarkResult<()> {
     // All activated tests
-    no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    no_dup_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         vec![Fr::ONE; 2_usize.pow(3_u32)],
     )?;
-    no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    no_dup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([40, 7, 16, 20], Fr),
         vec![Fr::ONE; 2_usize.pow(2_u32)],
     )?;
 
     // Some activated tests
-    no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    no_dup_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
@@ -41,18 +42,18 @@ fn nodup_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn nodup_check_is_sound() -> SnarkResult<()> {
-    binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 18, 20, 18, 2, 12, 3], Fr),
         vec![Fr::ONE; 2_usize.pow(3_u32)],
     )?;
-    binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([20, 7, 16, 20], Fr),
         vec![Fr::ONE; 2_usize.pow(2_u32)],
     )?;
 
-    binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([3, 7, 1, 20, 18, 2, 12, 3], Fr),
         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
@@ -61,16 +62,12 @@ fn nodup_check_is_sound() -> SnarkResult<()> {
     // exit successfully
     Ok(())
 }
-fn binary_check_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn binary_check_test_soundness_helper<B: SnarkBackend>(
     nv: usize,
-    in_evals: Vec<Fr>,
-    in_activator: Vec<Fr>,
+    in_evals: Vec<B::F>,
+    in_activator: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let err = no_dup_test_helper::<Fr, MvPCS, UvPCS>(nv, in_evals, in_activator).unwrap_err();
+    let err = no_dup_test_helper::<B>(nv, in_evals, in_activator).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -97,16 +94,12 @@ fn binary_check_test_soundness_helper<
     Ok(())
 }
 
-fn no_dup_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn no_dup_test_helper<B: SnarkBackend>(
     nv: usize,
-    in_evals: Vec<Fr>,
-    in_activator: Vec<Fr>,
+    in_evals: Vec<B::F>,
+    in_activator: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let in_mle = MLE::from_evaluations_vec(nv, in_evals);
     let in_tr_p = prover.track_and_commit_mat_mv_poly(&in_mle).unwrap();
     let in_activator_p = prover
@@ -114,14 +107,14 @@ fn no_dup_test_helper<
         .unwrap();
     let col = TrackedCol::new(in_tr_p.clone(), Some(in_activator_p.clone()), None);
     let no_dup_prover_input = NoDupCheckProverInput { col };
-    NoDupPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_dup_prover_input)?;
+    NoDupPIOP::<B>::prove(&mut prover, no_dup_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let in_comm = verifier.track_mv_com_by_id(in_tr_p.id())?;
     let activatorm = verifier.track_mv_com_by_id(in_activator_p.id())?;
     let tracked_col_oracle = TrackedColOracle::new(in_comm, Some(activatorm), None);
     let no_dup_verifier_input = NoDupCheckVerifierInput { tracked_col_oracle };
-    NoDupPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_dup_verifier_input)?;
+    NoDupPIOP::<B>::verify(&mut verifier, no_dup_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

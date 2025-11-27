@@ -7,21 +7,17 @@ use ark_piop::{
 use datafusion_expr::SubqueryAlias;
 use std::sync::Arc;
 
-pub struct ProverSubqueryAliasNode<F, MvPCS, UvPCS>
+pub struct ProverSubqueryAliasNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<B>>,
     subquery_alias: SubqueryAlias,
 }
-pub struct VerifierSubqueryAliasNode<F, MvPCS, UvPCS>
+pub struct VerifierSubqueryAliasNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn VerifierNode<B>>,
     subquery_alias: SubqueryAlias,
 }

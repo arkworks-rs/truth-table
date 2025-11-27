@@ -17,7 +17,7 @@ use crate::nodes::{
 };
 
 /// The implementation of a filter node in the prover proof tree.
-pub struct ProverFilterNode<F, MvPCS, UvPCS>
+pub struct ProverFilterNode<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -26,12 +26,12 @@ where
     // The filter information from DataFusion
     filter: Filter,
     // The prover plan children nodes for the Filter expressions
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<B>>,
     // The prover predicate expression node for the filter condition
-    predicate: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    predicate: Arc<dyn ProverPlanNode<B>>,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
+// impl<B> ProverPlanNode<B> for ProverFilterNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -40,14 +40,14 @@ where
 //     fn node_id(&self) -> NodeId {
 //         NodeId::LP(LogicalPlan::Filter(self.filter.clone()))
 //     }
-//     fn output(&self, _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, _proof_tree: &ProverProofTree<B>) -> HintDF {
 //         todo!()
 //     }
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         todo!()
 //     }
 
@@ -55,7 +55,7 @@ where
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -63,16 +63,16 @@ where
 //         todo!()
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![self.input.clone(), self.predicate.clone()]
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverFilterNode<F, MvPCS, UvPCS>
+// impl<B> ProverLpNode<B> for ProverFilterNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -81,7 +81,7 @@ where
 //     /// Constructs a proof plan node from a DataFusion logical plan.
 //     fn from_lp(
 //         ctx: &SessionContext,
-//         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: SharedCtx<B>,
 //         plan: datafusion_expr::LogicalPlan,
 //         parent_node_id: NodeId,
 //     ) -> Self {
@@ -95,7 +95,7 @@ where
 //         let node_id = NodeId::LP(plan.clone());
 //         // Recurse into the input subtree and fetch the logical plan that feeds this
 //         // filter.
-//         let input = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+//         let input = ProverProofTree::<B>::from_lp(
 //             ctx,
 //             prover_ctx.clone(),
 //             &filter.input,
@@ -104,7 +104,7 @@ where
 //         .root()
 //         .clone();
 
-//         let predicate = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+//         let predicate = ProverProofTree::<B>::from_expr(
 //             ctx,
 //             prover_ctx.clone(),
 //             filter.predicate.clone(),

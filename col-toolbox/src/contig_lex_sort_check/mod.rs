@@ -1,14 +1,18 @@
+use crate::{
+    local_single_col_sort_check::{
+        LocalSingleColSortCheckPIOP, LocalSingleColSortCheckProverInput,
+        LocalSingleColSortCheckVerifierInput,
+    },
+    zero_expr_check::{ZeroExprCheckPIOP, ZeroExprCheckProverInput, ZeroExprCheckVerifierInput},
+};
 use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::PrimeField;
+use ark_ff::One;
 use ark_piop::{
-    arithmetic::mat_poly::{
-        lde::LDE,
-        mle::MLE,
-        utils::{build_eq_x_r, build_sparse_eq_x_r},
-    },
+    SnarkBackend,
+    arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r},
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -22,38 +26,21 @@ use ark_poly::Polynomial;
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-use crate::{
-    local_single_col_sort_check::{
-        LocalSingleColSortCheckPIOP, LocalSingleColSortCheckProverInput,
-        LocalSingleColSortCheckVerifierInput,
-    },
-    zero_expr_check::{ZeroExprCheckPIOP, ZeroExprCheckProverInput, ZeroExprCheckVerifierInput},
-};
-
 #[cfg(test)]
 mod test;
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct ContigLexSortCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+pub struct ContigLexSortCheckProverInput<B: SnarkBackend> {
+    pub tracked_table: TrackedTable<B>,
+    pub tie_indicator_tracked_table: Option<TrackedTable<B>>,
+    pub shift_tracked_table: TrackedTable<B>,
     pub ascending: Vec<bool>,
     pub strict: Vec<bool>,
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ContigLexSortCheckProverInput<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for ContigLexSortCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
             tie_indicator_tracked_table: self
@@ -69,33 +56,20 @@ where
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct ContigLexSortCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+pub struct ContigLexSortCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_table_oracle: TrackedTableOracle<B>,
+    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<B>>,
+    pub shift_tracked_table_oracle: TrackedTableOracle<B>,
     pub ascending: Vec<bool>,
     pub strict: Vec<bool>,
 }
 
-pub struct ContigLexSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+pub struct ContigLexSortCheckPIOP<B: SnarkBackend>(PhantomData<B>);
 
-impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    type ProverInput = ContigLexSortCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for ContigLexSortCheckPIOP<B> {
+    type ProverInput = ContigLexSortCheckProverInput<B>;
     type ProverOutput = ();
-    type VerifierInput = ContigLexSortCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = ContigLexSortCheckVerifierInput<B>;
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
@@ -104,14 +78,14 @@ where
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let num_cols = input.tracked_table.num_data_tracked_cols();
         let activator_tracked_poly = input.tracked_table.activator_tracked_poly();
         let num_vars = input.tracked_table.log_size();
 
-        let mut current_diff_col: Option<TrackedCol<F, MvPCS, UvPCS>> = None;
+        let mut current_diff_col: Option<TrackedCol<B>> = None;
 
         for i in 0..num_cols {
             let tracked_col = input.tracked_table.tracked_col_by_ind(i);
@@ -153,14 +127,14 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let num_col_oracles = input.tracked_table_oracle.num_data_tracked_col_oracles();
 
         let activator_tracked_oracle = input.tracked_table_oracle.activator_tracked_poly();
         let num_vars = input.tracked_table_oracle.log_size();
-        let mut current_diff_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>> = None;
+        let mut current_diff_col_oracle: Option<TrackedColOracle<B>> = None;
 
         for i in 0..num_col_oracles {
             let tracked_col_oracle = input.tracked_table_oracle.tracked_col_oracle_by_ind(i);
@@ -207,19 +181,14 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ContigLexSortCheckPIOP<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> ContigLexSortCheckPIOP<B> {
     fn first_tie_indicator_col(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         num_vars: usize,
-        activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
-    ) -> TrackedCol<F, MvPCS, UvPCS> {
-        let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, F::one());
-        let last_eq_poly = build_eq_x_r(&vec![F::one(); num_vars]).unwrap();
+        activator_tracked_poly: Option<TrackedPoly<B>>,
+    ) -> TrackedCol<B> {
+        let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
+        let last_eq_poly = build_eq_x_r(&vec![B::F::one(); num_vars]).unwrap();
         let tracked_last_eq_poly = prover.track_mat_mv_poly(last_eq_poly.as_ref().clone());
         let first_tie_indicator_tracked_poly = &one_tracked_poly - &tracked_last_eq_poly;
         TrackedCol::new(
@@ -230,13 +199,13 @@ where
     }
 
     fn first_tie_indicator_col_oracle(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         num_vars: usize,
-        activator_tracked_oracle: Option<TrackedOracle<F, MvPCS, UvPCS>>,
-    ) -> TrackedColOracle<F, MvPCS, UvPCS> {
-        let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, F::one());
-        let last_eq_sparse_poly = build_sparse_eq_x_r(&vec![F::one(); num_vars]).unwrap();
-        let last_eq_sparse_oracle = Oracle::new_multivariate(num_vars, move |point: Vec<F>| {
+        activator_tracked_oracle: Option<TrackedOracle<B>>,
+    ) -> TrackedColOracle<B> {
+        let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one());
+        let last_eq_sparse_poly = build_sparse_eq_x_r(&vec![B::F::one(); num_vars]).unwrap();
+        let last_eq_sparse_oracle = Oracle::new_multivariate(num_vars, move |point: Vec<B::F>| {
             Ok(last_eq_sparse_poly.evaluate(&point))
         });
         let tracked_last_eq_oracle = verifier.track_oracle(last_eq_sparse_oracle);

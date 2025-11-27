@@ -104,7 +104,7 @@ pub struct SetupRunner {
 
 impl SetupRunner {
     pub fn run(&self) -> Result<()> {
-        let keygen = KeyGenerator::<F, MvPCS, UvPCS>::new().with_num_mv_vars(self.log_size);
+        let keygen = KeyGenerator::<B>::new().with_num_mv_vars(self.log_size);
 
         let (pk, vk) = keygen
             .gen_keys()

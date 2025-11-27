@@ -1,13 +1,13 @@
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    DefaultSnarkBackend, SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::PCS,
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
 };
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use super::{
     PredicateLimitCheck, PredicateLimitCheckProverInput, PredicateLimitCheckVerifierInput,
@@ -15,28 +15,28 @@ use super::{
 
 #[test]
 fn predicate_limit_check_is_complete() -> SnarkResult<()> {
-    predicate_limit_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 0, 1, 1, 1, 0, 1], Fr),
         to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0], Fr),
         0,
     )?;
 
-    predicate_limit_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 0, 1, 1, 1, 0, 1], Fr),
         to_field_vec!([1, 0, 0, 1, 1, 0, 0, 0], Fr),
         3,
     )?;
 
-    predicate_limit_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 1, 0, 1, 1, 1, 1], Fr),
         to_field_vec!([1, 0, 1, 0, 1, 1, 1, 1], Fr),
         6,
     )?;
 
-    predicate_limit_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 1, 1, 1, 0, 0, 0, 0], Fr),
         to_field_vec!([1, 1, 1, 0, 0, 0, 0, 0], Fr),
@@ -48,35 +48,35 @@ fn predicate_limit_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn predicate_limit_check_is_sound() -> SnarkResult<()> {
-    predicate_limit_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 0, 1, 1, 1, 0, 1], Fr),
         to_field_vec!([1, 1, 1, 1, 0, 0, 0, 0], Fr),
         3,
     )?;
 
-    predicate_limit_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 0, 1, 1, 1, 0, 1], Fr),
         to_field_vec!([1, 0, 0, 0, 0, 0, 0, 0], Fr),
         2,
     )?;
 
-    predicate_limit_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 2, 0, 3, 4, 0, 5, 6], Fr),
         to_field_vec!([1, 2, 0, 3, 4, 0, 5, 6], Fr),
         3,
     )?;
 
-    predicate_limit_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 0], Fr),
         to_field_vec!([1, 0, 0, 1, 0, 0, 0, 0], Fr),
         0,
     )?;
 
-    predicate_limit_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    predicate_limit_check_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([5, 0, 6, 0, 7, 0, 8, 0], Fr),
         to_field_vec!([5, 0, 6, 0, 7, 0, 8, 0], Fr),
@@ -86,23 +86,14 @@ fn predicate_limit_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn predicate_limit_check_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn predicate_limit_check_soundness_helper<B: SnarkBackend>(
     log_size: usize,
-    input_evals: Vec<Fr>,
-    output_evals: Vec<Fr>,
+    input_evals: Vec<B::F>,
+    output_evals: Vec<B::F>,
     limit: usize,
 ) -> SnarkResult<()> {
-    let err = predicate_limit_check_test_helper::<Fr, MvPCS, UvPCS>(
-        log_size,
-        input_evals,
-        output_evals,
-        limit,
-    )
-    .unwrap_err();
+    let err = predicate_limit_check_test_helper::<B>(log_size, input_evals, output_evals, limit)
+        .unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -127,17 +118,13 @@ fn predicate_limit_check_soundness_helper<
     Ok(())
 }
 
-fn predicate_limit_check_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn predicate_limit_check_test_helper<B: SnarkBackend>(
     log_size: usize,
-    input_evals: Vec<Fr>,
-    output_evals: Vec<Fr>,
+    input_evals: Vec<B::F>,
+    output_evals: Vec<B::F>,
     limit: usize,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
 
     let input_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, input_evals))?;
@@ -149,7 +136,7 @@ fn predicate_limit_check_test_helper<
         output_predicate: output_poly.clone(),
         limit,
     };
-    PredicateLimitCheck::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    PredicateLimitCheck::<B>::prove(&mut prover, prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
@@ -160,7 +147,7 @@ fn predicate_limit_check_test_helper<
         output_predicate_oracle: output_oracle,
         limit,
     };
-    PredicateLimitCheck::<Fr, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    PredicateLimitCheck::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

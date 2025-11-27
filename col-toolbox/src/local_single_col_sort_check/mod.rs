@@ -1,6 +1,7 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
@@ -21,27 +22,20 @@ use crate::{
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct LocalSingleColSortCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub tie_indicator_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub shift_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct LocalSingleColSortCheckProverInput<B: SnarkBackend> {
+    pub tracked_col: TrackedCol<B>,
+    pub tie_indicator_col: TrackedCol<B>,
+    pub shift_col: TrackedCol<B>,
     pub ascending: bool,
     pub strict: bool,
     pub is_last_col: bool,
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS>
-    for LocalSingleColSortCheckProverInput<F, MvPCS, UvPCS>
+impl<B> DeepClone<B> for LocalSingleColSortCheckProverInput<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+    B: SnarkBackend,
 {
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_col: self.tracked_col.deep_clone(prover.clone()),
             tie_indicator_col: self.tie_indicator_col.deep_clone(prover.clone()),
@@ -55,14 +49,10 @@ where
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct LocalSingleColSortCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_col_oracle: Option<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub shift_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct LocalSingleColSortCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_col_oracle: TrackedColOracle<B>,
+    pub tie_indicator_col_oracle: Option<TrackedColOracle<B>>,
+    pub shift_col_oracle: TrackedColOracle<B>,
     pub ascending: bool,
     pub strict: bool,
     pub is_last_col_oracle: bool,
@@ -70,40 +60,26 @@ pub struct LocalSingleColSortCheckVerifierInput<
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct LocalSingleColSortCheckProverOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub diff_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct LocalSingleColSortCheckProverOutput<B: SnarkBackend> {
+    pub diff_col: TrackedCol<B>,
 }
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct LocalSingleColSortCheckVerifierOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub diff_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct LocalSingleColSortCheckVerifierOutput<B: SnarkBackend> {
+    pub diff_col_oracle: TrackedColOracle<B>,
 }
 
-pub struct LocalSingleColSortCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+pub struct LocalSingleColSortCheckPIOP<B: SnarkBackend>(PhantomData<B>);
 
-impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for LocalSingleColSortCheckPIOP<F, MvPCS, UvPCS>
+impl<B> PIOP<B> for LocalSingleColSortCheckPIOP<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+    B: SnarkBackend,
 {
-    type ProverInput = LocalSingleColSortCheckProverInput<F, MvPCS, UvPCS>;
-    type ProverOutput = LocalSingleColSortCheckProverOutput<F, MvPCS, UvPCS>;
-    type VerifierInput = LocalSingleColSortCheckVerifierInput<F, MvPCS, UvPCS>;
-    type VerifierOutput = LocalSingleColSortCheckVerifierOutput<F, MvPCS, UvPCS>;
+    type ProverInput = LocalSingleColSortCheckProverInput<B>;
+    type ProverOutput = LocalSingleColSortCheckProverOutput<B>;
+    type VerifierInput = LocalSingleColSortCheckVerifierInput<B>;
+    type VerifierOutput = LocalSingleColSortCheckVerifierOutput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
@@ -111,7 +87,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let LocalSingleColSortCheckProverInput {
@@ -130,10 +106,7 @@ where
             right_tracked_poly: shift_col.data_tracked_poly().clone(),
             permutation_tracked_poly: shift_permutation_tracked_poly,
         };
-        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::prove(
-            prover,
-            prescribed_permutation_check_prover_input,
-        )?;
+        PrescribedPermutationPIOP::<B>::prove(prover, prescribed_permutation_check_prover_input)?;
 
         let diff_activator_tracked_poly = match shift_col.activator_tracked_poly() {
             Some(poly) => Some(&poly * &tie_indicator_col.data_tracked_poly()),
@@ -158,12 +131,12 @@ where
             col: diff_col.clone(),
             sign,
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
+        SignCheckPIOP::<B>::prove(prover, sign_check_prover_input)?;
         Ok(Self::ProverOutput { diff_col })
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let LocalSingleColSortCheckVerifierInput {
@@ -175,7 +148,7 @@ where
             is_last_col_oracle,
         } = input;
 
-        let shift_permutation_oracle = shift_permutation_oracle::<F>(
+        let shift_permutation_oracle = shift_permutation_oracle::<B::F>(
             tracked_col_oracle.data_tracked_oracle().log_size(),
             1,
             true,
@@ -186,7 +159,7 @@ where
             right_tracked_oracle: shift_col_oracle.data_tracked_oracle().clone(),
             permutation_tracked_oracle: shift_permutation_tracked_oracle,
         };
-        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::verify(
+        PrescribedPermutationPIOP::<B>::verify(
             verifier,
             prescribed_permutation_check_verifier_input,
         )?;
@@ -223,7 +196,7 @@ where
             sign,
         };
 
-        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_input)?;
+        SignCheckPIOP::<B>::verify(verifier, sign_check_input)?;
         Ok(Self::VerifierOutput { diff_col_oracle })
     }
 }

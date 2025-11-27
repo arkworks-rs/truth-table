@@ -15,11 +15,12 @@ use crate::{
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::One;
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{
@@ -40,28 +41,16 @@ pub enum Sign {
     NonePositive,
 }
 
-pub struct SignCheckPIOP<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+pub struct SignCheckPIOP<B: SnarkBackend>(PhantomData<B>);
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct SignCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct SignCheckProverInput<B: SnarkBackend> {
+    pub col: TrackedCol<B>,
     pub sign: Sign,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for SignCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for SignCheckProverInput<B> {
+    fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
         SignCheckProverInput {
             col: self.col.deep_clone(new_prover),
             sign: self.sign,
@@ -69,21 +58,14 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct SignCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct SignCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_col_oracle: TrackedColOracle<B>,
     pub sign: Sign,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for SignCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = SignCheckProverInput<F, MvPCS, UvPCS>;
-    type VerifierInput = SignCheckVerifierInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for SignCheckPIOP<B> {
+    type ProverInput = SignCheckProverInput<B>;
+    type VerifierInput = SignCheckVerifierInput<B>;
     type ProverOutput = ();
     type VerifierOutput = ();
 
@@ -94,7 +76,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         match prover_input.sign {
@@ -115,7 +97,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         match verifier_input.sign {
@@ -136,22 +118,16 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    SignCheckPIOP<F, MvPCS, UvPCS>
-{
-    pub fn prove_positive(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+impl<B: SnarkBackend> SignCheckPIOP<B> {
+    pub fn prove_positive(prover: &mut ArgProver<B>, col: &TrackedCol<B>) -> SnarkResult<()> {
         Self::prove_non_neg(prover, col)?;
         NoZerosCheck::prove(prover, NoZerosCheckProverInput { col: col.clone() })?;
         Ok(())
     }
 
     pub fn verify_positive(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<()> {
         Self::verify_non_neg(verifier, tracked_col_oracle)?;
         NoZerosCheck::verify(
@@ -163,18 +139,15 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Ok(())
     }
 
-    pub fn prove_negative(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    pub fn prove_negative(prover: &mut ArgProver<B>, col: &TrackedCol<B>) -> SnarkResult<()> {
         Self::prove_none_positive(prover, col)?;
         NoZerosCheck::prove(prover, NoZerosCheckProverInput { col: col.clone() })?;
         Ok(())
     }
 
     pub fn verify_negative(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<()> {
         Self::verify_none_positive(verifier, tracked_col_oracle)?;
         NoZerosCheck::verify(
@@ -185,12 +158,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         )?;
         Ok(())
     }
-    pub fn prove_none_positive(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    pub fn prove_none_positive(prover: &mut ArgProver<B>, col: &TrackedCol<B>) -> SnarkResult<()> {
         let negated_col = TrackedCol::new(
-            &col.data_tracked_poly().clone() * (-F::one()),
+            col.data_tracked_poly().clone() * (-B::F::one()),
             col.activator_tracked_poly(),
             col.field_ref().clone(),
         );
@@ -199,21 +169,18 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     pub fn verify_none_positive(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<()> {
         let negated_comm = TrackedColOracle::new(
-            &tracked_col_oracle.data_tracked_oracle().clone() * (-F::one()),
+            tracked_col_oracle.data_tracked_oracle().clone() * (-B::F::one()),
             tracked_col_oracle.activator_tracked_oracle().clone(),
             tracked_col_oracle.field_ref().clone(),
         );
         Self::verify_non_neg(verifier, &negated_comm)?;
         Ok(())
     }
-    pub fn prove_non_neg(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<()> {
+    pub fn prove_non_neg(prover: &mut ArgProver<B>, col: &TrackedCol<B>) -> SnarkResult<()> {
         let field_ref = col.field_ref().unwrap();
         let data_type = field_ref.data_type();
         match data_type {
@@ -226,7 +193,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
             }
             DataType::Int8 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
@@ -237,7 +204,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
             }
             DataType::UInt16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
@@ -248,7 +215,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
             }
             DataType::Int16 => {
                 let inclusion_check_prover_input = InclusionCheckProverInput {
@@ -259,7 +226,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, inclusion_check_prover_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
@@ -272,10 +239,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
@@ -288,7 +252,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment],
@@ -298,10 +262,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
             DataType::UInt64 => {
@@ -315,10 +276,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
 
@@ -332,7 +290,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment],
@@ -342,10 +300,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -359,7 +314,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, top_inclusion_check_input)?;
+                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
                 for segment in rest {
                     let inclusion_check_prover_input = InclusionCheckProverInput {
                         included_cols: vec![segment.clone()],
@@ -369,10 +324,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
 
@@ -387,10 +339,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-                        prover,
-                        inclusion_check_prover_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
                 }
             }
 
@@ -400,8 +349,8 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     pub fn verify_non_neg(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<()> {
         let field_ref = tracked_col_oracle.field_ref().unwrap();
         let data_type = field_ref.data_type();
@@ -417,10 +366,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    inclusion_check_prover_input,
-                )?;
+                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
             }
 
             DataType::Int8 => {
@@ -434,10 +380,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    inclusion_check_prover_input,
-                )?;
+                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
             }
 
             DataType::UInt16 => {
@@ -451,10 +394,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    inclusion_check_prover_input,
-                )?;
+                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
             }
             DataType::Int16 => {
                 let inclusion_check_prover_input = InclusionCheckVerifierInput {
@@ -467,10 +407,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                    verifier,
-                    inclusion_check_prover_input,
-                )?;
+                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
@@ -486,10 +423,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
                 }
             }
 
@@ -506,7 +440,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, top_inclusion_check_input)?;
+                InclusionCheckPIOP::<B>::verify(verifier, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
                         included_tracked_col_oracles: vec![segment],
@@ -518,10 +452,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
                 }
             }
 
@@ -539,10 +470,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
                 }
             }
 
@@ -559,7 +487,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, top_inclusion_check_input)?;
+                InclusionCheckPIOP::<B>::verify(verifier, top_inclusion_check_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
                     let inclusion_check_verifier_input = InclusionCheckVerifierInput {
                         included_tracked_col_oracles: vec![segment],
@@ -571,16 +499,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
                 }
             }
 
             DataType::Decimal128(..) => {
                 let (top, rest) = Self::verify_non_neg_int128(verifier, tracked_col_oracle)?;
-                InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                InclusionCheckPIOP::<B>::verify(
                     verifier,
                     InclusionCheckVerifierInput {
                         included_tracked_col_oracles: vec![top],
@@ -594,7 +519,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                     },
                 )?;
                 for segment in rest {
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
+                    InclusionCheckPIOP::<B>::verify(
                         verifier,
                         InclusionCheckVerifierInput {
                             included_tracked_col_oracles: vec![segment],
@@ -623,10 +548,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-                        verifier,
-                        inclusion_check_verifier_input,
-                    )?;
+                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
                 }
             }
 
@@ -643,14 +565,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint32(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-    )> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
         let mut chunk3_vals = Vec::with_capacity(evaluations.len());
@@ -661,10 +578,10 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         for &eval in evaluations.iter() {
             let n = Self::field_low_bits_unsigned(eval, 32) as u32;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_u32_into_u16s(n);
-            chunk3_vals.push(F::from(chunk3 as u64));
-            chunk2_vals.push(F::from(chunk2 as u64));
-            chunk1_vals.push(F::from(chunk1 as u64));
-            chunk0_vals.push(F::from(chunk0 as u64));
+            chunk3_vals.push(B::F::from(chunk3 as u64));
+            chunk2_vals.push(B::F::from(chunk2 as u64));
+            chunk1_vals.push(B::F::from(chunk1 as u64));
+            chunk0_vals.push(B::F::from(chunk0 as u64));
         }
 
         let chunk3_poly = prover
@@ -676,9 +593,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_poly = prover
             .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col.data_tracked_poly() - &recomposed;
@@ -714,13 +631,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint32(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<(
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
@@ -734,9 +651,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_id = verifier.peek_next_id();
         let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col_inner - &recomposed;
@@ -772,14 +689,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int32(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-    )> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
         let mut chunk3_vals = Vec::with_capacity(evaluations.len());
@@ -790,10 +702,10 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         for &eval in evaluations.iter() {
             let n = Self::field_low_bits_signed(eval, 32) as i32;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i32_into_u16s(n);
-            chunk3_vals.push(F::from(chunk3 as u64));
-            chunk2_vals.push(F::from(chunk2 as u64));
-            chunk1_vals.push(F::from(chunk1 as u64));
-            chunk0_vals.push(F::from(chunk0 as u64));
+            chunk3_vals.push(B::F::from(chunk3 as u64));
+            chunk2_vals.push(B::F::from(chunk2 as u64));
+            chunk1_vals.push(B::F::from(chunk1 as u64));
+            chunk0_vals.push(B::F::from(chunk0 as u64));
         }
 
         let chunk3_poly = prover
@@ -805,9 +717,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_poly = prover
             .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col.data_tracked_poly() - &recomposed;
@@ -843,13 +755,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int32(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<(
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
@@ -863,9 +775,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_id = verifier.peek_next_id();
         let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col_inner - &recomposed;
@@ -901,14 +813,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint64(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-    )> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
         let mut chunk3_vals = Vec::with_capacity(evaluations.len());
@@ -919,10 +826,10 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         for &eval in evaluations.iter() {
             let n = Self::field_low_bits_unsigned(eval, 64) as u64;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_u64_into_u16s(n);
-            chunk3_vals.push(F::from(chunk3 as u64));
-            chunk2_vals.push(F::from(chunk2 as u64));
-            chunk1_vals.push(F::from(chunk1 as u64));
-            chunk0_vals.push(F::from(chunk0 as u64));
+            chunk3_vals.push(B::F::from(chunk3 as u64));
+            chunk2_vals.push(B::F::from(chunk2 as u64));
+            chunk1_vals.push(B::F::from(chunk1 as u64));
+            chunk0_vals.push(B::F::from(chunk0 as u64));
         }
 
         let chunk3_poly = prover
@@ -934,9 +841,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_poly = prover
             .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col.data_tracked_poly() - &recomposed;
@@ -972,13 +879,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint64(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<(
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
@@ -992,9 +899,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_id = verifier.peek_next_id();
         let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col_inner - &recomposed;
@@ -1030,14 +937,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int64(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-        TrackedCol<F, MvPCS, UvPCS>,
-    )> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
         let mut chunk3_vals = Vec::with_capacity(evaluations.len());
@@ -1048,10 +950,10 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         for &eval in evaluations.iter() {
             let n = Self::field_low_bits_signed(eval, 64) as i64;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i64_into_u16s(n);
-            chunk3_vals.push(F::from(chunk3 as u64));
-            chunk2_vals.push(F::from(chunk2 as u64));
-            chunk1_vals.push(F::from(chunk1 as u64));
-            chunk0_vals.push(F::from(chunk0 as u64));
+            chunk3_vals.push(B::F::from(chunk3 as u64));
+            chunk2_vals.push(B::F::from(chunk2 as u64));
+            chunk1_vals.push(B::F::from(chunk1 as u64));
+            chunk0_vals.push(B::F::from(chunk0 as u64));
         }
 
         let chunk3_poly = prover
@@ -1063,9 +965,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_poly = prover
             .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk0_vals))?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col.data_tracked_poly() - &recomposed;
@@ -1101,13 +1003,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int64(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
     ) -> SnarkResult<(
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        TrackedColOracle<F, MvPCS, UvPCS>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
+        TrackedColOracle<B>,
     )> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
@@ -1121,9 +1023,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let chunk0_id = verifier.peek_next_id();
         let chunk0_poly = verifier.track_mv_com_by_id(chunk0_id)?;
 
-        let recomposed = &(&(&(&chunk3_poly * F::from(1u64 << 48))
-            + &(&chunk2_poly * F::from(1u64 << 32)))
-            + &(&chunk1_poly * F::from(1u64 << 16)))
+        let recomposed = &(&(&(chunk3_poly.clone() * B::F::from(1u64 << 48))
+            + &(chunk2_poly.clone() * B::F::from(1u64 << 32)))
+            + &(chunk1_poly.clone() * B::F::from(1u64 << 16)))
             + &chunk0_poly;
 
         let combined = &col_inner - &recomposed;
@@ -1159,12 +1061,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint128(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<Vec<TrackedCol<B>>> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<F>> = (0..8)
+        let mut chunk_values: Vec<Vec<B::F>> = (0..8)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
@@ -1174,7 +1076,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 .iter_mut()
                 .zip(Self::split_u128_into_u16s(n).into_iter())
             {
-                target.push(F::from(chunk as u64));
+                target.push(B::F::from(chunk as u64));
             }
         }
 
@@ -1205,9 +1107,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint128(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
+    ) -> SnarkResult<Vec<TrackedColOracle<B>>> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
 
@@ -1237,19 +1139,19 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_uint256(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<Vec<TrackedCol<B>>> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<F>> = (0..16)
+        let mut chunk_values: Vec<Vec<B::F>> = (0..16)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
         for &eval in evaluations.iter() {
             let chunks = Self::split_field_into_u16_limbs::<16>(eval);
             for (target, chunk) in chunk_values.iter_mut().zip(chunks.iter()) {
-                target.push(F::from(*chunk as u64));
+                target.push(B::F::from(*chunk as u64));
             }
         }
 
@@ -1280,9 +1182,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_uint256(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Vec<TrackedColOracle<F, MvPCS, UvPCS>>> {
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
+    ) -> SnarkResult<Vec<TrackedColOracle<B>>> {
         let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
 
@@ -1312,12 +1214,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn prove_non_neg_int128(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<Vec<TrackedCol<F, MvPCS, UvPCS>>> {
+        prover: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<Vec<TrackedCol<B>>> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
-        let mut chunk_values: Vec<Vec<F>> = (0..8)
+        let mut chunk_values: Vec<Vec<B::F>> = (0..8)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
@@ -1327,7 +1229,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 .iter_mut()
                 .zip(Self::split_i128_into_u16s(n).into_iter())
             {
-                target.push(F::from(chunk as u64));
+                target.push(B::F::from(chunk as u64));
             }
         }
 
@@ -1358,12 +1260,9 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
     #[allow(clippy::complexity)]
     pub fn verify_non_neg_int128(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<(
-        TrackedColOracle<F, MvPCS, UvPCS>,
-        Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    )> {
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
+    ) -> SnarkResult<(TrackedColOracle<B>, Vec<TrackedColOracle<B>>)> {
         let segments = Self::verify_non_neg_uint128(verifier, tracked_col_oracle)?;
         let mut iter = segments.into_iter();
         let top = iter
@@ -1373,28 +1272,26 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Ok((top, rest))
     }
 
-    fn recompose_tracked_polys(
-        chunks: &[TrackedPoly<F, MvPCS, UvPCS>],
-    ) -> TrackedPoly<F, MvPCS, UvPCS> {
+    fn recompose_tracked_polys(chunks: &[TrackedPoly<B>]) -> TrackedPoly<B> {
         debug_assert!(!chunks.is_empty());
-        let base = F::from(1u64 << 16);
+        let base = B::F::from(1u64 << 16);
         let mut iter = chunks.iter();
         let mut acc = iter.next().unwrap().clone();
         for chunk in iter {
-            acc = &(&acc * base) + chunk;
+            let scaled = acc.clone() * base;
+            acc = &scaled + chunk;
         }
         acc
     }
 
-    fn recompose_tracked_oracles(
-        chunks: &[TrackedOracle<F, MvPCS, UvPCS>],
-    ) -> TrackedOracle<F, MvPCS, UvPCS> {
+    fn recompose_tracked_oracles(chunks: &[TrackedOracle<B>]) -> TrackedOracle<B> {
         debug_assert!(!chunks.is_empty());
-        let base = F::from(1u64 << 16);
+        let base = B::F::from(1u64 << 16);
         let mut iter = chunks.iter();
         let mut acc = iter.next().unwrap().clone();
         for chunk in iter {
-            acc = &(&acc * base) + chunk;
+            let scaled = acc.clone() * base;
+            acc = &scaled + chunk;
         }
         acc
     }
@@ -1450,7 +1347,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Self::split_u128_into_u16s(bits)
     }
 
-    fn split_field_into_u16_limbs<const N: usize>(value: F) -> [u16; N] {
+    fn split_field_into_u16_limbs<const N: usize>(value: B::F) -> [u16; N] {
         let bigint = value.into_bigint();
         let limbs = bigint.as_ref();
         let mut little_endian_chunks = Vec::with_capacity(N);
@@ -1481,7 +1378,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             .expect("chunk count must match the specified output size")
     }
 
-    fn field_low_bits_unsigned(value: F, bits: usize) -> u128 {
+    fn field_low_bits_unsigned(value: B::F, bits: usize) -> u128 {
         debug_assert!(bits <= 128);
         if bits == 0 {
             return 0;
@@ -1509,7 +1406,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         acc
     }
 
-    fn field_low_bits_signed(value: F, bits: usize) -> i128 {
+    fn field_low_bits_signed(value: B::F, bits: usize) -> i128 {
         debug_assert!(bits <= 128);
         if bits == 0 {
             return 0;

@@ -14,21 +14,19 @@ use crate::{
     prover::payloads::{DataFramePayload, MemTablePayload},
 };
 
-pub struct ExecutionPass<F, MvPCS, UvPCS> {
+pub struct ExecutionPass<B> {
     // pub ctx: ExecCtx,
     _phantom: std::marker::PhantomData<(F, MvPCS, UvPCS)>,
 }
 
-impl<F, MvPCS, UvPCS> LocalPass<F, MvPCS, UvPCS, DataFramePayload, MemTablePayload>
-    for ExecutionPass<F, MvPCS, UvPCS>
+impl<B> LocalPass<F, MvPCS, UvPCS, DataFramePayload, MemTablePayload>
+    for ExecutionPass<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     fn transform(
         &self,
-        node: &dyn Node<F, MvPCS, UvPCS>,
+        node: &dyn Node<B>,
         id: NodeId,
         payload: &DataFramePayload,
     ) -> MemTablePayload {

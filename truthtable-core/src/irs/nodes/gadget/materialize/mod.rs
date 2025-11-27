@@ -8,7 +8,7 @@ use ark_piop::{
 
 use crate::nodes::id::NodeId;
 #[derive(Clone)]
-pub struct ProverMaterializeGadget<F, MvPCS, UvPCS>
+pub struct ProverMaterializeGadget<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -18,7 +18,7 @@ where
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
 }
 
-impl<F, MvPCS, UvPCS> ProverMaterializeGadget<F, MvPCS, UvPCS>
+impl<B> ProverMaterializeGadget<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,

@@ -11,7 +11,7 @@ pub struct VerifierColumnExprNode {
     pub column: Column,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+// impl<B> ProverPlanNode<B> for ProverColumnExprNode
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -24,7 +24,7 @@ pub struct VerifierColumnExprNode {
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -36,7 +36,7 @@ pub struct VerifierColumnExprNode {
 //         todo!()
 //     }
 
-//     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
 //         let ctx_lp_node = self.ctx_lp_node(proof_tree);
 //         let base_hint_generation_plan = ctx_lp_node.output(proof_tree);
 //         let base_data_frame = base_hint_generation_plan.data_frame();
@@ -47,24 +47,24 @@ pub struct VerifierColumnExprNode {
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         proof_tree
 //             .get_node(&self.parent_node_id)
 //             .unwrap()
 //             .ctx_lp_node(proof_tree)
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![]
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverColumnExprNode
+// impl<B> ProverExprNode<B> for ProverColumnExprNode
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -72,7 +72,7 @@ pub struct VerifierColumnExprNode {
 // {
 //     fn from_expr(
 //         _ctx: &SessionContext,
-//         _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         _prover_ctx: SharedCtx<B>,
 //         _expr: datafusion::logical_expr::Expr,
 //         parent_node_id: NodeId,
 //     ) -> Self

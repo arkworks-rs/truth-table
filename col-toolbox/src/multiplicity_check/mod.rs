@@ -7,14 +7,15 @@ mod honest_prover;
 #[cfg(test)]
 mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
+use ark_ff::One;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::{
         InputShapeError::{EmptyInput, InputLengthMismatch},
         SnarkError, SnarkResult,
     },
-    pcs::PCS,
     piop::PIOP,
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     structs::TrackerID,
@@ -26,48 +27,33 @@ use ark_piop::{
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-
-pub struct MultiplicityCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+use std::ops::Neg;
+pub struct MultiplicityCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiplicityCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub fxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub gxs: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub mfxs: Vec<Option<TrackedPoly<F, MvPCS, UvPCS>>>,
-    pub mgxs: Vec<Option<TrackedPoly<F, MvPCS, UvPCS>>>,
+pub struct MultiplicityCheckProverInput<B: SnarkBackend> {
+    pub fxs: Vec<TrackedCol<B>>,
+    pub gxs: Vec<TrackedCol<B>>,
+    pub mfxs: Vec<Option<TrackedPoly<B>>>,
+    pub mgxs: Vec<Option<TrackedPoly<B>>>,
 }
 
-pub struct MultiplicityCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub fxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub gxs: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub mfxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
-    pub mgxs: Vec<Option<TrackedOracle<F, MvPCS, UvPCS>>>,
+pub struct MultiplicityCheckVerifierInput<B: SnarkBackend> {
+    pub fxs: Vec<TrackedColOracle<B>>,
+    pub gxs: Vec<TrackedColOracle<B>>,
+    pub mfxs: Vec<Option<TrackedOracle<B>>>,
+    pub mgxs: Vec<Option<TrackedOracle<B>>>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for MultiplicityCheck<F, MvPCS, UvPCS>
-{
-    type ProverInput = MultiplicityCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for MultiplicityCheck<B> {
+    type ProverInput = MultiplicityCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = MultiplicityCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = MultiplicityCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -75,7 +61,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
@@ -103,7 +89,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         // check input shapes are correct
@@ -142,8 +128,8 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let max_nv_f = input.fxs.iter().map(|x| x.log_size()).max().unwrap();
         let max_nv_g = input.gxs.iter().map(|x| x.log_size()).max().unwrap();
         let max_nv = max_nv_f.max(max_nv_g);
-        let mut lhs_v: F = F::zero();
-        let mut rhs_v: F = F::zero();
+        let mut lhs_v: B::F = B::F::zero();
+        let mut rhs_v: B::F = B::F::zero();
         for i in 0..input.fxs.len() {
             let sum_claim_v = Self::verify_generate_subclaims(
                 verifier,
@@ -152,7 +138,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 gamma,
             )?;
             let ratio = 2_usize.pow((max_nv - input.fxs[i].log_size()) as u32);
-            let sum_claim_v_adj = sum_claim_v / F::from(ratio as u64);
+            let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             lhs_v += sum_claim_v_adj;
         }
 
@@ -164,7 +150,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 gamma,
             )?;
             let ratio = 2_usize.pow((max_nv - input.gxs[i].log_size()) as u32);
-            let sum_claim_v_adj = sum_claim_v / F::from(ratio as u64);
+            let sum_claim_v_adj = sum_claim_v / B::F::from(ratio as u64);
             rhs_v += sum_claim_v_adj;
         }
 
@@ -181,29 +167,24 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> MultiplicityCheck<F, MvPCS, UvPCS>
-where
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    F: PrimeField,
-{
+impl<B: SnarkBackend> MultiplicityCheck<B> {
     fn prove_generate_subclaims(
-        tracker: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: TrackedCol<F, MvPCS, UvPCS>,
-        m: Option<TrackedPoly<F, MvPCS, UvPCS>>,
-        gamma: F,
+        tracker: &mut ArgProver<B>,
+        col: TrackedCol<B>,
+        m: Option<TrackedPoly<B>>,
+        gamma: B::F,
     ) -> SnarkResult<()> {
         let nv = col.log_size();
         // construct phat = 1/(col.p(x) - gamma), i.e. the denominator of the sum
         let p = col.data_tracked_poly();
         let mut p_evals = p.evaluations().to_vec();
-        let mut p_minus_gamma: Vec<F> = p_evals.iter_mut().map(|x| *x - gamma).collect();
+        let mut p_minus_gamma: Vec<B::F> = p_evals.iter_mut().map(|x| *x - gamma).collect();
         let phat_evals = p_minus_gamma.as_mut_slice();
         ark_ff::fields::batch_inversion(phat_evals);
         let phat_mle = MLE::from_evaluations_slice(nv, phat_evals);
 
         // calculate what the final sum should be
-        let mut v = F::zero();
+        let mut v = B::F::zero();
         let phat = tracker.track_and_commit_mat_mv_poly(&phat_mle)?;
         let (sumcheck_challenge_poly, v) = match (col.activator_tracked_poly().as_ref(), m) {
             (Some(activator), Some(m)) => {
@@ -238,7 +219,8 @@ where
 
         // Create Zerocheck claim for proving phat(x) is created correctly,
         // i.e. ZeroCheck [(p(x)-gamma) * phat(x) - 1] = [(p * phat) - gamma * phat - 1]
-        let phat_check_poly = &(&(&p * &phat) - &(&phat * gamma)) + F::one().neg();
+        let phat_gamma = phat.clone() * gamma;
+        let phat_check_poly = (&(&p * &phat) - &phat_gamma) + B::F::one().neg();
         // add the delayed prover claims to the tracker
         tracker.add_mv_sumcheck_claim(sumcheck_challenge_poly.id(), v)?;
         tracker.add_mv_zerocheck_claim(phat_check_poly.id())?;
@@ -246,12 +228,12 @@ where
     }
 
     fn verify_generate_subclaims(
-        tracker: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        col: TrackedColOracle<F, MvPCS, UvPCS>,
-        m: Option<TrackedOracle<F, MvPCS, UvPCS>>,
-        gamma: F,
-    ) -> SnarkResult<F> {
-        let p: TrackedOracle<F, MvPCS, UvPCS> = col.data_tracked_oracle();
+        tracker: &mut ArgVerifier<B>,
+        col: TrackedColOracle<B>,
+        m: Option<TrackedOracle<B>>,
+        gamma: B::F,
+    ) -> SnarkResult<B::F> {
+        let p: TrackedOracle<B> = col.data_tracked_oracle();
         // get phat mat comm from proof and add it to the tracker
         let phat_id: TrackerID = tracker.peek_next_id();
         let phat = tracker.track_mv_com_by_id(phat_id)?;
@@ -263,7 +245,8 @@ where
             (None, None) => phat.clone(),
         };
 
-        let phat_check_poly = &(&(&p * &phat) - &(&phat * gamma)) + F::one().neg();
+        let phat_gamma = phat.clone() * gamma;
+        let phat_check_poly = (&(&p * &phat) - &phat_gamma) + B::F::one().neg();
         // add the delayed prover claims to the tracker
         let sum_claim_v = tracker.prover_claimed_sum(sumcheck_challenge_comm.id())?;
         tracker.add_sumcheck_claim(sumcheck_challenge_comm.id(), sum_claim_v);

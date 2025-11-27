@@ -5,9 +5,12 @@
 mod test;
 use crate::sign_check::{self, SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::One;
 use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -22,29 +25,18 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef};
 use derivative::Derivative;
 use std::{marker::PhantomData, sync::Arc};
 // Convinces the verifier that
-pub struct PredicateLimitCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct PredicateLimitCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct PredicateLimitCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub input_predicate: TrackedPoly<F, MvPCS, UvPCS>,
-    pub output_predicate: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct PredicateLimitCheckProverInput<B: SnarkBackend> {
+    pub input_predicate: TrackedPoly<B>,
+    pub output_predicate: TrackedPoly<B>,
     pub limit: usize,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for PredicateLimitCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for PredicateLimitCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             input_predicate: self.input_predicate.deep_clone(prover.clone()),
             output_predicate: self.output_predicate.deep_clone(prover),
@@ -53,23 +45,17 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct PredicateLimitCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub input_predicate_oracle: TrackedOracle<F, MvPCS, UvPCS>,
-    pub output_predicate_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct PredicateLimitCheckVerifierInput<B: SnarkBackend> {
+    pub input_predicate_oracle: TrackedOracle<B>,
+    pub output_predicate_oracle: TrackedOracle<B>,
     pub limit: usize,
 }
 
-impl<F, MvPCS, UvPCS> PredicateLimitCheck<F, MvPCS, UvPCS>
+impl<B> PredicateLimitCheck<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+    B: SnarkBackend,
 {
-    fn nth_non_zero_index_from_evals(evals: &[F], mut n: usize) -> Option<usize> {
+    fn nth_non_zero_index_from_evals(evals: &[B::F], mut n: usize) -> Option<usize> {
         if n == 0 {
             return None;
         }
@@ -85,15 +71,12 @@ where
         None
     }
 
-    fn nth_non_zero_index(predicate: &TrackedPoly<F, MvPCS, UvPCS>, n: usize) -> Option<usize> {
+    fn nth_non_zero_index(predicate: &TrackedPoly<B>, n: usize) -> Option<usize> {
         let evals = predicate.evaluations();
         Self::nth_non_zero_index_from_evals(&evals, n)
     }
 
-    fn limit_mask_poly(
-        predicate: &TrackedPoly<F, MvPCS, UvPCS>,
-        limit: usize,
-    ) -> SnarkResult<(MLE<F>, F)> {
+    fn limit_mask_poly(predicate: &TrackedPoly<B>, limit: usize) -> SnarkResult<(MLE<B::F>, B::F)> {
         let log_size = predicate.log_size();
         let total_len = 1usize << log_size;
 
@@ -103,30 +86,27 @@ where
             Self::nth_non_zero_index(predicate, limit)
         };
 
-        let mut mask = vec![F::zero(); total_len];
+        let mut mask = vec![B::F::zero(); total_len];
         if let Some(idx) = cutoff_idx {
             for slot in mask.iter_mut().take(idx + 1) {
-                *slot = F::one();
+                *slot = B::F::one();
             }
         }
 
         let mask_size = cutoff_idx.map(|idx| idx + 1).unwrap_or(0);
-        let mask_size_f = F::from(mask_size as u64);
+        let mask_size_f = B::F::from(mask_size as u64);
 
         Ok((MLE::from_evaluations_vec(log_size, mask), mask_size_f))
     }
 }
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for PredicateLimitCheck<F, MvPCS, UvPCS>
-{
-    type ProverInput = PredicateLimitCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for PredicateLimitCheck<B> {
+    type ProverInput = PredicateLimitCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = PredicateLimitCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = PredicateLimitCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -148,7 +128,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         }
 
         for val in input_evals.iter().chain(output_evals.iter()) {
-            if !val.is_zero() && *val != F::one() {
+            if !val.is_zero() && *val != B::F::one() {
                 use ark_piop::{
                     errors::SnarkError,
                     prover::errors::{HonestProverError, ProverError},
@@ -225,7 +205,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let PredicateLimitCheckProverInput {
@@ -233,7 +213,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             output_predicate,
             limit,
         } = input;
-        let _limit_f = F::from(limit as u64);
+        let _limit_f = B::F::from(limit as u64);
         let (limit_mask_poly, mask_size_f) = Self::limit_mask_poly(&input_predicate, limit)?;
         let mask_key_challenge = prover.get_and_append_challenge(b"predicate_limit_mask_key")?;
         let mask_key = format!("{:?}", mask_key_challenge.into_bigint());
@@ -248,12 +228,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let index_mle = MLE::from_evaluations_vec(
             input_predicate.log_size(),
             (0..(1 << input_predicate.log_size()))
-                .map(|i| F::from(i as u64) + F::one())
+                .map(|i| B::F::from(i as u64) + B::F::one())
                 .collect(),
         );
         let index_tracked_poly = prover.track_mat_mv_poly(index_mle);
-        let diff_poly = &index_tracked_poly - mask_size_f;
-        let positive_activator_poly = &(&limit_mask_tracked * (-F::one())) + F::one();
+        let diff_poly = index_tracked_poly.clone() - mask_size_f;
+        let positive_activator_poly =
+            (limit_mask_tracked.clone() * (-B::F::one())) + B::F::one();
         let none_positive_activator_poly = limit_mask_tracked;
         let predicate_field_ref: FieldRef =
             Arc::new(Field::new("predicate_limit_index", DataType::UInt64, false));
@@ -265,7 +246,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             ),
             sign: sign_check::Sign::Positive,
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
+        SignCheckPIOP::<B>::prove(prover, sign_check_prover_input)?;
 
         let sign_check_prover_input = SignCheckProverInput {
             col: TrackedCol::new(
@@ -275,13 +256,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             ),
             sign: sign_check::Sign::NonePositive,
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
+        SignCheckPIOP::<B>::prove(prover, sign_check_prover_input)?;
 
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let PredicateLimitCheckVerifierInput {
@@ -289,7 +270,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             output_predicate_oracle,
             limit,
         } = input;
-        let _limit_f = F::from(limit as u64);
+        let _limit_f = B::F::from(limit as u64);
         let mask_key_challenge = verifier.get_and_append_challenge(b"predicate_limit_mask_key")?;
         let mask_key = format!("{:?}", mask_key_challenge.into_bigint());
         let mask_size_f = verifier.miscellaneous_field_element(&mask_key)?;
@@ -305,14 +286,14 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let predicate_log_size = input_predicate_oracle.log_size();
         let index_oracle = Oracle::new_multivariate(predicate_log_size, move |x| {
             Ok(
-                SignCheckPIOP::<F, MvPCS, UvPCS>::sparse_range_poly_by_nv(predicate_log_size)?
-                    .evaluate(&x)
-                    + F::one(),
+                SignCheckPIOP::<B>::sparse_range_poly_by_nv(predicate_log_size)?.evaluate(&x)
+                    + B::F::one(),
             )
         });
         let index_tracked_oracle = verifier.track_oracle(index_oracle);
-        let diff_oracle = &index_tracked_oracle - mask_size_f;
-        let positive_activator_oracle = &(&limit_mask_tracked * F::from(-1)) + F::one();
+        let diff_oracle = index_tracked_oracle.clone() - mask_size_f;
+        let positive_activator_oracle =
+            (limit_mask_tracked.clone() * B::F::from(-1)) + B::F::one();
         let none_positive_activator_poly = limit_mask_tracked;
         let predicate_field_ref: FieldRef =
             Arc::new(Field::new("predicate_limit_index", DataType::UInt64, false));
@@ -324,7 +305,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             ),
             sign: sign_check::Sign::Positive,
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_verifier_input)?;
+        SignCheckPIOP::<B>::verify(verifier, sign_check_verifier_input)?;
         let sign_check_verifier_input = SignCheckVerifierInput {
             tracked_col_oracle: TrackedColOracle::new(
                 diff_oracle,
@@ -333,7 +314,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             ),
             sign: sign_check::Sign::NonePositive,
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_verifier_input)?;
+        SignCheckPIOP::<B>::verify(verifier, sign_check_verifier_input)?;
 
         Ok(())
     }

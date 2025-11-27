@@ -4,11 +4,11 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{PrimeField, batch_inversion};
+use ark_ff::{One, batch_inversion};
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{ArgVerifier, structs::oracle::TrackedOracle},
@@ -20,30 +20,18 @@ use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-
-pub struct OrCheckPIOP<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+use ark_ff::Zero;
+pub struct OrCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct OrCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub in_activator_tracked_polys: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
-    pub res_activator_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct OrCheckProverInput<B: SnarkBackend> {
+    pub in_activator_tracked_polys: Vec<TrackedPoly<B>>,
+    pub res_activator_tracked_poly: TrackedPoly<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for OrCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for OrCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         let mut in_activator_tracked_polys_cloned = Vec::new();
         for activator_oply in &self.in_activator_tracked_polys {
             in_activator_tracked_polys_cloned.push(activator_oply.deep_clone(prover.clone()));
@@ -55,26 +43,19 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct OrCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub in_activator_orcls: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
-    pub res_activator_orcl: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct OrCheckVerifierInput<B: SnarkBackend> {
+    pub in_activator_orcls: Vec<TrackedOracle<B>>,
+    pub res_activator_orcl: TrackedOracle<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for OrCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = OrCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for OrCheckPIOP<B> {
+    type ProverInput = OrCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = OrCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = OrCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -87,14 +68,14 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let res_evals = input.res_activator_tracked_poly.evaluations();
 
         for (sum_eval, res_eval) in sum_evals.iter().zip(res_evals.iter()) {
-            if *sum_eval == F::zero() && *res_eval != F::zero() {
+            if *sum_eval == B::F::zero() && *res_eval != B::F::zero() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(
                         ark_piop::prover::errors::HonestProverError::FalseClaim,
                     ),
                 ));
             }
-            if *sum_eval != F::zero() && *res_eval != F::one() {
+            if *sum_eval != B::F::zero() && *res_eval != B::F::one() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(
                         ark_piop::prover::errors::HonestProverError::FalseClaim,
@@ -117,10 +98,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         //         ),
         //     ));
     }
-    fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        input: Self::ProverInput,
-    ) -> SnarkResult<()> {
+    fn prove_inner(prover: &mut ArgProver<B>, input: Self::ProverInput) -> SnarkResult<()> {
         // Rust Ownership and borrow rules
         let mut sum_poly = input.in_activator_tracked_polys[0].clone();
         for in_poly in &input.in_activator_tracked_polys {
@@ -135,23 +113,23 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         ))?;
 
         let q = &inverted_sum_poly * &sum_poly;
-        let p = &(&inverted_sum_poly - &q) + F::one();
+        let p = (&inverted_sum_poly - &q) + B::F::one();
 
-        NoZerosCheck::<F, MvPCS, UvPCS>::prove(
+        NoZerosCheck::<B>::prove(
             prover,
             NoZerosCheckProverInput {
                 col: TrackedCol::new(p.clone(), None, None),
             },
         )?;
 
-        BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(
+        BinaryCheckPIOP::<B>::prove(
             prover,
             BinaryCheckProverInput {
                 predicate: q.clone(),
             },
         )?;
 
-        let zero_check_poly: TrackedPoly<F, MvPCS, UvPCS> = &(&p * &sum_poly) - &q;
+        let zero_check_poly: TrackedPoly<B> = &(&p * &sum_poly) - &q;
         let zero_check_poly_2 = &q - &input.res_activator_tracked_poly;
 
         prover.add_mv_zerocheck_claim(zero_check_poly.id())?;
@@ -160,10 +138,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Ok(())
     }
 
-    fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        input: Self::VerifierInput,
-    ) -> SnarkResult<()> {
+    fn verify_inner(verifier: &mut ArgVerifier<B>, input: Self::VerifierInput) -> SnarkResult<()> {
         let mut sum_orcl = input.in_activator_orcls[0].clone();
         for in_orcl in &input.in_activator_orcls {
             sum_orcl = &sum_orcl + in_orcl;
@@ -171,16 +146,16 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let inverted_sum_id = verifier.peek_next_id();
         let inverted_sum_orcl = verifier.track_mv_com_by_id(inverted_sum_id)?;
         let q_orcl = &inverted_sum_orcl * &sum_orcl;
-        let p_orcl = &(&inverted_sum_orcl - &q_orcl) + F::one();
+        let p_orcl = (&inverted_sum_orcl - &q_orcl) + B::F::one();
 
-        NoZerosCheck::<F, MvPCS, UvPCS>::verify(
+        NoZerosCheck::<B>::verify(
             verifier,
             NoZerosCheckVerifierInput {
                 tracked_col_oracle: TrackedColOracle::new(p_orcl.clone(), None, None),
             },
         )?;
 
-        BinaryCheckPIOP::<F, MvPCS, UvPCS>::verify(
+        BinaryCheckPIOP::<B>::verify(
             verifier,
             BinaryCheckVerifierInput {
                 predicate_oracle: q_orcl.clone(),

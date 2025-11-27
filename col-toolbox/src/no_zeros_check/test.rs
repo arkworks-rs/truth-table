@@ -1,26 +1,21 @@
 use super::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
-    piop::PIOP,
-    test_utils::test_prelude,
-    to_field_vec,
+    DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult,
+    pcs::PCS, piop::PIOP, test_utils::test_prelude, to_field_vec,
 };
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 // Test cases for multiplicity check, where the active and multiplicative
 // columns are None, meaning that everything is activated and the
 // multiplicities are all one
 #[test]
 fn nozeros_check_is_complete() -> SnarkResult<()> {
-    nozero_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    nozero_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr)),
     )?;
-    nozero_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    nozero_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 0, 2, 0, 3], Fr),
         Some(to_field_vec!([1, 1, 1, 1, 0, 1, 0, 1], Fr)),
@@ -30,12 +25,12 @@ fn nozeros_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn nozeros_check_is_sound() -> SnarkResult<()> {
-    nozero_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    nozero_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 0, 20, 18, 2, 12, 3], Fr),
         Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr)),
     )?;
-    nozero_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    nozero_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 0, 1, 20, 0, 2, 0, 3], Fr),
         Some(to_field_vec!([1, 1, 1, 1, 0, 1, 0, 1], Fr)),
@@ -43,16 +38,12 @@ fn nozeros_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn nozero_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn nozero_test_soundness_helper<B: SnarkBackend>(
     nv: usize,
-    values: Vec<Fr>,
-    activator_values: Option<Vec<Fr>>,
+    values: Vec<B::F>,
+    activator_values: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let err = nozero_test_helper::<Fr, MvPCS, UvPCS>(nv, values, activator_values).unwrap_err();
+    let err = nozero_test_helper::<B>(nv, values, activator_values).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -79,18 +70,14 @@ fn nozero_test_soundness_helper<
     Ok(())
 }
 
-fn nozero_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn nozero_test_helper<B: SnarkBackend>(
     nv: usize,
-    values: Vec<Fr>,
-    activator_values: Option<Vec<Fr>>,
+    values: Vec<B::F>,
+    activator_values: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
     // Ensure tracing subscriber is initialized once for test output
 
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let inner = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &values))?;
     let activator =
         match activator_values {
@@ -103,7 +90,7 @@ fn nozero_test_helper<
     let no_zero_check_prover_input = NoZerosCheckProverInput {
         col: TrackedCol::new(inner, activator_clone, None),
     };
-    NoZerosCheck::<Fr, MvPCS, UvPCS>::prove(&mut prover, no_zero_check_prover_input)?;
+    NoZerosCheck::<B>::prove(&mut prover, no_zero_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -120,7 +107,7 @@ fn nozero_test_helper<
         tracked_col_oracle: TrackedColOracle::new(inner_com, activator_com, None),
     };
 
-    NoZerosCheck::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_zero_check_verifier_input)?;
+    NoZerosCheck::<B>::verify(&mut verifier, no_zero_check_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

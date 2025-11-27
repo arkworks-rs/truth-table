@@ -6,10 +6,11 @@
 #[cfg(test)]
 mod test;
 pub(crate) mod utils;
-
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::One;
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
@@ -30,24 +31,14 @@ use crate::multiplicity_check::{
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct HintedInclusionCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub included_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub super_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub super_col_multiplicities: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+pub struct HintedInclusionCheckProverInput<B: SnarkBackend> {
+    pub included_cols: Vec<TrackedCol<B>>,
+    pub super_col: TrackedCol<B>,
+    pub super_col_multiplicities: Vec<TrackedPoly<B>>,
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS>
-    for HintedInclusionCheckProverInput<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for HintedInclusionCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             included_cols: self
                 .included_cols
@@ -64,44 +55,23 @@ where
     }
 }
 
-pub struct HintedInclusionCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub included_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub super_col_multiplicities: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
+pub struct HintedInclusionCheckVerifierInput<B: SnarkBackend> {
+    pub included_tracked_col_oracles: Vec<TrackedColOracle<B>>,
+    pub super_tracked_col_oracle: TrackedColOracle<B>,
+    pub super_col_multiplicities: Vec<TrackedOracle<B>>,
 }
 
-pub struct HintedInclusionCheckPIOP<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct HintedInclusionCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct InclusionCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub included_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
-    pub super_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct InclusionCheckProverInput<B: SnarkBackend> {
+    pub included_cols: Vec<TrackedCol<B>>,
+    pub super_col: TrackedCol<B>,
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for InclusionCheckProverInput<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for InclusionCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             included_cols: self
                 .included_cols
@@ -113,46 +83,24 @@ where
     }
 }
 
-pub struct InclusionCheckProverOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub super_col_ms: Vec<TrackedPoly<F, MvPCS, UvPCS>>,
+pub struct InclusionCheckProverOutput<B: SnarkBackend> {
+    pub super_col_ms: Vec<TrackedPoly<B>>,
 }
 
-pub struct InclusionCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub included_tracked_col_oracles: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
-    pub super_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct InclusionCheckVerifierInput<B: SnarkBackend> {
+    pub included_tracked_col_oracles: Vec<TrackedColOracle<B>>,
+    pub super_tracked_col_oracle: TrackedColOracle<B>,
 }
 
-pub struct InclusionCheckVerifierOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub super_col_m_comms: Vec<TrackedOracle<F, MvPCS, UvPCS>>,
+pub struct InclusionCheckVerifierOutput<B: SnarkBackend> {
+    pub super_col_m_comms: Vec<TrackedOracle<B>>,
 }
 
-pub struct InclusionCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct InclusionCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for HintedInclusionCheckPIOP<F, MvPCS, UvPCS>
-where
-    MvPCS: Clone,
-    UvPCS: Clone,
-{
-    type ProverInput = HintedInclusionCheckProverInput<F, MvPCS, UvPCS>;
-    type VerifierInput = HintedInclusionCheckVerifierInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
+    type ProverInput = HintedInclusionCheckProverInput<B>;
+    type VerifierInput = HintedInclusionCheckVerifierInput<B>;
     type ProverOutput = ();
     type VerifierOutput = ();
 
@@ -165,7 +113,7 @@ where
             prover::errors::{HonestProverError, ProverError},
         };
 
-        let super_col_hash_set: HashSet<F> = input.super_col.effective_hashset();
+        let super_col_hash_set: HashSet<B::F> = input.super_col.effective_hashset();
         for elem in input.included_cols.iter().flat_map(|c| c.effective_iter()) {
             if !super_col_hash_set.contains(&elem) {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -178,7 +126,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         assert_eq!(
@@ -192,7 +140,7 @@ where
             .map(|included_col| {
                 let nv = included_col.log_size();
                 let one_const_mle =
-                    MLE::from_evaluations_vec(nv, vec![F::one(); 2_usize.pow(nv as u32)]);
+                    MLE::from_evaluations_vec(nv, vec![B::F::one(); 2_usize.pow(nv as u32)]);
                 Some(prover.track_mat_mv_poly(one_const_mle))
             })
             .collect::<Vec<_>>();
@@ -209,13 +157,13 @@ where
                 .collect(),
         };
 
-        MultiplicityCheck::<F, MvPCS, UvPCS>::prove(prover, multiplicity_check_prover_input)?;
+        MultiplicityCheck::<B>::prove(prover, multiplicity_check_prover_input)?;
 
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         assert_eq!(
@@ -228,7 +176,7 @@ where
             .iter()
             .map(|included_col| {
                 let nv = included_col.log_size();
-                let one_closure = |_: Vec<F>| -> SnarkResult<F> { Ok(F::one()) };
+                let one_closure = |_: Vec<B::F>| -> SnarkResult<B::F> { Ok(B::F::one()) };
                 Some(verifier.track_oracle(Oracle::new_multivariate(nv, one_closure)))
             })
             .collect::<Vec<_>>();
@@ -244,25 +192,19 @@ where
                 .map(Some)
                 .collect(),
         };
-        MultiplicityCheck::<F, MvPCS, UvPCS>::verify(verifier, multiplicity_check_verifier_input)?;
+        MultiplicityCheck::<B>::verify(verifier, multiplicity_check_verifier_input)?;
         Ok(())
     }
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for InclusionCheckPIOP<F, MvPCS, UvPCS>
-where
-    MvPCS: Clone,
-    UvPCS: Clone,
-{
-    type ProverInput = InclusionCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for InclusionCheckPIOP<B> {
+    type ProverInput = InclusionCheckProverInput<B>;
 
-    type ProverOutput = InclusionCheckProverOutput<F, MvPCS, UvPCS>;
+    type ProverOutput = InclusionCheckProverOutput<B>;
 
-    type VerifierOutput = InclusionCheckVerifierOutput<F, MvPCS, UvPCS>;
+    type VerifierOutput = InclusionCheckVerifierOutput<B>;
 
-    type VerifierInput = InclusionCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = InclusionCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
@@ -273,7 +215,7 @@ where
             prover::errors::{HonestProverError, ProverError},
         };
 
-        let super_col_hash_set: HashSet<F> = input.super_col.effective_hashset();
+        let super_col_hash_set: HashSet<B::F> = input.super_col.effective_hashset();
         for elem in input.included_cols.iter().flat_map(|c| c.effective_iter()) {
             if !super_col_hash_set.contains(&elem) {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -286,7 +228,7 @@ where
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let super_col_m_mles = input
@@ -304,15 +246,12 @@ where
             super_col: input.super_col,
             super_col_multiplicities: super_col_ms.clone(),
         };
-        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-            prover,
-            hinted_inclusion_check_prover_input,
-        )?;
+        HintedInclusionCheckPIOP::<B>::prove(prover, hinted_inclusion_check_prover_input)?;
         Ok(InclusionCheckProverOutput { super_col_ms })
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let super_col_m_comms = input
@@ -329,10 +268,7 @@ where
             super_tracked_col_oracle: input.super_tracked_col_oracle,
             super_col_multiplicities: super_col_m_comms.clone(),
         };
-        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-            verifier,
-            hinted_inclusion_check_verifier_input,
-        )?;
+        HintedInclusionCheckPIOP::<B>::verify(verifier, hinted_inclusion_check_verifier_input)?;
         Ok(InclusionCheckVerifierOutput { super_col_m_comms })
     }
 }

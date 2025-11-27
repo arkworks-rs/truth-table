@@ -3,20 +3,6 @@
 // are a permutation of the activated elements of another column.
 #[cfg(test)]
 mod test;
-
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    piop::{DeepClone, PIOP},
-    prover::{ArgProver, structs::polynomial::TrackedPoly},
-    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
-};
-use derivative::Derivative;
-use std::marker::PhantomData;
-
 use crate::{
     prescribed_permutation_check::{
         PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
@@ -24,30 +10,32 @@ use crate::{
     },
     sign_check::{SignCheckPIOP, SignCheckProverInput, SignCheckVerifierInput},
 };
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::One;
+use ark_ff::Zero;
+use ark_piop::{
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
+    errors::SnarkResult,
+    piop::{DeepClone, PIOP},
+    prover::{ArgProver, structs::polynomial::TrackedPoly},
+    verifier::{ArgVerifier, structs::oracle::TrackedOracle},
+};
+use derivative::Derivative;
+use std::marker::PhantomData;
 // Convinces the verifier that
-pub struct SortCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct SortCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct SortCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct SortCheckProverInput<B: SnarkBackend> {
+    pub tracked_col: TrackedCol<B>,
     pub ascending: bool,
     pub strict: bool,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for SortCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for SortCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_col: self.tracked_col.deep_clone(prover.clone()),
             ascending: self.ascending,
@@ -56,26 +44,19 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct SortCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct SortCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_col_oracle: TrackedColOracle<B>,
     pub ascending: bool,
     pub strict: bool,
 }
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for SortCheck<F, MvPCS, UvPCS>
-{
-    type ProverInput = SortCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for SortCheck<B> {
+    type ProverInput = SortCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = SortCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = SortCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -107,15 +88,14 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let new_col =
             if let Some(activator_tracked_poly) = input.tracked_col.activator_tracked_poly() {
-                let new_mle: MLE<F> = Self::p_prep(&input.tracked_col)?;
-                let new_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                    prover.track_and_commit_mat_mv_poly(&new_mle)?;
-                let new_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                let new_mle: MLE<B::F> = Self::p_prep(&input.tracked_col)?;
+                let new_tr_p: TrackedPoly<B> = prover.track_and_commit_mat_mv_poly(&new_mle)?;
+                let new_wit_tr_p: TrackedPoly<B> =
                     &(&new_tr_p - &input.tracked_col.data_tracked_poly()) * &activator_tracked_poly;
                 prover.add_mv_zerocheck_claim(new_wit_tr_p.id())?;
                 TrackedCol::new(
@@ -143,10 +123,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             right_tracked_poly: shifted_data_tracked_poly.clone(),
             permutation_tracked_poly: shift_permutation_tracked_poly,
         };
-        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::prove(
-            prover,
-            prescribed_permutation_check_prover_input,
-        )?;
+        PrescribedPermutationPIOP::<B>::prove(prover, prescribed_permutation_check_prover_input)?;
 
         let truncated_activator_mle = Self::truncate_activator_mle(prover, &new_col);
         let truncated_activator_tracked_poly =
@@ -168,7 +145,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         //     output_predicate: truncated_activator_tracked_poly.clone(),
         //     limit,
         // };
-        // PredicateLimitCheck::<F, MvPCS, UvPCS>::prove(
+        // PredicateLimitCheck::<B>::prove(
         //     prover,
         //     predicate_limit_check_piop_prover_input,
         // )?;
@@ -197,12 +174,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 sign: crate::sign_check::Sign::NonePositive,
             },
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::prove(prover, sign_check_prover_input)?;
+        SignCheckPIOP::<B>::prove(prover, sign_check_prover_input)?;
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let new_col = if let Some(activator_tracked_oracle) =
@@ -210,7 +187,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         {
             let new_tr_id = verifier.peek_next_id();
             let new_tr_p = verifier.track_mv_com_by_id(new_tr_id)?;
-            let new_wit_tr_p: TrackedOracle<F, MvPCS, UvPCS> = &(&new_tr_p
+            let new_wit_tr_p: TrackedOracle<B> = &(&new_tr_p
                 - &input.tracked_col_oracle.data_tracked_oracle())
                 * &activator_tracked_oracle;
             verifier.add_zerocheck_claim(new_wit_tr_p.id());
@@ -231,14 +208,14 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         );
 
         let shift_permutation_oracle =
-            shift_permutation_oracle::<F>(new_col.data_tracked_oracle().log_size(), 1, true);
+            shift_permutation_oracle::<B::F>(new_col.data_tracked_oracle().log_size(), 1, true);
         let shift_permutation_tracked_oracle = verifier.track_oracle(shift_permutation_oracle);
         let prescribed_permutation_check_verifier_input = PrescribedPermutationPIOPVerifierInput {
             left_tracked_oracle: new_col.data_tracked_oracle().clone(),
             right_tracked_oracle: shifted_data_tracked_oracle.clone(),
             permutation_tracked_oracle: shift_permutation_tracked_oracle,
         };
-        PrescribedPermutationPIOP::<F, MvPCS, UvPCS>::verify(
+        PrescribedPermutationPIOP::<B>::verify(
             verifier,
             prescribed_permutation_check_verifier_input,
         )?;
@@ -274,23 +251,21 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
                 sign: crate::sign_check::Sign::NonePositive,
             },
         };
-        SignCheckPIOP::<F, MvPCS, UvPCS>::verify(verifier, sign_check_verifier_input)?;
+        SignCheckPIOP::<B>::verify(verifier, sign_check_verifier_input)?;
         Ok(())
     }
 }
 
-impl<F, MvPCS, UvPCS> SortCheck<F, MvPCS, UvPCS>
+impl<B> SortCheck<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+    B: SnarkBackend,
 {
-    fn p_prep(in_col: &TrackedCol<F, MvPCS, UvPCS>) -> SnarkResult<MLE<F>> {
+    fn p_prep(in_col: &TrackedCol<B>) -> SnarkResult<MLE<B::F>> {
         let activator_tracked_poly = in_col.activator_tracked_poly().unwrap();
         let mut data_evals = in_col.data_tracked_poly().evaluations();
         let activator_evals = activator_tracked_poly.evaluations();
         debug_assert_eq!(data_evals.len(), activator_evals.len());
-        let mut next_active_value: Option<F> = None;
+        let mut next_active_value: Option<B::F> = None;
         let mut trailing_inactive_count: usize = 0;
         for idx in (0..data_evals.len()).rev() {
             let activator = activator_evals[idx];
@@ -313,11 +288,11 @@ where
             {
                 data_evals[first_active_idx]
             } else {
-                F::zero()
+                B::F::zero()
             };
             let mut current = base;
             for idx in (data_evals.len() - trailing_inactive_count)..data_evals.len() {
-                current += F::one();
+                current += B::F::one();
                 data_evals[idx] = current;
             }
         }
@@ -326,30 +301,27 @@ where
             data_evals,
         ))
     }
-    fn truncate_activator_mle(
-        _prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> MLE<F> {
+    fn truncate_activator_mle(_prover: &mut ArgProver<B>, col: &TrackedCol<B>) -> MLE<B::F> {
         if let Some(activator) = col.activator_tracked_poly() {
             let log_size = activator.log_size();
             let mut activator_evals = activator.evaluations();
             if let Some(pos) = activator_evals.iter().rposition(|eval| eval.is_one()) {
-                activator_evals[pos] = F::zero();
+                activator_evals[pos] = B::F::zero();
             } else if let Some(last) = activator_evals.last_mut() {
-                *last = F::zero();
+                *last = B::F::zero();
             }
             MLE::from_evaluations_vec(log_size, activator_evals)
         } else {
             let log_size = col.data_tracked_poly().log_size();
-            let mut activator_evals = vec![F::one(); 1 << log_size];
+            let mut activator_evals = vec![B::F::one(); 1 << log_size];
             if let Some(last) = activator_evals.last_mut() {
-                *last = F::zero();
+                *last = B::F::zero();
             }
             MLE::from_evaluations_vec(log_size, activator_evals)
         }
     }
 
-    pub fn circular_shift_col(col: &TrackedCol<F, MvPCS, UvPCS>) -> MLE<F> {
+    pub fn circular_shift_col(col: &TrackedCol<B>) -> MLE<B::F> {
         let data_tracked_poly = col.data_tracked_poly();
         let log_size = data_tracked_poly.log_size();
         let mut shifted_evals = data_tracked_poly.evaluations();

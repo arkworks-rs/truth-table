@@ -1,6 +1,7 @@
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -22,7 +23,7 @@ use super::{
 
 #[test]
 fn sort_based_single_no_dup_is_complete() -> SnarkResult<()> {
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([3, 1, 2, 4], Fr)],
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
         None,
@@ -33,7 +34,7 @@ fn sort_based_single_no_dup_is_complete() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([4, 2, 3, 1], Fr)],
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
         None,
@@ -44,7 +45,7 @@ fn sort_based_single_no_dup_is_complete() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 2, 3, 4, 5, 6, 7, 8], Fr)],
         vec![to_field_vec!([1, 2, 3, 5, 6, 8, 4, 7], Fr)],
         None,
@@ -60,7 +61,7 @@ fn sort_based_single_no_dup_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn sort_based_single_no_dup_is_sound() -> SnarkResult<()> {
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([3, 4, 2, 4], Fr)],
         vec![to_field_vec!([4, 2, 3, 4], Fr)],
         None,
@@ -71,7 +72,7 @@ fn sort_based_single_no_dup_is_sound() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([3, 1, 3, 4], Fr)],
         vec![to_field_vec!([1, 2, 3, 4], Fr)],
         None,
@@ -81,7 +82,7 @@ fn sort_based_single_no_dup_is_sound() -> SnarkResult<()> {
         None,
         DataType::UInt32,
     )?;
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([3, 1, 3, 4], Fr)],
         vec![to_field_vec!([3, 2, 3, 4], Fr)],
         None,
@@ -95,7 +96,7 @@ fn sort_based_single_no_dup_is_sound() -> SnarkResult<()> {
 }
 #[test]
 fn sort_based_multi_no_dup_is_complete() -> SnarkResult<()> {
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 2, 4], Fr),
             to_field_vec!([6, 5, 8, 7], Fr),
@@ -115,7 +116,7 @@ fn sort_based_multi_no_dup_is_complete() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 1, 4], Fr),
             to_field_vec!([6, 5, 8, 7], Fr),
@@ -135,7 +136,7 @@ fn sort_based_multi_no_dup_is_complete() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 1, 4, 9, 11, 4, 3], Fr),
             to_field_vec!([6, 5, 8, 7, 10, 12, 8, 1], Fr),
@@ -154,7 +155,7 @@ fn sort_based_multi_no_dup_is_complete() -> SnarkResult<()> {
         to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr).into(),
         DataType::UInt32,
     )?;
-    sort_based_multi_no_dup_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_test_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 1, 4, 9, 11, 4, 3], Fr),
             to_field_vec!([6, 5, 8, 7, 10, 12, 7, 1], Fr),
@@ -178,7 +179,7 @@ fn sort_based_multi_no_dup_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn sort_based_multi_no_dup_is_sound() -> SnarkResult<()> {
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 3, 4], Fr),
             to_field_vec!([6, 5, 6, 7], Fr),
@@ -198,7 +199,7 @@ fn sort_based_multi_no_dup_is_sound() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 1, 4], Fr),
             to_field_vec!([6, 5, 8, 7], Fr),
@@ -218,7 +219,7 @@ fn sort_based_multi_no_dup_is_sound() -> SnarkResult<()> {
         DataType::UInt32,
     )?;
 
-    sort_based_multi_no_dup_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_based_multi_no_dup_soundness_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([3, 1, 1, 4, 9, 11, 4, 3], Fr),
             to_field_vec!([6, 5, 8, 7, 10, 12, 7, 1], Fr),
@@ -241,21 +242,17 @@ fn sort_based_multi_no_dup_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sort_based_multi_no_dup_test_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    tracked_cols_values: Vec<Vec<F>>,
-    sorted_cols_values: Vec<Vec<F>>,
-    tie_indicator_values: Option<Vec<Vec<F>>>,
-    shift_values: Vec<Vec<F>>,
-    tracked_activator: Option<Vec<F>>,
-    sorted_activator: Option<Vec<F>>,
-    shift_activator: Option<Vec<F>>,
+pub(crate) fn sort_based_multi_no_dup_test_helper<B: SnarkBackend>(
+    tracked_cols_values: Vec<Vec<B::F>>,
+    sorted_cols_values: Vec<Vec<B::F>>,
+    tie_indicator_values: Option<Vec<Vec<B::F>>>,
+    shift_values: Vec<Vec<B::F>>,
+    tracked_activator: Option<Vec<B::F>>,
+    sorted_activator: Option<Vec<B::F>>,
+    shift_activator: Option<Vec<B::F>>,
     data_type: DataType,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
 
     let tracked_activator_slice = tracked_activator.as_deref();
     let sorted_activator_slice = sorted_activator.as_deref();
@@ -322,11 +319,11 @@ pub(crate) fn sort_based_multi_no_dup_test_helper<
         shift_tracked_table,
     };
 
-    SortBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    SortBasedMultiNoDup::<B>::prove(&mut prover, prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
-    let mut oracle_cache: HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>> = HashMap::new();
+    let mut oracle_cache: HashMap<TrackerID, TrackedOracle<B>> = HashMap::new();
 
     let tracked_table_oracle =
         table_to_oracle(&mut verifier, tracked_table_for_verifier, &mut oracle_cache)?;
@@ -348,26 +345,22 @@ pub(crate) fn sort_based_multi_no_dup_test_helper<
         shift_tracked_table_oracle,
     };
 
-    SortBasedMultiNoDup::<F, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    SortBasedMultiNoDup::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
     Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sort_based_multi_no_dup_soundness_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    tracked_cols_values: Vec<Vec<F>>,
-    sorted_cols_values: Vec<Vec<F>>,
-    tie_indicator_values: Option<Vec<Vec<F>>>,
-    shift_values: Vec<Vec<F>>,
-    tracked_activator: Option<Vec<F>>,
-    sorted_activator: Option<Vec<F>>,
-    shift_activator: Option<Vec<F>>,
+pub(crate) fn sort_based_multi_no_dup_soundness_helper<B: SnarkBackend>(
+    tracked_cols_values: Vec<Vec<B::F>>,
+    sorted_cols_values: Vec<Vec<B::F>>,
+    tie_indicator_values: Option<Vec<Vec<B::F>>>,
+    shift_values: Vec<Vec<B::F>>,
+    tracked_activator: Option<Vec<B::F>>,
+    sorted_activator: Option<Vec<B::F>>,
+    shift_activator: Option<Vec<B::F>>,
     data_type: DataType,
 ) -> SnarkResult<()> {
-    let result = sort_based_multi_no_dup_test_helper::<F, MvPCS, UvPCS>(
+    let result = sort_based_multi_no_dup_test_helper::<B>(
         tracked_cols_values,
         sorted_cols_values,
         tie_indicator_values,
@@ -408,15 +401,11 @@ pub(crate) fn sort_based_multi_no_dup_soundness_helper<
     }
 }
 
-fn track_oracle_cached<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+fn track_oracle_cached<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
     id: TrackerID,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
+    cache: &mut HashMap<TrackerID, TrackedOracle<B>>,
+) -> SnarkResult<TrackedOracle<B>> {
     if let Some(existing) = cache.get(&id) {
         return Ok(existing.clone());
     }
@@ -425,17 +414,13 @@ fn track_oracle_cached<
     Ok(oracle)
 }
 
-fn build_tracked_table<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    prover: &mut ArgProver<F, MvPCS, UvPCS>,
-    column_values: &[Vec<F>],
-    shared_activator: Option<&[F]>,
+fn build_tracked_table<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    column_values: &[Vec<B::F>],
+    shared_activator: Option<&[B::F]>,
     data_type: &DataType,
     prefix: &str,
-) -> SnarkResult<TrackedTable<F, MvPCS, UvPCS>> {
+) -> SnarkResult<TrackedTable<B>> {
     assert!(
         !column_values.is_empty(),
         "tracked table must contain at least one column"
@@ -488,15 +473,11 @@ fn build_tracked_table<
     Ok(TrackedTable::new(None, tracked_polys, nv))
 }
 
-fn table_to_oracle<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-    table: TrackedTable<F, MvPCS, UvPCS>,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedTableOracle<F, MvPCS, UvPCS>> {
+fn table_to_oracle<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
+    table: TrackedTable<B>,
+    cache: &mut HashMap<TrackerID, TrackedOracle<B>>,
+) -> SnarkResult<TrackedTableOracle<B>> {
     let mut tracked_oracles = IndexMap::with_capacity(table.num_total_tracked_cols());
     for (field_ref, poly) in table.tracked_polys_iter() {
         let oracle = track_oracle_cached(verifier, poly.id(), cache)?;

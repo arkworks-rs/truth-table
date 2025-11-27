@@ -5,9 +5,8 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -22,28 +21,17 @@ use crate::multiplicity_check::{
 };
 
 // Convinces the verifier that
-pub struct PermPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct PermPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct PermPIOPProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub left_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub right_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct PermPIOPProverInput<B: SnarkBackend> {
+    pub left_col: TrackedCol<B>,
+    pub right_col: TrackedCol<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for PermPIOPProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for PermPIOPProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             left_col: self.left_col.deep_clone(prover.clone()),
             right_col: self.right_col.deep_clone(prover),
@@ -51,31 +39,24 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct PermPIOPVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub left_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub right_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct PermPIOPVerifierInput<B: SnarkBackend> {
+    pub left_tracked_col_oracle: TrackedColOracle<B>,
+    pub right_tracked_col_oracle: TrackedColOracle<B>,
 }
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for PermPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = PermPIOPProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for PermPIOP<B> {
+    type ProverInput = PermPIOPProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = PermPIOPVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = PermPIOPVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         use std::collections::BTreeMap;
 
-        let mut bookkeeping_map: BTreeMap<F, isize> = BTreeMap::new();
+        let mut bookkeeping_map: BTreeMap<B::F, isize> = BTreeMap::new();
         for elem in input.left_col.effective_iter() {
             *bookkeeping_map.entry(elem).or_insert(0) += 1;
         }
@@ -96,7 +77,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let multiplicity_check_prover_input = MultiplicityCheckProverInput {
@@ -106,12 +87,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             mgxs: vec![None],
         };
 
-        MultiplicityCheck::<F, MvPCS, UvPCS>::prove(prover, multiplicity_check_prover_input)?;
+        MultiplicityCheck::<B>::prove(prover, multiplicity_check_prover_input)?;
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let multiplicity_check_vierifier_input = MultiplicityCheckVerifierInput {
@@ -121,7 +102,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             mgxs: vec![None],
         };
 
-        MultiplicityCheck::<F, MvPCS, UvPCS>::verify(verifier, multiplicity_check_vierifier_input)?;
+        MultiplicityCheck::<B>::verify(verifier, multiplicity_check_vierifier_input)?;
         Ok(())
     }
 }

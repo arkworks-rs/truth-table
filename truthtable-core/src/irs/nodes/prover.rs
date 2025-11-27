@@ -16,7 +16,7 @@ use std::{any::Any, sync::Arc};
 
 use crate::irs::{nodes::id::NodeId, tree::Node};
 
-pub trait Gadget<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait Gadget<B>: Node<B> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -39,7 +39,7 @@ where
         Self: Sized;
 }
 
-pub trait PlanNode<F, MvPCS, UvPCS>: Node<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait PlanNode<B>: Node<B> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -57,10 +57,10 @@ where
         self.children().into_iter().map(|_| None).collect()
     }
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<dyn Gadget<F, MvPCS, UvPCS>>;
+    fn gadget(&self) -> Arc<dyn Gadget<B>>;
 }
 
-pub trait LpNode<F, MvPCS, UvPCS>: PlanNode<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait LpNode<B>: PlanNode<B> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -70,7 +70,7 @@ where
     // TODO: We might not need ctx here
     fn from_lp(
         _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: SharedCtx<B>,
         _plan: LogicalPlan,
         _parent: NodeId,
     ) -> Self
@@ -78,7 +78,7 @@ where
         Self: Sized;
 }
 
-pub trait ExprNode<F, MvPCS, UvPCS>: PlanNode<F, MvPCS, UvPCS> + Any + Send + Sync
+pub trait ExprNode<B>: PlanNode<B> + Any + Send + Sync
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -89,7 +89,7 @@ where
     // TODO: We might not need ctx and parent_logical_plan here
     fn from_expr(
         _ctx: &SessionContext,
-        _prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        _prover_ctx: SharedCtx<B>,
         _expr: Expr,
         _parent: NodeId,
     ) -> Self

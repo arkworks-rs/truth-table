@@ -31,18 +31,18 @@ use tracing::instrument;
 pub mod tests;
 
 #[derive(Clone)]
-pub struct ProverProofTree<F, MvPCS, UvPCS>
+pub struct ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    ctx: SharedCtx<F, MvPCS, UvPCS>,
-    root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    arena: IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    ctx: SharedCtx<B>,
+    root: Arc<dyn ProverPlanNode<B>>,
+    arena: IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>>,
 }
 
-impl<F, MvPCS, UvPCS> fmt::Debug for ProverProofTree<F, MvPCS, UvPCS>
+impl<B> fmt::Debug for ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> fmt::Display for ProverProofTree<F, MvPCS, UvPCS>
+impl<B> fmt::Display for ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -70,13 +70,13 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ProverPlanTree<F, MvPCS, UvPCS> for ProverProofTree<F, MvPCS, UvPCS>
+impl<B> ProverPlanTree<B> for ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    type Node = dyn ProverPlanNode<F, MvPCS, UvPCS>;
+    type Node = dyn ProverPlanNode<B>;
     fn arena(&self) -> &IndexMap<NodeId, Arc<Self::Node>> {
         &self.arena
     }
@@ -90,34 +90,34 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> ProverProofTree<F, MvPCS, UvPCS>
+impl<B> ProverProofTree<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    pub fn ctx(&self) -> &SharedCtx<F, MvPCS, UvPCS> {
+    pub fn ctx(&self) -> &SharedCtx<B> {
         &self.ctx
     }
 
-    pub fn ctx_mut(&mut self) -> &mut SharedCtx<F, MvPCS, UvPCS> {
+    pub fn ctx_mut(&mut self) -> &mut SharedCtx<B> {
         &mut self.ctx
     }
 
     pub fn new(
-        root: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-        ctx: SharedCtx<F, MvPCS, UvPCS>,
+        root: Arc<dyn ProverPlanNode<B>>,
+        ctx: SharedCtx<B>,
     ) -> Self {
-        let arena = build_arena::<F, MvPCS, UvPCS>(&root);
+        let arena = build_arena::<B>(&root);
         Self { ctx, root, arena }
     }
 
-    pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+    pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>> {
         &self.arena
     }
 
     /// Returns a map from node identifier to the corresponding prover node.
-    pub fn flatten(&self) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>
+    pub fn flatten(&self) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>>
     where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -131,7 +131,7 @@ where
     #[instrument(level = "debug", skip_all)]
     pub fn from_expr(
         ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<B>,
         expr: Expr,
         parent_node_id: &Option<NodeId>,
     ) -> Self
@@ -214,7 +214,7 @@ where
     #[instrument(level = "debug", skip_all)]
     pub fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+        prover_ctx: SharedCtx<B>,
         plan: &LogicalPlan,
         parent_node_id: &Option<NodeId>,
     ) -> Self {
@@ -285,17 +285,17 @@ where
     }
 }
 
-fn build_arena<F, MvPCS, UvPCS>(
-    root: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>
+fn build_arena<B>(
+    root: &Arc<dyn ProverPlanNode<B>>,
+) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
 {
-    fn dfs<F, MvPCS, UvPCS>(
-        node: &Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-        out: &mut Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    fn dfs<B>(
+        node: &Arc<dyn ProverPlanNode<B>>,
+        out: &mut Vec<Arc<dyn ProverPlanNode<B>>>,
     ) where
         F: PrimeField,
         MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,

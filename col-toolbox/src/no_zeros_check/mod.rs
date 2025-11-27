@@ -5,68 +5,49 @@
 
 #[cfg(test)]
 mod test;
-
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{PrimeField, batch_inversion};
+use ark_ff::One;
+use ark_ff::Zero;
+use ark_ff::batch_inversion;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
     verifier::ArgVerifier,
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-
-pub struct NoZerosCheck<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct NoZerosCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct NoZerosCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct NoZerosCheckProverInput<B: SnarkBackend> {
+    pub col: TrackedCol<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for NoZerosCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for NoZerosCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             col: self.col.deep_clone(prover),
         }
     }
 }
 
-pub struct NoZerosCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct NoZerosCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_col_oracle: TrackedColOracle<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for NoZerosCheck<F, MvPCS, UvPCS>
-{
-    type ProverInput = NoZerosCheckProverInput<F, MvPCS, UvPCS>;
-    type VerifierInput = NoZerosCheckVerifierInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for NoZerosCheck<B> {
+    type ProverInput = NoZerosCheckProverInput<B>;
+    type VerifierInput = NoZerosCheckVerifierInput<B>;
     type ProverOutput = ();
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         for element in input.col.effective_iter() {
-            if element == F::zero() {
+            if element == B::F::zero() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(
                         ark_piop::prover::errors::HonestProverError::FalseClaim,
@@ -79,13 +60,13 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let col_poly = prover_input.col.data_tracked_poly().clone();
         let col_sel = prover_input.col.activator_tracked_poly();
         let col_poly_evals = col_poly.evaluations();
-        let mut eval_inverses: Vec<F> = col_poly_evals.clone();
+        let mut eval_inverses: Vec<B::F> = col_poly_evals.clone();
 
         batch_inversion(&mut eval_inverses);
         let inverses_mle = MLE::from_evaluations_vec(prover_input.col.log_size(), eval_inverses);
@@ -93,15 +74,18 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         // set up the tracker and add a zerocheck claim
         let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
         let no_dups_check_poly = match col_sel {
-            Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,
-            None => &(&col_poly * &inverses_poly) - F::one(),
+            Some(col_sel) => {
+                let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                &prod - &col_sel
+            }
+            None => (&col_poly * &inverses_poly) - B::F::one(),
         };
 
         prover.add_mv_zerocheck_claim(no_dups_check_poly.id())?;
         Ok(())
     }
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let col_poly = verifier_input
@@ -115,8 +99,11 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let inverses_poly_id = verifier.peek_next_id();
         let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
         let no_dups_check_poly = match col_sel {
-            Some(col_sel) => &(&(&col_poly * &col_sel) * &inverses_poly) - &col_sel,
-            None => &(&col_poly * (&inverses_poly)) - F::one(),
+            Some(col_sel) => {
+                let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                &prod - &col_sel
+            }
+            None => (&col_poly * &inverses_poly) - B::F::one(),
         };
         verifier.add_zerocheck_claim(no_dups_check_poly.id());
 

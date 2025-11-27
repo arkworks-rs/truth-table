@@ -161,11 +161,11 @@ async fn commit_parquet_with_pk(
 
     let query = format!("SELECT * FROM {table_name}");
 
-    let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, &query).await;
+    let proof_tree = create_prover_proof_tree::<B>(&ctx, &query).await;
     let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
         .await
         .context("failed to build hint tree")?;
-    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+    let arith_tree = ProverArithmetizedTree::<B>::from_hint_tree(hint_tree)
         .context("failed to arithmetize")?;
 
     let (mut prover, mut verifier) = load_prover_verifier(pk_path)
@@ -180,7 +180,7 @@ async fn commit_parquet_with_pk(
 
     let (_, tables_by_node) = piop_tree.into_parts();
 
-    let mut tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
+    let mut tracked_table_oracle: Option<TrackedTableOracle<B>> = None;
     for (node_id, tables) in &tables_by_node {
         if let NodeId::LP(plan) = node_id
             && matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_))
@@ -206,18 +206,18 @@ async fn commit_parquet_with_pk(
 #[allow(clippy::type_complexity)]
 fn load_prover_verifier(
     pk_path: &Path,
-) -> Result<(Prover<F, MvPCS, UvPCS>, Verifier<F, MvPCS, UvPCS>)> {
-    let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(pk_path)
+) -> Result<(Prover<B>, Verifier<B>)> {
+    let tt_pk = TTPk::<B>::load(pk_path)
         .with_context(|| format!("load {}", pk_path.display()))?;
     let snark_pk = tt_pk.into_inner();
-    let vk: SNARKVk<F, MvPCS, UvPCS> = snark_pk.vk.clone();
-    let prover = Prover::<F, MvPCS, UvPCS>::new_from_pk(snark_pk);
-    let verifier = Verifier::<F, MvPCS, UvPCS>::new_from_vk(vk);
+    let vk: SNARKVk<B> = snark_pk.vk.clone();
+    let prover = Prover::<B>::new_from_pk(snark_pk);
+    let verifier = Verifier::<B>::new_from_vk(vk);
     Ok((prover, verifier))
 }
 
 fn write_oracle(
-    serializable: &ArithTableOracle<F, MvPCS, UvPCS>,
+    serializable: &ArithTableOracle<B>,
     output_path: &Path,
 ) -> Result<()> {
     if let Some(parent) = output_path.parent()

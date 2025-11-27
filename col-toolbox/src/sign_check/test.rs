@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -17,7 +18,7 @@ use ark_ff::PrimeField;
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 #[test]
 fn uint8_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([25, 7, 0, 2], Fr),
@@ -25,7 +26,7 @@ fn uint8_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-25, 7, 7, 0], Fr),
@@ -37,7 +38,7 @@ fn uint8_non_negative_check_is_complete() -> SnarkResult<()> {
 }
 #[test]
 fn uint8_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-10, 7, 7, 2], Fr),
@@ -45,7 +46,7 @@ fn uint8_non_negative_check_is_sound() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([10, 7, 7, 300], Fr),
@@ -58,7 +59,7 @@ fn uint8_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn int8_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int8,
         2,
         &to_field_vec!([126, 7, 0, 2], Fr),
@@ -66,7 +67,7 @@ fn int8_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int8,
         2,
         &to_field_vec!([-25, 7, 7, 127], Fr),
@@ -78,14 +79,14 @@ fn int8_non_negative_check_is_complete() -> SnarkResult<()> {
 }
 #[test]
 fn int8_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int8,
         2,
         &to_field_vec!([-10, 7, 7, 2], Fr),
         None,
         Sign::NoneNegative,
     )?;
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int8,
         2,
         &to_field_vec!([10, 7, 7, 128], Fr),
@@ -98,14 +99,14 @@ fn int8_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn uint16_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         2,
         &to_field_vec!([0, 7, 18, 20], Fr),
         None,
         Sign::NoneNegative,
     )?;
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         2,
         &to_field_vec!([-25, 7, 7, 127], Fr),
@@ -117,14 +118,14 @@ fn uint16_non_negative_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn uint16_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         2,
         &to_field_vec!([-10, 7, 18, 20], Fr),
         None,
         Sign::NoneNegative,
     )?;
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         2,
         &to_field_vec!([65537, 7, 18, 20], Fr),
@@ -136,7 +137,7 @@ fn uint16_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn uint32_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt32,
         2,
         &to_field_vec!([25, 7, 0, 2], Fr),
@@ -144,7 +145,7 @@ fn uint32_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt32,
         2,
         &to_field_vec!([-25, 7, 7, 0], Fr),
@@ -156,7 +157,7 @@ fn uint32_non_negative_check_is_complete() -> SnarkResult<()> {
 }
 #[test]
 fn uint32_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt32,
         2,
         &to_field_vec!([-4, 7, 0, 2], Fr),
@@ -164,7 +165,7 @@ fn uint32_non_negative_check_is_sound() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt32,
         2,
         &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
@@ -177,7 +178,7 @@ fn uint32_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn int32_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int32,
         2,
         &to_field_vec!([i32::MAX, 7, 0, 2], Fr),
@@ -185,7 +186,7 @@ fn int32_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int32,
         2,
         &to_field_vec!([-25, 7, 7, 0], Fr),
@@ -198,7 +199,7 @@ fn int32_non_negative_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn int32_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int32,
         2,
         &to_field_vec!([-4, 7, 0, 2], Fr),
@@ -206,7 +207,7 @@ fn int32_non_negative_check_is_sound() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int32,
         2,
         &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
@@ -219,7 +220,7 @@ fn int32_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn uint64_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt64,
         2,
         &to_field_vec!([25, 7, 0, 2], Fr),
@@ -227,7 +228,7 @@ fn uint64_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt64,
         2,
         &to_field_vec!([-25, 7, 7, 0], Fr),
@@ -240,7 +241,7 @@ fn uint64_non_negative_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn uint64_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt64,
         2,
         &to_field_vec!([-4, 7, 0, 2], Fr),
@@ -248,7 +249,7 @@ fn uint64_non_negative_check_is_sound() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt64,
         2,
         &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
@@ -261,7 +262,7 @@ fn uint64_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn int64_non_negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int64,
         2,
         &to_field_vec!([i64::MAX, 7, 0, 2], Fr),
@@ -269,7 +270,7 @@ fn int64_non_negative_check_is_complete() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::Int64,
         2,
         &to_field_vec!([-25, 7, 7, 0], Fr),
@@ -282,7 +283,7 @@ fn int64_non_negative_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn int64_non_negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int64,
         2,
         &to_field_vec!([-4, 7, 0, 2], Fr),
@@ -290,7 +291,7 @@ fn int64_non_negative_check_is_sound() -> SnarkResult<()> {
         Sign::NoneNegative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::Int64,
         2,
         &to_field_vec!([-25, 7, 7, i64::MAX], Fr),
@@ -303,7 +304,7 @@ fn int64_non_negative_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn positive_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([25, 7, 7, 2], Fr),
@@ -316,7 +317,7 @@ fn positive_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn positive_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([25, 0, 7, 2], Fr),
@@ -324,7 +325,7 @@ fn positive_check_is_sound() -> SnarkResult<()> {
         Sign::Positive,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([25, 0, 7, -2], Fr),
@@ -337,7 +338,7 @@ fn positive_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn non_positive_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-1, -7, -7, -2], Fr),
@@ -345,7 +346,7 @@ fn non_positive_check_is_complete() -> SnarkResult<()> {
         Sign::NonePositive,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-1, 0, -7, -2], Fr),
@@ -353,7 +354,7 @@ fn non_positive_check_is_complete() -> SnarkResult<()> {
         Sign::NonePositive,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         3,
         &to_field_vec!([-71, -7, -18, -20, -10, -2, -12, -3], Fr),
@@ -365,7 +366,7 @@ fn non_positive_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn non_positive_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-1, 7, -7, -2], Fr),
@@ -377,7 +378,7 @@ fn non_positive_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn negative_check_is_complete() -> SnarkResult<()> {
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([-1, -7, -7, -2], Fr),
@@ -385,7 +386,7 @@ fn negative_check_is_complete() -> SnarkResult<()> {
         Sign::Negative,
     )?;
 
-    sign_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         3,
         &to_field_vec!([-71, -12, -18, -20, -10, -2, -12, -3], Fr),
@@ -398,7 +399,7 @@ fn negative_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn negative_check_is_sound() -> SnarkResult<()> {
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt8,
         2,
         &to_field_vec!([0, -7, -7, -2], Fr),
@@ -406,7 +407,7 @@ fn negative_check_is_sound() -> SnarkResult<()> {
         Sign::Negative,
     )?;
 
-    sign_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sign_test_soundness_helper::<DefaultSnarkBackend>(
         DataType::UInt16,
         3,
         &to_field_vec!([-71, 10, -18, -20, -10, -2, -12, -3], Fr),
@@ -416,20 +417,14 @@ fn negative_check_is_sound() -> SnarkResult<()> {
 
     Ok(())
 }
-fn sign_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn sign_test_soundness_helper<B: SnarkBackend>(
     data_type: DataType,
     num_vars: usize,
-    in_vars: &[Fr],
-    in_activator: Option<&[Fr]>,
+    in_vars: &[B::F],
+    in_activator: Option<&[B::F]>,
     sign: Sign,
 ) -> SnarkResult<()> {
-    let err =
-        sign_test_helper::<Fr, MvPCS, UvPCS>(data_type, num_vars, in_vars, in_activator, sign)
-            .unwrap_err();
+    let err = sign_test_helper::<B>(data_type, num_vars, in_vars, in_activator, sign).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -456,18 +451,14 @@ fn sign_test_soundness_helper<
     Ok(())
 }
 
-fn sign_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn sign_test_helper<B: SnarkBackend>(
     data_type: DataType,
     num_vars: usize,
-    in_vars: &[Fr],
-    in_activator: Option<&[Fr]>,
+    in_vars: &[B::F],
+    in_activator: Option<&[B::F]>,
     sign: Sign,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let field_ref = Arc::new(Field::new("dummy", data_type, false));
     let in_tr_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(num_vars, in_vars))?;
@@ -487,7 +478,7 @@ fn sign_test_helper<
         col: in_col.clone(),
         sign,
     };
-    SignCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, non_neg_prover_input)?;
+    SignCheckPIOP::<B>::prove(&mut prover, non_neg_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let in_comm = verifier.track_mv_com_by_id(in_tr_poly.id())?;
@@ -500,7 +491,7 @@ fn sign_test_helper<
         tracked_col_oracle: in_comm,
         sign,
     };
-    SignCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, no_neg_verifier_input)?;
+    SignCheckPIOP::<B>::verify(&mut verifier, no_neg_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

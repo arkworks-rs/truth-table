@@ -19,33 +19,29 @@ use crate::nodes::{
     verifier::VerifierNode,
 };
 
-pub struct ProverSortNode<F, MvPCS, UvPCS>
+pub struct ProverSortNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<B>>,
     sort: Sort,
 }
 
-pub struct VerifierSortNode<F, MvPCS, UvPCS>
+pub struct VerifierSortNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn VerifierNode<B>>,
     sort: Sort,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+// impl<B> ProverPlanNode<B> for ProverSortNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
 //     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 // {
-//     fn gadget_tree(&self) -> GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> GadgetTree<B> {
 //         GadgetTree::new(Arc::new(gadget::Prover::new()))
 //     }
 
@@ -53,11 +49,11 @@ where
 //         NodeId::LP(LogicalPlan::Sort(self.sort.clone()))
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![self.input.clone()]
 //     }
 
-//     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
 //         // Get the output of the child node as the input hint generation plan
 //         let input_hint_generation_plan = self.input.output(proof_tree);
 //         // Extract the data frame from the input hint generation plan
@@ -68,8 +64,8 @@ where
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         todo!()
 //     }
 
@@ -77,7 +73,7 @@ where
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -86,7 +82,7 @@ where
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverSortNode<F, MvPCS, UvPCS>
+// impl<B> ProverLpNode<B> for ProverSortNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -94,7 +90,7 @@ where
 // {
 //     fn from_lp(
 //         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: SharedCtx<B>,
 //         plan: LogicalPlan,
 //         _parent: NodeId,
 //     ) -> Self
@@ -106,7 +102,7 @@ where
 //             _ => panic!("Expected LogicalPlan::Sort"),
 //         };
 //         let node_id = NodeId::LP(plan.clone());
-//         let input = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+//         let input = ProverProofTree::<B>::from_lp(
 //             ctx,
 //             prover_ctx.clone(),
 //             &sort.input,

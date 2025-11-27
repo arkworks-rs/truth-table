@@ -1,22 +1,23 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{Field, PrimeField};
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::PCS,
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
 };
 
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use super::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
 // Sets up randomized inputs for testing EqCheck
 #[test]
 fn perm_check_is_complete() -> SnarkResult<()> {
     // All activated tests
-    perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    perm_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         vec![Fr::ONE; 2_usize.pow(3_u32)],
@@ -25,7 +26,7 @@ fn perm_check_is_complete() -> SnarkResult<()> {
         vec![Fr::ONE; 2_usize.pow(3_u32)],
     )?;
 
-    perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    perm_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], Fr),
         vec![Fr::ONE; 2_usize.pow(3_u32)],
@@ -34,7 +35,7 @@ fn perm_check_is_complete() -> SnarkResult<()> {
         vec![Fr::ONE; 2_usize.pow(3_u32)],
     )?;
 
-    perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    perm_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
@@ -42,7 +43,7 @@ fn perm_check_is_complete() -> SnarkResult<()> {
         to_field_vec!([12, 3, 4, 20], Fr),
         to_field_vec!([1, 1, 1, 1], Fr),
     )?;
-    perm_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    perm_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr),
         to_field_vec!([0, 0, 0, 1, 0, 0, 1, 1], Fr),
@@ -56,7 +57,7 @@ fn perm_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn perm_check_is_sound() -> SnarkResult<()> {
-    permcheck_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    permcheck_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], Fr),
         vec![Fr::ONE; 2_usize.pow(3_u32)],
@@ -65,7 +66,7 @@ fn perm_check_is_sound() -> SnarkResult<()> {
         vec![Fr::ONE; 2_usize.pow(3_u32)],
     )?;
 
-    permcheck_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    permcheck_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 1, 20, 18, 2, 12, 9], Fr),
         to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], Fr),
@@ -77,19 +78,15 @@ fn perm_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn permcheck_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn permcheck_test_soundness_helper<B: SnarkBackend>(
     left_nv: usize,
-    left_evals: Vec<Fr>,
-    left_activator: Vec<Fr>,
+    left_evals: Vec<B::F>,
+    left_activator: Vec<B::F>,
     right_nv: usize,
-    right_evals: Vec<Fr>,
-    right_activator: Vec<Fr>,
+    right_evals: Vec<B::F>,
+    right_activator: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let err = perm_check_test_helper::<Fr, MvPCS, UvPCS>(
+    let err = perm_check_test_helper::<B>(
         left_nv,
         left_evals,
         left_activator,
@@ -123,19 +120,15 @@ fn permcheck_test_soundness_helper<
     Ok(())
 }
 
-fn perm_check_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn perm_check_test_helper<B: SnarkBackend>(
     left_nv: usize,
-    left_evals: Vec<Fr>,
-    left_activator: Vec<Fr>,
+    left_evals: Vec<B::F>,
+    left_activator: Vec<B::F>,
     right_nv: usize,
-    right_evals: Vec<Fr>,
-    right_activator: Vec<Fr>,
+    right_evals: Vec<B::F>,
+    right_activator: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
 
     /////////////////////////////////////////////////
     let left_mle = MLE::from_evaluations_vec(left_nv, left_evals);
@@ -159,7 +152,7 @@ fn perm_check_test_helper<
         right_col,
     };
 
-    PermPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, perm_piop_prover_input)?;
+    PermPIOP::<B>::prove(&mut prover, perm_piop_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     let left_comm = verifier.track_mv_com_by_id(left_tr_p.id())?;
@@ -173,7 +166,7 @@ fn perm_check_test_helper<
         left_tracked_col_oracle,
         right_tracked_col_oracle,
     };
-    PermPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, perm_piop_verifier_input)?;
+    PermPIOP::<B>::verify(&mut verifier, perm_piop_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

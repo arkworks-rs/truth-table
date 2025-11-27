@@ -9,22 +9,18 @@ use datafusion_expr::Distinct;
 
 use crate::nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 
-pub struct ProverDistinctNode<F, MvPCS, UvPCS>
+pub struct ProverDistinctNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<B>>,
     distinct: Distinct,
 }
 
-pub struct VerifierDistinctNode<F, MvPCS, UvPCS>
+pub struct VerifierDistinctNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn VerifierNode<B>>,
     distinct: Distinct,
 }

@@ -2,6 +2,8 @@ use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
+use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
+use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -18,33 +20,21 @@ use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 
-use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
-
 #[derive(Derivative)]
-#[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
 /// A tracked arithmetized table is represented by a set of tracked polynomials
 /// representing the columns
-pub struct TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+pub struct TrackedTable<B: SnarkBackend> {
     /// The schema of the table, if any
     schema: Option<Schema>,
     /// The polynomials representing the columns, stored in schema order
-    tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
+    tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
     /// The log size of the table
     log_size: usize,
 }
 
-impl<F, MvPCS, UvPCS> Default for TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> Default for TrackedTable<B> {
     fn default() -> Self {
         Self {
             schema: None,
@@ -54,12 +44,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> core::fmt::Debug for TrackedTable<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTable")
             .field("num_total_cols", &self.num_total_tracked_cols())
@@ -69,15 +54,8 @@ where
     }
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for TrackedTable<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         let tracked_polys = self
             .tracked_polys
             .iter()
@@ -87,28 +65,18 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> fmt::Display for TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.pretty_string())
     }
 }
 
-impl<F, MvPCS, UvPCS> TrackedTable<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> TrackedTable<B> {
     /// Constructs a new `TrackedTable` from the provided schema (if any),
     /// tracked polynomials, and log size of the table
     pub fn new(
         schema: Option<Schema>,
-        tracked_polys: IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
+        tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
         log_size: usize,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -126,7 +94,7 @@ where
     #[cfg(debug_assertions)]
     fn check_new_args(
         schema: &Option<Schema>,
-        tracked_polys: &IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>>,
+        tracked_polys: &IndexMap<FieldRef, TrackedPoly<B>>,
         log_size: usize,
     ) -> SnarkResult<()> {
         // All columns have the same tracker
@@ -168,13 +136,11 @@ where
     }
 
     /// Returns the tracked polynomials representing the columns of the table
-    pub fn tracked_polys(&self) -> IndexMap<FieldRef, TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn tracked_polys(&self) -> IndexMap<FieldRef, TrackedPoly<B>> {
         self.tracked_polys.clone()
     }
 
-    pub fn tracked_polys_iter(
-        &self,
-    ) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<F, MvPCS, UvPCS>)> {
+    pub fn tracked_polys_iter(&self) -> impl Iterator<Item = (&FieldRef, &TrackedPoly<B>)> {
         self.tracked_polys.iter()
     }
 
@@ -209,7 +175,7 @@ where
     /// challenges and returns the resulting folded tracked column. The
     /// output tracked column will have the same activator polynomial as the
     /// original table (if any) and does not have any datatype
-    pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
+    pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedCol<B> {
         debug_assert_eq!(col_inds.len(), challs.len());
         let first_idx = *col_inds
             .first()
@@ -222,26 +188,26 @@ where
             .tracked_polys
             .get_index(first_idx)
             .expect("column index out of bounds");
-        let mut folded: TrackedPoly<F, MvPCS, UvPCS> = first_poly * first_chall;
+        let mut folded: TrackedPoly<B> = first_poly.mul_scalar_poly(first_chall);
         for (&col_idx, &chall) in col_inds.iter().zip(challs).skip(1) {
             let (_, poly) = self
                 .tracked_polys
                 .get_index(col_idx)
                 .expect("column index out of bounds");
-            let term = poly * chall;
+            let term = poly.mul_scalar_poly(chall);
             folded += &term;
         }
         TrackedCol::new(folded, self.activator_tracked_poly(), None)
     }
     /// Folds all the data (i.e. excluding the activator column) tracked column
     /// polynomials
-    pub fn fold_all_data_columns(&self, challs: &[F]) -> TrackedCol<F, MvPCS, UvPCS> {
+    pub fn fold_all_data_columns(&self, challs: &[B::F]) -> TrackedCol<B> {
         let data_col_indices = self.data_tracked_polys_indices();
         self.fold(&data_col_indices, challs)
     }
 
     /// Returns the tracked column at the specified index
-    pub fn tracked_col_by_ind(&self, ind: usize) -> TrackedCol<F, MvPCS, UvPCS> {
+    pub fn tracked_col_by_ind(&self, ind: usize) -> TrackedCol<B> {
         let (field_ref, data_tracked_poly) = self
             .tracked_polys
             .get_index(ind)
@@ -253,7 +219,7 @@ where
         )
     }
     /// Returns the tracked column with the specified name
-    pub fn tracked_col_by_name(&self, name: &str) -> Option<TrackedCol<F, MvPCS, UvPCS>> {
+    pub fn tracked_col_by_name(&self, name: &str) -> Option<TrackedCol<B>> {
         let idx = self
             .schema
             .as_ref()
@@ -262,7 +228,7 @@ where
     }
 
     /// Returns the tracked columns at the specified indices
-    pub fn tracked_col_by_indices(&self, indices: &[usize]) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
+    pub fn tracked_col_by_indices(&self, indices: &[usize]) -> Vec<TrackedCol<B>> {
         indices
             .iter()
             .map(|&i| self.tracked_col_by_ind(i))
@@ -271,7 +237,7 @@ where
 
     /// Returns a subtable containing the tracked columns at the specified
     /// indices and the current table's activator column (if any).
-    pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<F, MvPCS, UvPCS> {
+    pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTable<B> {
         let mut sub_polys = IndexMap::with_capacity(
             indices.len() + self.activator_tracked_poly().is_some() as usize,
         );
@@ -307,7 +273,7 @@ where
 
     /// Returns all the tracked column polynomials in the table, including the
     /// activator column (if any)
-    pub fn all_tracked_cols(&self) -> Vec<TrackedCol<F, MvPCS, UvPCS>> {
+    pub fn all_tracked_cols(&self) -> Vec<TrackedCol<B>> {
         self.tracked_col_by_indices(&(0..self.num_total_tracked_cols()).collect::<Vec<usize>>())
     }
 
@@ -322,7 +288,7 @@ where
     }
 
     /// Returns the tracked polynomial of the activator column, if any
-    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         self.tracked_polys
             .iter()
             .find_map(|(field, poly)| (field.name() == ACTIVATOR_COL_NAME).then(|| poly.clone()))
@@ -513,10 +479,9 @@ impl<F: PrimeField> ArithTable<F> {
     }
 
     /// Constructs an `ArithTable` from a `TrackedTable` by extracting
-    pub fn from_tracked_table<MvPCS, UvPCS>(table: &TrackedTable<F, MvPCS, UvPCS>) -> Self
+    pub fn from_tracked_table<B>(table: &TrackedTable<B>) -> ArithTable<B::F>
     where
-        MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-        UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+        B: SnarkBackend,
     {
         let schema = table.schema();
         let size = table.size();
@@ -528,8 +493,8 @@ impl<F: PrimeField> ArithTable<F> {
                 let mle = Arc::new(MLE::from_evaluations_slice(poly.log_size(), &evals));
                 (field.clone(), mle)
             })
-            .collect();
-        Self::new(schema, tracked_polys, size)
+            .collect::<IndexMap<_, _>>();
+        ArithTable::new(schema, tracked_polys, size)
     }
 
     /// Returns the polynomial of the activator polynomial, if any
@@ -540,12 +505,8 @@ impl<F: PrimeField> ArithTable<F> {
     }
 }
 
-impl<F: PrimeField, MvPCS, UvPCS> From<TrackedTable<F, MvPCS, UvPCS>> for ArithTable<F>
-where
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    fn from(table: TrackedTable<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> From<TrackedTable<B>> for ArithTable<B::F> {
+    fn from(table: TrackedTable<B>) -> Self {
         Self::from_tracked_table(&table)
     }
 }

@@ -1,5 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -15,15 +16,15 @@ use super::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput};
 // multiplicities are all one
 #[test]
 fn binary_check_is_complete() -> SnarkResult<()> {
-    binary_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr),
     )?;
-    binary_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([1, 0, 1, 1, 1, 0, 0, 1], Fr),
     )?;
-    binary_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0,], Fr),
     )?;
@@ -32,26 +33,22 @@ fn binary_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn binary_check_is_sound() -> SnarkResult<()> {
-    binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 7, 0, 20, 18, 2, 12, 3], Fr),
     )?;
-    binary_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([4, 0, 1, 20, 0, 2, 0, 3], Fr),
     )?;
     Ok(())
 }
 
-fn binary_check_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn binary_check_test_soundness_helper<B: SnarkBackend>(
     nv: usize,
-    activator_values: Vec<Fr>,
+    activator_values: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let err = binary_check_test_helper::<Fr, MvPCS, UvPCS>(nv, activator_values).unwrap_err();
+    let err = binary_check_test_helper::<B>(nv, activator_values).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -78,23 +75,19 @@ fn binary_check_test_soundness_helper<
     Ok(())
 }
 
-fn binary_check_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn binary_check_test_helper<B: SnarkBackend>(
     nv: usize,
-    activator_values: Vec<Fr>,
+    activator_values: Vec<B::F>,
 ) -> SnarkResult<()> {
     // Ensure tracing subscriber is initialized once for test output
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let activator =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &activator_values))?;
     let activator_clone = activator.clone();
     let binary_check_prover_input = BinaryCheckProverInput {
         predicate: activator_clone,
     };
-    BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, binary_check_prover_input)?;
+    BinaryCheckPIOP::<B>::prove(&mut prover, binary_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -104,7 +97,7 @@ fn binary_check_test_helper<
         predicate_oracle: activator,
     };
 
-    BinaryCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, binary_check_verifier_input)?;
+    BinaryCheckPIOP::<B>::verify(&mut verifier, binary_check_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

@@ -7,6 +7,7 @@ mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
@@ -26,35 +27,20 @@ use crate::{
     },
     no_dup_check::{self, NoDupPIOP},
 };
-
-pub struct SetInterUnionCheckPIOP<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+use ark_ff::One;
+pub struct SetInterUnionCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct SetInterUnionProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub col_left: TrackedCol<F, MvPCS, UvPCS>,
-    pub col_right: TrackedCol<F, MvPCS, UvPCS>,
-    pub col_inter: TrackedCol<F, MvPCS, UvPCS>,
-    pub col_union: TrackedCol<F, MvPCS, UvPCS>,
+pub struct SetInterUnionProverInput<B: SnarkBackend> {
+    pub col_left: TrackedCol<B>,
+    pub col_right: TrackedCol<B>,
+    pub col_inter: TrackedCol<B>,
+    pub col_union: TrackedCol<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for SetInterUnionProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for SetInterUnionProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             col_left: self.col_left.deep_clone(prover.clone()),
             col_right: self.col_right.deep_clone(prover.clone()),
@@ -63,28 +49,21 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         }
     }
 }
-pub struct SetInterUnionVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub col_left: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub col_right: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub col_inter: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub col_union: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct SetInterUnionVerifierInput<B: SnarkBackend> {
+    pub col_left: TrackedColOracle<B>,
+    pub col_right: TrackedColOracle<B>,
+    pub col_inter: TrackedColOracle<B>,
+    pub col_union: TrackedColOracle<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for SetInterUnionCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = SetInterUnionProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for SetInterUnionCheckPIOP<B> {
+    type ProverInput = SetInterUnionProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = SetInterUnionVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = SetInterUnionVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -153,12 +132,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         let left_hashset = input.col_left.effective_hashset();
         let right_hashset = input.col_right.effective_hashset();
 
-        let real_intersection: HashSet<F> =
+        let real_intersection: HashSet<B::F> =
             left_hashset.intersection(&right_hashset).copied().collect();
-        let real_union: HashSet<F> = left_hashset.union(&right_hashset).copied().collect();
+        let real_union: HashSet<B::F> = left_hashset.union(&right_hashset).copied().collect();
 
-        let claimed_intersection: HashSet<F> = input.col_inter.effective_hashset();
-        let claimed_union: HashSet<F> = input.col_union.effective_hashset();
+        let claimed_intersection: HashSet<B::F> = input.col_inter.effective_hashset();
+        let claimed_union: HashSet<B::F> = input.col_union.effective_hashset();
 
         if real_intersection != claimed_intersection {
             // panic!();
@@ -176,10 +155,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
         Ok(())
     }
-    fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        input: Self::ProverInput,
-    ) -> SnarkResult<()> {
+    fn prove_inner(prover: &mut ArgProver<B>, input: Self::ProverInput) -> SnarkResult<()> {
         // The union and the intersections should be of the same size, bcause of how
         // this protocol works
         assert_eq!(input.col_inter.log_size(), input.col_union.log_size());
@@ -195,11 +171,11 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             input.col_union.activator_tracked_poly(),
         ) {
             (Some(mgx), Some(ugx)) => Some(&mgx + &ugx),
-            (Some(mgx), None) => Some(&mgx + F::one()),
-            (None, Some(ugx)) => Some(&ugx + F::one()),
+            (Some(mgx), None) => Some(mgx + B::F::one()),
+            (None, Some(ugx)) => Some(ugx + B::F::one()),
             (None, None) => Some(prover.track_mat_mv_poly(MLE::from_evaluations_vec(
                 input.col_union.log_size(),
-                vec![F::from(2); 1 << input.col_union.log_size()],
+                vec![B::F::from(2); 1 << input.col_union.log_size()],
             ))),
         };
 
@@ -222,10 +198,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
         Ok(())
     }
 
-    fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        input: Self::VerifierInput,
-    ) -> SnarkResult<()> {
+    fn verify_inner(verifier: &mut ArgVerifier<B>, input: Self::VerifierInput) -> SnarkResult<()> {
         assert_eq!(input.col_inter.log_size(), input.col_union.log_size());
         let no_dup_verifier_input = no_dup_check::NoDupCheckVerifierInput {
             tracked_col_oracle: input.col_union.clone(),
@@ -236,11 +209,11 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             &input.col_union.activator_tracked_oracle(),
         ) {
             (Some(mgx), Some(ugx)) => Some(mgx + ugx),
-            (Some(mgx), None) => Some(mgx + F::one()),
-            (None, Some(ugx)) => Some(ugx + F::one()),
+            (Some(mgx), None) => Some(mgx.clone() + B::F::one()),
+            (None, Some(ugx)) => Some(ugx.clone() + B::F::one()),
             (None, None) => Some(verifier.track_oracle(Oracle::new_multivariate(
                 input.col_union.log_size(),
-                move |_| Ok(F::from(2)),
+                move |_| Ok(B::F::from(2)),
             ))),
         };
 
@@ -255,11 +228,10 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
         let diff_poly =
             &input.col_union.data_tracked_oracle() - &input.col_inter.data_tracked_oracle();
-        let zero_poly: TrackedOracle<F, MvPCS, UvPCS> =
-            match input.col_inter.activator_tracked_oracle() {
-                Some(p) => &p * &diff_poly,
-                None => diff_poly,
-            };
+        let zero_poly: TrackedOracle<B> = match input.col_inter.activator_tracked_oracle() {
+            Some(p) => &p * &diff_poly,
+            None => diff_poly,
+        };
         verifier.add_zerocheck_claim(zero_poly.id());
 
         Ok(())

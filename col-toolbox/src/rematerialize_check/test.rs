@@ -1,14 +1,15 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::PCS,
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
 };
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use crate::rematerialize_check::{
     RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
@@ -16,7 +17,7 @@ use crate::rematerialize_check::{
 
 #[test]
 fn rematerialize_is_complete() -> SnarkResult<()> {
-    rematerialize_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         Some(to_field_vec!([1, 0, 1, 0, 0, 1, 0, 1], Fr)),
@@ -25,7 +26,7 @@ fn rematerialize_is_complete() -> SnarkResult<()> {
         Some(to_field_vec!([1, 1, 1, 1], Fr)),
     )?;
 
-    rematerialize_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([5, 15, 25, 35], Fr),
         None,
@@ -34,7 +35,7 @@ fn rematerialize_is_complete() -> SnarkResult<()> {
         Some(to_field_vec!([1, 1, 1, 1], Fr)),
     )?;
 
-    rematerialize_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         Some(to_field_vec!([1, 0, 1, 0, 0, 1, 0, 1], Fr)),
@@ -48,7 +49,7 @@ fn rematerialize_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn rematerialize_is_sound() -> SnarkResult<()> {
-    rematerialize_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         Some(to_field_vec!([1, 0, 1, 0, 0, 1, 0, 1], Fr)),
@@ -57,7 +58,7 @@ fn rematerialize_is_sound() -> SnarkResult<()> {
         Some(to_field_vec!([1, 2, 1, 0], Fr)),
     )?;
 
-    rematerialize_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         Some(to_field_vec!([1, 0, 1, 0, 0, 1, 0, 1], Fr)),
@@ -66,7 +67,7 @@ fn rematerialize_is_sound() -> SnarkResult<()> {
         Some(to_field_vec!([1, 1, 1, 1], Fr)),
     )?;
 
-    rematerialize_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         None,
@@ -75,7 +76,7 @@ fn rematerialize_is_sound() -> SnarkResult<()> {
         Some(to_field_vec!([1, 1, 1, 1], Fr)),
     )?;
 
-    rematerialize_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    rematerialize_soundness_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([10, 20, 30, 40, 50, 60, 70, 80], Fr),
         Some(to_field_vec!([1, 0, 1, 0, 0, 1, 0, 1], Fr)),
@@ -87,19 +88,15 @@ fn rematerialize_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn rematerialize_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn rematerialize_test_helper<B: SnarkBackend>(
     input_nv: usize,
-    input_vals: Vec<Fr>,
-    input_activator: Option<Vec<Fr>>,
+    input_vals: Vec<B::F>,
+    input_activator: Option<Vec<B::F>>,
     output_nv: usize,
-    output_vals: Vec<Fr>,
-    output_activator: Option<Vec<Fr>>,
+    output_vals: Vec<B::F>,
+    output_activator: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
 
     let input_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(input_nv, input_vals))?;
@@ -125,7 +122,7 @@ fn rematerialize_test_helper<
         input_tracked_col: input_col,
         output_tracked_col: output_col,
     };
-    RematerializeCheck::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    RematerializeCheck::<B>::prove(&mut prover, prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
@@ -151,24 +148,20 @@ fn rematerialize_test_helper<
         input_tracked_col_oracle: input_oracle,
         output_tracked_col_oracle: output_oracle,
     };
-    RematerializeCheck::<Fr, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    RematerializeCheck::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
     Ok(())
 }
 
-fn rematerialize_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn rematerialize_soundness_helper<B: SnarkBackend>(
     input_nv: usize,
-    input_vals: Vec<Fr>,
-    input_activator: Option<Vec<Fr>>,
+    input_vals: Vec<B::F>,
+    input_activator: Option<Vec<B::F>>,
     output_nv: usize,
-    output_vals: Vec<Fr>,
-    output_activator: Option<Vec<Fr>>,
+    output_vals: Vec<B::F>,
+    output_activator: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let err = rematerialize_test_helper::<Fr, MvPCS, UvPCS>(
+    let err = rematerialize_test_helper::<B>(
         input_nv,
         input_vals,
         input_activator,

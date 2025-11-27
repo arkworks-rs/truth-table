@@ -15,9 +15,8 @@ use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -27,38 +26,21 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-pub struct MultiColSuppCheckPIOP<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct MultiColSuppCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiColSuppCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub orig_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub supp_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_supp_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub shifted_contig_lex_sorted_supp_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
-    pub multiplicity: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct MultiColSuppCheckProverInput<B: SnarkBackend> {
+    pub orig_tracked_table: TrackedTable<B>,
+    pub supp_tracked_table: TrackedTable<B>,
+    pub contig_lex_sorted_supp_tracked_table: TrackedTable<B>,
+    pub shifted_contig_lex_sorted_supp_tracked_table: TrackedTable<B>,
+    pub tie_indicator_tracked_table: Option<TrackedTable<B>>,
+    pub multiplicity: TrackedPoly<B>,
 }
 
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> DeepClone<F, MvPCS, UvPCS> for MultiColSuppCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for MultiColSuppCheckProverInput<B> {
+    fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
         MultiColSuppCheckProverInput {
             orig_tracked_table: self.orig_tracked_table.deep_clone(new_prover.clone()),
             supp_tracked_table: self.supp_tracked_table.deep_clone(new_prover.clone()),
@@ -78,50 +60,33 @@ impl<
     }
 }
 
-pub struct MultiColSuppCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub orig_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub supp_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_supp_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub shifted_contig_lex_sorted_supp_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
-    pub multiplicity: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct MultiColSuppCheckVerifierInput<B: SnarkBackend> {
+    pub orig_tracked_table_oracle: TrackedTableOracle<B>,
+    pub supp_tracked_table_oracle: TrackedTableOracle<B>,
+    pub contig_lex_sorted_supp_tracked_table_oracle: TrackedTableOracle<B>,
+    pub shifted_contig_lex_sorted_supp_tracked_table_oracle: TrackedTableOracle<B>,
+    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<B>>,
+    pub multiplicity: TrackedOracle<B>,
 }
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiColSuppCheckProverOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub orig_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub supp_folded_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct MultiColSuppCheckProverOutput<B: SnarkBackend> {
+    pub orig_folded_tracked_col: TrackedCol<B>,
+    pub supp_folded_tracked_col: TrackedCol<B>,
 }
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiColSuppCheckVerifierOutput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub orig_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub supp_folded_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct MultiColSuppCheckVerifierOutput<B: SnarkBackend> {
+    pub orig_folded_tracked_col_oracle: TrackedColOracle<B>,
+    pub supp_folded_tracked_col_oracle: TrackedColOracle<B>,
 }
 
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> PIOP<F, MvPCS, UvPCS> for MultiColSuppCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = MultiColSuppCheckProverInput<F, MvPCS, UvPCS>;
-    type VerifierInput = MultiColSuppCheckVerifierInput<F, MvPCS, UvPCS>;
-    type ProverOutput = MultiColSuppCheckProverOutput<F, MvPCS, UvPCS>;
-    type VerifierOutput = MultiColSuppCheckVerifierOutput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for MultiColSuppCheckPIOP<B> {
+    type ProverInput = MultiColSuppCheckProverInput<B>;
+    type VerifierInput = MultiColSuppCheckVerifierInput<B>;
+    type ProverOutput = MultiColSuppCheckProverOutput<B>;
+    type VerifierOutput = MultiColSuppCheckVerifierOutput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<()> {
@@ -131,12 +96,12 @@ impl<
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let table_folding_challs = (0..prover_input.orig_tracked_table.num_data_tracked_cols())
             .map(|_| prover.get_and_append_challenge(b"a").unwrap())
-            .collect::<Vec<F>>();
+            .collect::<Vec<B::F>>();
 
         let orig_table_folded_col = prover_input
             .orig_tracked_table
@@ -152,10 +117,7 @@ impl<
             super_col_multiplicities: vec![prover_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::prove(
-            prover,
-            multicol_inclusion_check_prover_input,
-        )?;
+        HintedInclusionCheckPIOP::<B>::prove(prover, multicol_inclusion_check_prover_input)?;
 
         let supp_no_dups_checker = TrackedCol::new(
             prover_input.multiplicity.clone(),
@@ -165,7 +127,7 @@ impl<
         let no_zeros_check_prover_input = NoZerosCheckProverInput {
             col: supp_no_dups_checker,
         };
-        NoZerosCheck::<F, MvPCS, UvPCS>::prove(prover, no_zeros_check_prover_input)?;
+        NoZerosCheck::<B>::prove(prover, no_zeros_check_prover_input)?;
 
         let multi_col_no_dup_prover_input = SortBasedMultiNoDupProverInput {
             tracked_table: prover_input.supp_tracked_table.clone(),
@@ -178,7 +140,7 @@ impl<
                 .clone(),
         };
 
-        SortBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover, multi_col_no_dup_prover_input)?;
+        SortBasedMultiNoDup::<B>::prove(prover, multi_col_no_dup_prover_input)?;
         // let multi_col_no_dup_prover_input = BezoutBasedMultiNoDupProverInput {
         //     tracked_table: prover_input.supp_tracked_table.clone(),
         //     contig_lex_sorted_tracked_table: prover_input
@@ -191,7 +153,7 @@ impl<
         //         .clone(),
         // };
 
-        // BezoutBasedMultiNoDup::<F, MvPCS, UvPCS>::prove(prover,
+        // BezoutBasedMultiNoDup::<B>::prove(prover,
         // multi_col_no_dup_prover_input)?;
         let multi_col_supp_check_prover_output = MultiColSuppCheckProverOutput {
             orig_folded_tracked_col: orig_table_folded_col,
@@ -201,14 +163,14 @@ impl<
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let table_folding_challs = (0..verifier_input
             .orig_tracked_table_oracle
             .num_data_tracked_col_oracles())
             .map(|_| verifier.get_and_append_challenge(b"a").unwrap())
-            .collect::<Vec<F>>();
+            .collect::<Vec<B::F>>();
 
         let orig_table_folded_col = verifier_input
             .orig_tracked_table_oracle
@@ -224,10 +186,7 @@ impl<
             super_col_multiplicities: vec![verifier_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<F, MvPCS, UvPCS>::verify(
-            verifier,
-            multicol_inclusion_check_verifier_input,
-        )?;
+        HintedInclusionCheckPIOP::<B>::verify(verifier, multicol_inclusion_check_verifier_input)?;
 
         let supp_no_dups_checker = TrackedColOracle::new(
             verifier_input.multiplicity.clone(),
@@ -239,7 +198,7 @@ impl<
         let no_zeros_check_verifier_input = NoZerosCheckVerifierInput {
             tracked_col_oracle: supp_no_dups_checker,
         };
-        NoZerosCheck::<F, MvPCS, UvPCS>::verify(verifier, no_zeros_check_verifier_input)?;
+        NoZerosCheck::<B>::verify(verifier, no_zeros_check_verifier_input)?;
 
         let multi_col_no_dup_verifier_input = SortBasedMultiNoDupVerifierInput {
             tracked_table_oracle: verifier_input.supp_tracked_table_oracle.clone(),
@@ -254,10 +213,7 @@ impl<
                 .clone(),
         };
 
-        SortBasedMultiNoDup::<F, MvPCS, UvPCS>::verify(
-            verifier,
-            multi_col_no_dup_verifier_input.clone(),
-        )?;
+        SortBasedMultiNoDup::<B>::verify(verifier, multi_col_no_dup_verifier_input.clone())?;
 
         // let multi_col_no_dup_verifier_input = BezoutBasedMultiNoDupVerifierInput {
         //     tracked_table_oracle: verifier_input.supp_tracked_table_oracle.clone(),
@@ -272,7 +228,7 @@ impl<
         //         .clone(),
         // };
 
-        // BezoutBasedMultiNoDup::<F, MvPCS, UvPCS>::verify(
+        // BezoutBasedMultiNoDup::<B>::verify(
         //     verifier,
         //     multi_col_no_dup_verifier_input,
         // )?;

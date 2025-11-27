@@ -28,6 +28,6 @@ FROM
 GROUP BY
     l_returnflag,
     l_linestatus";
-    let proof_plan = create_prover_proof_tree::<Fr, MvPCS, UvPCS>(&ctx, query).await;
+    let proof_plan = create_prover_proof_tree::<B>(&ctx, query).await;
     println!("{}", proof_plan.display_graphviz());
 }

@@ -28,7 +28,7 @@ pub const SORTED_DATA_FRAME_KEY: &str = "__Contigous_Sort__sorted_data_frame__";
 pub const SHIFTED_DATA_FRAME_KEY: &str = "__Contigous_Sort__shifted_data_frame__";
 pub const TIE_DATA_FRAME_KEY: &str = "__Contigous_Sort__tie_data_frame__";
 #[derive(Clone)]
-pub struct Prover<F, MvPCS, UvPCS>
+pub struct Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -37,7 +37,7 @@ where
     _marker: PhantomData<(F, MvPCS, UvPCS)>,
 }
 
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
+impl<B> ProverGadget<B> for Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -62,7 +62,7 @@ where
         result
     }
 
-    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<B>>> {
         todo!()
     }
 

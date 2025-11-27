@@ -24,7 +24,7 @@ use crate::structs::{Artifact, TTVk};
 type F = Fr;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
-type Proof = ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>;
+type Proof = ark_piop::prover::structs::proof::Proof<B>;
 
 pub struct VerifyBuilder {
     query: Option<String>,
@@ -155,14 +155,14 @@ impl VerifyRunner {
         let shared_ctx = shared_ctx_from_oracles(&oracles)?;
 
         let verifier_proof_tree =
-            create_verifier_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, &self.query, shared_ctx)
+            create_verifier_proof_tree_with_ctx::<B>(&ctx, &self.query, shared_ctx)
                 .await;
 
         let proof = load_proof(&self.proof_path)?;
-        let tt_vk = TTVk::<F, MvPCS, UvPCS>::load(&self.vk_path)
+        let tt_vk = TTVk::<B>::load(&self.vk_path)
             .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
         let snark_vk = tt_vk.into_inner();
-        let mut verifier = Verifier::<F, MvPCS, UvPCS>::new_from_vk(snark_vk);
+        let mut verifier = Verifier::<B>::new_from_vk(snark_vk);
         verifier.set_proof(proof);
 
         let verifier_tracked_tree =
@@ -187,11 +187,11 @@ impl VerifyRunner {
     }
 }
 
-fn load_oracle(path: &Path) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
+fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
     let file = File::open(path)
         .with_context(|| format!("failed to open oracle file {}", path.display()))?;
     let mut reader = BufReader::new(file);
-    ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+    ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
         .context("failed to deserialize oracle")
 }
 
@@ -203,8 +203,8 @@ fn load_proof(path: &Path) -> Result<Proof> {
 }
 
 fn shared_ctx_from_oracles(
-    oracles: &[ArithTableOracle<F, MvPCS, UvPCS>],
-) -> Result<SharedCtx<F, MvPCS, UvPCS>> {
+    oracles: &[ArithTableOracle<B>],
+) -> Result<SharedCtx<B>> {
     let mut table_oracles = IndexMap::new();
     for oracle in oracles {
         let schema = oracle

@@ -7,22 +7,18 @@ use ark_piop::{
 use datafusion_expr::Subquery;
 
 use std::sync::Arc;
-pub struct ProverSubqueryNode<F, MvPCS, UvPCS>
+pub struct ProverSubqueryNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn ProverPlanNode<B>>,
     subquery: Subquery,
 }
 
-pub struct VerifierSubqueryNode<F, MvPCS, UvPCS>
+pub struct VerifierSubqueryNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    input: Arc<dyn VerifierNode<B>>,
     subquery: Subquery,
 }

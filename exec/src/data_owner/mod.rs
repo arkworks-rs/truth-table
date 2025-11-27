@@ -30,7 +30,7 @@ type UvPCS = KZG10<Bls12_381>;
 /// Commit the contents of a parquet file by materializing the table-scanned
 /// witness, producing the verifier-side oracle table, serializing it, and
 /// returning its serializable form together with the path where it was stored.
-pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS, UvPCS>, PathBuf)> {
+pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<B>, PathBuf)> {
     let parquet_path = parquet_path.to_path_buf();
     let parquet_path_for_async = parquet_path.clone();
     let table_name = parquet_path
@@ -56,12 +56,12 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
         let query = format!("SELECT * FROM {table_name}");
 
         let (mut prover, mut verifier) =
-            test_prelude::<F, MvPCS, UvPCS>().context("failed to prepare prover")?;
-        let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx, &query).await;
+            test_prelude::<B>().context("failed to prepare prover")?;
+        let proof_tree = create_prover_proof_tree::<B>(&ctx, &query).await;
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
             .await
             .context("failed to build hint tree")?;
-        let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+        let arith_tree = ProverArithmetizedTree::<B>::from_hint_tree(hint_tree)
             .context("failed to arithmetize")?;
         let tracked_tree =
             ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover).unwrap();
@@ -72,7 +72,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 
         let (_, tables_by_node) = piop_tree.into_parts();
 
-        let mut tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>> = None;
+        let mut tracked_table_oracle: Option<TrackedTableOracle<B>> = None;
         for (node_id, tables) in &tables_by_node {
             if let NodeId::LP(plan) = node_id
                 && matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_))
@@ -112,7 +112,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<F, MvPCS,
 /// Load a previously committed parquet table from disk.
 pub fn load_parquet_commitment(
     commitment_path: &Path,
-) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
+) -> Result<ArithTableOracle<B>> {
     let file = File::open(commitment_path).with_context(|| {
         format!(
             "failed to open serialized oracle file at {}",
@@ -120,7 +120,7 @@ pub fn load_parquet_commitment(
         )
     })?;
     let mut reader = BufReader::new(file);
-    ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed(&mut reader)
+    ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
         .context("failed to deserialize oracle")
 }
 

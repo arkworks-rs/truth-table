@@ -1,6 +1,7 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_piop::{
+    DefaultSnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     pcs::{kzg10::KZG10, pst13::PST13},
@@ -21,7 +22,7 @@ fn test_fold_check() -> SnarkResult<()> {
     let nv = 8;
     let num = 8;
 
-    let (mut prover, mut verifier) = test_prelude::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>()?;
+    let (mut prover, mut verifier) = test_prelude::<DefaultSnarkBackend>()?;
     let input_mles = (0..num)
         .map(|_| MLE::rand(nv, &mut rng))
         .collect::<Vec<_>>();
@@ -36,7 +37,7 @@ fn test_fold_check() -> SnarkResult<()> {
         None,
     );
 
-    let input_cols: Vec<TrackedCol<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_mles
+    let input_cols: Vec<TrackedCol<DefaultSnarkBackend>> = input_mles
         .iter()
         .map(|mle| {
             TrackedCol::new(
@@ -52,10 +53,8 @@ fn test_fold_check() -> SnarkResult<()> {
         challs: challs.clone(),                  // The challenges used for folding
     };
 
-    let _result = FoldCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::prove(
-        &mut prover,
-        fold_check_piop_prover_input,
-    );
+    let _result =
+        FoldCheckPIOP::<DefaultSnarkBackend>::prove(&mut prover, fold_check_piop_prover_input);
     let proof = prover.build_proof().unwrap();
     verifier.set_proof(proof);
 
@@ -65,7 +64,7 @@ fn test_fold_check() -> SnarkResult<()> {
         Some(activatorm.clone()),
         None,
     );
-    let input_comms: Vec<TrackedColOracle<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>> = input_cols
+    let input_comms: Vec<TrackedColOracle<DefaultSnarkBackend>> = input_cols
         .iter()
         .map(|col| {
             TrackedColOracle::new(
@@ -85,10 +84,8 @@ fn test_fold_check() -> SnarkResult<()> {
         challs: challs.clone(), // The challenges used for folding
     };
 
-    let _result = FoldCheckPIOP::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>::verify(
-        &mut verifier,
-        fold_check_verifier_input,
-    );
+    let _result =
+        FoldCheckPIOP::<DefaultSnarkBackend>::verify(&mut verifier, fold_check_verifier_input);
 
     verifier.verify().unwrap();
 

@@ -1,5 +1,6 @@
 use ark_ff::PrimeField;
 
+use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
@@ -8,39 +9,24 @@ use ark_piop::{
 use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 #[derive(Derivative)]
-#[derivative(
-    Clone(bound = "MvPCS: PCS<F>"),
-    PartialEq(bound = "MvPCS: PCS<F>"),
-    Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>")
-)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of an oracle to a tracked arithmetized column in dbSNARK
 /// a tracked arithmetized column is represented by two polynomials: A data
 /// tracked polynomial, an activator tracked polynomial If the activator
 /// tracked polynomial is None, all the rows are active, and an optional
 /// FieldRef
-pub struct TrackedColOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+pub struct TrackedColOracle<B: SnarkBackend> {
     /// A tracked oracle representing the column values
-    data_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+    data_tracked_oracle: TrackedOracle<B>,
     /// A tracked (supposedly) oracle representing the activator of the
     /// column If None, all the rows are active
     /// If some, only the rows where the activator oracle is one are active
-    activator_tracked_oracle: Option<TrackedOracle<F, MvPCS, UvPCS>>,
+    activator_tracked_oracle: Option<TrackedOracle<B>>,
     /// The field reference of the column in the original schema, if any
     field_ref: Option<FieldRef>,
 }
 
-impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedColOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> core::fmt::Debug for TrackedColOracle<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedColOracle")
             .field("log_size", &self.log_size())
@@ -50,16 +36,11 @@ where
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TrackedColOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> TrackedColOracle<B> {
     /// Creates a new tracked column Oracle
     pub fn new(
-        data_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
-        activator_tracked_oracle: Option<TrackedOracle<F, MvPCS, UvPCS>>,
+        data_tracked_oracle: TrackedOracle<B>,
+        activator_tracked_oracle: Option<TrackedOracle<B>>,
         field_ref: Option<FieldRef>,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -75,8 +56,8 @@ where
 
     #[cfg(debug_assertions)]
     fn check_new_args(
-        data_tracked_oracle: &TrackedOracle<F, MvPCS, UvPCS>,
-        activator_tracked_oracle: &Option<TrackedOracle<F, MvPCS, UvPCS>>,
+        data_tracked_oracle: &TrackedOracle<B>,
+        activator_tracked_oracle: &Option<TrackedOracle<B>>,
         _field_ref: &Option<FieldRef>,
     ) {
         if activator_tracked_oracle.is_some() {
@@ -92,11 +73,11 @@ where
     }
 
     /// Returns the data tracked oracle of the column
-    pub fn data_tracked_oracle(&self) -> TrackedOracle<F, MvPCS, UvPCS> {
+    pub fn data_tracked_oracle(&self) -> TrackedOracle<B> {
         self.data_tracked_oracle.clone()
     }
     /// Returns the activator tracked oracle of the column
-    pub fn activator_tracked_oracle(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn activator_tracked_oracle(&self) -> Option<TrackedOracle<B>> {
         self.activator_tracked_oracle.clone()
     }
 
@@ -107,7 +88,7 @@ where
     }
 
     /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> ArgVerifier<F, MvPCS, UvPCS> {
+    pub fn tracker_ref(&self) -> ArgVerifier<B> {
         // We have the guarantee at construction that activator tracked also agrees
         ArgVerifier::new_from_tracker_rc(self.data_tracked_oracle.tracker().clone())
     }
@@ -116,7 +97,7 @@ where
     /// of the activator and the column polynomial
     /// Note that the non-activated elements are zeroed out, hence
     /// indistinguishable from the actual zero elements
-    pub fn activated_data_tracked_oracle(&self) -> TrackedOracle<F, MvPCS, UvPCS> {
+    pub fn activated_data_tracked_oracle(&self) -> TrackedOracle<B> {
         match &self.activator_tracked_oracle {
             Some(activator) => &self.data_tracked_oracle * activator,
             None => self.data_tracked_oracle.clone(),

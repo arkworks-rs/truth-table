@@ -1,4 +1,6 @@
+use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
+use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
@@ -9,44 +11,27 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
 };
-use indexmap::IndexMap;
-
-use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use derivative::Derivative;
+use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 use std::{convert::TryFrom, sync::Arc};
 
 #[derive(Derivative)]
-#[derivative(
-    Clone(bound = "MvPCS: PCS<F>"),
-    PartialEq(bound = "MvPCS: PCS<F>"),
-    Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>")
-)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked oracle to an arithmetized table in dbSNARK
 /// A tracked oracle to an arithmetized table is represented by a set of tracked
 /// oracles representing the columns
-pub struct TrackedTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+pub struct TrackedTableOracle<B: SnarkBackend> {
     /// The schema of the table, if any
     schema: Option<Schema>,
     /// The oracles representing the columns, stored in schema order
-    tracked_oracles: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
+    tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
     /// The log size of the table
     log_size: usize,
 }
 
-impl<F, MvPCS, UvPCS> Default for TrackedTableOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
     fn default() -> Self {
         Self {
             schema: None,
@@ -56,12 +41,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedTableOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> core::fmt::Debug for TrackedTableOracle<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedTableOracle")
             .field(
@@ -77,17 +57,12 @@ where
     }
 }
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> TrackedTableOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// Constructs a new `TrackedTableOracle` from the provided schema (if any),
     /// tracked oracles, and log size of the table
     pub fn new(
         schema: Option<Schema>,
-        tracked_oracles: IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
+        tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
         log_size: usize,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -104,7 +79,7 @@ where
     #[cfg(debug_assertions)]
     fn check_new_args(
         schema: &Option<Schema>,
-        tracked_oracles: &IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>>,
+        tracked_oracles: &IndexMap<FieldRef, TrackedOracle<B>>,
         log_size: usize,
     ) -> SnarkResult<()> {
         // All column oracles have the same tracker
@@ -140,7 +115,7 @@ where
     }
 
     /// Returns the vector of raw column oracles in the table
-    pub fn tracked_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn tracked_oracles(&self) -> IndexMap<FieldRef, TrackedOracle<B>> {
         self.tracked_oracles.clone()
     }
 
@@ -200,28 +175,28 @@ where
     /// oracle. The output tracked column will have the same activator
     /// polynomial as the original tracked table oracle (if any) and does
     /// not have any datatype
-    pub fn fold(&self, col_inds: &[usize], challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
-        let mut folded: TrackedOracle<F, MvPCS, UvPCS> = &self
+    pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedColOracle<B> {
+        let mut folded: TrackedOracle<B> = self
             .tracked_col_oracle_by_ind(col_inds[0])
             .data_tracked_oracle()
-            * challs[0];
+            .mul_scalar_oracle(challs[0]);
         for i in 1..col_inds.len() {
             let col_oracle = self
                 .tracked_col_oracle_by_ind(col_inds[i])
                 .data_tracked_oracle();
-            folded += &(&col_oracle * challs[i]);
+            folded += &col_oracle.mul_scalar_oracle(challs[i]);
         }
         TrackedColOracle::new(folded, self.activator_tracked_poly(), None)
     }
 
     /// Folds all the data (i.e. excluding the activator column) tracked column
     /// oracles
-    pub fn fold_all_data_oracles(&self, challs: &[F]) -> TrackedColOracle<F, MvPCS, UvPCS> {
+    pub fn fold_all_data_oracles(&self, challs: &[B::F]) -> TrackedColOracle<B> {
         let data_col_indices = self.data_tracked_oracles_indices();
         self.fold(&data_col_indices, challs)
     }
     /// Returns the tracked column oracle at the specified index
-    pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<F, MvPCS, UvPCS> {
+    pub fn tracked_col_oracle_by_ind(&self, col_ind: usize) -> TrackedColOracle<B> {
         let (field_ref, data_tracked_oracle) = self
             .tracked_oracles
             .iter()
@@ -236,10 +211,7 @@ where
     }
 
     /// Returns the tracked column oracle with the specified name
-    pub fn tracked_col_oracle_by_name(
-        &self,
-        name: &str,
-    ) -> Option<TrackedColOracle<F, MvPCS, UvPCS>> {
+    pub fn tracked_col_oracle_by_name(&self, name: &str) -> Option<TrackedColOracle<B>> {
         let idx = self
             .schema
             .as_ref()
@@ -248,10 +220,7 @@ where
     }
 
     /// Returns the tracked column oracles at the specified indices
-    pub fn tracked_col_oracles_by_indices(
-        &self,
-        indices: &[usize],
-    ) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
+    pub fn tracked_col_oracles_by_indices(&self, indices: &[usize]) -> Vec<TrackedColOracle<B>> {
         indices
             .iter()
             .map(|&i| self.tracked_col_oracle_by_ind(i))
@@ -261,10 +230,7 @@ where
     /// Returns a subtable oracle containing the tracked column oracles at the
     /// specified indices and the current table oracle's activator column (if
     /// any).
-    pub fn tracked_subtable_by_indices(
-        &self,
-        indices: &[usize],
-    ) -> TrackedTableOracle<F, MvPCS, UvPCS> {
+    pub fn tracked_subtable_by_indices(&self, indices: &[usize]) -> TrackedTableOracle<B> {
         let mut sub_oracles = IndexMap::with_capacity(
             indices.len() + self.activator_tracked_poly().is_some() as usize,
         );
@@ -299,7 +265,7 @@ where
     }
     /// Returns all the tracked column oracles in the table, including the
     /// activator column (if any)
-    pub fn all_tracked_col_oracles(&self) -> Vec<TrackedColOracle<F, MvPCS, UvPCS>> {
+    pub fn all_tracked_col_oracles(&self) -> Vec<TrackedColOracle<B>> {
         self.tracked_col_oracles_by_indices(
             &(0..self.num_total_tracked_col_oracles()).collect::<Vec<usize>>(),
         )
@@ -315,7 +281,7 @@ where
     }
 
     /// Returns the tracked oracle of the activator column, if any
-    pub fn activator_tracked_poly(&self) -> Option<TrackedOracle<F, MvPCS, UvPCS>> {
+    pub fn activator_tracked_poly(&self) -> Option<TrackedOracle<B>> {
         self.tracked_oracles.iter().find_map(|(field, oracle)| {
             (field.name() == ACTIVATOR_COL_NAME).then(|| oracle.clone())
         })
@@ -326,8 +292,8 @@ where
     /// It's assumed that the verifier already has the comitments of the
     /// polynomials being tracked
     pub fn from_tracked_table(
-        table: TrackedTable<F, MvPCS, UvPCS>,
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        table: TrackedTable<B>,
+        verifier: &mut ArgVerifier<B>,
     ) -> SnarkResult<Self> {
         let schema = table.schema().clone();
         let log_size = table.log_size();
@@ -352,39 +318,22 @@ where
 }
 
 #[derive(Derivative)]
-#[derivative(
-    Clone(bound = "MvPCS: PCS<F>"),
-    PartialEq(bound = "MvPCS: PCS<F>"),
-    Debug(bound = "MvPCS: PCS<F>"),
-    Clone(bound = "UvPCS: PCS<F>"),
-    PartialEq(bound = "UvPCS: PCS<F>"),
-    Debug(bound = "UvPCS: PCS<F>")
-)]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""), Debug(bound = ""))]
 /// An abstraction of an oracle to an arithmetized table in dbSNARK
 /// An arithmetic table might not be tracked and can be serialized and
 /// deserialized
-pub struct ArithTableOracle<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    _phantom: std::marker::PhantomData<UvPCS>,
+pub struct ArithTableOracle<B: SnarkBackend> {
+    _phantom: std::marker::PhantomData<B>,
     schema: Option<Schema>,
-    comitments: IndexMap<FieldRef, MvPCS::Commitment>,
+    comitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
     log_size: usize,
 }
 
-impl<F, MvPCS, UvPCS> ArithTableOracle<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> ArithTableOracle<B> {
     /// Constructs a new `ArithTableOracle`
     pub fn new(
         schema: Option<Schema>,
-        comitments: IndexMap<FieldRef, MvPCS::Commitment>,
+        comitments: IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
         log_size: usize,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -401,7 +350,7 @@ where
     #[cfg(debug_assertions)]
     fn check_new_args(
         schema: &Option<Schema>,
-        comitments: &IndexMap<FieldRef, MvPCS::Commitment>,
+        comitments: &IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment>,
         _log_size: usize,
     ) -> SnarkResult<()> {
         // If schema is provided, it must match the fields of the comitments
@@ -418,7 +367,7 @@ where
     }
 
     /// Returns the map of column comitments in the table
-    pub fn comitments(&self) -> &IndexMap<FieldRef, MvPCS::Commitment> {
+    pub fn comitments(&self) -> &IndexMap<FieldRef, <B::MvPCS as PCS<B::F>>::Commitment> {
         &self.comitments
     }
 
@@ -444,9 +393,9 @@ where
 
     /// Constructs an `ArithTableOracle` from a `TrackedTableOracle` by
     /// extracting
-    pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<F, MvPCS, UvPCS>) -> Self
+    pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<B>) -> Self
     where
-        MvPCS::Commitment: Clone,
+        <B::MvPCS as PCS<B::F>>::Commitment: Clone,
     {
         let comitments = table_oracle
             .tracked_oracles()
@@ -462,19 +411,16 @@ where
     }
 
     /// Returns the oracle of the activator column, if any
-    pub fn activator_commitment(&self) -> Option<&MvPCS::Commitment> {
+    pub fn activator_commitment(&self) -> Option<&<B::MvPCS as PCS<B::F>>::Commitment> {
         self.comitments
             .iter()
             .find_map(|(field, comm)| (field.name() == ACTIVATOR_COL_NAME).then_some(comm))
     }
 }
 
-impl<F, MvPCS, UvPCS> CanonicalSerialize for ArithTableOracle<F, MvPCS, UvPCS>
+impl<B: SnarkBackend> CanonicalSerialize for ArithTableOracle<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    MvPCS::Commitment: CanonicalSerialize + Valid,
+    <B::MvPCS as PCS<B::F>>::Commitment: CanonicalSerialize + Valid,
 {
     fn serialize_with_mode<W: Write>(
         &self,
@@ -542,12 +488,9 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> CanonicalDeserialize for ArithTableOracle<F, MvPCS, UvPCS>
+impl<B: SnarkBackend + Sync> CanonicalDeserialize for ArithTableOracle<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    MvPCS::Commitment: CanonicalDeserialize + Valid,
+    <B::MvPCS as PCS<B::F>>::Commitment: CanonicalDeserialize + Valid,
 {
     fn deserialize_with_mode<R: Read>(
         mut reader: R,
@@ -585,8 +528,11 @@ where
         };
 
         for field_ref in ordered_fields {
-            let commitment =
-                MvPCS::Commitment::deserialize_with_mode(&mut reader, compress, validate)?;
+            let commitment = <B::MvPCS as PCS<B::F>>::Commitment::deserialize_with_mode(
+                &mut reader,
+                compress,
+                validate,
+            )?;
             comitments.insert(field_ref, commitment);
         }
 
@@ -603,12 +549,9 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Valid for ArithTableOracle<F, MvPCS, UvPCS>
+impl<B: SnarkBackend + Sync> Valid for ArithTableOracle<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    MvPCS::Commitment: Valid,
+    <B::MvPCS as PCS<B::F>>::Commitment: Valid,
 {
     fn check(&self) -> Result<(), SerializationError> {
         for commitment in self.comitments.values() {

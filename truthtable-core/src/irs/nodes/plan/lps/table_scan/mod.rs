@@ -18,7 +18,7 @@ pub struct VerifierTableScanNode {
     pub table_scan: TableScan,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverTableScanNode
+// impl<B> ProverPlanNode<B> for ProverTableScanNode
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -32,7 +32,7 @@ pub struct VerifierTableScanNode {
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -44,28 +44,28 @@ pub struct VerifierTableScanNode {
 //         todo!()
 //     }
 
-//     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
 //         todo!()
 //     }
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         todo!()
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         Vec::new()
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         let root = gadget::Prover::new();
 //         GadgetTree::new(Arc::new(root))
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverTableScanNode
+// impl<B> ProverLpNode<B> for ProverTableScanNode
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -73,7 +73,7 @@ pub struct VerifierTableScanNode {
 // {
 //     fn from_lp(
 //         ctx: &SessionContext,
-//         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: SharedCtx<B>,
 //         plan: LogicalPlan,
 //         parent_node_id: NodeId,
 //     ) -> Self

@@ -4,7 +4,8 @@ mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -158,29 +159,18 @@ fn evaluate_ge_bits<F: PrimeField>(vars: &[F], threshold_bits: &[bool]) -> F {
 }
 
 // Convinces the verifier that
-pub struct PrescribedPermutationPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct PrescribedPermutationPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct PrescribedPermutationPIOPProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub left_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
-    pub right_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
-    pub permutation_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct PrescribedPermutationPIOPProverInput<B: SnarkBackend> {
+    pub left_tracked_poly: TrackedPoly<B>,
+    pub right_tracked_poly: TrackedPoly<B>,
+    pub permutation_tracked_poly: TrackedPoly<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for PrescribedPermutationPIOPProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for PrescribedPermutationPIOPProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             left_tracked_poly: self.left_tracked_poly.deep_clone(prover.clone()),
             right_tracked_poly: self.right_tracked_poly.deep_clone(prover.clone()),
@@ -189,26 +179,19 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct PrescribedPermutationPIOPVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub left_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
-    pub right_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
-    pub permutation_tracked_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct PrescribedPermutationPIOPVerifierInput<B: SnarkBackend> {
+    pub left_tracked_oracle: TrackedOracle<B>,
+    pub right_tracked_oracle: TrackedOracle<B>,
+    pub permutation_tracked_oracle: TrackedOracle<B>,
 }
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for PrescribedPermutationPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = PrescribedPermutationPIOPProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for PrescribedPermutationPIOP<B> {
+    type ProverInput = PrescribedPermutationPIOPProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = PrescribedPermutationPIOPVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = PrescribedPermutationPIOPVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -260,20 +243,22 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let index_mle = MLE::from_evaluations_vec(
             input.left_tracked_poly.log_size(),
             (0..(1 << input.left_tracked_poly.log_size()))
-                .map(|i| F::from(i as u64))
+                .map(|i| B::F::from(i as u64))
                 .collect(),
         );
         let index_tracked_poly = prover.track_mat_mv_poly(index_mle);
         let folding_challenge = prover.get_and_append_challenge(b"folding_challenge")?;
         let folded_left =
-            &input.left_tracked_poly + &(&input.permutation_tracked_poly * folding_challenge);
-        let folded_right = &input.right_tracked_poly + &(&index_tracked_poly * folding_challenge);
+            &input.left_tracked_poly
+                + &(input.permutation_tracked_poly.clone() * folding_challenge);
+        let folded_right =
+            &input.right_tracked_poly + &(index_tracked_poly.clone() * folding_challenge);
         let permutation_check_prover_input = PermPIOPProverInput {
             left_col: TrackedCol::new(folded_left, None, None),
             right_col: TrackedCol::new(folded_right, None, None),
@@ -283,21 +268,21 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let log_size = input.left_tracked_oracle.log_size();
         let index_oracle = Oracle::new_multivariate(log_size, move |x| {
-            let value =
-                SignCheckPIOP::<F, MvPCS, UvPCS>::sparse_range_poly_by_nv(log_size)?.evaluate(&x);
+            let value = SignCheckPIOP::<B>::sparse_range_poly_by_nv(log_size)?.evaluate(&x);
             Ok(value)
         });
         let index_tracked_oracle = verifier.track_oracle(index_oracle);
         let folding_challenge = verifier.get_and_append_challenge(b"folding_challenge")?;
         let folded_left =
-            &input.left_tracked_oracle + &(&input.permutation_tracked_oracle * folding_challenge);
+            &input.left_tracked_oracle
+                + &(input.permutation_tracked_oracle.clone() * folding_challenge);
         let folded_right =
-            &input.right_tracked_oracle + &(&index_tracked_oracle * folding_challenge);
+            &input.right_tracked_oracle + &(index_tracked_oracle.clone() * folding_challenge);
         let permutation_check_verifier_input = PermPIOPVerifierInput {
             left_tracked_col_oracle: TrackedColOracle::new(folded_left, None, None),
             right_tracked_col_oracle: TrackedColOracle::new(folded_right, None, None),

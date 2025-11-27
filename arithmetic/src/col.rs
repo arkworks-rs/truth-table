@@ -2,6 +2,8 @@ use std::{collections::HashSet, fmt};
 
 use ark_ff::PrimeField;
 
+use ark_ff::Zero;
+use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
@@ -10,38 +12,27 @@ use ark_piop::{
 };
 use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
-
 #[derive(Derivative)]
-#[derivative(Clone(bound = "MvPCS: PCS<F>"), PartialEq(bound = "MvPCS: PCS<F>"))]
+#[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of tracked arithmetized column in dbSNARK
 /// a tracked arithmetized column is represented by two polynomials: A data
 /// tracked polynomial, an activator tracked polynomial If the activator
 /// tracked polynomial is None, all the rows are active, and an optional
 /// FieldRef
-pub struct TrackedCol<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+pub struct TrackedCol<B: SnarkBackend> {
     /// A tracked polynomial representing the column values
-    data_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
+    data_tracked_poly: TrackedPoly<B>,
 
     /// A tracked (supposedly) polynomial representing the activator of the
     /// column If None, all the rows are active
     /// If some, only the rows where the activator polynomial is one are active
-    activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+    activator_tracked_poly: Option<TrackedPoly<B>>,
 
     /// The field reference of the column in the original schema, if any
     field_ref: Option<FieldRef>,
 }
 
-impl<F, MvPCS, UvPCS> core::fmt::Debug for TrackedCol<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> core::fmt::Debug for TrackedCol<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TrackedCol")
             .field("log_size", &self.log_size())
@@ -51,12 +42,7 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> fmt::Display for TrackedCol<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> fmt::Display for TrackedCol<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let field_name = self
             .field_ref
@@ -124,16 +110,11 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> TrackedCol<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
+impl<B: SnarkBackend> TrackedCol<B> {
     /// Creates a new tracked column
     pub fn new(
-        data_tracked_poly: TrackedPoly<F, MvPCS, UvPCS>,
-        activator_tracked_poly: Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        data_tracked_poly: TrackedPoly<B>,
+        activator_tracked_poly: Option<TrackedPoly<B>>,
         field_ref: Option<FieldRef>,
     ) -> Self {
         #[cfg(debug_assertions)]
@@ -149,8 +130,8 @@ where
 
     #[cfg(debug_assertions)]
     fn check_new_args(
-        data_tracked_poly: &TrackedPoly<F, MvPCS, UvPCS>,
-        activator_tracked_poly: &Option<TrackedPoly<F, MvPCS, UvPCS>>,
+        data_tracked_poly: &TrackedPoly<B>,
+        activator_tracked_poly: &Option<TrackedPoly<B>>,
         _field_ref: &Option<FieldRef>,
     ) {
         if activator_tracked_poly.is_some() {
@@ -166,12 +147,12 @@ where
     }
 
     /// Returns the data tracked polynomial of the column
-    pub fn data_tracked_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
+    pub fn data_tracked_poly(&self) -> TrackedPoly<B> {
         self.data_tracked_poly.clone()
     }
 
     /// Returns the activator tracked polynomial of the column
-    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<F, MvPCS, UvPCS>> {
+    pub fn activator_tracked_poly(&self) -> Option<TrackedPoly<B>> {
         self.activator_tracked_poly.clone()
     }
     /// Returns the field reference of the tracked column in the original
@@ -181,7 +162,7 @@ where
     }
 
     /// Returns a reference to the tracker of the tracked column
-    pub fn tracker_ref(&self) -> ArgProver<F, MvPCS, UvPCS> {
+    pub fn tracker_ref(&self) -> ArgProver<B> {
         // We have the guarantee at construction that activator tracked also agrees
         ArgProver::new_from_tracker_rc(self.data_tracked_poly.tracker())
     }
@@ -190,7 +171,7 @@ where
     /// product of the activator and the column polynomial
     /// Note that the non-activated elements are zeroed out, hence
     /// indistinguishable from the actual zero elements
-    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<F, MvPCS, UvPCS> {
+    pub fn activated_data_tracked_poly(&self) -> TrackedPoly<B> {
         match &self.activator_tracked_poly {
             Some(activator) => &self.data_tracked_poly * activator,
             None => self.data_tracked_poly.clone(),
@@ -199,26 +180,26 @@ where
 
     /// Returns an iterator over the activated data elements
     /// Useful for testing and debugging
-    pub fn effective_iter(&self) -> impl IntoIterator<Item = F> + use<F, MvPCS, UvPCS> {
+    pub fn effective_iter(&self) -> impl IntoIterator<Item = B::F> + use<B> {
         match &self.activator_tracked_poly {
             Some(activator) => self
                 .data_tracked_poly
                 .evaluations()
                 .into_iter()
                 .zip(activator.evaluations())
-                .filter(|(_, activator)| *activator != F::zero())
+                .filter(|(_, activator)| *activator != B::F::zero())
                 .map(|(data, _)| data)
-                .collect::<Vec<F>>(),
+                .collect::<Vec<B::F>>(),
             None => self.data_tracked_poly.evaluations(),
         }
     }
 
     /// Returns a hashset of the activated data elements
     /// Useful for testing and debugging
-    pub fn effective_hashset(&self) -> HashSet<F> {
+    pub fn effective_hashset(&self) -> HashSet<B::F> {
         self.effective_iter()
             .into_iter()
-            .collect::<std::collections::HashSet<F>>()
+            .collect::<std::collections::HashSet<B::F>>()
     }
 
     /// Pretty-print the tracked column, optionally showing the activator
@@ -295,13 +276,8 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for TrackedCol<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
-{
-    fn deep_clone(&self, new_prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for TrackedCol<B> {
+    fn deep_clone(&self, new_prover: ArgProver<B>) -> Self {
         Self {
             data_tracked_poly: self.data_tracked_poly.deep_clone(new_prover.clone()),
             activator_tracked_poly: self

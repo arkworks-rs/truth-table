@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 async fn build_proof_tree_for_query(
     query: &str,
-) -> ProverProofTree<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> {
+) -> ProverProofTree<DefaultSnarkBackend> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("value", DataType::Int32, false),
         Field::new("flag", DataType::Int32, false),
@@ -39,7 +39,7 @@ async fn build_proof_tree_for_query(
 
     let df = ctx.sql(query).await.unwrap();
     let plan = df.into_unoptimized_plan();
-    let shared_ctx: SharedCtx<Fr, PST13<Bls12_381>, KZG10<Bls12_381>> = SharedCtx::default();
+    let shared_ctx: SharedCtx<DefaultSnarkBackend> = SharedCtx::default();
     ProverProofTree::from_lp(&ctx, shared_ctx, &plan, &None)
 }
 

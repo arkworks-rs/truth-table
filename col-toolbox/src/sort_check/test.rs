@@ -1,6 +1,7 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -16,7 +17,7 @@ use super::{SortCheck, SortCheckProverInput, SortCheckVerifierInput};
 
 #[test]
 fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 2, 3, 4], Fr),
         None,
         DataType::UInt64,
@@ -24,7 +25,7 @@ fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
         true,
     )?;
 
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 1, 2, 2], Fr),
         None,
         DataType::UInt64,
@@ -32,7 +33,7 @@ fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
         false,
     )?;
 
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([4, 3, 2, 1], Fr),
         None,
         DataType::UInt64,
@@ -40,7 +41,7 @@ fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
         true,
     )?;
 
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([4, 4, 2, 2], Fr),
         None,
         DataType::Int32,
@@ -53,7 +54,7 @@ fn sort_check_none_actv_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn sort_check_with_actv_is_complete() -> SnarkResult<()> {
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 6, 4, 2, 3, 20, 18, 9], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
@@ -61,21 +62,21 @@ fn sort_check_with_actv_is_complete() -> SnarkResult<()> {
         true,
     )?;
 
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 6, 4, 2, 2, 20, 18, 9], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
         true,
         false,
     )?;
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([100, 2, 4, 80, 70, 85, 90, 50], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
         false,
         true,
     )?;
-    sort_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([100, 2, 4, 80, 70, 85, 90, 70], Fr),
         Some(to_field_vec!([1, 0, 0, 1, 1, 0, 0, 1], Fr)),
         DataType::UInt32,
@@ -87,7 +88,7 @@ fn sort_check_with_actv_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn sort_check_is_sound() -> SnarkResult<()> {
-    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([3, 1, 2, 4], Fr),
         None,
         DataType::Int16,
@@ -95,7 +96,7 @@ fn sort_check_is_sound() -> SnarkResult<()> {
         true,
     )?;
 
-    sort_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    sort_check_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 1, 2, 0], Fr),
         None,
         DataType::UInt16,
@@ -106,13 +107,9 @@ fn sort_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn sort_check_test_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    data_evals: Vec<F>,
-    activator_evals: Option<Vec<F>>,
+fn sort_check_test_helper<B: SnarkBackend>(
+    data_evals: Vec<B::F>,
+    activator_evals: Option<Vec<B::F>>,
     data_type: DataType,
     ascending: bool,
     strict: bool,
@@ -120,7 +117,7 @@ fn sort_check_test_helper<
     assert!(data_evals.len().is_power_of_two());
     let log_size = data_evals.len().trailing_zeros() as usize;
 
-    let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let field_ref = Arc::new(Field::new("sort_col", data_type.clone(), false));
 
     let data_poly =
@@ -143,7 +140,7 @@ fn sort_check_test_helper<
         ascending,
         strict,
     };
-    SortCheck::<F, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    SortCheck::<B>::prove(&mut prover, prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
@@ -159,31 +156,22 @@ fn sort_check_test_helper<
         ascending,
         strict,
     };
-    SortCheck::<F, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    SortCheck::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
 
     Ok(())
 }
 
-fn sort_check_soundness_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    data_evals: Vec<F>,
-    activator_evals: Option<Vec<F>>,
+fn sort_check_soundness_helper<B: SnarkBackend>(
+    data_evals: Vec<B::F>,
+    activator_evals: Option<Vec<B::F>>,
     data_type: DataType,
     ascending: bool,
     strict: bool,
 ) -> SnarkResult<()> {
-    let err = sort_check_test_helper::<F, MvPCS, UvPCS>(
-        data_evals,
-        activator_evals,
-        data_type,
-        ascending,
-        strict,
-    )
-    .unwrap_err();
+    let err =
+        sort_check_test_helper::<B>(data_evals, activator_evals, data_type, ascending, strict)
+            .unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {

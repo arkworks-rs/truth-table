@@ -10,9 +10,8 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -26,28 +25,17 @@ use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
     perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
-pub struct RematerializeCheck<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct RematerializeCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct RematerializeCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub input_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub output_tracked_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct RematerializeCheckProverInput<B: SnarkBackend> {
+    pub input_tracked_col: TrackedCol<B>,
+    pub output_tracked_col: TrackedCol<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for RematerializeCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for RematerializeCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             input_tracked_col: self.input_tracked_col.deep_clone(prover.clone()),
             output_tracked_col: self.output_tracked_col.deep_clone(prover),
@@ -55,25 +43,18 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct RematerializeCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub input_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub output_tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct RematerializeCheckVerifierInput<B: SnarkBackend> {
+    pub input_tracked_col_oracle: TrackedColOracle<B>,
+    pub output_tracked_col_oracle: TrackedColOracle<B>,
 }
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for RematerializeCheck<F, MvPCS, UvPCS>
-{
-    type ProverInput = RematerializeCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for RematerializeCheck<B> {
+    type ProverInput = RematerializeCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = RematerializeCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = RematerializeCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -82,7 +63,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         if let Some(output_activater_tracked_poly) =
@@ -98,12 +79,12 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             left_col: input.input_tracked_col,
             right_col: input.output_tracked_col,
         };
-        PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_piop_prover_input)?;
+        PermPIOP::<B>::prove(prover, perm_piop_prover_input)?;
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         if let Some(output_activater_tracked_oracle) =
@@ -118,7 +99,7 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
             left_tracked_col_oracle: input.input_tracked_col_oracle,
             right_tracked_col_oracle: input.output_tracked_col_oracle,
         };
-        PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
+        PermPIOP::<B>::verify(verifier, perm_piop_verifier_input)?;
 
         Ok(())
     }

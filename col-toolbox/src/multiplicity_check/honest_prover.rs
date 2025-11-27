@@ -1,23 +1,13 @@
+use super::MultiplicityCheckProverInput;
 #[cfg(feature = "honest-prover")]
 use crate::multiplicity_check::MultiplicityCheck;
-
-use super::MultiplicityCheckProverInput;
-use ark_ff::PrimeField;
+use ark_ff::One;
+use ark_ff::Zero;
 #[cfg(feature = "honest-prover")]
 use ark_piop::errors::SnarkResult;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-    piop::DeepClone,
-    prover::ArgProver,
-};
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> DeepClone<F, MvPCS, UvPCS>
-    for MultiplicityCheckProverInput<F, MvPCS, UvPCS>
-where
-    MvPCS: PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+use ark_piop::{SnarkBackend, piop::DeepClone, prover::ArgProver};
+impl<B: SnarkBackend> DeepClone<B> for MultiplicityCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             fxs: self
                 .fxs
@@ -44,18 +34,16 @@ where
 }
 
 #[cfg(feature = "honest-prover")]
-impl<F, MvPCS, UvPCS> MultiplicityCheck<F, MvPCS, UvPCS>
+impl<B> MultiplicityCheck<B>
 where
-    F: ark_ff::PrimeField,
-    MvPCS: ark_piop::pcs::PCS<F, Poly = MLE<F>> + Clone + 'static + Send + Sync,
-    UvPCS: ark_piop::pcs::PCS<F, Poly = LDE<F>> + Clone + 'static + Send + Sync,
+    B: SnarkBackend,
 {
     /// A helper function to check if the prover input is valid.
     /// Since the function is huge, we put it in a seperate file.
     // TODO: Although the performance does not matter for release, we should
     // parallelize this
     pub(crate) fn honest_prover_check_helper(
-        input: &MultiplicityCheckProverInput<F, MvPCS, UvPCS>,
+        input: &MultiplicityCheckProverInput<B>,
     ) -> SnarkResult<()> {
         // Check that we do actually have some polynomial on the left hand side
 
@@ -110,7 +98,7 @@ where
             )));
         }
 
-        let mut bookkeeping_map: BTreeMap<F, F> = BTreeMap::new();
+        let mut bookkeeping_map: BTreeMap<B::F, B::F> = BTreeMap::new();
         for (fx, mfx) in input.fxs.iter().zip(&input.mfxs) {
             match (mfx, fx.activator_tracked_poly()) {
                 (Some(mfx), Some(activator)) => {
@@ -123,8 +111,8 @@ where
                         .zip(mfx_evals.iter())
                         .zip(activator_evals.iter())
                     {
-                        if *activator_elem == F::one() {
-                            *bookkeeping_map.entry(elem).or_insert(F::zero()) += *mf_elem;
+                        if *activator_elem == B::F::one() {
+                            *bookkeeping_map.entry(elem).or_insert(B::F::zero()) += *mf_elem;
                         }
                     }
                 }
@@ -136,14 +124,14 @@ where
                         .into_iter()
                         .zip(activator_evals.iter())
                     {
-                        if *activator_elem == F::one() {
-                            *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
+                        if *activator_elem == B::F::one() {
+                            *bookkeeping_map.entry(elem).or_insert(B::F::zero()) += B::F::one();
                         }
                     }
                 }
                 (None, None) => {
                     for elem in fx.data_tracked_poly().evaluations() {
-                        *bookkeeping_map.entry(elem).or_insert(F::zero()) += F::one();
+                        *bookkeeping_map.entry(elem).or_insert(B::F::zero()) += B::F::one();
                     }
                 }
                 (Some(mfx), None) => {
@@ -153,7 +141,7 @@ where
                         .into_iter()
                         .zip(mfx.evaluations().iter())
                     {
-                        *bookkeeping_map.entry(elem).or_insert(F::zero()) += *mf_elem;
+                        *bookkeeping_map.entry(elem).or_insert(B::F::zero()) += *mf_elem;
                     }
                 }
             }
@@ -171,8 +159,8 @@ where
                         .zip(mgx_evals.iter())
                         .zip(activator_evals.iter())
                     {
-                        if *activator_elem == F::one() {
-                            *bookkeeping_map.entry(elem).or_insert(F::zero()) -= *mg_elem;
+                        if *activator_elem == B::F::one() {
+                            *bookkeeping_map.entry(elem).or_insert(B::F::zero()) -= *mg_elem;
                         }
                     }
                 }
@@ -184,14 +172,14 @@ where
                         .into_iter()
                         .zip(activator_evals.iter())
                     {
-                        if *activator_elem == F::one() {
-                            *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
+                        if *activator_elem == B::F::one() {
+                            *bookkeeping_map.entry(elem).or_insert(B::F::zero()) -= B::F::one();
                         }
                     }
                 }
                 (None, None) => {
                     for elem in gx.data_tracked_poly().evaluations() {
-                        *bookkeeping_map.entry(elem).or_insert(F::zero()) -= F::one();
+                        *bookkeeping_map.entry(elem).or_insert(B::F::zero()) -= B::F::one();
                     }
                 }
                 (Some(mgx), None) => {
@@ -201,14 +189,14 @@ where
                         .into_iter()
                         .zip(mgx.evaluations().iter())
                     {
-                        *bookkeeping_map.entry(elem).or_insert(F::zero()) -= *mg_elem;
+                        *bookkeeping_map.entry(elem).or_insert(B::F::zero()) -= *mg_elem;
                     }
                 }
             }
         }
 
         for (_, count) in bookkeeping_map.iter() {
-            if *count != F::zero() {
+            if *count != B::F::zero() {
                 use ark_piop::{
                     errors::SnarkError,
                     prover::errors::{HonestProverError, ProverError},

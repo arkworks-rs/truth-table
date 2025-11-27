@@ -1,5 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -16,7 +17,7 @@ use super::{AndCheckPIOP, AndCheckProverInput, AndCheckVerifierInput};
 // multiplicities are all one
 #[test]
 fn and_check_is_complete() -> SnarkResult<()> {
-    and_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    and_check_test_helper::<DefaultSnarkBackend>(
         3,
         vec![
             to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr),
@@ -24,7 +25,7 @@ fn and_check_is_complete() -> SnarkResult<()> {
         ],
         to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr),
     )?;
-    and_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    and_check_test_helper::<DefaultSnarkBackend>(
         3,
         vec![
             to_field_vec!([0, 1, 1, 1, 1, 1, 1, 1], Fr),
@@ -32,7 +33,7 @@ fn and_check_is_complete() -> SnarkResult<()> {
         ],
         to_field_vec!([0, 1, 1, 1, 1, 0, 1, 1], Fr),
     )?;
-    and_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    and_check_test_helper::<DefaultSnarkBackend>(
         3,
         vec![
             to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0], Fr),
@@ -45,7 +46,7 @@ fn and_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn and_check_is_sound() -> SnarkResult<()> {
-    and_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    and_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         vec![
             to_field_vec!([0, 1, 1, 1, 1, 1, 1, 1], Fr),
@@ -57,16 +58,12 @@ fn and_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn and_check_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn and_check_test_soundness_helper<B: SnarkBackend>(
     nv: usize,
-    in_values: Vec<Vec<Fr>>,
-    res_values: Vec<Fr>,
+    in_values: Vec<Vec<B::F>>,
+    res_values: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let err = and_check_test_helper::<Fr, MvPCS, UvPCS>(nv, in_values, res_values).unwrap_err();
+    let err = and_check_test_helper::<B>(nv, in_values, res_values).unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {
@@ -93,19 +90,15 @@ fn and_check_test_soundness_helper<
     Ok(())
 }
 
-fn and_check_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn and_check_test_helper<B: SnarkBackend>(
     nv: usize,
-    in_values: Vec<Vec<Fr>>,
-    res_values: Vec<Fr>,
+    in_values: Vec<Vec<B::F>>,
+    res_values: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let res_activator_tracked_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv, &res_values))?;
-    let in_activator_tracked_polys: Vec<TrackedPoly<Fr, MvPCS, UvPCS>> = in_values
+    let in_activator_tracked_polys: Vec<TrackedPoly<B>> = in_values
         .iter()
         .map(|in_evals| {
             prover
@@ -117,7 +110,7 @@ fn and_check_test_helper<
         in_activator_tracked_polys: in_activator_tracked_polys.clone(),
         res_activator_tracked_poly,
     };
-    AndCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, and_check_prover_input)?;
+    AndCheckPIOP::<B>::prove(&mut prover, and_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -136,7 +129,7 @@ fn and_check_test_helper<
         res_activator_orcl,
     };
 
-    AndCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, and_check_verifier_input)?;
+    AndCheckPIOP::<B>::verify(&mut verifier, and_check_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

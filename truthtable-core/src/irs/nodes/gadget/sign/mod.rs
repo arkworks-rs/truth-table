@@ -20,7 +20,7 @@ pub enum Sign {
 }
 
 #[derive(Clone)]
-pub struct Prover<F, MvPCS, UvPCS>
+pub struct Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -30,7 +30,7 @@ where
     sign: Sign,
 }
 
-impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+impl<B> Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -43,7 +43,7 @@ where
         }
     }
 }
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
+impl<B> ProverGadget<B> for Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -53,7 +53,7 @@ where
         todo!()
     }
 
-    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<B>>> {
         todo!()
     }
 

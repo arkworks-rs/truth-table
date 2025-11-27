@@ -13,18 +13,16 @@ use indexmap::IndexMap;
 
 use crate::proof_nodes::exprs::{prover::ProverBinaryExprNode, verifier::VerifierBinaryExprNode};
 
-impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
+impl<B> ProverBinaryExprNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     pub(super) fn output_virtual_table(
         bin_expr: &BinaryExpr,
-        left_col: &TrackedCol<F, MvPCS, UvPCS>,
-        right_col: &TrackedCol<F, MvPCS, UvPCS>,
+        left_col: &TrackedCol<B>,
+        right_col: &TrackedCol<B>,
         log_size: usize,
-    ) -> TrackedTable<F, MvPCS, UvPCS> {
+    ) -> TrackedTable<B> {
         let output_data_tracked_poly = match bin_expr.op {
             Operator::And => {
                 let data_out = &left_col.data_tracked_poly() * &right_col.data_tracked_poly();
@@ -121,18 +119,16 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> VerifierBinaryExprNode<F, MvPCS, UvPCS>
+impl<B> VerifierBinaryExprNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     pub(super) fn output_virtual_table(
         bin_expr: &BinaryExpr,
-        left_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
-        right_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
+        left_col_oracle: &TrackedColOracle<B>,
+        right_col_oracle: &TrackedColOracle<B>,
         log_size: usize,
-    ) -> TrackedTableOracle<F, MvPCS, UvPCS> {
+    ) -> TrackedTableOracle<B> {
         let output_data_tracked_poly = match bin_expr.op {
             Operator::And => {
                 let data_out = &left_col_oracle.data_tracked_oracle()

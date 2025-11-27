@@ -1,6 +1,7 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -14,7 +15,7 @@ use super::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifie
 
 #[test]
 fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 2], Fr),
         None,
@@ -23,7 +24,7 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([20, 7, 18, 20, 18, 2, 12, 3], Fr),
         None,
@@ -32,7 +33,7 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([20, 7, 18, 20], Fr),
         None,
@@ -46,7 +47,7 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn inclusion_check_is_complete() -> SnarkResult<()> {
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 2], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -55,7 +56,7 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 200], Fr),
         Some(to_field_vec!([0, 0, 1, 0], Fr)),
@@ -64,7 +65,7 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
         Some(to_field_vec!([0, 1, 0, 1], Fr)),
     )?;
 
-    inclusion_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([7, 7, 7, 200], Fr),
         Some(to_field_vec!([0, 1, 1, 0], Fr)),
@@ -78,7 +79,7 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
-    inclusion_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 8, 2], Fr),
         None,
@@ -87,7 +88,7 @@ fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 10, 2], Fr),
         None,
@@ -101,7 +102,7 @@ fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn inclusion_check_is_sound() -> SnarkResult<()> {
-    inclusion_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 9], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -110,7 +111,7 @@ fn inclusion_check_is_sound() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 9], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -122,19 +123,15 @@ fn inclusion_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn inclusion_check_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn inclusion_check_test_soundness_helper<B: SnarkBackend>(
     included_nv: usize,
-    included_col_values: Vec<Fr>,
-    included_col_activator_values: Option<Vec<Fr>>,
+    included_col_values: Vec<B::F>,
+    included_col_activator_values: Option<Vec<B::F>>,
     super_nv: usize,
-    super_col_values: Vec<Fr>,
-    super_col_activator_values: Option<Vec<Fr>>,
+    super_col_values: Vec<B::F>,
+    super_col_activator_values: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let err = inclusion_check_test_helper::<Fr, MvPCS, UvPCS>(
+    let err = inclusion_check_test_helper::<B>(
         included_nv,
         included_col_values,
         included_col_activator_values,
@@ -169,19 +166,15 @@ fn inclusion_check_test_soundness_helper<
     Ok(())
 }
 
-fn inclusion_check_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn inclusion_check_test_helper<B: SnarkBackend>(
     included_nv: usize,
-    included_col_values: Vec<Fr>,
-    included_col_activator_values: Option<Vec<Fr>>,
+    included_col_values: Vec<B::F>,
+    included_col_activator_values: Option<Vec<B::F>>,
     super_nv: usize,
-    super_col_values: Vec<Fr>,
-    super_col_activator_values: Option<Vec<Fr>>,
+    super_col_values: Vec<B::F>,
+    super_col_activator_values: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let included_col_tr_p = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(
         included_nv,
         &included_col_values,
@@ -219,7 +212,7 @@ fn inclusion_check_test_helper<
         super_col: super_col.clone(),
     };
 
-    InclusionCheckPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, inclusion_check_prover_input)?;
+    InclusionCheckPIOP::<B>::prove(&mut prover, inclusion_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -251,7 +244,7 @@ fn inclusion_check_test_helper<
         super_tracked_col_oracle,
     };
 
-    InclusionCheckPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, inclusion_check_verifier_input)?;
+    InclusionCheckPIOP::<B>::verify(&mut verifier, inclusion_check_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

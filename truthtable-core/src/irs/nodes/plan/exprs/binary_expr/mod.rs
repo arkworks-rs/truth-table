@@ -11,18 +11,18 @@ use ark_piop::{
 use datafusion_expr::Expr;
 use datafusion_expr::{BinaryExpr, LogicalPlan};
 #[derive(Clone)]
-pub struct ProverBinaryExprNode<F, MvPCS, UvPCS>
+pub struct ProverBinaryExprNode<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
     pub binary_expression: BinaryExpr,
-    pub left: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    pub right: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    pub left: Arc<dyn ProverPlanNode<B>>,
+    pub right: Arc<dyn ProverPlanNode<B>>,
     pub parent: NodeId,
 }
-// impl<F, MvPCS, UvPCS> ProverBinaryExprNode<F, MvPCS, UvPCS>
+// impl<B> ProverBinaryExprNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
@@ -41,7 +41,7 @@ where
 //             .map(HintDF::new_virtual)
 //     }
 // }
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
+// impl<B> ProverPlanNode<B> for ProverBinaryExprNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -50,7 +50,7 @@ where
 //     fn node_id(&self) -> crate::tree::NodeId {
 //         NodeId::Expr(Expr::BinaryExpr(self.binary_expression.clone()))
 //     }
-//     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
 //         let ctx_df = self.ctx_lp_node(proof_tree).output(proof_tree);
 //         if let Some(projected) = self.try_project(&ctx_df) {
 //             return projected;
@@ -73,8 +73,8 @@ where
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         todo!()
 //     }
 
@@ -82,7 +82,7 @@ where
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -94,16 +94,16 @@ where
 //         todo!()
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![self.left.clone(), self.right.clone()]
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverExprNode<F, MvPCS, UvPCS> for ProverBinaryExprNode<F, MvPCS, UvPCS>
+// impl<B> ProverExprNode<B> for ProverBinaryExprNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -111,7 +111,7 @@ where
 // {
 //     fn from_expr(
 //         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: arithmetic::ctx::SharedCtx<B>,
 //         expr: Expr,
 //         parent: NodeId,
 //     ) -> Self
@@ -127,7 +127,7 @@ where
 //         // Builf the id for the current node
 //         let node_id = NodeId::Expr(expr.clone());
 //         // Recursively build the left child node
-//         let left = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+//         let left = ProverProofTree::<B>::from_expr(
 //             ctx,
 //             prover_ctx.clone(),
 //             binary_expression.left.as_ref().clone(),
@@ -136,7 +136,7 @@ where
 //         .root()
 //         .clone();
 //         // Recursively build the right child node
-//         let right = ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+//         let right = ProverProofTree::<B>::from_expr(
 //             ctx,
 //             prover_ctx.clone(),
 //             binary_expression.right.as_ref().clone(),

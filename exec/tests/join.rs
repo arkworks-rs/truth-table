@@ -119,7 +119,7 @@ WHERE
 //     )
 //     .await
 //     .expect("register lineitem table");
-//     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+//     let proof_tree = create_prover_proof_tree::<B>(&ctx,
 // sql).await;     display_prover_proof_tree(&proof_tree).await;
 // }
 
@@ -151,7 +151,7 @@ WHERE
 // //     )
 // //     .await
 // //     .expect("register lineitem table");
-// //     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// //     let proof_tree = create_prover_proof_tree::<B>(&ctx,
 // // sql).await;     display_prover_hint_tree(&ctx, proof_tree).await;
 // // }
 
@@ -183,7 +183,7 @@ WHERE
 // //     )
 // //     .await
 // //     .expect("register lineitem table");
-// //     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// //     let proof_tree = create_prover_proof_tree::<B>(&ctx,
 // // sql).await;     display_prover_arithmetized_tree(&ctx, proof_tree).await;
 // // }
 
@@ -215,7 +215,7 @@ WHERE
 // //     )
 // //     .await
 // //     .expect("register lineitem table");
-// //     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// //     let proof_tree = create_prover_proof_tree::<B>(&ctx,
 // // sql).await;     display_prover_tracked_tree(&ctx, proof_tree).await;
 // // }
 
@@ -247,6 +247,6 @@ WHERE
 // //     )
 // //     .await
 // //     .expect("register lineitem table");
-// //     let proof_tree = create_prover_proof_tree::<F, MvPCS, UvPCS>(&ctx,
+// //     let proof_tree = create_prover_proof_tree::<B>(&ctx,
 // // sql).await;     display_prover_piop_tree(&ctx, proof_tree).await;
 // // }

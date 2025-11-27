@@ -16,7 +16,7 @@ use crate::nodes::{
 };
 
 mod hints;
-pub struct ProverAggregateNode<F, MvPCS, UvPCS>
+pub struct ProverAggregateNode<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -25,24 +25,24 @@ where
     // The aggregate information from datafusion
     aggregate: Aggregate,
     // The prover plan children nodes for the group by expressions
-    input: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    group_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
-    aggr_exprs: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    input: Arc<dyn ProverPlanNode<B>>,
+    group_exprs: Vec<Arc<dyn ProverPlanNode<B>>>,
+    aggr_exprs: Vec<Arc<dyn ProverPlanNode<B>>>,
 }
 
-pub struct VerifierAggregateNode<F, MvPCS, UvPCS>
+pub struct VerifierAggregateNode<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + 'static,
 {
-    group_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    aggr_exprs: Vec<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
-    input: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    group_exprs: Vec<Arc<dyn VerifierNode<B>>>,
+    aggr_exprs: Vec<Arc<dyn VerifierNode<B>>>,
+    input: Arc<dyn VerifierNode<B>>,
     aggregate: Aggregate,
 }
 
-// impl<F, MvPCS, UvPCS> ProverPlanNode<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
+// impl<B> ProverPlanNode<B> for ProverAggregateNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -55,7 +55,7 @@ where
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ArgProver<B>) {
 
 //         // Fetch the current output table tracked by this aggregate node
 //         // This should contain only the materialized columns; i.e. the new activator and
@@ -76,7 +76,7 @@ where
 //         //     .map(|idx| agg_schema.field(group_col_count + idx).name().clone())
 //         //     .collect();
 
-//         // let mut aggregate_entries: IndexMap<String, (FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+//         // let mut aggregate_entries: IndexMap<String, (FieldRef, TrackedPoly<B>)> =
 //         //     IndexMap::with_capacity(aggregate_col_count);
 //         // let mut activator_entry = None;
 //         // for (field, poly) in existing_materialized_output_table.tracked_polys() {
@@ -124,7 +124,7 @@ where
 
 //         // // Rebuild the output table so grouping columns, aggregate columns and the
 //         // // activator are materialized on this node.
-//         // let mut group_entries: Vec<(FieldRef, TrackedPoly<F, MvPCS, UvPCS>)> =
+//         // let mut group_entries: Vec<(FieldRef, TrackedPoly<B>)> =
 //         //     Vec::with_capacity(group_col_count);
 //         // for group_node in self.group_expr_proof_tree_roots.iter() {
 //         //     let group_table = piop_tree
@@ -197,7 +197,7 @@ where
 //         todo!()
 //     }
 
-//     fn output(&self, proof_tree: &ProverProofTree<F, MvPCS, UvPCS>) -> HintDF {
+//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
 //         // Get the output of the child node as the input hint generation plan
 //         let input_hint_generation_plan = self.input.output(proof_tree);
 //         // Extract the data frame from the input hint generation plan
@@ -208,13 +208,13 @@ where
 
 //     fn ctx_lp_node(
 //         &self,
-//         _proof_tree: &ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>> {
+//         _proof_tree: &ProverProofTree<B>,
+//     ) -> Arc<dyn ProverPlanNode<B>> {
 //         self.input.clone()
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
-//         let mut children: Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> = vec![];
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
+//         let mut children: Vec<Arc<dyn ProverPlanNode<B>>> = vec![];
 //         children.push(self.input.clone());
 //         self.group_exprs
 //             .iter()
@@ -225,12 +225,12 @@ where
 //         children
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> ProverLpNode<F, MvPCS, UvPCS> for ProverAggregateNode<F, MvPCS, UvPCS>
+// impl<B> ProverLpNode<B> for ProverAggregateNode<B>
 // where
 //     F: PrimeField,
 //     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -238,7 +238,7 @@ where
 // {
 //     fn from_lp(
 //         ctx: &SessionContext,
-//         prover_ctx: arithmetic::ctx::SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: arithmetic::ctx::SharedCtx<B>,
 //         plan: LogicalPlan,
 //         parent_node_id: NodeId,
 //     ) -> Self
@@ -255,7 +255,7 @@ where
 //         let node_id = NodeId::LP(plan.clone());
 //         // Recurse into the input subtree and fetch the logical plan that feeds this
 //         // aggregate.
-//         let input_prover_node = ProverProofTree::<F, MvPCS, UvPCS>::from_lp(
+//         let input_prover_node = ProverProofTree::<B>::from_lp(
 //             ctx,
 //             prover_ctx.clone(),
 //             &aggregate.input,
@@ -269,7 +269,7 @@ where
 //             .group_expr
 //             .iter()
 //             .map(|expr| {
-//                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+//                 ProverProofTree::<B>::from_expr(
 //                     ctx,
 //                     prover_ctx.clone(),
 //                     expr.clone(),
@@ -285,7 +285,7 @@ where
 //             .aggr_expr
 //             .iter()
 //             .map(|expr| {
-//                 ProverProofTree::<F, MvPCS, UvPCS>::from_expr(
+//                 ProverProofTree::<B>::from_expr(
 //                     ctx,
 //                     prover_ctx.clone(),
 //                     expr.clone(),

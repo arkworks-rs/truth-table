@@ -8,43 +8,31 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
     verifier::ArgVerifier,
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-pub struct FoldCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct FoldCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct FoldCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
+pub struct FoldCheckProverInput<B: SnarkBackend> {
     // The input columns to be folded
-    pub in_cols: Vec<TrackedCol<F, MvPCS, UvPCS>>,
+    pub in_cols: Vec<TrackedCol<B>>,
     // The column that is the result of folding the input columns
-    pub folded_col: TrackedCol<F, MvPCS, UvPCS>,
+    pub folded_col: TrackedCol<B>,
     // The challenges used for folding
-    pub challs: Vec<F>,
+    pub challs: Vec<B::F>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for FoldCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for FoldCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             in_cols: self
                 .in_cols
@@ -57,46 +45,37 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
     }
 }
 
-pub struct FoldCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
+pub struct FoldCheckVerifierInput<B: SnarkBackend> {
     // The input column comitments to be folded
-    pub in_cms: Vec<TrackedColOracle<F, MvPCS, UvPCS>>,
+    pub in_cms: Vec<TrackedColOracle<B>>,
     // The commitment of the column that is the result of folding the input columns
-    pub folded_cm: TrackedColOracle<F, MvPCS, UvPCS>,
+    pub folded_cm: TrackedColOracle<B>,
     // The challenges used for folding
-    pub challs: Vec<F>,
+    pub challs: Vec<B::F>,
 }
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> PIOP<F, MvPCS, UvPCS>
-    for FoldCheckPIOP<F, MvPCS, UvPCS>
-where
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    type ProverInput = FoldCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for FoldCheckPIOP<B> {
+    type ProverInput = FoldCheckProverInput<B>;
     type ProverOutput = ();
-    type VerifierInput = FoldCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = FoldCheckVerifierInput<B>;
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        use ark_piop::{
-            errors::SnarkError,
-            prover::errors::{HonestProverError, ProverError},
-        };
+        fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+            use ark_piop::{
+                errors::SnarkError,
+                prover::errors::{HonestProverError, ProverError},
+            };
 
-        let mut acc_poly = input.folded_col.activated_data_tracked_poly().clone();
-        for (poly, chall) in input
-            .in_cols
-            .iter()
-            .map(|col| col.activated_data_tracked_poly())
-            .zip(input.challs.iter())
-        {
-            acc_poly = &acc_poly - &(&poly * *chall);
-        }
+            let mut acc_poly = input.folded_col.activated_data_tracked_poly().clone();
+            for (poly, chall) in input
+                .in_cols
+                .iter()
+                .map(|col| col.activated_data_tracked_poly())
+                .zip(input.challs.iter())
+            {
+                acc_poly = &acc_poly - &(poly.clone() * *chall);
+            }
         for &eval in acc_poly.evaluations().iter() {
             if !eval.is_zero() {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -108,24 +87,28 @@ where
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let mut zero_comm = input.folded_cm.activated_data_tracked_oracle();
         for (poly_comm, chall) in input.in_cms.iter().zip(input.challs.iter()) {
-            zero_comm = &zero_comm - &(&poly_comm.activated_data_tracked_oracle() * (*chall));
+            zero_comm = &zero_comm
+                - &(poly_comm
+                    .activated_data_tracked_oracle()
+                    .clone()
+                    * (*chall));
         }
         verifier.add_zerocheck_claim(zero_comm.id());
         Ok(())
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let mut tartracked_poly = input.folded_col.activated_data_tracked_poly().clone();
         for (tracked_poly, chall) in input.in_cols.iter().zip(input.challs.iter()) {
-            tartracked_poly -= &(&tracked_poly.activated_data_tracked_poly() * *chall);
+            tartracked_poly -= &(tracked_poly.activated_data_tracked_poly().clone() * *chall);
         }
         prover.add_mv_zerocheck_claim(tartracked_poly.id())?;
         Ok(())

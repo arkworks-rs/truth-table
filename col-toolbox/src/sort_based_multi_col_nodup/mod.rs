@@ -2,9 +2,8 @@
 mod test;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -21,32 +20,19 @@ use crate::{
     perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
 };
 // Convinces the verifier that
-pub struct SortBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct SortBasedMultiNoDup<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""), Clone(bound = ""))]
-pub struct SortBasedMultiNoDupProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table: Option<TrackedTable<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+pub struct SortBasedMultiNoDupProverInput<B: SnarkBackend> {
+    pub tracked_table: TrackedTable<B>,
+    pub contig_lex_sorted_tracked_table: TrackedTable<B>,
+    pub tie_indicator_tracked_table: Option<TrackedTable<B>>,
+    pub shift_tracked_table: TrackedTable<B>,
 }
 
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> DeepClone<F, MvPCS, UvPCS> for SortBasedMultiNoDupProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for SortBasedMultiNoDupProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
             contig_lex_sorted_tracked_table: self
@@ -63,29 +49,20 @@ impl<
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""), Clone(bound = ""))]
-pub struct SortBasedMultiNoDupVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
-    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<F, MvPCS, UvPCS>>,
-    pub shift_tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+pub struct SortBasedMultiNoDupVerifierInput<B: SnarkBackend> {
+    pub tracked_table_oracle: TrackedTableOracle<B>,
+    pub contig_lex_sorted_tracked_table_oracle: TrackedTableOracle<B>,
+    pub tie_indicator_tracked_table_oracle: Option<TrackedTableOracle<B>>,
+    pub shift_tracked_table_oracle: TrackedTableOracle<B>,
 }
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> PIOP<F, MvPCS, UvPCS> for SortBasedMultiNoDup<F, MvPCS, UvPCS>
-{
-    type ProverInput = SortBasedMultiNoDupProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for SortBasedMultiNoDup<B> {
+    type ProverInput = SortBasedMultiNoDupProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = SortBasedMultiNoDupVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = SortBasedMultiNoDupVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -94,7 +71,7 @@ impl<
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let challenges = (0..input.tracked_table.num_data_tracked_cols())
@@ -108,7 +85,7 @@ impl<
             left_col: tracked_table_folded_col,
             right_col: contig_lex_sorted_tracked_table_folded_col,
         };
-        PermPIOP::<F, MvPCS, UvPCS>::prove(prover, perm_piop_prover_input)?;
+        PermPIOP::<B>::prove(prover, perm_piop_prover_input)?;
 
         let mut strict_vec = vec![false; challenges.len() - 1];
         strict_vec.push(true);
@@ -119,15 +96,12 @@ impl<
             ascending: vec![true; challenges.len()],
             strict: strict_vec,
         };
-        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::prove(
-            prover,
-            contig_lex_sort_check_prover_input,
-        )?;
+        ContigLexSortCheckPIOP::<B>::prove(prover, contig_lex_sort_check_prover_input)?;
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let challenges = (0..input.tracked_table_oracle.num_data_tracked_col_oracles())
@@ -143,7 +117,7 @@ impl<
             left_tracked_col_oracle: tracked_table_folded_col_oracle,
             right_tracked_col_oracle: contig_lex_sorted_tracked_table_folded_col_oracle,
         };
-        PermPIOP::<F, MvPCS, UvPCS>::verify(verifier, perm_piop_verifier_input)?;
+        PermPIOP::<B>::verify(verifier, perm_piop_verifier_input)?;
 
         let mut strict_vec = vec![false; challenges.len() - 1];
         strict_vec.push(true);
@@ -154,10 +128,7 @@ impl<
             ascending: vec![true; challenges.len()],
             strict: strict_vec,
         };
-        ContigLexSortCheckPIOP::<F, MvPCS, UvPCS>::verify(
-            verifier,
-            contig_lex_sort_check_verifier_input,
-        )?;
+        ContigLexSortCheckPIOP::<B>::verify(verifier, contig_lex_sort_check_verifier_input)?;
         Ok(())
     }
 }

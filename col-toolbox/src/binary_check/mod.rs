@@ -5,69 +5,46 @@
 
 #[cfg(test)]
 mod test;
-
-use ark_ff::PrimeField;
+use ark_ff::One;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{ArgVerifier, structs::oracle::TrackedOracle},
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-
-pub struct BinaryCheckPIOP<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+use std::ops::Neg;
+pub struct BinaryCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct BinaryCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub predicate: TrackedPoly<F, MvPCS, UvPCS>,
+pub struct BinaryCheckProverInput<B: SnarkBackend> {
+    pub predicate: TrackedPoly<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    DeepClone<F, MvPCS, UvPCS> for BinaryCheckProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for BinaryCheckProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             predicate: self.predicate.deep_clone(prover),
         }
     }
 }
 
-pub struct BinaryCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub predicate_oracle: TrackedOracle<F, MvPCS, UvPCS>,
+pub struct BinaryCheckVerifierInput<B: SnarkBackend> {
+    pub predicate_oracle: TrackedOracle<B>,
 }
 
-impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>
-    PIOP<F, MvPCS, UvPCS> for BinaryCheckPIOP<F, MvPCS, UvPCS>
-{
-    type ProverInput = BinaryCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for BinaryCheckPIOP<B> {
+    type ProverInput = BinaryCheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = BinaryCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = BinaryCheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -83,23 +60,23 @@ impl<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
 
         Ok(())
     }
-    fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
-        input: Self::ProverInput,
-    ) -> SnarkResult<()> {
+    fn prove_inner(prover: &mut ArgProver<B>, input: Self::ProverInput) -> SnarkResult<()> {
         // set up the tracker and add a zerocheck claim
-        let one_minus_sel = &(&input.predicate * F::one().neg()) + F::one();
-        let check_poly = &input.predicate * &one_minus_sel;
+        let predicate = input.predicate;
+        let one_minus_sel = predicate
+            .mul_scalar_poly(B::F::one().neg())
+            .add_scalar_poly(B::F::one());
+        let check_poly = &predicate * &one_minus_sel;
         prover.add_mv_zerocheck_claim(check_poly.id())?;
         Ok(())
     }
 
-    fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        input: Self::VerifierInput,
-    ) -> SnarkResult<()> {
-        let one_minus_sel = &(&input.predicate_oracle * F::one().neg()) + F::one();
-        let check_poly = &(input.predicate_oracle) * &one_minus_sel;
+    fn verify_inner(verifier: &mut ArgVerifier<B>, input: Self::VerifierInput) -> SnarkResult<()> {
+        let predicate = input.predicate_oracle;
+        let one_minus_sel = predicate
+            .mul_scalar_oracle(B::F::one().neg())
+            .add_scalar_oracle(B::F::one());
+        let check_poly = &predicate * &one_minus_sel;
         verifier.add_zerocheck_claim(check_poly.id());
         Ok(())
     }

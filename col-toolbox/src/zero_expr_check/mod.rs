@@ -1,7 +1,6 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -15,25 +14,19 @@ use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-
+use ark_ff::One;
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct ZeroExprCheckProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col: TrackedCol<F, MvPCS, UvPCS>,
-    pub selector_col: TrackedCol<F, MvPCS, UvPCS>,
+pub struct ZeroExprCheckProverInput<B: SnarkBackend> {
+    pub tracked_col: TrackedCol<B>,
+    pub selector_col: TrackedCol<B>,
 }
-
-impl<F, MvPCS, UvPCS> DeepClone<F, MvPCS, UvPCS> for ZeroExprCheckProverInput<F, MvPCS, UvPCS>
+use std::ops::Neg;
+impl<B> DeepClone<B> for ZeroExprCheckProverInput<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+    B: SnarkBackend,
 {
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_col: self.tracked_col.deep_clone(prover.clone()),
             selector_col: self.selector_col.deep_clone(prover),
@@ -43,30 +36,17 @@ where
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct ZeroExprCheckVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
-    pub selector_col_oracle: TrackedColOracle<F, MvPCS, UvPCS>,
+pub struct ZeroExprCheckVerifierInput<B: SnarkBackend> {
+    pub tracked_col_oracle: TrackedColOracle<B>,
+    pub selector_col_oracle: TrackedColOracle<B>,
 }
 
-pub struct ZeroExprCheckPIOP<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    PhantomData<F>,
-    PhantomData<MvPCS>,
-    PhantomData<UvPCS>,
-);
+pub struct ZeroExprCheckPIOP<B: SnarkBackend>(PhantomData<B>);
 
-impl<F, MvPCS, UvPCS> PIOP<F, MvPCS, UvPCS> for ZeroExprCheckPIOP<F, MvPCS, UvPCS>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-{
-    type ProverInput = ZeroExprCheckProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for ZeroExprCheckPIOP<B> {
+    type ProverInput = ZeroExprCheckProverInput<B>;
     type ProverOutput = ();
-    type VerifierInput = ZeroExprCheckVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = ZeroExprCheckVerifierInput<B>;
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
@@ -75,14 +55,14 @@ where
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let ZeroExprCheckProverInput {
             tracked_col,
             selector_col,
         } = input;
-        BinaryCheckPIOP::<F, MvPCS, UvPCS>::prove(
+        BinaryCheckPIOP::<B>::prove(
             prover,
             BinaryCheckProverInput {
                 predicate: selector_col.activated_data_tracked_poly(),
@@ -99,7 +79,7 @@ where
         };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
-        let one_minus_selector = &(&selector_data * F::one().neg()) + F::one();
+        let one_minus_selector = (selector_data.clone() * B::F::one().neg()) + B::F::one();
         let gated_activator = match activator {
             Some(act) => Some(&act * &one_minus_selector),
             None => Some(one_minus_selector.clone()),
@@ -107,15 +87,12 @@ where
 
         let non_zero_col = TrackedCol::new(tracked_data, gated_activator, tracked_col.field_ref());
 
-        NoZerosCheck::<F, MvPCS, UvPCS>::prove(
-            prover,
-            NoZerosCheckProverInput { col: non_zero_col },
-        )?;
+        NoZerosCheck::<B>::prove(prover, NoZerosCheckProverInput { col: non_zero_col })?;
         Ok(())
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let ZeroExprCheckVerifierInput {
@@ -123,7 +100,7 @@ where
             selector_col_oracle,
         } = input;
 
-        BinaryCheckPIOP::<F, MvPCS, UvPCS>::verify(
+        BinaryCheckPIOP::<B>::verify(
             verifier,
             BinaryCheckVerifierInput {
                 predicate_oracle: selector_col_oracle.activated_data_tracked_oracle(),
@@ -140,7 +117,7 @@ where
         };
         verifier.add_zerocheck_claim(zero_oracle.id());
 
-        let one_minus_selector = &(&selector_data * F::one().neg()) + F::one();
+        let one_minus_selector = (selector_data.clone() * B::F::one().neg()) + B::F::one();
         let gated_activator = match activator {
             Some(act) => Some(&act * &one_minus_selector),
             None => Some(one_minus_selector.clone()),
@@ -152,7 +129,7 @@ where
             tracked_col_oracle.field_ref(),
         );
 
-        NoZerosCheck::<F, MvPCS, UvPCS>::verify(
+        NoZerosCheck::<B>::verify(
             verifier,
             NoZerosCheckVerifierInput {
                 tracked_col_oracle: non_zero_col,

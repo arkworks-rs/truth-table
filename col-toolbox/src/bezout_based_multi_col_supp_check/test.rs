@@ -3,6 +3,7 @@ use ark_ff::PrimeField;
 #[allow(unused_imports)]
 use ark_piop::to_field_vec;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::{PCS, kzg10::KZG10, pst13::PST13},
@@ -24,21 +25,21 @@ use crate::bezout_based_multi_col_supp_check::{
 
 #[test]
 fn single_col_supp_check_is_complete() -> SnarkResult<()> {
-    multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 2, 4], Fr)],
         None,
         Some(to_field_vec!([true, true, true, false], Fr)),
         DataType::UInt32,
     )?;
 
-    multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 2, 4], Fr)],
         None,
         Some(to_field_vec!([true, false, true, true], Fr)),
         DataType::UInt32,
     )?;
 
-    multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 8, 4, 5, 8, 5, 8], Fr)],
         None,
         Some(to_field_vec!(
@@ -47,7 +48,7 @@ fn single_col_supp_check_is_complete() -> SnarkResult<()> {
         )),
         DataType::UInt32,
     )?;
-    multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 8, 4, 5, 8, 5, 8], Fr)],
         Some(to_field_vec!(
             [true, true, true, true, true, true, true, false],
@@ -64,14 +65,14 @@ fn single_col_supp_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn single_col_supp_check_is_sound() -> SnarkResult<()> {
-    multi_col_supp_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_soundness_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 2, 4], Fr)],
         None,
         Some(to_field_vec!([true, true, true, true], Fr)),
         DataType::UInt32,
     )?;
 
-    multi_col_supp_check_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_soundness_helper::<DefaultSnarkBackend>(
         vec![to_field_vec!([1, 4, 8, 4, 5, 8, 5, 8], Fr)],
         None,
         Some(to_field_vec!(
@@ -85,7 +86,7 @@ fn single_col_supp_check_is_sound() -> SnarkResult<()> {
 
 #[test]
 fn multi_col_supp_check_is_complete() -> SnarkResult<()> {
-    // multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    // multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
     //     vec![
     //         to_field_vec!([1, 4, 2, 4], Fr),
     //         to_field_vec!([842, 439, 393, 439], Fr),
@@ -106,7 +107,7 @@ fn multi_col_supp_check_is_complete() -> SnarkResult<()> {
     //     Some(to_field_vec!([true, true, false, true], Fr)),
     //     DataType::UInt32,
     // )?;
-    multi_col_supp_check_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    multi_col_supp_check_test_helper::<DefaultSnarkBackend>(
         vec![
             to_field_vec!([1, 4, 2, 4, 5, 8, 1, 1], Fr),
             to_field_vec!([842, 439, 393, 439, 673, 325, 294, 842], Fr),
@@ -121,17 +122,13 @@ fn multi_col_supp_check_is_complete() -> SnarkResult<()> {
     Ok(())
 }
 
-pub(crate) fn multi_col_supp_check_test_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    cols_values: Vec<Vec<F>>,
-    orig_activator: Option<Vec<F>>,
-    supp_activator: Option<Vec<F>>,
+pub(crate) fn multi_col_supp_check_test_helper<B: SnarkBackend>(
+    cols_values: Vec<Vec<B::F>>,
+    orig_activator: Option<Vec<B::F>>,
+    supp_activator: Option<Vec<B::F>>,
     data_type: DataType,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<F, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     let base_data_table = build_tracked_table(&mut prover, &cols_values, None, &data_type, "cols")?;
     let orig_activator_slice = orig_activator.as_deref();
     let supp_activator_slice = supp_activator.as_deref();
@@ -143,11 +140,11 @@ pub(crate) fn multi_col_supp_check_test_helper<
         supp_tracked_table: supp_table.clone(),
     };
 
-    BezoutMultiColSuppCheckPIOP::<F, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    BezoutMultiColSuppCheckPIOP::<B>::prove(&mut prover, prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
-    let mut oracle_cache: HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>> = HashMap::new();
+    let mut oracle_cache: HashMap<TrackerID, TrackedOracle<B>> = HashMap::new();
 
     let orig_table_oracle = table_to_oracle(&mut verifier, &orig_table, &mut oracle_cache)?;
     let supp_table_oracle = table_to_oracle(&mut verifier, &supp_table, &mut oracle_cache)?;
@@ -156,23 +153,19 @@ pub(crate) fn multi_col_supp_check_test_helper<
         supp_tracked_table_oracle: supp_table_oracle,
     };
 
-    BezoutMultiColSuppCheckPIOP::<F, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    BezoutMultiColSuppCheckPIOP::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
     Ok(())
 }
 
-pub(crate) fn multi_col_supp_check_soundness_helper<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    cols_values: Vec<Vec<F>>,
-    orig_activator: Option<Vec<F>>,
-    supp_activator: Option<Vec<F>>,
+pub(crate) fn multi_col_supp_check_soundness_helper<B: SnarkBackend>(
+    cols_values: Vec<Vec<B::F>>,
+    orig_activator: Option<Vec<B::F>>,
+    supp_activator: Option<Vec<B::F>>,
 
     data_type: DataType,
 ) -> SnarkResult<()> {
-    let result = multi_col_supp_check_test_helper::<F, MvPCS, UvPCS>(
+    let result = multi_col_supp_check_test_helper::<B>(
         cols_values,
         orig_activator,
         supp_activator,
@@ -207,15 +200,11 @@ pub(crate) fn multi_col_supp_check_soundness_helper<
     }
 }
 
-fn table_with_activator<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    prover: &mut ArgProver<F, MvPCS, UvPCS>,
-    base_table: &TrackedTable<F, MvPCS, UvPCS>,
-    activator: Option<&[F]>,
-) -> SnarkResult<TrackedTable<F, MvPCS, UvPCS>> {
+fn table_with_activator<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    base_table: &TrackedTable<B>,
+    activator: Option<&[B::F]>,
+) -> SnarkResult<TrackedTable<B>> {
     match activator {
         Some(values) => {
             let log_size = base_table.log_size();
@@ -243,17 +232,13 @@ fn table_with_activator<
     }
 }
 
-fn build_tracked_table<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    prover: &mut ArgProver<F, MvPCS, UvPCS>,
-    column_values: &[Vec<F>],
-    shared_activator: Option<&[F]>,
+fn build_tracked_table<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    column_values: &[Vec<B::F>],
+    shared_activator: Option<&[B::F]>,
     data_type: &DataType,
     prefix: &str,
-) -> SnarkResult<TrackedTable<F, MvPCS, UvPCS>> {
+) -> SnarkResult<TrackedTable<B>> {
     assert!(
         !column_values.is_empty(),
         "tracked table must contain at least one column"
@@ -306,15 +291,11 @@ fn build_tracked_table<
     Ok(TrackedTable::new(None, tracked_polys, nv))
 }
 
-fn track_oracle_cached<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+fn track_oracle_cached<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
     id: TrackerID,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedOracle<F, MvPCS, UvPCS>> {
+    cache: &mut HashMap<TrackerID, TrackedOracle<B>>,
+) -> SnarkResult<TrackedOracle<B>> {
     if let Some(existing) = cache.get(&id) {
         return Ok(existing.clone());
     }
@@ -323,15 +304,11 @@ fn track_oracle_cached<
     Ok(oracle)
 }
 
-fn table_to_oracle<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
->(
-    verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-    table: &TrackedTable<F, MvPCS, UvPCS>,
-    cache: &mut HashMap<TrackerID, TrackedOracle<F, MvPCS, UvPCS>>,
-) -> SnarkResult<TrackedTableOracle<F, MvPCS, UvPCS>> {
+fn table_to_oracle<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
+    table: &TrackedTable<B>,
+    cache: &mut HashMap<TrackerID, TrackedOracle<B>>,
+) -> SnarkResult<TrackedTableOracle<B>> {
     let mut tracked_oracles = IndexMap::with_capacity(table.num_total_tracked_cols());
     for (field_ref, poly) in table.tracked_polys_iter() {
         let oracle = track_oracle_cached(verifier, poly.id(), cache)?;

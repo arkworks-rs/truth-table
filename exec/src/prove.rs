@@ -131,8 +131,8 @@ pub struct ProveRunner {
 }
 
 pub struct PreparedProverArtifacts {
-    arith_tree: ProverArithmetizedTree<F, MvPCS, UvPCS>,
-    snark_pk: SNARKPk<F, MvPCS, UvPCS>,
+    arith_tree: ProverArithmetizedTree<B>,
+    snark_pk: SNARKPk<B>,
 }
 
 impl ProveRunner {
@@ -214,7 +214,7 @@ pub async fn prepare_prover_artifacts(
     let shared_ctx = SharedCtx::new(table_oracles);
 
     let proof_tree =
-        create_prover_proof_tree_with_ctx::<F, MvPCS, UvPCS>(&ctx, query, shared_ctx).await;
+        create_prover_proof_tree_with_ctx::<B>(&ctx, query, shared_ctx).await;
 
     println!("{}", proof_tree.display_graphviz());
 
@@ -223,7 +223,7 @@ pub async fn prepare_prover_artifacts(
         .context("failed to build hint tree")?;
 
     println!("{}", hint_tree.display_graphviz());
-    let arith_tree = ProverArithmetizedTree::<F, MvPCS, UvPCS>::from_hint_tree(hint_tree)
+    let arith_tree = ProverArithmetizedTree::<B>::from_hint_tree(hint_tree)
         .context("failed to arithmetize")?;
 
     let pk_path = match pk_path {
@@ -235,7 +235,7 @@ pub async fn prepare_prover_artifacts(
             resolve_pk_path(oracle_path)?
         }
     };
-    let tt_pk = TTPk::<F, MvPCS, UvPCS>::load(&pk_path)
+    let tt_pk = TTPk::<B>::load(&pk_path)
         .with_context(|| format!("read proving key {}", pk_path.display()))?;
     let snark_pk = tt_pk.into_inner();
     Ok(PreparedProverArtifacts {
@@ -264,8 +264,8 @@ impl PreparedProverArtifacts {
     fn into_parts(
         self,
     ) -> (
-        ProverArithmetizedTree<F, MvPCS, UvPCS>,
-        SNARKPk<F, MvPCS, UvPCS>,
+        ProverArithmetizedTree<B>,
+        SNARKPk<B>,
     ) {
         (self.arith_tree, self.snark_pk)
     }
@@ -274,9 +274,9 @@ impl PreparedProverArtifacts {
 #[instrument(level = "debug", skip_all)]
 pub fn build_proof_from_artifacts(
     artifacts: PreparedProverArtifacts,
-) -> Result<ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>> {
+) -> Result<ark_piop::prover::structs::proof::Proof<B>> {
     let (arith_tree, snark_pk) = artifacts.into_parts();
-    let mut prover = Prover::<F, MvPCS, UvPCS>::new_from_pk(snark_pk);
+    let mut prover = Prover::<B>::new_from_pk(snark_pk);
     let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
         .context("failed to build tracked tree")?;
     let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
@@ -286,11 +286,11 @@ pub fn build_proof_from_artifacts(
 }
 
 #[instrument(level = "debug", skip_all)]
-fn load_oracle(path: &Path) -> Result<ArithTableOracle<F, MvPCS, UvPCS>> {
+fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
     let file = File::open(path)
         .with_context(|| format!("failed to open oracle file {}", path.display()))?;
     let mut reader = BufReader::new(file);
-    ArithTableOracle::<F, MvPCS, UvPCS>::deserialize_uncompressed_unchecked(&mut reader)
+    ArithTableOracle::<B>::deserialize_uncompressed_unchecked(&mut reader)
         .context("failed to deserialize oracle")
 }
 
@@ -346,7 +346,7 @@ fn resolve_output_path(requested: Option<PathBuf>) -> Result<PathBuf> {
 }
 #[instrument(level = "debug", skip_all)]
 fn write_proof(
-    proof: &ark_piop::prover::structs::proof::Proof<F, MvPCS, UvPCS>,
+    proof: &ark_piop::prover::structs::proof::Proof<B>,
     path: &Path,
 ) -> Result<()> {
     if let Some(parent) = path.parent()

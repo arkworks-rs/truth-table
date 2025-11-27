@@ -10,35 +10,31 @@ use datafusion_expr::Join;
 use crate::nodes::{prover::ProverPlanNode, verifier::VerifierNode};
 
 #[allow(clippy::type_complexity)]
-pub struct ProverJoinNode<F, MvPCS, UvPCS>
+pub struct ProverJoinNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    left: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-    right: Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+    left: Arc<dyn ProverPlanNode<B>>,
+    right: Arc<dyn ProverPlanNode<B>>,
     on: Vec<(
-        Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
-        Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>,
+        Arc<dyn ProverPlanNode<B>>,
+        Arc<dyn ProverPlanNode<B>>,
     )>,
-    filter: Option<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>>,
+    filter: Option<Arc<dyn ProverPlanNode<B>>>,
     join: Join,
 }
 
 #[allow(clippy::type_complexity)]
-pub struct VerifierJoinNode<F, MvPCS, UvPCS>
+pub struct VerifierJoinNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    left: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-    right: Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+    left: Arc<dyn VerifierNode<B>>,
+    right: Arc<dyn VerifierNode<B>>,
     on: Vec<(
-        Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
-        Arc<dyn VerifierNode<F, MvPCS, UvPCS>>,
+        Arc<dyn VerifierNode<B>>,
+        Arc<dyn VerifierNode<B>>,
     )>,
-    filter: Option<Arc<dyn VerifierNode<F, MvPCS, UvPCS>>>,
+    filter: Option<Arc<dyn VerifierNode<B>>>,
     join: Join,
 }

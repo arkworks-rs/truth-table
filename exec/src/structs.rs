@@ -10,14 +10,12 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use tracing::instrument;
 use truthtable_core::errors::TTResult;
 
-pub struct TTPk<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,> {
-    snark_pk: SNARKPk<F, MvPCS, UvPCS>,
+pub struct TTPk<B:SnarkBackend> {
+    snark_pk: SNARKPk<B>,
 }
 
-pub struct TTVk<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,> {
-    snark_vk: SNARKVk<F, MvPCS, UvPCS>,
+pub struct TTVk<B:SnarkBackend> {
+    snark_vk: SNARKVk<B>,
 }
 
 pub trait Artifact: Sized {
@@ -38,11 +36,9 @@ pub trait Artifact: Sized {
     }
 }
 
-impl<F, MvPCS, UvPCS> Artifact for TTVk<F, MvPCS, UvPCS>
+impl<B> Artifact for TTVk<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
         canonical_to_vec(&self.snark_vk)
@@ -55,12 +51,10 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> Artifact for TTPk<F, MvPCS, UvPCS>
+impl<B> Artifact for TTPk<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    SNARKPk<F, MvPCS, UvPCS>: CanonicalSerialize + CanonicalDeserialize,
+B:SnarkBackend
+    SNARKPk<B>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
         canonical_to_vec(&self.snark_pk)
@@ -73,32 +67,28 @@ where
     }
 }
 
-impl<F, MvPCS, UvPCS> TTVk<F, MvPCS, UvPCS>
+impl<B> TTVk<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    pub fn into_inner(self) -> SNARKVk<F, MvPCS, UvPCS> {
+    pub fn into_inner(self) -> SNARKVk<B> {
         self.snark_vk
     }
 
-    pub fn as_inner(&self) -> &SNARKVk<F, MvPCS, UvPCS> {
+    pub fn as_inner(&self) -> &SNARKVk<B> {
         &self.snark_vk
     }
 }
 
-impl<F, MvPCS, UvPCS> TTPk<F, MvPCS, UvPCS>
+impl<B> TTPk<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    pub fn into_inner(self) -> SNARKPk<F, MvPCS, UvPCS> {
+    pub fn into_inner(self) -> SNARKPk<B> {
         self.snark_pk
     }
 
-    pub fn as_inner(&self) -> &SNARKPk<F, MvPCS, UvPCS> {
+    pub fn as_inner(&self) -> &SNARKPk<B> {
         &self.snark_pk
     }
 }

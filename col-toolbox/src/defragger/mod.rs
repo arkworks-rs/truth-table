@@ -2,14 +2,9 @@
 use std::marker::PhantomData;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    piop::PIOP,
-    prover::ArgProver,
-    verifier::ArgVerifier,
+    SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult, pcs::PCS, piop::PIOP,
+    prover::ArgProver, verifier::ArgVerifier,
 };
 use ark_std::log2;
 use num_bigint::BigUint;
@@ -17,31 +12,23 @@ use num_bigint::BigUint;
 use crate::rematerialize_check::{
     RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
 };
-
+use ark_ff::One;
+use ark_ff::Zero;
 /// A tool to defragment a column by removing the non-activated rows and
 /// reducing the size of the underlying polynomial (as much as possible). It
 /// internally invokes the permutation-check to ensure that the defragmented
 /// column is still consistent with the original column.
-pub struct Defragmenter<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct Defragmenter<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
-impl<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>> Defragmenter<F, MvPCS, UvPCS>
-where
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-    F: PrimeField,
-{
+impl<B: SnarkBackend> Defragmenter<B> {
     pub fn defrag_col(
-        tracker: &mut ArgProver<F, MvPCS, UvPCS>,
-        col: &TrackedCol<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<TrackedCol<F, MvPCS, UvPCS>> {
+        tracker: &mut ArgProver<B>,
+        col: &TrackedCol<B>,
+    ) -> SnarkResult<TrackedCol<B>> {
         if col.activator_tracked_poly().is_none() {
             return Ok(col.clone());
         }
-        let new_col_size_f: F = col
+        let new_col_size_f: B::F = col
             .activator_tracked_poly()
             .as_ref()
             .unwrap()
@@ -55,8 +42,8 @@ where
         //     return Ok(col.clone());
         // }
 
-        let mut new_activator_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
-        let mut new_inner_evals: Vec<F> = Vec::with_capacity(1 << new_nv);
+        let mut new_activator_evals: Vec<B::F> = Vec::with_capacity(1 << new_nv);
+        let mut new_inner_evals: Vec<B::F> = Vec::with_capacity(1 << new_nv);
         col.data_tracked_poly()
             .evaluations()
             .iter()
@@ -69,12 +56,12 @@ where
             )
             .for_each(|(val, activator)| {
                 if activator.is_one() {
-                    new_activator_evals.push(F::one());
+                    new_activator_evals.push(B::F::one());
                     new_inner_evals.push(*val);
                 }
             });
-        new_activator_evals.resize(1 << new_nv, F::zero());
-        new_inner_evals.resize(1 << new_nv, F::zero());
+        new_activator_evals.resize(1 << new_nv, B::F::zero());
+        new_inner_evals.resize(1 << new_nv, B::F::zero());
         let new_col = TrackedCol::new(
             tracker.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
                 new_nv,
@@ -93,14 +80,14 @@ where
             input_tracked_col: col.clone(),
             output_tracked_col: new_col.clone(),
         };
-        RematerializeCheck::<F, MvPCS, UvPCS>::prove(tracker, rematerialize_check_prover_input)?;
+        RematerializeCheck::<B>::prove(tracker, rematerialize_check_prover_input)?;
         Ok(new_col)
     }
 
     pub fn defrag_tracked_col_oracle(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
-        tracked_col_oracle: &TrackedColOracle<F, MvPCS, UvPCS>,
-    ) -> SnarkResult<TrackedColOracle<F, MvPCS, UvPCS>> {
+        verifier: &mut ArgVerifier<B>,
+        tracked_col_oracle: &TrackedColOracle<B>,
+    ) -> SnarkResult<TrackedColOracle<B>> {
         if tracked_col_oracle.activator_tracked_oracle().is_none() {
             return Ok(tracked_col_oracle.clone());
         }
@@ -120,10 +107,7 @@ where
             input_tracked_col_oracle: tracked_col_oracle.clone(),
             output_tracked_col_oracle: new_tracked_col_oracle.clone(),
         };
-        RematerializeCheck::<F, MvPCS, UvPCS>::verify(
-            verifier,
-            rematerialize_check_verifier_input,
-        )?;
+        RematerializeCheck::<B>::verify(verifier, rematerialize_check_verifier_input)?;
         Ok(new_tracked_col_oracle)
     }
 }

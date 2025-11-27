@@ -14,7 +14,7 @@ pub struct ProverLiteralExprNode {
     pub parent_node_id: NodeId,
 }
 
-// impl<F, MvPCS, UvPCS> crate::nodes::prover::ProverPlanNode<F, MvPCS, UvPCS>
+// impl<B> crate::nodes::prover::ProverPlanNode<B>
 //     for ProverLiteralExprNode
 // where
 //     F: ark_ff::PrimeField,
@@ -26,15 +26,15 @@ pub struct ProverLiteralExprNode {
 //     }
 //     fn output(
 //         &self,
-//         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
+//         _proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<B>,
 //     ) -> crate::nodes::HintDF {
 //         todo!()
 //     }
 
 //     fn ctx_lp_node(
 //         &self,
-//         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<F, MvPCS, UvPCS>,
-//     ) -> std::sync::Arc<dyn crate::nodes::prover::ProverPlanNode<F, MvPCS, UvPCS>> {
+//         proof_tree: &crate::prover::trees::proof_tree::ProverProofTree<B>,
+//     ) -> std::sync::Arc<dyn crate::nodes::prover::ProverPlanNode<B>> {
 //         todo!()
 //     }
 
@@ -42,7 +42,7 @@ pub struct ProverLiteralExprNode {
 //         todo!()
 //     }
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<F, MvPCS, UvPCS>) {
+//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
 //         todo!()
 //     }
 
@@ -54,16 +54,16 @@ pub struct ProverLiteralExprNode {
 //         todo!()
 //     }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<F, MvPCS, UvPCS>>> {
+//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
 //         vec![]
 //     }
 
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<F, MvPCS, UvPCS> {
+//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
 //         todo!()
 //     }
 // }
 
-// impl<F, MvPCS, UvPCS> crate::nodes::prover::ProverExprNode<F, MvPCS, UvPCS>
+// impl<B> crate::nodes::prover::ProverExprNode<B>
 //     for ProverLiteralExprNode
 // where
 //     F: ark_ff::PrimeField,
@@ -72,7 +72,7 @@ pub struct ProverLiteralExprNode {
 // {
 //     fn from_expr(
 //         ctx: &datafusion::execution::context::SessionContext,
-//         prover_ctx: SharedCtx<F, MvPCS, UvPCS>,
+//         prover_ctx: SharedCtx<B>,
 //         expr: datafusion_expr::Expr,
 //         parent_node_id: NodeId,
 //     ) -> Self {

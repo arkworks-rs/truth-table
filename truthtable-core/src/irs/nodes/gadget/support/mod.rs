@@ -18,18 +18,18 @@ pub const INPUT_DATA_FRAME_KEY: &str = "__support__input_data_frame__";
 pub const SUPPORT_DATA_FRAME_KEY: &str = "__support__support_data_frame__";
 
 #[derive(Clone)]
-pub struct Prover<F, MvPCS, UvPCS>
+pub struct Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
     node_id: NodeId,
-    nodup: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
-    support_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
-    input_fingerprint: Arc<dyn ProverGadget<F, MvPCS, UvPCS>>,
+    nodup: Arc<dyn ProverGadget<B>>,
+    support_fingerprint: Arc<dyn ProverGadget<B>>,
+    input_fingerprint: Arc<dyn ProverGadget<B>>,
 }
-impl<F, MvPCS, UvPCS> Prover<F, MvPCS, UvPCS>
+impl<B> Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -44,7 +44,7 @@ where
         }
     }
 }
-impl<F, MvPCS, UvPCS> ProverGadget<F, MvPCS, UvPCS> for Prover<F, MvPCS, UvPCS>
+impl<B> ProverGadget<B> for Prover<B>
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
@@ -81,7 +81,7 @@ where
         all_hints
     }
 
-    fn children(&self) -> Vec<Arc<dyn ProverGadget<F, MvPCS, UvPCS>>> {
+    fn children(&self) -> Vec<Arc<dyn ProverGadget<B>>> {
         todo!()
     }
 }

@@ -1,14 +1,15 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::PrimeField;
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::PCS,
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
 };
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use crate::set_intersec::{
     SetInterUnionCheckPIOP, SetInterUnionProverInput, SetInterUnionVerifierInput,
@@ -18,7 +19,7 @@ use crate::set_intersec::{
 // multiplicities are all one
 #[test]
 fn set_inter_union_check_is_complete() -> SnarkResult<()> {
-    set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_helper::<DefaultSnarkBackend>(
         1,
         1,
         1,
@@ -31,7 +32,7 @@ fn set_inter_union_check_is_complete() -> SnarkResult<()> {
         to_field_vec!([1, 2], Fr),
         None,
     )?;
-    set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -50,7 +51,7 @@ fn set_inter_union_check_is_complete() -> SnarkResult<()> {
             Fr
         )),
     )?;
-    set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_helper::<DefaultSnarkBackend>(
         3,
         2,
         4,
@@ -69,7 +70,7 @@ fn set_inter_union_check_is_complete() -> SnarkResult<()> {
             Fr
         )),
     )?;
-    set_inter_union_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -93,7 +94,7 @@ fn set_inter_union_check_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn set_inter_union_check_is_sound() -> SnarkResult<()> {
-    set_inter_union_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -113,7 +114,7 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
         )),
     )?;
 
-    set_inter_union_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -133,7 +134,7 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
         )),
     )?;
 
-    set_inter_union_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -152,7 +153,7 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
             Fr
         )),
     )?;
-    set_inter_union_test_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    set_inter_union_test_soundness_helper::<DefaultSnarkBackend>(
         3,
         3,
         4,
@@ -174,24 +175,20 @@ fn set_inter_union_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-fn set_inter_union_test_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn set_inter_union_test_soundness_helper<B: SnarkBackend>(
     nv_left: usize,
     nv_right: usize,
     nv_union_inter: usize,
-    values_left: Vec<Fr>,
-    activator_left: Option<Vec<Fr>>,
-    values_right: Vec<Fr>,
-    activator_right: Option<Vec<Fr>>,
-    values_union: Vec<Fr>,
-    activator_union: Option<Vec<Fr>>,
-    values_inter: Vec<Fr>,
-    activator_inter: Option<Vec<Fr>>,
+    values_left: Vec<B::F>,
+    activator_left: Option<Vec<B::F>>,
+    values_right: Vec<B::F>,
+    activator_right: Option<Vec<B::F>>,
+    values_union: Vec<B::F>,
+    activator_union: Option<Vec<B::F>>,
+    values_inter: Vec<B::F>,
+    activator_inter: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let err = set_inter_union_test_helper::<Fr, MvPCS, UvPCS>(
+    let err = set_inter_union_test_helper::<B>(
         nv_left,
         nv_right,
         nv_union_inter,
@@ -231,24 +228,20 @@ fn set_inter_union_test_soundness_helper<
     Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-fn set_inter_union_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
+fn set_inter_union_test_helper<B: SnarkBackend>(
     nv_left: usize,
     nv_right: usize,
     nv_union_inter: usize,
-    values_left: Vec<Fr>,
-    activator_left: Option<Vec<Fr>>,
-    values_right: Vec<Fr>,
-    activator_right: Option<Vec<Fr>>,
-    values_union: Vec<Fr>,
-    activator_union: Option<Vec<Fr>>,
-    values_inter: Vec<Fr>,
-    activator_inter: Option<Vec<Fr>>,
+    values_left: Vec<B::F>,
+    activator_left: Option<Vec<B::F>>,
+    values_right: Vec<B::F>,
+    activator_right: Option<Vec<B::F>>,
+    values_union: Vec<B::F>,
+    activator_union: Option<Vec<B::F>>,
+    values_inter: Vec<B::F>,
+    activator_inter: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
     // Left column preparation
     let values_left =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_slice(nv_left, &values_left))?;
@@ -295,10 +288,7 @@ fn set_inter_union_test_helper<
         col_inter: TrackedCol::new(values_inter, activator_inter.clone(), None),
         col_union: TrackedCol::new(values_union, activator_union.clone(), None),
     };
-    SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::prove(
-        &mut prover,
-        set_inter_union_check_prover_input,
-    )?;
+    SetInterUnionCheckPIOP::<B>::prove(&mut prover, set_inter_union_check_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -349,10 +339,7 @@ fn set_inter_union_test_helper<
         col_union: TrackedColOracle::new(union_com, union_activator_com, None),
     };
 
-    SetInterUnionCheckPIOP::<Fr, MvPCS, UvPCS>::verify(
-        &mut verifier,
-        set_inter_union_check_verifier_input,
-    )?;
+    SetInterUnionCheckPIOP::<B>::verify(&mut verifier, set_inter_union_check_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

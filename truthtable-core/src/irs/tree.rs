@@ -11,7 +11,7 @@ use datafusion_common::Statistics;
 use indexmap::IndexMap;
 
 use super::nodes::{cost::ProvingCost, id::NodeId};
-pub trait Node<F, MvPCS, UvPCS>: Any + Send + Sync + Debug
+pub trait Node<B>: Any + Send + Sync + Debug
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -32,33 +32,29 @@ where
 }
 /// The abstraction of a tree structure used in intermediate representations
 #[derive(Debug, Clone)]
-pub struct Tree<F, MvPCS, UvPCS>
+pub struct Tree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
-    root: Arc<dyn Node<F, MvPCS, UvPCS>>,
-    arena: IndexMap<NodeId, Arc<dyn Node<F, MvPCS, UvPCS>>>,
+    root: Arc<dyn Node<B>>,
+    arena: IndexMap<NodeId, Arc<dyn Node<B>>>,
 }
-impl<F, MvPCS, UvPCS> Tree<F, MvPCS, UvPCS>
+impl<B> Tree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 {
     /// Get the root node of this tree.
-    fn root(&self) -> Arc<dyn Node<F, MvPCS, UvPCS>> {
+    fn root(&self) -> Arc<dyn Node<B>> {
         Arc::clone(&self.root)
     }
 
     /// Get the arena of nodes in this tree.
-    pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn Node<F, MvPCS, UvPCS>>> {
+    pub fn arena(&self) -> &IndexMap<NodeId, Arc<dyn Node<B>>> {
         &self.arena
     }
 
     /// Get a node by its ID from the arena.
-    pub fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn Node<F, MvPCS, UvPCS>>> {
+    pub fn get_node(&self, node_id: &NodeId) -> Option<&Arc<dyn Node<B>>> {
         self.arena.get(node_id)
     }
 

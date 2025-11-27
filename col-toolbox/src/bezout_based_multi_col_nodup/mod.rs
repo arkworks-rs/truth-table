@@ -23,14 +23,14 @@
 //! 10. The verifier opens the polynomials $s,t$ at $r$ and $f,f'$ at
 //!     $(1,1,\dots,1,0)$ and checks that $$t(r)z(r)+s(r)z'(r)=1$$
 
-use std::marker::PhantomData;
-
 use arithmetic::col::TrackedCol;
-use ark_ff::PrimeField;
+use ark_ff::One;
+use ark_ff::UniformRand;
+use ark_ff::Zero;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
     errors::{SnarkError, SnarkResult},
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{ArgVerifier, errors::VerifierError},
@@ -39,6 +39,7 @@ use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
 use derivative::Derivative;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::marker::PhantomData;
 use utils::{build_root_products, compute_derivative_poly, compute_product_poly, d_dx};
 
 use crate::defragger::Defragmenter;
@@ -51,55 +52,33 @@ pub(crate) mod utils;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 
 // Convinces the verifier that
-pub struct BezoutBasedMultiNoDup<F: PrimeField, MvPCS: PCS<F>, UvPCS: PCS<F>>(
-    #[doc(hidden)] PhantomData<F>,
-    #[doc(hidden)] PhantomData<MvPCS>,
-    #[doc(hidden)] PhantomData<UvPCS>,
-);
+pub struct BezoutBasedMultiNoDup<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct BezoutBasedMultiNoDupProverInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table: TrackedTable<F, MvPCS, UvPCS>,
+pub struct BezoutBasedMultiNoDupProverInput<B: SnarkBackend> {
+    pub tracked_table: TrackedTable<B>,
 }
 
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> DeepClone<F, MvPCS, UvPCS> for BezoutBasedMultiNoDupProverInput<F, MvPCS, UvPCS>
-{
-    fn deep_clone(&self, prover: ArgProver<F, MvPCS, UvPCS>) -> Self {
+impl<B: SnarkBackend> DeepClone<B> for BezoutBasedMultiNoDupProverInput<B> {
+    fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             tracked_table: self.tracked_table.deep_clone(prover.clone()),
         }
     }
 }
 
-pub struct BezoutBasedMultiNoDupVerifierInput<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> {
-    pub tracked_table_oracle: TrackedTableOracle<F, MvPCS, UvPCS>,
+pub struct BezoutBasedMultiNoDupVerifierInput<B: SnarkBackend> {
+    pub tracked_table_oracle: TrackedTableOracle<B>,
 }
-impl<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-> PIOP<F, MvPCS, UvPCS> for BezoutBasedMultiNoDup<F, MvPCS, UvPCS>
-{
-    type ProverInput = BezoutBasedMultiNoDupProverInput<F, MvPCS, UvPCS>;
+impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
+    type ProverInput = BezoutBasedMultiNoDupProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = BezoutBasedMultiNoDupVerifierInput<F, MvPCS, UvPCS>;
+    type VerifierInput = BezoutBasedMultiNoDupVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -108,7 +87,7 @@ impl<
     }
 
     fn prove_inner(
-        prover: &mut ArgProver<F, MvPCS, UvPCS>,
+        prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
         let challenges = (0..input.tracked_table.num_data_tracked_cols())
@@ -126,8 +105,8 @@ impl<
         // The size of all the polynomials in this protocol, i.e. 2^num_vars
         let poly_size = 2_i32.pow(num_vars as u32) as usize;
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
-        let f_query_point: Vec<F> = std::iter::once(F::zero())
-            .chain((0..num_vars - 1).map(|_| F::one()))
+        let f_query_point: Vec<B::F> = std::iter::once(B::F::zero())
+            .chain((0..num_vars - 1).map(|_| B::F::one()))
             .collect();
 
         ///////////////////// Compute the deduplicated polynomial /////////////////////
@@ -136,10 +115,9 @@ impl<
         let dedup_mle =
             if let Some(activator_tracked_poly) = defraged_in_col.activator_tracked_poly() {
                 let mut rng = ark_std::test_rng();
-                let dedup_mle: MLE<F> = p_prep(&mut rng, &defraged_in_col)?;
-                let dedup_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
-                    prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
-                let dedup_wit_tr_p: TrackedPoly<F, MvPCS, UvPCS> =
+                let dedup_mle: MLE<B::F> = p_prep(&mut rng, &defraged_in_col)?;
+                let dedup_tr_p: TrackedPoly<B> = prover.track_and_commit_mat_mv_poly(&dedup_mle)?;
+                let dedup_wit_tr_p: TrackedPoly<B> =
                     &(&dedup_tr_p - &defraged_in_col.data_tracked_poly()) * &activator_tracked_poly;
                 prover.add_mv_zerocheck_claim(dedup_wit_tr_p.id())?;
                 dedup_mle
@@ -151,11 +129,11 @@ impl<
             };
 
         ///////////// Compute the challenge /////////////////////
-        let chall: F = prover.get_and_append_challenge(b"bezout")?;
+        let chall: B::F = prover.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Compute f, gives us z(r) /////////////////////
         // TODO: Pass around iterators instead of slices
-        let chall_minus_ci_evals: Vec<F> = dedup_mle
+        let chall_minus_ci_evals: Vec<B::F> = dedup_mle
             .evaluations()
             .iter()
             .map(|ci| chall - ci)
@@ -215,7 +193,7 @@ impl<
     }
 
     fn verify_inner(
-        verifier: &mut ArgVerifier<F, MvPCS, UvPCS>,
+        verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
         let challenges = (0..input.tracked_table_oracle.num_data_tracked_col_oracles())
@@ -234,8 +212,8 @@ impl<
         // The number of variables in all the polynomials in this protocol
         let num_vars = defraged_in_tracked_col_oracle.log_size();
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
-        let f_query_point: Vec<F> = std::iter::once(F::zero())
-            .chain((0..num_vars - 1).map(|_| F::one()))
+        let f_query_point: Vec<B::F> = std::iter::once(B::F::zero())
+            .chain((0..num_vars - 1).map(|_| B::F::one()))
             .collect();
 
         ///////////////////// Deduplication check /////////////////////
@@ -251,7 +229,7 @@ impl<
         }
 
         ///////////////////// Compute the challenge /////////////////////
-        let chall: F = verifier.get_and_append_challenge(b"bezout")?;
+        let chall: B::F = verifier.get_and_append_challenge(b"bezout")?;
 
         ///////////////////// Get the commitment to f /////////////////////
         let f_p_id = verifier.peek_next_id();
@@ -282,14 +260,13 @@ impl<
     }
 }
 
-fn p_prep<F: PrimeField,     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,>(
+fn p_prep<B: SnarkBackend>(
     rng: &mut dyn RngCore,
-    in_col: &TrackedCol<F, MvPCS, UvPCS>,
-) -> SnarkResult<MLE<F>> {
+    in_col: &TrackedCol<B>,
+) -> SnarkResult<MLE<B::F>> {
     // TODO: Fix this
     let mut evals = in_col.data_tracked_poly().evaluations();
-    let random_values: Vec<F> = (0..evals.len()).map(|_| F::rand(rng)).collect();
+    let random_values: Vec<B::F> = (0..evals.len()).map(|_| B::F::rand(rng)).collect();
 
     if let Some(activator_tracked_poly) = in_col.activator_tracked_poly() {
         evals = in_col

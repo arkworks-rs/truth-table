@@ -1,14 +1,15 @@
 use ark_ff::{One, PrimeField, Zero};
 use ark_piop::{
+    DefaultSnarkBackend, SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::{SnarkError, SnarkResult},
-    pcs::{PCS, kzg10::KZG10, pst13::PST13},
+    pcs::PCS,
     piop::PIOP,
     test_utils::test_prelude,
     to_field_vec,
     verifier::structs::oracle::InnerOracle,
 };
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use super::{
     PrescribedPermutationPIOP, PrescribedPermutationPIOPProverInput,
@@ -17,19 +18,19 @@ use super::{
 
 #[test]
 fn prescribed_permutation_is_complete() -> SnarkResult<()> {
-    prescribed_permutation_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 2, 3, 4], Fr),
         to_field_vec!([3, 1, 4, 2], Fr),
         to_field_vec!([1, 3, 0, 2], Fr),
     )?;
 
-    prescribed_permutation_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([10, 10, 20, 20], Fr),
         to_field_vec!([20, 10, 10, 20], Fr),
         to_field_vec!([1, 2, 0, 3], Fr),
     )?;
 
-    prescribed_permutation_test_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_test_helper::<DefaultSnarkBackend>(
         to_field_vec!([9, 11], Fr),
         to_field_vec!([11, 9], Fr),
         to_field_vec!([1, 0], Fr),
@@ -40,25 +41,25 @@ fn prescribed_permutation_is_complete() -> SnarkResult<()> {
 
 #[test]
 fn prescribed_permutation_is_sound() -> SnarkResult<()> {
-    prescribed_permutation_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 2, 3, 4], Fr),
         to_field_vec!([3, 1, 2, 4], Fr),
         to_field_vec!([1, 3, 0, 2], Fr),
     )?;
 
-    prescribed_permutation_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([5, 6, 7, 8], Fr),
         to_field_vec!([7, 5, 6, 8], Fr),
         to_field_vec!([1, 1, 2, 3], Fr),
     )?;
 
-    prescribed_permutation_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([9, 11], Fr),
         to_field_vec!([11, 9], Fr),
         to_field_vec!([1, 2], Fr),
     )?;
 
-    prescribed_permutation_soundness_helper::<Fr, PST13<Bls12_381>, KZG10<Bls12_381>>(
+    prescribed_permutation_soundness_helper::<DefaultSnarkBackend>(
         to_field_vec!([1, 2, 3, 4], Fr),
         to_field_vec!([4, 3, 2, 1], Fr),
         to_field_vec!([3, 2, 2, 1], Fr),
@@ -97,21 +98,17 @@ fn shift_permutation_oracle_boolean_hypercube() -> SnarkResult<()> {
     Ok(())
 }
 
-fn prescribed_permutation_test_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
-    left_vals: Vec<Fr>,
-    right_vals: Vec<Fr>,
-    permutation_vals: Vec<Fr>,
+fn prescribed_permutation_test_helper<B: SnarkBackend>(
+    left_vals: Vec<B::F>,
+    right_vals: Vec<B::F>,
+    permutation_vals: Vec<B::F>,
 ) -> SnarkResult<()> {
     assert!(left_vals.len().is_power_of_two());
     assert_eq!(left_vals.len(), right_vals.len());
     assert_eq!(left_vals.len(), permutation_vals.len());
 
     let log_size = left_vals.len().trailing_zeros() as usize;
-    let (mut prover, mut verifier) = test_prelude::<Fr, MvPCS, UvPCS>()?;
+    let (mut prover, mut verifier) = test_prelude::<B>()?;
 
     let left_poly =
         prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, left_vals))?;
@@ -125,7 +122,7 @@ fn prescribed_permutation_test_helper<
         right_tracked_poly: right_poly.clone(),
         permutation_tracked_poly: permutation_poly.clone(),
     };
-    PrescribedPermutationPIOP::<Fr, MvPCS, UvPCS>::prove(&mut prover, prover_input)?;
+    PrescribedPermutationPIOP::<B>::prove(&mut prover, prover_input)?;
 
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
@@ -139,27 +136,19 @@ fn prescribed_permutation_test_helper<
         right_tracked_oracle: right_oracle,
         permutation_tracked_oracle: permutation_oracle,
     };
-    PrescribedPermutationPIOP::<Fr, MvPCS, UvPCS>::verify(&mut verifier, verifier_input)?;
+    PrescribedPermutationPIOP::<B>::verify(&mut verifier, verifier_input)?;
     verifier.verify()?;
 
     Ok(())
 }
 
-fn prescribed_permutation_soundness_helper<
-    Fr: PrimeField,
-    MvPCS: PCS<Fr, Poly = MLE<Fr>> + 'static + Send + Sync,
-    UvPCS: PCS<Fr, Poly = LDE<Fr>> + 'static + Send + Sync,
->(
-    left_vals: Vec<Fr>,
-    right_vals: Vec<Fr>,
-    permutation_vals: Vec<Fr>,
+fn prescribed_permutation_soundness_helper<B: SnarkBackend>(
+    left_vals: Vec<B::F>,
+    right_vals: Vec<B::F>,
+    permutation_vals: Vec<B::F>,
 ) -> SnarkResult<()> {
-    let err = prescribed_permutation_test_helper::<Fr, MvPCS, UvPCS>(
-        left_vals,
-        right_vals,
-        permutation_vals,
-    )
-    .unwrap_err();
+    let err = prescribed_permutation_test_helper::<B>(left_vals, right_vals, permutation_vals)
+        .unwrap_err();
 
     #[cfg(feature = "honest-prover")]
     {

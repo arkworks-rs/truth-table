@@ -13,27 +13,23 @@ use crate::irs::{
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 pub struct Ir<
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
     Pd: Payload,
 > {
-    tree: Tree<F, MvPCS, UvPCS>,
+    tree: Tree<B>,
     payloads: IndexMap<NodeId, Pd>,
 }
 
 impl<
     Pd: Payload,
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
 > Ir<F, MvPCS, UvPCS, Pd>
 {
-    pub fn new(tree: Tree<F, MvPCS, UvPCS>, payloads: IndexMap<NodeId, Pd>) -> Self {
+    pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Pd>) -> Self {
         Self { tree, payloads }
     }
 
-    pub fn tree(&self) -> &Tree<F, MvPCS, UvPCS> {
+    pub fn tree(&self) -> &Tree<B> {
         &self.tree
     }
 
@@ -47,9 +43,7 @@ impl<
 }
 impl<F, MvPCS, UvPCS, PIn> Ir<F, MvPCS, UvPCS, PIn>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
     PIn: Payload,
 {
     pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<F, MvPCS, UvPCS, POut>
@@ -95,11 +89,9 @@ where
 }
 pub trait LocalPass<F, MvPCS, UvPCS, PIn, POut>: Sync
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
+B:SnarkBackend
     PIn: Payload,
     POut: Payload,
 {
-    fn transform(&self, node: &dyn Node<F, MvPCS, UvPCS>, id: NodeId, payload: &PIn) -> POut;
+    fn transform(&self, node: &dyn Node<B>, id: NodeId, payload: &PIn) -> POut;
 }
