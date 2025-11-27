@@ -1,6 +1,15 @@
-use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
+use datafusion::{
+    arrow::{
+        datatypes::{FieldRef, Schema},
+        record_batch::RecordBatch,
+    },
+    common::DataFusionError,
+    datasource::MemTable,
+    prelude::DataFrame,
+};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct HintDF {

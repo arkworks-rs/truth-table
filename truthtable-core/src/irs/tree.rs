@@ -1,34 +1,18 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
-
-use ark_ff::PrimeField;
-use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
+use super::nodes::{cost::ProvingCost, id::NodeId};
+use crate::irs::nodes::hints::HintDF;
+use arithmetic::ctx::SharedCtx;
+use ark_piop::SnarkBackend;
+use ark_piop::errors::SnarkResult;
 use ark_std::fmt::Debug;
 use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::{
+    logical_expr::LogicalPlan,
+    prelude::{Expr, SessionContext},
+};
 use datafusion_common::Statistics;
 use indexmap::IndexMap;
+use std::{any::Any, sync::Arc};
 
-use super::nodes::{cost::ProvingCost, id::NodeId};
-pub trait Node<B>: Any + Send + Sync + Debug
-where
-    B: SnarkBackend,
-{
-    /// Returns the unique identifier of this node.
-    fn id(&self) -> NodeId;
-    /// Returns the human-readable name of this node.
-    fn name(&self) -> String {
-        self.id().to_string()
-    }
-    /// Returns a human-readable representation of this node.
-    fn display(&self) -> String {
-        self.name()
-    }
-    /// Estimates the proving cost of this node given statistics and schema.
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-}
 /// The abstraction of a tree structure used in intermediate representations
 #[derive(Debug)]
 pub struct Tree<B>
@@ -76,3 +60,94 @@ where
 }
 
 pub trait Payload: Debug + 'static {}
+
+pub trait Node<B>: Any + Send + Sync + Debug
+where
+    B: SnarkBackend,
+{
+    /// Returns the unique identifier of this node.
+    fn id(&self) -> NodeId;
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String {
+        self.id().to_string()
+    }
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        self.name()
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+}
+
+pub trait Gadget<B>: Node<B> + Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Returns the children gadgets of this gadget. Note that the child of a gadget is a gadget, not a plan node.
+    fn children(&self) -> Vec<Arc<Self>>
+    where
+        Self: Sized;
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>>
+    where
+        Self: Sized,
+    {
+        self.children().into_iter().map(|_| None).collect()
+    }
+    /// Runs the gadget prover
+    fn prove() -> SnarkResult<()>
+    where
+        Self: Sized;
+}
+
+pub trait PlanNode<B>: Node<B> + Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
+    fn children(&self) -> Vec<Arc<Self>>
+    where
+        Self: Sized;
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>>
+    where
+        Self: Sized,
+    {
+        self.children().into_iter().map(|_| None).collect()
+    }
+    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
+    fn gadget(&self) -> Arc<dyn Gadget<B>>;
+}
+
+pub trait LpNode<B>: PlanNode<B> + Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Constructs a proof plan node from a DataFusion logical plan.
+    // TODO: We might not need ctx here
+    fn from_lp(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<B>,
+        _plan: LogicalPlan,
+        _parent: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
+}
+
+pub trait ExprNode<B>: PlanNode<B> + Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Constructs a proof plan node from a DataFusion expression and its parent
+    /// logical plan.
+    // TODO: We might not need ctx and parent_logical_plan here
+    fn from_expr(
+        _ctx: &SessionContext,
+        _prover_ctx: SharedCtx<B>,
+        _expr: Expr,
+        _parent: NodeId,
+    ) -> Self
+    where
+        Self: Sized;
+}
