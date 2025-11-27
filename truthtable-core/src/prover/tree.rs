@@ -33,9 +33,7 @@ pub mod tests;
 #[derive(Clone)]
 pub struct ProverProofTree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     ctx: SharedCtx<B>,
     root: Arc<dyn ProverPlanNode<B>>,
@@ -44,9 +42,7 @@ where
 
 impl<B> fmt::Debug for ProverProofTree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.display_graphviz(false))
@@ -55,9 +51,7 @@ where
 
 impl<B> fmt::Display for ProverProofTree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let node_count = self.arena.len();
@@ -72,9 +66,7 @@ where
 
 impl<B> ProverPlanTree<B> for ProverProofTree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     type Node = dyn ProverPlanNode<B>;
     fn arena(&self) -> &IndexMap<NodeId, Arc<Self::Node>> {
@@ -92,9 +84,7 @@ where
 
 impl<B> ProverProofTree<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     pub fn ctx(&self) -> &SharedCtx<B> {
         &self.ctx
@@ -289,9 +279,7 @@ fn build_arena<B>(
     root: &Arc<dyn ProverPlanNode<B>>,
 ) -> IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     fn dfs<B>(
         node: &Arc<dyn ProverPlanNode<B>>,

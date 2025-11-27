@@ -1,5 +1,6 @@
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
@@ -12,19 +13,12 @@ use crate::irs::{
 };
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-pub struct Ir<
-B:SnarkBackend
-    Pd: Payload,
-> {
+pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Pd>,
 }
 
-impl<
-    Pd: Payload,
-B:SnarkBackend
-> Ir<F, MvPCS, UvPCS, Pd>
-{
+impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Pd>) -> Self {
         Self { tree, payloads }
     }
@@ -41,15 +35,15 @@ B:SnarkBackend
         self.payloads.get(node_id)
     }
 }
-impl<F, MvPCS, UvPCS, PIn> Ir<F, MvPCS, UvPCS, PIn>
+impl<B, PIn> Ir<B, PIn>
 where
-B:SnarkBackend
+    B: SnarkBackend,
     PIn: Payload,
 {
-    pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<F, MvPCS, UvPCS, POut>
+    pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
         POut: Payload,
-        P: LocalPass<F, MvPCS, UvPCS, PIn, POut>,
+        P: LocalPass<B, PIn, POut>,
     {
         let mut out = IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.tree.arena().iter() {
@@ -63,11 +57,11 @@ B:SnarkBackend
         }
     }
 
-    pub fn apply_local_pass_parallel<POut, P>(&self, pass: &P) -> Ir<F, MvPCS, UvPCS, POut>
+    pub fn apply_local_pass_parallel<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
         PIn: Payload + Send + Sync,
         POut: Payload + Send + Sync,
-        P: LocalPass<F, MvPCS, UvPCS, PIn, POut> + Sync,
+        P: LocalPass<B, PIn, POut> + Sync,
     {
         use rayon::prelude::*;
         let out_vec: Vec<(NodeId, POut)> = self
@@ -87,9 +81,9 @@ B:SnarkBackend
         }
     }
 }
-pub trait LocalPass<F, MvPCS, UvPCS, PIn, POut>: Sync
+pub trait LocalPass<B, PIn, POut>: Sync
 where
-B:SnarkBackend
+    B: SnarkBackend,
     PIn: Payload,
     POut: Payload,
 {

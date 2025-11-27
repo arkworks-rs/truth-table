@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use std::{marker::PhantomData, sync::Arc};
 pub const NAME: &str = "Sort_lp_Gadget";
 #[derive(Clone)]
-pub struct Prover<B>(PhantomData<(F, MvPCS, UvPCS)>)
+pub struct Prover<B>(PhantomData<(B)>)
 where
     F: PrimeField,
     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
@@ -17,9 +17,7 @@ where
 
 impl<B> Prover<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     pub fn new() -> Self {
         Self(PhantomData)
@@ -28,9 +26,7 @@ where
 
 impl<B> ProverGadget<B> for Prover<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     fn children(&self) -> Vec<Arc<dyn ProverGadget<B>>> {
         vec![]

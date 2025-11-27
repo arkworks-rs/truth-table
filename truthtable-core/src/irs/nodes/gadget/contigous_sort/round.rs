@@ -19,7 +19,7 @@ where
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
     round: usize,
-    _marker: PhantomData<(F, MvPCS, UvPCS)>,
+    _marker: PhantomData<(B)>,
 }
 
 impl<B> Prover<B>

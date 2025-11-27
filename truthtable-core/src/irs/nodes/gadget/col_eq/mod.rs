@@ -16,7 +16,7 @@ where
     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
 {
-    _marker: PhantomData<(F, MvPCS, UvPCS)>,
+    _marker: PhantomData<(B)>,
 }
 impl<B> Prover<B>
 where

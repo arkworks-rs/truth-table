@@ -2,6 +2,7 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
 };
@@ -13,9 +14,7 @@ use indexmap::IndexMap;
 use super::nodes::{cost::ProvingCost, id::NodeId};
 pub trait Node<B>: Any + Send + Sync + Debug
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    B: SnarkBackend,
 {
     /// Returns the unique identifier of this node.
     fn id(&self) -> NodeId;
@@ -31,17 +30,29 @@ where
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
 }
 /// The abstraction of a tree structure used in intermediate representations
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Tree<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     root: Arc<dyn Node<B>>,
     arena: IndexMap<NodeId, Arc<dyn Node<B>>>,
 }
+
+impl<B> Clone for Tree<B>
+where
+    B: SnarkBackend,
+{
+    fn clone(&self) -> Self {
+        Self {
+            root: Arc::clone(&self.root),
+            arena: self.arena.clone(),
+        }
+    }
+}
 impl<B> Tree<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     /// Get the root node of this tree.
     fn root(&self) -> Arc<dyn Node<B>> {

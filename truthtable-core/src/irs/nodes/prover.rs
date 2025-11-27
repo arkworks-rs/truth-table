@@ -4,6 +4,7 @@
 use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
@@ -18,9 +19,7 @@ use crate::irs::{nodes::id::NodeId, tree::Node};
 
 pub trait Gadget<B>: Node<B> + Any + Send + Sync
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    B: SnarkBackend,
 {
     /// Returns the children gadgets of this gadget. Note that the child of a gadget is a gadget, not a plan node.
     fn children(&self) -> Vec<Arc<Self>>
@@ -41,9 +40,7 @@ where
 
 pub trait PlanNode<B>: Node<B> + Any + Send + Sync
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    B: SnarkBackend,
 {
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Self>>
@@ -62,9 +59,7 @@ where
 
 pub trait LpNode<B>: PlanNode<B> + Any + Send + Sync
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    B: SnarkBackend,
 {
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
@@ -80,9 +75,7 @@ where
 
 pub trait ExprNode<B>: PlanNode<B> + Any + Send + Sync
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+    B: SnarkBackend,
 {
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.

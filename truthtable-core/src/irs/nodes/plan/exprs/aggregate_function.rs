@@ -16,7 +16,7 @@ where
 B:SnarkBackend
 {
     aggregate_function: AggregateFunction,
-    phantom: PhantomData<(F, MvPCS, UvPCS)>,
+    phantom: PhantomData<(B)>,
 }
 #[derive(Clone)]
 pub struct VerifierAggregateFunctionExprNode<B>
@@ -24,7 +24,7 @@ where
 B:SnarkBackend
 {
     aggregate_function: AggregateFunction,
-    phantom: PhantomData<(F, MvPCS, UvPCS)>,
+    phantom: PhantomData<(B)>,
 }
 
 // impl<B> ProverPlanNode<B>

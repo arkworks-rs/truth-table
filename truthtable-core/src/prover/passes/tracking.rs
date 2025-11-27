@@ -1,8 +1,4 @@
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
+use ark_piop::SnarkBackend;
 
 use crate::{
     irs::{ir::LocalPass, nodes::id::NodeId, tree::Node},
@@ -11,19 +7,18 @@ use crate::{
 
 pub struct ExecutionPass<B> {
     // pub ctx: ExecCtx,
-    _phantom: std::marker::PhantomData<(F, MvPCS, UvPCS)>,
+    _phantom: std::marker::PhantomData<(B)>,
 }
 
-impl<B> LocalPass<F, MvPCS, UvPCS, ArithPayload<F>, TrackedPayload<B>>
-    for ExecutionPass<B>
+impl<B> LocalPass<B, ArithPayload<B::F>, TrackedPayload<B>> for ExecutionPass<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     fn transform(
         &self,
         node: &dyn Node<B>,
         id: NodeId,
-        payload: &ArithPayload<F>,
+        payload: &ArithPayload<B::F>,
     ) -> TrackedPayload<B> {
         todo!()
     }

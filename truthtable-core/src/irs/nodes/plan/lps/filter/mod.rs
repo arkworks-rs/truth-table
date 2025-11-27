@@ -19,9 +19,7 @@ use crate::nodes::{
 /// The implementation of a filter node in the prover proof tree.
 pub struct ProverFilterNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     // The filter information from DataFusion
     filter: Filter,

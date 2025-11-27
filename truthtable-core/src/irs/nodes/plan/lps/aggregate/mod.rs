@@ -18,9 +18,7 @@ use crate::nodes::{
 mod hints;
 pub struct ProverAggregateNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     // The aggregate information from datafusion
     aggregate: Aggregate,

@@ -17,9 +17,7 @@ pub(super) mod hints;
 
 pub struct ProverProjectionNode<B>
 where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
+B:SnarkBackend
 {
     projection: Projection,
     input: Arc<dyn ProverPlanNode<B>>,
