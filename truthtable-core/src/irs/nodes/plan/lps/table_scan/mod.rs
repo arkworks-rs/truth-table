@@ -34,6 +34,10 @@ impl<B: SnarkBackend> Node<B> for ProverNode {
     fn as_gadget_node(&self) -> Option<&dyn Gadget<B>> {
         None
     }
+
+    fn name(&self) -> String {
+        "TableScan".to_string()
+    }
 }
 
 impl<B: SnarkBackend> PlanNode<B> for ProverNode {

@@ -54,6 +54,7 @@ mod test {
             .collect::<IndexMap<_, _>>();
 
         let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+        println!("{}", ir.display_graphviz(true));
         assert!(ir.tree().arena().len() >= 2);
     }
 }

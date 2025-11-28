@@ -39,6 +39,10 @@ impl<B: SnarkBackend> Node<B> for ProverNode {
     fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
         todo!()
     }
+
+    fn name(&self) -> String {
+        "Literal".to_string()
+    }
 }
 
 impl<B: SnarkBackend> PlanNode<B> for ProverNode {

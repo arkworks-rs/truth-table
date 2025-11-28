@@ -1,13 +1,6 @@
-use arithmetic::ctx::SharedCtx;
-use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
-use ark_piop::prover::ArgProver;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext};
+use datafusion::logical_expr::LogicalPlan;
 use datafusion_common::Statistics;
 use datafusion_expr::Projection;
 use derivative::Derivative;
@@ -49,6 +42,10 @@ impl<B: SnarkBackend> Node<B> for ProverNode<B> {
 
     fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
         None
+    }
+
+    fn name(&self) -> String {
+        "Projection".to_string()
     }
 }
 

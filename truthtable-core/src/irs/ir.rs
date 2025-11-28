@@ -34,6 +34,47 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     pub fn payload_for_node(&self, node_id: &NodeId) -> Option<&Pd> {
         self.payloads.get(node_id)
     }
+
+    /// Render the IR as a Graphviz DOT string.
+    ///
+    /// When `show_payload` is `true`, each node label includes the debug
+    /// representation of its payload below the node name. Otherwise, only the
+    /// node name is shown.
+    pub fn display_graphviz(&self, show_payload: bool) -> String {
+        fn escape_html(s: &str) -> String {
+            s.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        }
+
+        let mut dot = String::from("digraph IR {\n  node [shape=box];\n");
+
+        for (id, node) in self.tree.arena() {
+            let base_label = escape_html(&node.name());
+            let label = if show_payload {
+                match self.payloads.get(id) {
+                    Some(payload) => {
+                        let payload_str = escape_html(&format!("{:?}", payload));
+                        format!("<{base_label}<br/><font color=\"blue\">{payload_str}</font>>")
+                    }
+                    None => format!("<{base_label}>"),
+                }
+            } else {
+                format!("<{base_label}>")
+            };
+            dot.push_str(&format!("  \"{id}\" [label={label}];\n"));
+
+            if let Some(plan) = node.as_plan_node() {
+                for child in plan.children() {
+                    let child_id = child.id();
+                    dot.push_str(&format!("  \"{id}\" -> \"{child_id}\";\n"));
+                }
+            }
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
 }
 impl<B, PIn> Ir<B, PIn>
 where

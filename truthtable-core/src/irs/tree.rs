@@ -135,9 +135,7 @@ where
     /// Returns the unique identifier of this node.
     fn id(&self) -> NodeId;
     /// Returns the human-readable name of this node.
-    fn name(&self) -> String {
-        self.id().to_string()
-    }
+    fn name(&self) -> String;
     /// Returns a human-readable representation of this node.
     fn display(&self) -> String {
         self.name()
