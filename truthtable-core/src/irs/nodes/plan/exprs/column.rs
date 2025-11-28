@@ -1,10 +1,17 @@
+use std::sync::Arc;
+
 use ark_piop::SnarkBackend;
-use datafusion_common::Column;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion_common::{Column, Statistics};
 use datafusion_expr::Expr;
 
 use crate::irs::{
-    nodes::id::{NodeId, PlanNodeId},
-    tree::{ExprNode, Node, PlanNode},
+    nodes::{
+        cost::ProvingCost,
+        hints::HintDF,
+        id::{NodeId, PlanNodeId},
+    },
+    tree::{ExprNode, Gadget, Node, PlanNode},
 };
 #[derive(Debug)]
 pub struct ProverNode {
@@ -16,19 +23,15 @@ impl<B: SnarkBackend> Node<B> for ProverNode {
         NodeId::PLAN(PlanNodeId::EXPR(Expr::Column(self.column.clone())))
     }
 
-    fn cost(
-        &self,
-        statistics: datafusion_common::Statistics,
-        schema: datafusion::arrow::datatypes::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
-    fn as_plan_node(&self) -> Option<&dyn crate::irs::tree::PlanNode<B>> {
+    fn as_plan_node(&self) -> Option<&dyn PlanNode<B>> {
         Some(self)
     }
 
-    fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
+    fn as_gadget_node(&self) -> Option<&dyn Gadget<B>> {
         None
     }
 
@@ -38,15 +41,15 @@ impl<B: SnarkBackend> Node<B> for ProverNode {
 }
 
 impl<B: SnarkBackend> PlanNode<B> for ProverNode {
-    fn children(&self) -> Vec<std::sync::Arc<dyn Node<B>>> {
+    fn children(&self) -> Vec<Arc<dyn Node<B>>> {
         Vec::new()
     }
 
-    fn gadget(&self) -> std::sync::Arc<dyn crate::irs::tree::Gadget<B>> {
+    fn gadget(&self) -> Arc<dyn Gadget<B>> {
         todo!()
     }
 
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+    fn output(&self) -> HintDF {
         todo!()
     }
 }
@@ -61,6 +64,13 @@ impl<B: SnarkBackend> ExprNode<B> for ProverNode {
             _ => panic!(),
         };
         Self { column }
+    }
+
+    fn parent(&self) -> Arc<dyn PlanNode<B>>
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }
 

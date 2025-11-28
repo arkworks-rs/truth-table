@@ -12,6 +12,20 @@ pub struct PlanningPass<B> {
     _phantom: std::marker::PhantomData<(B)>,
 }
 
+impl<B> PlanningPass<B> {
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<B> Default for PlanningPass<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B> LocalPass<B, EmptyPayload, DataFramePayload> for PlanningPass<B>
 where
     B: SnarkBackend,

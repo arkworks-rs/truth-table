@@ -229,4 +229,15 @@ where
     fn from_expr(_expr: Expr, parent: Option<NodeId>) -> Self
     where
         Self: Sized;
+
+    fn parent(&self) -> Arc<dyn PlanNode<B>>
+    where
+        Self: Sized;
+
+    fn ctx_lp_node(&self) -> Arc<dyn LpNode<B>>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }

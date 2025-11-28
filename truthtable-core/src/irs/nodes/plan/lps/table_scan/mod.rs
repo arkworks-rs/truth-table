@@ -1,8 +1,13 @@
 use ark_piop::SnarkBackend;
+use datafusion::dataframe::DataFrame;
+use datafusion::prelude::SessionContext;
 use datafusion_expr::{LogicalPlan, TableScan};
 
 use crate::irs::{
-    nodes::id::{NodeId, PlanNodeId},
+    nodes::{
+        hints::HintDF,
+        id::{NodeId, PlanNodeId},
+    },
     tree::{Gadget, LpNode, Node, PlanNode},
 };
 
@@ -49,8 +54,13 @@ impl<B: SnarkBackend> PlanNode<B> for ProverNode {
         todo!()
     }
 
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+    fn output(&self) -> HintDF {
+        // Build a minimal session state so we can construct a DataFrame around the
+        // logical TableScan plan, then wrap it in a fully materialized hint.
+        let ctx = SessionContext::new();
+        let plan = LogicalPlan::TableScan(self.table_scan.clone());
+        let df = DataFrame::new(ctx.state(), plan);
+        HintDF::new_materialized(df)
     }
 }
 

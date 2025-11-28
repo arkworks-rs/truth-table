@@ -69,6 +69,13 @@ impl<B: SnarkBackend> ExprNode<B> for ProverNode {
             parent: parent.unwrap(),
         }
     }
+
+    fn parent(&self) -> Arc<dyn PlanNode<B>>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }
 
 // impl<B> crate::nodes::prover::ProverPlanNode<B>

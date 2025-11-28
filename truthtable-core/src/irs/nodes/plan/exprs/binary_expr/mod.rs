@@ -10,7 +10,7 @@ use crate::irs::{
         cost::ProvingCost,
         id::{NodeId, PlanNodeId},
     },
-    tree::{ExprNode, Gadget, Node, PlanNode, Tree},
+    tree::{ExprNode, Gadget, LpNode, Node, PlanNode, Tree},
 };
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
@@ -18,7 +18,6 @@ pub struct ProverNode<B> {
     pub binary_expression: BinaryExpr,
     pub left: Arc<dyn Node<B>>,
     pub right: Arc<dyn Node<B>>,
-    pub parent: NodeId,
 }
 
 impl<B: SnarkBackend> Node<B> for ProverNode<B> {
@@ -85,8 +84,14 @@ impl<B: SnarkBackend> ExprNode<B> for ProverNode<B> {
             binary_expression,
             left,
             right,
-            parent: parent.unwrap(),
         }
+    }
+
+    fn parent(&self) -> Arc<dyn PlanNode<B>>
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }
 

@@ -17,6 +17,7 @@ pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
 mod test {
     use super::*;
     use crate::irs::tree::Tree;
+    use crate::prover::passes::planning::PlanningPass;
     use ark_piop::DefaultSnarkBackend;
     use datafusion::{
         arrow::{
@@ -77,6 +78,33 @@ mod test {
             println!("Query: {query}");
             println!("{}", ir.display_graphviz(true));
             assert!(!ir.tree().arena().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn builds_planned_ir_from_logical_plan() {
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
+        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+
+        for query in queries() {
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+
+            let tree = Tree::from_logical_plan(&lp);
+            let payloads = tree
+                .arena()
+                .keys()
+                .map(|id| (id.clone(), EmptyPayload))
+                .collect::<IndexMap<_, _>>();
+
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
+
+            println!("Planned Query: {query}");
+            println!("{}", planned_ir.display_graphviz(true));
+            assert!(!planned_ir.tree().arena().is_empty());
+            assert_eq!(planned_ir.payloads().len(), planned_ir.tree().arena().len());
         }
     }
 }
