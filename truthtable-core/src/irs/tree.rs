@@ -99,6 +99,9 @@ where
             LogicalPlan::Projection(_) => Arc::new(
                 <lps::projection::ProverNode<B> as LpNode<B>>::from_lp(lp.clone()),
             ),
+            LogicalPlan::Filter(_) => Arc::new(<lps::filter::ProverNode<B> as LpNode<B>>::from_lp(
+                lp.clone(),
+            )),
             _ => todo!(),
         };
         let root: Arc<dyn Node<B>> = plan_root.clone();
@@ -108,14 +111,19 @@ where
         }
     }
 
-    pub fn from_expr(expr: &Expr) -> Self {
+    pub fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
         let plan_root: Arc<dyn PlanNode<B>> = match expr {
             Expr::Column(_) => Arc::new(<exprs::column::ProverNode as ExprNode<B>>::from_expr(
                 expr.clone(),
+                parent,
             )),
             Expr::Literal(_) => Arc::new(<exprs::literal::ProverNode as ExprNode<B>>::from_expr(
                 expr.clone(),
+                parent,
             )),
+            Expr::BinaryExpr(_) => Arc::new(
+                <exprs::binary_expr::ProverNode<B> as ExprNode<B>>::from_expr(expr.clone(), parent),
+            ),
             _ => todo!(),
         };
         let root: Arc<dyn Node<B>> = plan_root.clone();
@@ -218,7 +226,7 @@ where
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(_expr: Expr) -> Self
+    fn from_expr(_expr: Expr, parent: Option<NodeId>) -> Self
     where
         Self: Sized;
 }

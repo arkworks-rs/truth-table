@@ -31,9 +31,9 @@ mod test {
 
     fn dummy_schema() -> Arc<Schema> {
         Arc::new(Schema::new(vec![
-            Field::new("first-column", DataType::Int32, false),
-            Field::new("second-column", DataType::Int32, false),
-            Field::new("third-column", DataType::Int32, false),
+            Field::new("first_column", DataType::Int32, false),
+            Field::new("second_column", DataType::Int32, false),
+            Field::new("third_column", DataType::Int32, false),
         ]))
     }
 
@@ -52,7 +52,10 @@ mod test {
     }
 
     fn queries() -> Vec<&'static str> {
-        vec!["SELECT first-column FROM dummy_table "]
+        vec![
+            "SELECT first_column, second_column FROM dummy_table ",
+            "SELECT first_column, second_column FROM dummy_table where third_column > 150",
+        ]
     }
     #[tokio::test]
     async fn builds_initial_ir_from_logical_plan() {

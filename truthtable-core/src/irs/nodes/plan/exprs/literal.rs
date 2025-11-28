@@ -1,43 +1,39 @@
 use std::sync::Arc;
 
-use arithmetic::ctx::SharedCtx;
-use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use datafusion_common::ScalarValue;
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion_common::{ScalarValue, Statistics};
 use datafusion_expr::Expr;
 
 use crate::irs::{
-    nodes::id::NodeId,
-    tree::{ExprNode, Node, PlanNode},
+    nodes::{
+        cost::ProvingCost,
+        hints::HintDF,
+        id::{NodeId, PlanNodeId},
+    },
+    tree::{ExprNode, Gadget, Node, PlanNode},
 };
 #[derive(Debug)]
 pub struct ProverNode {
     pub literal: ScalarValue,
-    pub parent_node_id: NodeId,
+    pub parent: NodeId,
 }
 
 impl<B: SnarkBackend> Node<B> for ProverNode {
     fn id(&self) -> NodeId {
+        NodeId::PLAN(PlanNodeId::EXPR(Expr::Literal(self.literal.clone())))
+    }
+
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         todo!()
     }
 
-    fn cost(
-        &self,
-        statistics: datafusion_common::Statistics,
-        schema: datafusion::arrow::datatypes::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
+    fn as_plan_node(&self) -> Option<&dyn PlanNode<B>> {
+        Some(self)
     }
 
-    fn as_plan_node(&self) -> Option<&dyn crate::irs::tree::PlanNode<B>> {
-        todo!()
-    }
-
-    fn as_gadget_node(&self) -> Option<&dyn crate::irs::tree::Gadget<B>> {
-        todo!()
+    fn as_gadget_node(&self) -> Option<&dyn Gadget<B>> {
+        None
     }
 
     fn name(&self) -> String {
@@ -50,21 +46,28 @@ impl<B: SnarkBackend> PlanNode<B> for ProverNode {
         Vec::new()
     }
 
-    fn gadget(&self) -> Arc<dyn crate::irs::tree::Gadget<B>> {
+    fn gadget(&self) -> Arc<dyn Gadget<B>> {
         todo!()
     }
 
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+    fn output(&self) -> HintDF {
         todo!()
     }
 }
 
 impl<B: SnarkBackend> ExprNode<B> for ProverNode {
-    fn from_expr(_expr: Expr) -> Self
+    fn from_expr(expr: Expr, parent: Option<NodeId>) -> Self
     where
         Self: Sized,
     {
-        todo!()
+        let literal = match expr {
+            Expr::Literal(literal) => literal,
+            _ => panic!(),
+        };
+        Self {
+            literal,
+            parent: parent.unwrap(),
+        }
     }
 }
 

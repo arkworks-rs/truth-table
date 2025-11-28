@@ -89,7 +89,7 @@ impl<B: SnarkBackend> LpNode<B> for ProverNode<B> {
             .expr
             .clone()
             .into_iter()
-            .map(|expr| Tree::<B>::from_expr(&expr).root())
+            .map(|expr| Tree::<B>::from_expr(&expr, Some(node_id.clone())).root())
             .collect();
         Self {
             projection,

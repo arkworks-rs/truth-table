@@ -85,7 +85,9 @@ impl<B: SnarkBackend> LpNode<B> for ProverNode<B> {
         // filter.
         let input = Tree::<B>::from_logical_plan(&filter.input).root().clone();
 
-        let predicate = Tree::<B>::from_expr(&filter.predicate).root().clone();
+        let predicate = Tree::<B>::from_expr(&filter.predicate, Some(node_id.clone()))
+            .root()
+            .clone();
 
         ProverNode {
             filter,

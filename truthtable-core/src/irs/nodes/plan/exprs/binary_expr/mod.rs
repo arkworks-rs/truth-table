@@ -1,20 +1,95 @@
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion_common::Statistics;
+use datafusion_expr::{BinaryExpr, Expr};
+use derivative::Derivative;
 use std::sync::Arc;
 
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
+use crate::irs::{
+    nodes::{
+        cost::ProvingCost,
+        id::{NodeId, PlanNodeId},
+    },
+    tree::{ExprNode, Gadget, Node, PlanNode, Tree},
 };
-use datafusion_expr::BinaryExpr;
-
-use crate::irs::{nodes::id::NodeId, tree::PlanNode};
-#[derive(Clone)]
-pub struct ProverBinaryExprNode<B> {
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
+pub struct ProverNode<B> {
     pub binary_expression: BinaryExpr,
-    pub left: Arc<dyn PlanNode<B>>,
-    pub right: Arc<dyn PlanNode<B>>,
+    pub left: Arc<dyn Node<B>>,
+    pub right: Arc<dyn Node<B>>,
     pub parent: NodeId,
 }
+
+impl<B: SnarkBackend> Node<B> for ProverNode<B> {
+    fn id(&self) -> NodeId {
+        NodeId::PLAN(PlanNodeId::EXPR(Expr::BinaryExpr(
+            self.binary_expression.clone(),
+        )))
+    }
+
+    fn name(&self) -> String {
+        "BinaryExpr".to_string()
+    }
+
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        todo!()
+    }
+
+    fn as_plan_node(&self) -> Option<&dyn PlanNode<B>> {
+        Some(self)
+    }
+
+    fn as_gadget_node(&self) -> Option<&dyn Gadget<B>> {
+        None
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> for ProverNode<B> {
+    fn children(&self) -> Vec<Arc<dyn Node<B>>> {
+        vec![self.left.clone(), self.right.clone()]
+    }
+
+    fn gadget(&self) -> Arc<dyn Gadget<B>> {
+        todo!()
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> ExprNode<B> for ProverNode<B> {
+    fn from_expr(expr: Expr, parent: Option<NodeId>) -> Self
+    where
+        Self: Sized,
+    {
+        // Get the Binary Expression
+        let binary_expression = match expr.clone() {
+            Expr::BinaryExpr(b) => b,
+            _ => panic!("expected binary expression"),
+        };
+
+        // Builf the id for the current node
+        let node_id = NodeId::PLAN(PlanNodeId::EXPR(expr));
+        // Recursively build the left child node
+        let left = Tree::<B>::from_expr(&binary_expression.left.as_ref(), Some(node_id.clone()))
+            .root()
+            .clone();
+        // Recursively build the right child node
+        let right = Tree::<B>::from_expr(&binary_expression.right.as_ref(), Some(node_id.clone()))
+            .root()
+            .clone();
+
+        Self {
+            binary_expression,
+            left,
+            right,
+            parent: parent.unwrap(),
+        }
+    }
+}
+
 // impl<B> ProverBinaryExprNode<B>
 // where
 //     F: PrimeField,

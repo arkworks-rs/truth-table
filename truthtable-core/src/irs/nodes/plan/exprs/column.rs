@@ -52,7 +52,7 @@ impl<B: SnarkBackend> PlanNode<B> for ProverNode {
 }
 
 impl<B: SnarkBackend> ExprNode<B> for ProverNode {
-    fn from_expr(expr: datafusion::logical_expr::Expr) -> Self
+    fn from_expr(expr: Expr, _parent: Option<NodeId>) -> Self
     where
         Self: Sized,
     {
