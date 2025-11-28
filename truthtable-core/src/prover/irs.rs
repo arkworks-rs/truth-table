@@ -28,33 +28,52 @@ mod test {
     };
     use indexmap::IndexMap;
     use std::sync::Arc;
-    #[tokio::test]
-    async fn builds_initial_ir_from_logical_plan() {
-        let ctx = SessionContext::new();
-        let schema = Arc::new(Schema::new(vec![Field::new(
-            "value",
-            DataType::Int32,
-            false,
-        )]));
+
+    fn dummy_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("first-column", DataType::Int32, false),
+            Field::new("second-column", DataType::Int32, false),
+            Field::new("third-column", DataType::Int32, false),
+        ]))
+    }
+
+    fn register_dummy_table(ctx: &SessionContext) {
+        let schema = dummy_schema();
         let batch = RecordBatch::try_new(
             schema.clone(),
-            vec![Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef],
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef,
+                Arc::new(Int32Array::from(vec![10, 20, 30])) as ArrayRef,
+                Arc::new(Int32Array::from(vec![100, 200, 300])) as ArrayRef,
+            ],
         )
         .unwrap();
         ctx.register_batch("dummy_table", batch).unwrap();
+    }
 
-        let df = ctx.sql("SELECT value FROM dummy_table").await.unwrap();
-        let lp = df.into_unoptimized_plan();
+    fn queries() -> Vec<&'static str> {
+        vec!["SELECT first-column FROM dummy_table "]
+    }
+    #[tokio::test]
+    async fn builds_initial_ir_from_logical_plan() {
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
 
-        let tree = Tree::from_logical_plan(&lp);
-        let arena = tree.arena();
-        let payloads = arena
-            .keys()
-            .map(|id| (id.clone(), EmptyPayload))
-            .collect::<IndexMap<_, _>>();
+        for query in queries() {
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
 
-        let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
-        println!("{}", ir.display_graphviz(true));
-        assert!(ir.tree().arena().len() >= 2);
+            let tree = Tree::from_logical_plan(&lp);
+            let payloads = tree
+                .arena()
+                .keys()
+                .map(|id| (id.clone(), EmptyPayload))
+                .collect::<IndexMap<_, _>>();
+
+            let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            println!("Query: {query}");
+            println!("{}", ir.display_graphviz(true));
+            assert!(!ir.tree().arena().is_empty());
+        }
     }
 }

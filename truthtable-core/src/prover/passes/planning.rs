@@ -1,21 +1,11 @@
 use ark_piop::SnarkBackend;
-use datafusion::{
-    arrow::{datatypes::Schema, record_batch::RecordBatch},
-    datasource::MemTable,
-    prelude::DataFrame,
-};
-use futures::io::Empty;
+use datafusion::prelude::DataFrame;
 
 use crate::{
-    irs::{
-        ir::LocalPass,
-        nodes::id::NodeId,
-        tree::{Gadget, Node, PlanNode},
-    },
+    irs::{ir::LocalPass, nodes::id::NodeId, tree::Node},
     prover::payloads::{DataFramePayload, EmptyPayload, PayloadStructure},
 };
 use indexmap::IndexMap;
-use std::sync::Arc;
 
 pub struct PlanningPass<B> {
     // pub ctx: ExecCtx,
