@@ -27,6 +27,40 @@ pub enum PlanNode<B: SnarkBackend> {
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
 
+/// Common interface across all node kinds.
+pub trait IsNode<B>: Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String;
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        self.name()
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+    /// Returns the unique identifier of this node.
+    fn id(&self) -> NodeId;
+    /// Returns this node's children.
+    fn children(&self) -> Vec<Node<B>>;
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        self.children().into_iter().map(|_| None).collect()
+    }
+}
+
+/// Shared plan-node interface (both LP and expr-based).
+pub trait IsPlanNode<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
+    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
+    fn gadget(&self) -> Arc<dyn IsGadgetNode<B>>;
+    /// Outputs the DataFrame resulting from executing this plan node.
+    fn output(&self) -> HintDF;
+}
+
 impl<B: SnarkBackend> Node<B> {
     /// Returns the human-readable name of this node.
     fn name(&self) -> String {
@@ -125,44 +159,25 @@ impl<B: SnarkBackend> PlanNode<B> {
 
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
     fn gadget(&self) -> Arc<dyn IsGadgetNode<B>> {
-        todo!()
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.gadget(),
+            PlanNode::ExprBased(expr_node) => expr_node.gadget(),
+        }
     }
 
     /// Outputs the DataFrame resulting from executing this plan node.
     fn output(&self) -> HintDF {
-        todo!()
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.output(),
+            PlanNode::ExprBased(expr_node) => expr_node.output(),
+        }
     }
 }
 
-pub trait IsGadgetNode<B>: Any + Send + Sync
+pub trait IsGadgetNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
-    /// Returns the human-readable name of this node.
-    fn name(&self) -> String {
-        todo!()
-    }
-    /// Returns a human-readable representation of this node.
-    fn display(&self) -> String {
-        self.name()
-    }
-    /// Estimates the proving cost of this node given statistics and schema.
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        todo!()
-    }
-    /// Returns this node
-    fn id(&self) -> NodeId {
-        todo!()
-    }
-    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
-    fn children(&self) -> Vec<Node<B>> {
-        todo!()
-    }
-    /// Optional human-readable labels for each child edge.
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        self.children().into_iter().map(|_| None).collect()
-    }
-
     /// Runs the gadget prover
     fn prove() -> SnarkResult<()>
     where
@@ -171,35 +186,10 @@ where
     fn hints(&self) -> IndexMap<String, HintDF>;
     fn ancestry(&self) -> GadgetAncestry;
 }
-pub trait IsLpNode<B>: Any + Send + Sync
+pub trait IsLpNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
-    /// Returns the human-readable name of this node.
-    fn name(&self) -> String {
-        todo!()
-    }
-    /// Returns a human-readable representation of this node.
-    fn display(&self) -> String {
-        todo!()
-    }
-    /// Estimates the proving cost of this node given statistics and schema.
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        todo!()
-    }
-    /// Returns this node
-    fn id(&self) -> NodeId {
-        todo!()
-    }
-    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
-    fn children(&self) -> Vec<Node<B>> {
-        todo!()
-    }
-    /// Optional human-readable labels for each child edge.
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        todo!()
-    }
-
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
     fn from_lp(_plan: LogicalPlan) -> Self
@@ -209,35 +199,10 @@ where
     fn lp(&self) -> LogicalPlan;
 }
 
-pub trait IsExprNode<B>: Any + Send + Sync
+pub trait IsExprNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
-    /// Returns the human-readable name of this node.
-    fn name(&self) -> String {
-        todo!()
-    }
-    /// Returns a human-readable representation of this node.
-    fn display(&self) -> String {
-        todo!()
-    }
-    /// Estimates the proving cost of this node given statistics and schema.
-    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-        todo!()
-    }
-    /// Returns this node
-    fn id(&self) -> NodeId {
-        todo!()
-    }
-    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
-    fn children(&self) -> Vec<Node<B>> {
-        todo!()
-    }
-    /// Optional human-readable labels for each child edge.
-    fn child_edge_labels(&self) -> Vec<Option<String>> {
-        todo!()
-    }
-
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
