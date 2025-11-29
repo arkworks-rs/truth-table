@@ -14,13 +14,14 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_common::Statistics;
 use datafusion_expr::{LogicalPlan, Sort};
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
+
 
 pub struct ProverSortNode<B>
 where
     B: SnarkBackend,
 {
-    input: Arc<dyn PlanNode<B>>,
+    input: Node<B>,
     sort: Sort,
 }
 

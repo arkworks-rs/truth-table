@@ -2,12 +2,12 @@ use ark_piop::SnarkBackend;
 use datafusion_expr::SubqueryAlias;
 use std::sync::Arc;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
 
-pub struct ProverSubqueryAliasNode<B>
+pub struct ProverNode<B>
 where
     B: SnarkBackend,
 {
-    input: Arc<dyn PlanNode<B>>,
+    input: Node<B>,
     subquery_alias: SubqueryAlias,
 }

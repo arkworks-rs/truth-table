@@ -3,11 +3,12 @@ use datafusion_expr::Subquery;
 
 use std::sync::Arc;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
+
 pub struct ProverSubqueryNode<B>
 where
     B: SnarkBackend,
 {
-    input: Arc<dyn PlanNode<B>>,
+    input: Node<B>,
     subquery: Subquery,
 }

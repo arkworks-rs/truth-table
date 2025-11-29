@@ -8,16 +8,16 @@ use ark_piop::{
 };
 use datafusion_expr::Join;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
 
 #[allow(clippy::type_complexity)]
 pub struct ProverJoinNode<B>
 where
     B: SnarkBackend,
 {
-    left: Arc<dyn PlanNode<B>>,
-    right: Arc<dyn PlanNode<B>>,
-    on: Vec<(Arc<dyn PlanNode<B>>, Arc<dyn PlanNode<B>>)>,
-    filter: Option<Arc<dyn PlanNode<B>>>,
+    left: Node<B>,
+    right: Node<B>,
+    on: Vec<(Node<B>, Node<B>)>,
+    filter: Option<Node<B>>,
     join: Join,
 }

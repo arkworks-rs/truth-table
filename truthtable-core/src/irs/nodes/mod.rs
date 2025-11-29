@@ -11,7 +11,7 @@ use crate::irs::nodes::{cost::ProvingCost, gadget::GadgetAncestry, hints::HintDF
 pub mod cost;
 pub mod gadget;
 pub mod hints;
-// pub mod plan;
+pub mod plan;
 
 pub type NodeId = u64;
 #[derive(Derivative)]
@@ -30,6 +30,116 @@ pub enum PlanNode<B: SnarkBackend> {
 impl<B: SnarkBackend> Node<B> {
     /// Returns the human-readable name of this node.
     fn name(&self) -> String {
+        match &self {
+            Node::Plan(plan_node) => plan_node.name(),
+            Node::Gadget(gadget_node) => gadget_node.name(),
+        }
+    }
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        match &self {
+            Node::Plan(plan_node) => plan_node.display(),
+            Node::Gadget(gadget_node) => gadget_node.display(),
+        }
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        match &self {
+            Node::Plan(plan_node) => plan_node.cost(statistics, schema),
+            Node::Gadget(gadget_node) => gadget_node.cost(statistics, schema),
+        }
+    }
+    /// Returns this node
+    fn id(&self) -> NodeId {
+        match &self {
+            Node::Plan(plan_node) => plan_node.id(),
+            Node::Gadget(gadget_node) => gadget_node.id(),
+        }
+    }
+    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
+    fn children(&self) -> Vec<Node<B>> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.children(),
+            Node::Gadget(gadget_node) => gadget_node.children(),
+        }
+    }
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.child_edge_labels(),
+            Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
+        }
+    }
+
+    pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
+        todo!()
+    }
+    pub(crate) fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> PlanNode<B> {
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.name(),
+            PlanNode::ExprBased(expr_node) => expr_node.name(),
+        }
+    }
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.display(),
+            PlanNode::ExprBased(expr_node) => expr_node.display(),
+        }
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.cost(statistics, schema),
+            PlanNode::ExprBased(expr_node) => expr_node.cost(statistics, schema),
+        }
+    }
+    /// Returns this node
+    fn id(&self) -> NodeId {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.id(),
+            PlanNode::ExprBased(expr_node) => expr_node.id(),
+        }
+    }
+    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
+    fn children(&self) -> Vec<Node<B>> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.children(),
+            PlanNode::ExprBased(expr_node) => expr_node.children(),
+        }
+    }
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.child_edge_labels(),
+            PlanNode::ExprBased(expr_node) => expr_node.child_edge_labels(),
+        }
+    }
+
+    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
+    fn gadget(&self) -> Arc<dyn IsGadgetNode<B>> {
+        todo!()
+    }
+
+    /// Outputs the DataFrame resulting from executing this plan node.
+    fn output(&self) -> HintDF {
+        todo!()
+    }
+}
+
+pub trait IsGadgetNode<B>: Any + Send + Sync
+where
+    B: SnarkBackend,
+{
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String {
         todo!()
     }
     /// Returns a human-readable representation of this node.
@@ -46,54 +156,13 @@ impl<B: SnarkBackend> Node<B> {
     }
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Node<B>> {
-        match &self {
-            Node::Plan(plan_node) => match plan_node {
-                PlanNode::LpBased(lp_node) => lp_node.children(),
-                PlanNode::ExprBased(expr_node) => expr_node.children(),
-            },
-            Node::Gadget(gadget_node) => gadget_node.children(),
-        }
+        todo!()
     }
     /// Optional human-readable labels for each child edge.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }
 
-    pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
-        todo!()
-    }
-    pub(crate) fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
-        todo!()
-    }
-}
-
-impl<B: SnarkBackend> PlanNode<B> {
-    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<dyn IsGadgetNode<B>> {
-        todo!()
-    }
-
-    /// Outputs the DataFrame resulting from executing this plan node.
-    fn output(&self) -> HintDF {
-        todo!()
-    }
-}
-
-pub trait IsGadgetNode<B>: Any + Send + Sync
-where
-    B: SnarkBackend,
-{
-    /// Returns the children gadgets of this gadget. Note that the child of a gadget is a gadget, not a plan node.
-    fn children(&self) -> Vec<Node<B>> {
-        todo!()
-    }
-    /// Optional human-readable labels for each child edge.
-    fn child_edge_labels(&self) -> Vec<Option<String>>
-    where
-        Self: Sized,
-    {
-        self.children().into_iter().map(|_| None).collect()
-    }
     /// Runs the gadget prover
     fn prove() -> SnarkResult<()>
     where
@@ -106,9 +175,31 @@ pub trait IsLpNode<B>: Any + Send + Sync
 where
     B: SnarkBackend,
 {
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String {
+        todo!()
+    }
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        todo!()
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        todo!()
+    }
+    /// Returns this node
+    fn id(&self) -> NodeId {
+        todo!()
+    }
+    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Node<B>> {
         todo!()
     }
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        todo!()
+    }
+
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
     fn from_lp(_plan: LogicalPlan) -> Self
@@ -122,9 +213,31 @@ pub trait IsExprNode<B>: Any + Send + Sync
 where
     B: SnarkBackend,
 {
+    /// Returns the human-readable name of this node.
+    fn name(&self) -> String {
+        todo!()
+    }
+    /// Returns a human-readable representation of this node.
+    fn display(&self) -> String {
+        todo!()
+    }
+    /// Estimates the proving cost of this node given statistics and schema.
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        todo!()
+    }
+    /// Returns this node
+    fn id(&self) -> NodeId {
+        todo!()
+    }
+    /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Node<B>> {
         todo!()
     }
+    /// Optional human-readable labels for each child edge.
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        todo!()
+    }
+
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here

@@ -8,7 +8,7 @@ use ark_piop::{
 };
 use datafusion_expr::Aggregate;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
 
 mod hints;
 pub struct ProverAggregateNode<B>
@@ -18,9 +18,9 @@ where
     // The aggregate information from datafusion
     aggregate: Aggregate,
     // The prover plan children nodes for the group by expressions
-    input: Arc<dyn PlanNode<B>>,
-    group_exprs: Vec<Arc<dyn PlanNode<B>>>,
-    aggr_exprs: Vec<Arc<dyn PlanNode<B>>>,
+    input: Node<B>,
+    group_exprs: Vec<Node<B>>,
+    aggr_exprs: Vec<Node<B>>,
 }
 
 // impl<B> ProverPlanNode<B> for ProverAggregateNode<B>

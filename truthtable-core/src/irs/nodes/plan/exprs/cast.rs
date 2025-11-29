@@ -2,15 +2,14 @@ use std::sync::Arc;
 
 use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
+    SnarkBackend, arithmetic::mat_poly::{lde::LDE, mle::MLE}, pcs::PCS
 };
 use datafusion_expr::Cast;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
 
 #[derive(Clone)]
-pub struct ProverCastExprNode<B> {
+pub struct ProverCastExprNode<B:SnarkBackend> {
     cast: Cast,
-    input: Arc<dyn PlanNode<B>>,
+    input: Node<B>,
 }

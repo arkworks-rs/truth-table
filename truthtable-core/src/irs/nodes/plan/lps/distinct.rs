@@ -3,12 +3,12 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use datafusion_expr::Distinct;
 
-use crate::irs::tree::PlanNode;
+use crate::irs::nodes::Node;
 
 pub struct ProverDistinctNode<B>
 where
     B: SnarkBackend,
 {
-    input: Arc<dyn PlanNode<B>>,
+    input: Node<B>,
     distinct: Distinct,
 }
