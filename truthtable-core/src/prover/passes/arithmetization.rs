@@ -2,7 +2,10 @@ use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 
 use crate::{
-    irs::{ir::LocalPass, nodes::id::NodeId, tree::Node},
+    irs::{
+        ir::LocalPass,
+        nodes::{Node, NodeId},
+    },
     prover::payloads::{ArithPayload, MemTablePayload},
 };
 
@@ -17,7 +20,7 @@ where
 {
     fn transform(
         &self,
-        node: &dyn Node<B>,
+        node: &Node<B>,
         id: NodeId,
         payload: &MemTablePayload,
     ) -> ArithPayload<B::F> {

@@ -8,8 +8,7 @@ use datafusion::{
 use crate::{
     irs::{
         ir::LocalPass,
-        nodes::id::NodeId,
-        tree::{Node, PlanNode},
+        nodes::{Node, NodeId},
     },
     prover::payloads::{DataFramePayload, MemTablePayload, PayloadStructure},
 };
@@ -27,36 +26,11 @@ where
 {
     fn transform(
         &self,
-        _node: &dyn Node<B>,
+        _node: &Node<B>,
         id: NodeId,
         payload: &DataFramePayload,
     ) -> MemTablePayload {
-        match id {
-            NodeId::PLAN(_) => match payload {
-                PayloadStructure::PlanPayload(df) => {
-                    let mem_table =
-                        dataframe_to_memtable(df).expect("Failed to execute plan payload");
-                    MemTablePayload::PlanPayload(mem_table)
-                }
-                PayloadStructure::GadgetPayload(_) => {
-                    unreachable!("PLAN id must carry plan payload")
-                }
-            },
-            NodeId::GADGET(_) => match payload {
-                PayloadStructure::GadgetPayload(map) => {
-                    let mut out = IndexMap::new();
-                    for (name, df) in map.iter() {
-                        let table =
-                            dataframe_to_memtable(df).expect("Failed to execute gadget payload");
-                        out.insert(name.clone(), table);
-                    }
-                    MemTablePayload::GadgetPayload(out)
-                }
-                PayloadStructure::PlanPayload(_) => {
-                    unreachable!("GADGET id must carry gadget payload")
-                }
-            },
-        }
+        todo!()
     }
 }
 

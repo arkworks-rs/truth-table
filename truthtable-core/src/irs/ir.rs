@@ -1,18 +1,13 @@
-use ark_ff::PrimeField;
-use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use ark_std::cfg_iter;
+use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::{
-    nodes::id::NodeId,
-    tree::{Node, Payload, Tree},
-};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+use crate::irs::{
+    nodes::{Node, NodeId},
+    tree::{Payload, Tree},
+};
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Pd>,
@@ -41,39 +36,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     /// representation of its payload below the node name. Otherwise, only the
     /// node name is shown.
     pub fn display_graphviz(&self, show_payload: bool) -> String {
-        fn escape_html(s: &str) -> String {
-            s.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-        }
-
-        let mut dot = String::from("digraph IR {\n  node [shape=box];\n");
-
-        for (id, node) in self.tree.arena() {
-            let base_label = escape_html(&node.name());
-            let label = if show_payload {
-                match self.payloads.get(id) {
-                    Some(payload) => {
-                        let payload_str = escape_html(&format!("{:?}", payload));
-                        format!("<{base_label}<br/><font color=\"blue\">{payload_str}</font>>")
-                    }
-                    None => format!("<{base_label}>"),
-                }
-            } else {
-                format!("<{base_label}>")
-            };
-            dot.push_str(&format!("  \"{id}\" [label={label}];\n"));
-
-            if let Some(plan) = node.as_plan_node() {
-                for child in plan.children() {
-                    let child_id = child.id();
-                    dot.push_str(&format!("  \"{id}\" -> \"{child_id}\";\n"));
-                }
-            }
-        }
-
-        dot.push_str("}\n");
-        dot
+        todo!()
     }
 }
 impl<B, PIn> Ir<B, PIn>
@@ -89,7 +52,7 @@ where
         let mut out = IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.tree.arena().iter() {
             let p_in = &self.payloads[id];
-            let p_out = pass.transform(node.as_ref(), id.clone(), p_in);
+            let p_out = pass.transform(node, id.clone(), p_in);
             out.insert(id.clone(), p_out);
         }
         Ir {
@@ -111,7 +74,7 @@ where
             .into_par_iter()
             .map(|(id, node)| {
                 let p_in = &self.payloads[id];
-                let p_out = pass.transform(node.as_ref(), id.clone(), p_in);
+                let p_out = pass.transform(node, id.clone(), p_in);
                 (id.clone(), p_out)
             })
             .collect();
@@ -128,5 +91,5 @@ where
     PIn: Payload,
     POut: Payload,
 {
-    fn transform(&self, node: &dyn Node<B>, id: NodeId, payload: &PIn) -> POut;
+    fn transform(&self, node: &Node<B>, id: NodeId, payload: &PIn) -> POut;
 }

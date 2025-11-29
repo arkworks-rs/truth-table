@@ -1,7 +1,10 @@
 use ark_piop::SnarkBackend;
 
 use crate::{
-    irs::{ir::LocalPass, nodes::id::NodeId, tree::Node},
+    irs::{
+        ir::LocalPass,
+        nodes::{Node, NodeId},
+    },
     prover::payloads::{ArithPayload, TrackedPayload},
 };
 
@@ -16,7 +19,7 @@ where
 {
     fn transform(
         &self,
-        node: &dyn Node<B>,
+        node: &Node<B>,
         id: NodeId,
         payload: &ArithPayload<B::F>,
     ) -> TrackedPayload<B> {
