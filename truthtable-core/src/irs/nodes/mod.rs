@@ -56,12 +56,21 @@ where
     B: SnarkBackend,
 {
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<dyn IsGadgetNode<B>>;
+    fn gadget(&self) -> Node<B>;
     /// Outputs the DataFrame resulting from executing this plan node.
     fn output(&self) -> HintDF;
 }
 
 impl<B: SnarkBackend> Node<B> {
+    pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
+        todo!()
+    }
+    pub(crate) fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> IsNode<B> for Node<B> {
     /// Returns the human-readable name of this node.
     fn name(&self) -> String {
         match &self {
@@ -103,13 +112,6 @@ impl<B: SnarkBackend> Node<B> {
             Node::Plan(plan_node) => plan_node.child_edge_labels(),
             Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
         }
-    }
-
-    pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
-        todo!()
-    }
-    pub(crate) fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
-        todo!()
     }
 }
 
@@ -158,7 +160,7 @@ impl<B: SnarkBackend> PlanNode<B> {
     }
 
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<dyn IsGadgetNode<B>> {
+    fn gadget(&self) -> Node<B> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.gadget(),
             PlanNode::ExprBased(expr_node) => expr_node.gadget(),
