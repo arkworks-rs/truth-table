@@ -7,7 +7,9 @@ use datafusion_expr::{Expr, LogicalPlan};
 use derivative::Derivative;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::{cost::ProvingCost, gadget::GadgetAncestry, hints::HintDF};
+use crate::irs::nodes::{
+    cost::ProvingCost, gadget::GadgetAncestry, hints::HintDF, plan::lps::projection,
+};
 pub mod cost;
 pub mod gadget;
 pub mod hints;
@@ -63,9 +65,16 @@ where
 
 impl<B: SnarkBackend> Node<B> {
     pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
-        todo!()
+        match plan {
+            LogicalPlan::Projection(_) => Node::Plan(PlanNode::LpBased(Arc::new(
+                projection::ProverNode::from_lp(plan),
+            ))),
+            _ => {
+                todo!()
+            }
+        }
     }
-    pub(crate) fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
+    pub(crate) fn from_expr(expr: &Expr, parent: Option<&Node<B>>) -> Self {
         todo!()
     }
 }

@@ -57,7 +57,7 @@ where
         Self { root, arena }
     }
 
-    pub fn from_expr(expr: &Expr, parent: Option<NodeId>) -> Self {
+    pub fn from_expr(expr: &Expr, parent: Option<&Node<B>>) -> Self {
         let root = Node::<B>::from_expr(expr, parent);
         let arena = build_arena(&root);
         Self { root, arena }
