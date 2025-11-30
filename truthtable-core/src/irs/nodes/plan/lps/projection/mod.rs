@@ -24,7 +24,7 @@ where
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
-        todo!()
+        "Projection".to_string()
     }
 
     fn cost(
@@ -32,10 +32,6 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         statistics: datafusion_common::Statistics,
         schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
-        todo!()
-    }
-
-    fn id(&self) -> crate::irs::nodes::NodeId {
         todo!()
     }
 

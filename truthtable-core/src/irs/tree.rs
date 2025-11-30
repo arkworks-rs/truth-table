@@ -1,15 +1,36 @@
-use crate::irs::nodes::{Node, NodeId};
+use crate::irs::nodes::{IsNode, Node, NodeId};
 use ark_piop::SnarkBackend;
 use ark_std::fmt::Debug;
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use derivative::Derivative;
 use indexmap::IndexMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Weak};
+
 fn build_arena<B>(root: &Arc<Node<B>>) -> IndexMap<NodeId, Arc<Node<B>>>
 where
     B: SnarkBackend,
 {
-    todo!()
+    fn visit<B>(node: &Arc<Node<B>>, arena: &mut IndexMap<NodeId, Arc<Node<B>>>)
+    where
+        B: SnarkBackend,
+    {
+        let mut hasher = DefaultHasher::new();
+        node.hash(&mut hasher);
+        let id = hasher.finish();
+        if arena.contains_key(&id) {
+            return;
+        }
+        for child in node.children() {
+            visit(&child, arena);
+        }
+        arena.insert(id, node.clone());
+    }
+
+    let mut arena = IndexMap::new();
+    visit(root, &mut arena);
+    arena
 }
 
 /// The abstraction of a tree structure used in intermediate representations

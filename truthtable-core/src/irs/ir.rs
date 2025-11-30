@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use rayon::prelude::*;
 
 use crate::irs::{
-    nodes::{Node, NodeId},
+    nodes::{IsNode, Node, NodeId},
     tree::{Payload, Tree},
 };
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
@@ -36,7 +36,59 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     /// representation of its payload below the node name. Otherwise, only the
     /// node name is shown.
     pub fn display_graphviz(&self, show_payload: bool) -> String {
-        todo!()
+        fn escape_html(input: &str) -> String {
+            input
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        }
+
+        fn node_id<B: SnarkBackend>(node: &Node<B>) -> NodeId {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            node.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        let mut dot = String::from("digraph ir {\n  node [shape=box];\n");
+
+        for (id, node) in self.tree.arena().iter() {
+            let name = node.name();
+            let (label, html) = if show_payload {
+                if let Some(payload) = self.payloads.get(id) {
+                    let payload_str = escape_html(&format!("{:?}", payload));
+                    (
+                        format!(
+                            "<{}<BR/><FONT COLOR=\"blue\">{}</FONT>>",
+                            escape_html(&name),
+                            payload_str
+                        ),
+                        true,
+                    )
+                } else {
+                    (escape_html(&name), false)
+                }
+            } else {
+                (escape_html(&name), false)
+            };
+            if html {
+                dot.push_str(&format!("  \"{}\" [label={}];\n", id, label));
+            } else {
+                dot.push_str(&format!("  \"{}\" [label=\"{}\"];\n", id, label));
+            }
+        }
+
+        for (_id, node) in self.tree.arena().iter() {
+            for child in node.children() {
+                let child_id = node_id(&child);
+                let parent_id = node_id(node);
+                dot.push_str(&format!("  \"{}\" -> \"{}\";\n", parent_id, child_id));
+            }
+        }
+
+        dot.push('}');
+        dot
     }
 }
 impl<B, PIn> Ir<B, PIn>

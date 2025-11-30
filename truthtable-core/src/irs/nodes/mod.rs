@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    hash::{Hash, Hasher},
     sync::{Arc, Weak},
 };
 
@@ -14,7 +15,10 @@ use crate::irs::nodes::{
     cost::ProvingCost,
     gadget::GadgetAncestry,
     hints::HintDF,
-    plan::lps::{projection, table_scan},
+    plan::{
+        exprs::column,
+        lps::{projection, table_scan},
+    },
 };
 pub mod cost;
 pub mod gadget;
@@ -35,6 +39,36 @@ pub enum PlanNode<B: SnarkBackend> {
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
 
+impl<B: SnarkBackend> Hash for Node<B> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Node::Plan(plan) => {
+                state.write_u8(0);
+                plan.hash(state);
+            }
+            Node::Gadget(gadget) => {
+                state.write_u8(1);
+                std::ptr::hash(Arc::as_ptr(gadget), state);
+            }
+        }
+    }
+}
+
+impl<B: SnarkBackend> Hash for PlanNode<B> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PlanNode::LpBased(node) => {
+                state.write_u8(0);
+                std::ptr::hash(Arc::as_ptr(node), state);
+            }
+            PlanNode::ExprBased(node) => {
+                state.write_u8(1);
+                std::ptr::hash(Arc::as_ptr(node), state);
+            }
+        }
+    }
+}
+
 /// Common interface across all node kinds.
 pub trait IsNode<B>: Any + Send + Sync
 where
@@ -48,8 +82,6 @@ where
     }
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-    /// Returns the unique identifier of this node.
-    fn id(&self) -> NodeId;
     /// Returns this node's children.
     fn children(&self) -> Vec<Arc<Node<B>>>;
     /// Optional human-readable labels for each child edge.
@@ -85,7 +117,15 @@ impl<B: SnarkBackend> Node<B> {
         }
     }
     pub(crate) fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>) -> Arc<Self> {
-        todo!()
+        match expr.clone() {
+            Expr::Column(_) => Arc::new_cyclic(|weak_self| {
+                let node =
+                    column::ProverNode::from_expr(expr.clone(), weak_self.clone(), parent.clone());
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+
+            _ => todo!(),
+        }
     }
 }
 
@@ -111,13 +151,7 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.cost(statistics, schema),
         }
     }
-    /// Returns this node
-    fn id(&self) -> NodeId {
-        match &self {
-            Node::Plan(plan_node) => plan_node.id(),
-            Node::Gadget(gadget_node) => gadget_node.id(),
-        }
-    }
+
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
@@ -154,13 +188,6 @@ impl<B: SnarkBackend> PlanNode<B> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.cost(statistics, schema),
             PlanNode::ExprBased(expr_node) => expr_node.cost(statistics, schema),
-        }
-    }
-    /// Returns this node
-    fn id(&self) -> NodeId {
-        match &self {
-            PlanNode::LpBased(lp_node) => lp_node.id(),
-            PlanNode::ExprBased(expr_node) => expr_node.id(),
         }
     }
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
@@ -227,7 +254,7 @@ where
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(_expr: Expr, parent: Option<Weak<Node<B>>>) -> Self
+    fn from_expr(_expr: Expr, self_ref: Weak<Node<B>>, parent: Option<Weak<Node<B>>>) -> Self
     where
         Self: Sized;
 

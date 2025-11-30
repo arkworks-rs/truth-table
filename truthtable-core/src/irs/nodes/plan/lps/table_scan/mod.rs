@@ -11,7 +11,7 @@ pub struct ProverNode {
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode {
     fn name(&self) -> String {
-        todo!()
+        "TableScan".to_string()
     }
 
     fn cost(
@@ -22,12 +22,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
         todo!()
     }
 
-    fn id(&self) -> crate::irs::nodes::NodeId {
-        todo!()
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        todo!()
+        vec![]
     }
 }
 
@@ -42,7 +38,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for ProverNode {
-    fn from_lp(_plan: datafusion_expr::LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
+    fn from_lp(_plan: datafusion_expr::LogicalPlan, _parent: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,
     {
