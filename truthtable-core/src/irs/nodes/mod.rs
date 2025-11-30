@@ -1,4 +1,7 @@
-use std::{any::Any, sync::Arc};
+use std::{
+    any::Any,
+    sync::{Arc, Weak},
+};
 
 use ark_piop::{SnarkBackend, errors::SnarkResult};
 use arrow_schema::SchemaRef;
@@ -8,7 +11,10 @@ use derivative::Derivative;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    cost::ProvingCost, gadget::GadgetAncestry, hints::HintDF, plan::lps::projection,
+    cost::ProvingCost,
+    gadget::GadgetAncestry,
+    hints::HintDF,
+    plan::lps::{projection, table_scan},
 };
 pub mod cost;
 pub mod gadget;
@@ -45,7 +51,7 @@ where
     /// Returns the unique identifier of this node.
     fn id(&self) -> NodeId;
     /// Returns this node's children.
-    fn children(&self) -> Vec<Node<B>>;
+    fn children(&self) -> Vec<Arc<Node<B>>>;
     /// Optional human-readable labels for each child edge.
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
@@ -58,23 +64,27 @@ where
     B: SnarkBackend,
 {
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Node<B>;
+    fn gadget(&self) -> Arc<Node<B>>;
     /// Outputs the DataFrame resulting from executing this plan node.
     fn output(&self) -> HintDF;
 }
 
 impl<B: SnarkBackend> Node<B> {
-    pub(crate) fn from_lp(plan: LogicalPlan) -> Self {
-        match plan {
-            LogicalPlan::Projection(_) => Node::Plan(PlanNode::LpBased(Arc::new(
-                projection::ProverNode::from_lp(plan),
-            ))),
-            _ => {
-                todo!()
-            }
+    pub(crate) fn from_lp(plan: LogicalPlan) -> Arc<Self> {
+        match plan.clone() {
+            LogicalPlan::Projection(_) => Arc::new_cyclic(|weak_self| {
+                let node = projection::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+
+            LogicalPlan::TableScan(_) => Arc::new_cyclic(|weak_self| {
+                let node = table_scan::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+            _ => todo!(),
         }
     }
-    pub(crate) fn from_expr(expr: &Expr, parent: Option<&Node<B>>) -> Self {
+    pub(crate) fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>) -> Arc<Self> {
         todo!()
     }
 }
@@ -109,7 +119,7 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
-    fn children(&self) -> Vec<Node<B>> {
+    fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             Node::Plan(plan_node) => plan_node.children(),
             Node::Gadget(gadget_node) => gadget_node.children(),
@@ -154,7 +164,7 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
-    fn children(&self) -> Vec<Node<B>> {
+    fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.children(),
             PlanNode::ExprBased(expr_node) => expr_node.children(),
@@ -169,7 +179,7 @@ impl<B: SnarkBackend> PlanNode<B> {
     }
 
     /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Node<B> {
+    fn gadget(&self) -> Arc<Node<B>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.gadget(),
             PlanNode::ExprBased(expr_node) => expr_node.gadget(),
@@ -203,7 +213,7 @@ where
 {
     /// Constructs a proof plan node from a DataFusion logical plan.
     // TODO: We might not need ctx here
-    fn from_lp(_plan: LogicalPlan) -> Self
+    fn from_lp(_plan: LogicalPlan, self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized;
 
@@ -217,7 +227,7 @@ where
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(_expr: Expr, parent: Option<Node<B>>) -> Self
+    fn from_expr(_expr: Expr, parent: Option<Weak<Node<B>>>) -> Self
     where
         Self: Sized;
 

@@ -1,10 +1,13 @@
-use std::hash::Hash;
+use std::{
+    hash::Hash,
+    sync::{Arc, Weak},
+};
 
 use ark_piop::SnarkBackend;
 use datafusion_expr::{LogicalPlan, Projection};
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, NodeId},
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node},
     tree::Tree,
 };
 
@@ -15,8 +18,8 @@ where
     B: SnarkBackend,
 {
     projection: Projection,
-    input: Node<B>,
-    exprs: Vec<Node<B>>,
+    input: Arc<Node<B>>,
+    exprs: Vec<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
@@ -36,13 +39,16 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         todo!()
     }
 
-    fn children(&self) -> Vec<Node<B>> {
-        todo!()
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        let mut out = Vec::with_capacity(1 + self.exprs.len());
+        out.push(self.input.clone());
+        out.extend(self.exprs.iter().cloned());
+        out
     }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
-    fn gadget(&self) -> Node<B> {
+    fn gadget(&self) -> Arc<Node<B>> {
         todo!()
     }
 
@@ -52,7 +58,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
-    fn from_lp(plan: datafusion_expr::LogicalPlan) -> Self
+    fn from_lp(plan: datafusion_expr::LogicalPlan, self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized,
     {
@@ -71,7 +77,11 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
         let exprs = projection
             .expr
             .iter()
-            .map(|expr| Tree::<B>::from_expr(expr, None).root().clone())
+            .map(|expr| {
+                Tree::<B>::from_expr(expr, Some(self_ref.clone()))
+                    .root()
+                    .clone()
+            })
             .collect();
 
         Self {
@@ -81,7 +91,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
         }
     }
 
-    fn lp(&self) -> datafusion_expr::LogicalPlan {
+    fn lp(&self) -> LogicalPlan {
         LogicalPlan::Projection(self.projection.clone())
     }
 }

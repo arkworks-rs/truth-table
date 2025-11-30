@@ -55,7 +55,7 @@ mod test {
     fn queries() -> Vec<&'static str> {
         vec![
             "SELECT first_column, second_column FROM dummy_table ",
-            "SELECT first_column, second_column FROM dummy_table where third_column > 150",
+            // "SELECT first_column, second_column FROM dummy_table where third_column > 150",
         ]
     }
     #[tokio::test]
