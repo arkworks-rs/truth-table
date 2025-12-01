@@ -16,8 +16,8 @@ use crate::irs::nodes::{
     gadget::GadgetAncestry,
     hints::HintDF,
     plan::{
-        exprs::column,
-        lps::{projection, table_scan},
+        exprs::{binary_expr, column, literal},
+        lps::{filter, projection, table_scan},
     },
 };
 pub mod cost;
@@ -113,6 +113,10 @@ impl<B: SnarkBackend> Node<B> {
                 let node = table_scan::ProverNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
+            LogicalPlan::Filter(_) => Arc::new_cyclic(|weak_self| {
+                let node = filter::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
             _ => todo!(),
         }
     }
@@ -121,6 +125,20 @@ impl<B: SnarkBackend> Node<B> {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node =
                     column::ProverNode::from_expr(expr.clone(), weak_self.clone(), parent.clone());
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+
+            Expr::Literal(_) => Arc::new_cyclic(|weak_self| {
+                let node =
+                    literal::ProverNode::from_expr(expr.clone(), weak_self.clone(), parent.clone());
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::BinaryExpr(_) => Arc::new_cyclic(|weak_self| {
+                let node = binary_expr::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
 
@@ -214,7 +232,7 @@ impl<B: SnarkBackend> PlanNode<B> {
     }
 
     /// Outputs the DataFrame resulting from executing this plan node.
-    fn output(&self) -> HintDF {
+    pub fn output(&self) -> HintDF {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.output(),
             PlanNode::ExprBased(expr_node) => expr_node.output(),

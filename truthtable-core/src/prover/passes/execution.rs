@@ -10,7 +10,7 @@ use crate::{
         ir::LocalPass,
         nodes::{Node, NodeId},
     },
-    prover::payloads::{DataFramePayload, MemTablePayload, PayloadStructure},
+    prover::payloads::{HintDFPayload, MemTablePayload, PayloadStructure},
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -20,16 +20,11 @@ pub struct ExecutionPass<B> {
     _phantom: std::marker::PhantomData<(B)>,
 }
 
-impl<B> LocalPass<B, DataFramePayload, MemTablePayload> for ExecutionPass<B>
+impl<B> LocalPass<B, HintDFPayload, MemTablePayload> for ExecutionPass<B>
 where
     B: SnarkBackend,
 {
-    fn transform(
-        &self,
-        _node: &Node<B>,
-        id: NodeId,
-        payload: &DataFramePayload,
-    ) -> MemTablePayload {
+    fn transform(&self, _node: &Node<B>, id: NodeId, payload: &HintDFPayload) -> MemTablePayload {
         todo!()
     }
 }

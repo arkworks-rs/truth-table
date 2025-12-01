@@ -3,12 +3,12 @@ use ark_piop::SnarkBackend;
 use crate::{
     irs::ir::Ir,
     prover::payloads::{
-        ArithPayload, DataFramePayload, EmptyPayload, MemTablePayload, TrackedPayload,
+        ArithPayload, HintDFPayload, EmptyPayload, MemTablePayload, TrackedPayload,
     },
 };
 
 pub type InitialIr<B> = Ir<B, EmptyPayload>;
-pub type PlannedIr<B> = Ir<B, DataFramePayload>;
+pub type PlannedIr<B> = Ir<B, HintDFPayload>;
 pub type ExecutedIr<B> = Ir<B, MemTablePayload>;
 pub type ArithmetizedIr<B> = Ir<B, ArithPayload<<B as SnarkBackend>::F>>;
 pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
@@ -55,7 +55,7 @@ mod test {
     fn queries() -> Vec<&'static str> {
         vec![
             "SELECT first_column, second_column FROM dummy_table ",
-            // "SELECT first_column, second_column FROM dummy_table where third_column > 150",
+            "SELECT first_column, second_column FROM dummy_table where third_column > 150",
         ]
     }
     #[tokio::test]

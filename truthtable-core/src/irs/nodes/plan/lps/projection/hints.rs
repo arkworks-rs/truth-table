@@ -127,7 +127,7 @@ mod tests {
                 Expr::BinaryExpr(BinaryExpr::new(
                     Box::new(col("val1")),
                     Operator::Plus,
-                    Box::new(Expr::Literal(ScalarValue::Int64(Some(2)))),
+                    Box::new(Expr::Literal(ScalarValue::Int32(Some(2)))),
                 )),
                 None::<TableReference>,
                 "val1_plus_two",

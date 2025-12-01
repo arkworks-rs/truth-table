@@ -49,7 +49,15 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        // Evaluate the projection against the virtual/physical data produced by the
+        // child node, then keep the result virtual (no eager materialization).
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
+        };
+
+        let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 

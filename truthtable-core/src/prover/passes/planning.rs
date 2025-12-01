@@ -6,7 +6,7 @@ use crate::{
         ir::LocalPass,
         nodes::{Node, NodeId},
     },
-    prover::payloads::{DataFramePayload, EmptyPayload, PayloadStructure},
+    prover::payloads::{EmptyPayload, HintDFPayload, PayloadStructure},
 };
 use indexmap::IndexMap;
 
@@ -29,11 +29,14 @@ impl<B> Default for PlanningPass<B> {
     }
 }
 
-impl<B> LocalPass<B, EmptyPayload, DataFramePayload> for PlanningPass<B>
+impl<B> LocalPass<B, EmptyPayload, HintDFPayload> for PlanningPass<B>
 where
     B: SnarkBackend,
 {
-    fn transform(&self, node: &Node<B>, id: NodeId, _payload: &EmptyPayload) -> DataFramePayload {
-        todo!()
+    fn transform(&self, node: &Node<B>, id: NodeId, _payload: &EmptyPayload) -> HintDFPayload {
+        match node {
+            Node::Plan(plan_node) => PayloadStructure::PlanPayload(plan_node.output().clone()),
+            Node::Gadget(gadget_node) => PayloadStructure::GadgetPayload(gadget_node.hints()),
+        }
     }
 }
