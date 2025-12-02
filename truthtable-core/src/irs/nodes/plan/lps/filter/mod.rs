@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::FieldRef;
 use datafusion_expr::{Filter, LogicalPlan};
+use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node},
     tree::Tree,
 };
+
+mod hints;
 
 /// The implementation of a filter node in the prover proof tree.
 pub struct ProverNode<B>
@@ -45,7 +49,28 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        // Derive the output by updating the activator column instead of dropping rows.
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Filter input cannot be a gadget node"),
+        };
+
+        let output_df = hints::build_output_dataframe(input_hint_df.data_frame(), &self.filter);
+
+        // Only materialize the activator column; keep all other columns virtual.
+        let should_materialize: IndexMap<FieldRef, bool> = output_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    field.name() == arithmetic::ACTIVATOR_COL_NAME,
+                )
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
     }
 }
 
@@ -65,7 +90,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
 
         // Recurse into the input subtree and fetch the expr that feeds this
         // filter.
-        let predicate = Tree::<B>::from_expr(&filter.predicate, Some(self_ref))
+        let predicate = Tree::<B>::from_expr(&filter.predicate, Some(self_ref), input.clone())
             .root()
             .clone();
         Self {

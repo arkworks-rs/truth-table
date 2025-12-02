@@ -1,3 +1,4 @@
+use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
@@ -6,6 +7,11 @@ use indexmap::IndexMap;
 pub struct HintDF {
     data_fram: DataFrame,
     should_materialize: IndexMap<FieldRef, bool>,
+}
+impl Display for HintDF {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HintDF with {} columns", self.should_materialize.len())
+    }
 }
 
 impl HintDF {

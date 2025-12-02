@@ -5,6 +5,7 @@ use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Weak};
 
@@ -78,11 +79,11 @@ where
         Self { root, arena }
     }
 
-    pub fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>) -> Self {
-        let root = Node::<B>::from_expr(expr, parent);
+    pub fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>, scope: Arc<Node<B>>) -> Self {
+        let root = Node::<B>::from_expr(expr, parent, scope);
         let arena = build_arena(&root);
         Self { root, arena }
     }
 }
 
-pub trait Payload: Debug + 'static {}
+pub trait Payload: Display + Debug + 'static {}

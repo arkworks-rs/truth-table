@@ -3,7 +3,7 @@ use ark_piop::SnarkBackend;
 use crate::{
     irs::ir::Ir,
     prover::payloads::{
-        ArithPayload, HintDFPayload, EmptyPayload, MemTablePayload, TrackedPayload,
+        ArithPayload, EmptyPayload, HintDFPayload, MemTablePayload, TrackedPayload,
     },
 };
 
@@ -71,7 +71,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (id.clone(), EmptyPayload))
+                .map(|id| (*id, EmptyPayload))
                 .collect::<IndexMap<_, _>>();
 
             let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);

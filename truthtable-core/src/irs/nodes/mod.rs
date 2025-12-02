@@ -27,7 +27,7 @@ pub mod plan;
 
 pub type NodeId = u64;
 #[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
+#[derivative(Clone(bound = ""),)]
 pub enum Node<B: SnarkBackend> {
     Plan(PlanNode<B>),
     Gadget(Arc<dyn IsGadgetNode<B>>),
@@ -120,17 +120,29 @@ impl<B: SnarkBackend> Node<B> {
             _ => todo!(),
         }
     }
-    pub(crate) fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>) -> Arc<Self> {
+    pub(crate) fn from_expr(
+        expr: &Expr,
+        parent: Option<Weak<Node<B>>>,
+        scope: Arc<Node<B>>,
+    ) -> Arc<Self> {
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
-                let node =
-                    column::ProverNode::from_expr(expr.clone(), weak_self.clone(), parent.clone());
+                let node = column::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
 
             Expr::Literal(_) => Arc::new_cyclic(|weak_self| {
-                let node =
-                    literal::ProverNode::from_expr(expr.clone(), weak_self.clone(), parent.clone());
+                let node = literal::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::BinaryExpr(_) => Arc::new_cyclic(|weak_self| {
@@ -138,6 +150,7 @@ impl<B: SnarkBackend> Node<B> {
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
+                    scope.clone(),
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
@@ -272,13 +285,22 @@ where
     /// Constructs a proof plan node from a DataFusion expression and its parent
     /// logical plan.
     // TODO: We might not need ctx and parent_logical_plan here
-    fn from_expr(_expr: Expr, self_ref: Weak<Node<B>>, parent: Option<Weak<Node<B>>>) -> Self
+    fn from_expr(
+        _expr: Expr,
+        self_ref: Weak<Node<B>>,
+        parent: Option<Weak<Node<B>>>,
+        scope: Arc<Node<B>>,
+    ) -> Self
     where
         Self: Sized;
 
     fn expr(&self) -> Expr;
 
     fn parent(&self) -> PlanNode<B>
+    where
+        Self: Sized;
+
+    fn scope(&self) -> Arc<Node<B>>
     where
         Self: Sized;
 

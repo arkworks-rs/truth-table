@@ -1,3 +1,4 @@
+use std::ffi::os_str::Display;
 use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
@@ -19,7 +20,6 @@ use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
-
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
@@ -358,6 +358,11 @@ pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
     polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
     log_size: usize,
+}
+impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
 }
 
 fn border_line(widths: &[usize]) -> String {
