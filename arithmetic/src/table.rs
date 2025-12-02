@@ -1,4 +1,3 @@
-use std::ffi::os_str::Display;
 use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;

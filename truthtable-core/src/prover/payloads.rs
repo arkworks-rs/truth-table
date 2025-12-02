@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use arithmetic::table::{ArithTable, TrackedTable};
-use datafusion::{datasource::MemTable, prelude::DataFrame};
+use datafusion::{arrow::array::RecordBatch, datasource::MemTable, prelude::DataFrame};
 use indexmap::IndexMap;
 use datafusion::datasource::TableProvider;
 use crate::irs::{nodes::hints::HintDF, tree::Payload};
@@ -52,18 +52,29 @@ pub struct MaterializedTable {
     table: MemTable,
     col_names: Vec<String>,
     row_count: usize,
+    batches: Vec<RecordBatch>,
 }
 impl MaterializedTable {
-    pub fn new(table: MemTable, col_names: Vec<String>, row_count: usize) -> Self {
+    pub fn new(
+        table: MemTable,
+        col_names: Vec<String>,
+        row_count: usize,
+        batches: Vec<RecordBatch>,
+    ) -> Self {
         Self {
             table,
             col_names,
             row_count,
+            batches,
         }
     }
 
     pub fn mem_table(&self) -> &MemTable {
         &self.table
+    }
+
+    pub fn batches(&self) -> &[RecordBatch] {
+        &self.batches
     }
 }
 impl std::fmt::Display for MaterializedTable {

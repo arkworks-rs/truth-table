@@ -44,9 +44,9 @@ mod test {
         let batch = RecordBatch::try_new(
             schema.clone(),
             vec![
-                Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef,
-                Arc::new(Int32Array::from(vec![10, 20, 30])) as ArrayRef,
-                Arc::new(Int32Array::from(vec![100, 200, 300])) as ArrayRef,
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4])) as ArrayRef,
+                Arc::new(Int32Array::from(vec![10, 20, 30, 40])) as ArrayRef,
+                Arc::new(Int32Array::from(vec![100, 200, 300, 400])) as ArrayRef,
             ],
         )
         .unwrap();

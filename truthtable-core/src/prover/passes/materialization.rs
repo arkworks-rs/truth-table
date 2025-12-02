@@ -77,7 +77,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Materializ
     if projection.is_empty() {
         let empty_mem =
             MemTable::try_new(Arc::new(Schema::empty()), vec![vec![]]).expect("empty memtable");
-        return MaterializedTable::new(empty_mem, Vec::new(), 0);
+        return MaterializedTable::new(empty_mem, Vec::new(), 0, Vec::new());
     }
 
     let df = df
@@ -96,8 +96,8 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Materializ
 
     let df_schema_ref = df.schema();
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
-    let mem_table = dataframe_to_memtable_from_batches(batches, Arc::new(arrow_schema));
-    MaterializedTable::new(mem_table, col_names, row_count)
+    let mem_table = dataframe_to_memtable_from_batches(batches.clone(), Arc::new(arrow_schema));
+    MaterializedTable::new(mem_table, col_names, row_count, batches)
 }
 
 fn dataframe_to_memtable_from_batches(batches: Vec<RecordBatch>, schema: Arc<Schema>) -> MemTable {
