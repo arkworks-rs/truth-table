@@ -361,7 +361,21 @@ pub struct ArithTable<F: PrimeField> {
 }
 impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        if self.polynomials.is_empty() {
+            write!(f, "ArithTable empty")
+        } else {
+            let cols: Vec<String> = self
+                .polynomials
+                .keys()
+                .map(|field| field.name().to_string())
+                .collect();
+            write!(
+                f,
+                "ArithTable cols=({}), log_size={}",
+                cols.join(","),
+                self.log_size
+            )
+        }
     }
 }
 

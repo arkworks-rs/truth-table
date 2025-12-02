@@ -1,5 +1,9 @@
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
+use arithmetic::table::ArithTable;
+use datafusion::arrow::datatypes::Schema;
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 use crate::{
     irs::{
@@ -32,6 +36,25 @@ where
         id: NodeId,
         payload: &MaterializedPayload,
     ) -> ArithPayload<B::F> {
-        todo!()
+        match payload {
+            MaterializedPayload::PlanPayload(mat) => {
+                ArithPayload::PlanPayload(arithmetize_materialized_table(mat))
+            }
+            MaterializedPayload::GadgetPayload(map) => {
+                let mut out = IndexMap::new();
+                for (k, mat) in map {
+                    out.insert(k.clone(), arithmetize_materialized_table(mat));
+                }
+                ArithPayload::GadgetPayload(out)
+            }
+        }
     }
+}
+
+fn arithmetize_materialized_table<F: PrimeField>(
+    mat: &MaterializedTable,
+) -> ArithTable<F> {
+    let schema: Schema = mat.mem_table().schema().as_ref().clone();
+    // TODO: real arithmetization; placeholder empty polynomials with log_size 0.
+    ArithTable::new(Some(schema), IndexMap::new(), 0)
 }
