@@ -3,13 +3,13 @@ use ark_piop::SnarkBackend;
 use crate::{
     irs::ir::Ir,
     prover::payloads::{
-        ArithPayload, EmptyPayload, HintDFPayload, MemTablePayload, TrackedPayload,
+        ArithPayload, EmptyPayload, HintDFPayload, MaterializedPayload, TrackedPayload,
     },
 };
 
 pub type InitialIr<B> = Ir<B, EmptyPayload>;
 pub type PlannedIr<B> = Ir<B, HintDFPayload>;
-pub type ExecutedIr<B> = Ir<B, MemTablePayload>;
+pub type ExecutedIr<B> = Ir<B, MaterializedPayload>;
 pub type ArithmetizedIr<B> = Ir<B, ArithPayload<<B as SnarkBackend>::F>>;
 pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
 
@@ -95,7 +95,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (id.clone(), EmptyPayload))
+                .map(|id| (*id, EmptyPayload))
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);

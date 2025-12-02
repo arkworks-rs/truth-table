@@ -10,7 +10,21 @@ pub struct HintDF {
 }
 impl Display for HintDF {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HintDF with {} columns", self.should_materialize.len())
+        let (materialized, virtualized): (Vec<_>, Vec<_>) =
+            self.should_materialize.iter().partition(|(_, mat)| **mat);
+
+        let materialized_cols: Vec<String> = materialized
+            .into_iter()
+            .map(|(field, _)| field.name().to_string())
+            .collect();
+        let virtual_cols: Vec<String> = virtualized
+            .into_iter()
+            .map(|(field, _)| field.name().to_string())
+            .collect();
+
+        writeln!(f, "HintDF with {} columns", self.should_materialize.len())?;
+        writeln!(f, "Materialized: ({})", materialized_cols.join(","))?;
+        write!(f, "Virtual: ({})", virtual_cols.join(","))
     }
 }
 

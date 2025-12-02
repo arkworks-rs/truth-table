@@ -13,7 +13,7 @@ pub enum PayloadStructure<T> {
 }
 impl<T: std::fmt::Debug + Display + 'static> Payload for PayloadStructure<T> {}
 pub type HintDFPayload = PayloadStructure<HintDF>;
-pub type MemTablePayload = PayloadStructure<MemTable>;
+pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
 pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
 
@@ -47,7 +47,9 @@ impl std::fmt::Display for EmptyPayload {
     }
 }
 
-impl std::fmt::Display for MemTable {
+#[derive(Debug)]
+pub struct MaterializedTable(MemTable);
+impl std::fmt::Display for MaterializedTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }

@@ -57,7 +57,8 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
             let name = node.name();
             let (label, html) = if show_payload {
                 if let Some(payload) = self.payloads.get(id) {
-                    let payload_str = escape_html(&format!("{:?}", payload));
+                    let payload_str =
+                        escape_html(&format!("{}", payload)).replace('\n', "<BR ALIGN=\"LEFT\"/>");
                     (
                         format!(
                             "<{}<BR/><FONT COLOR=\"blue\">{}</FONT>>",

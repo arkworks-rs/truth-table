@@ -6,7 +6,7 @@ use crate::{
         ir::LocalPass,
         nodes::{Node, NodeId},
     },
-    prover::payloads::{ArithPayload, MemTablePayload},
+    prover::payloads::{ArithPayload, MaterializedPayload},
 };
 
 pub struct ExecutionPass<B> {
@@ -14,7 +14,7 @@ pub struct ExecutionPass<B> {
     _phantom: std::marker::PhantomData<(B)>,
 }
 
-impl<B> LocalPass<B, MemTablePayload, ArithPayload<B::F>> for ExecutionPass<B>
+impl<B> LocalPass<B, MaterializedPayload, ArithPayload<B::F>> for ExecutionPass<B>
 where
     B: SnarkBackend,
 {
@@ -22,7 +22,7 @@ where
         &self,
         node: &Node<B>,
         id: NodeId,
-        payload: &MemTablePayload,
+        payload: &MaterializedPayload,
     ) -> ArithPayload<B::F> {
         todo!()
     }
