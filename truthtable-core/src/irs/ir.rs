@@ -59,14 +59,18 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
                 if let Some(payload) = self.payloads.get(id) {
                     let payload_str =
                         escape_html(&format!("{}", payload)).replace('\n', "<BR ALIGN=\"LEFT\"/>");
-                    (
-                        format!(
-                            "<{}<BR/><FONT COLOR=\"blue\">{}</FONT>>",
-                            escape_html(&name),
-                            payload_str
-                        ),
-                        true,
-                    )
+                    if payload_str.is_empty() {
+                        (escape_html(&name), false)
+                    } else {
+                        (
+                            format!(
+                                "<{}<BR/><FONT COLOR=\"blue\">{}</FONT>>",
+                                escape_html(&name),
+                                payload_str
+                            ),
+                            true,
+                        )
+                    }
                 } else {
                     (escape_html(&name), false)
                 }

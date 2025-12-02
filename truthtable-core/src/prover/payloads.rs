@@ -23,15 +23,31 @@ pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
 impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PayloadStructure::PlanPayload(inner) => write!(f, "PlanPayload({})", inner),
+            PayloadStructure::PlanPayload(inner) => {
+                let s = inner.to_string();
+                if s.to_lowercase().contains("empty") {
+                    write!(f, "")
+                } else {
+                    write!(f, "PlanPayload({})", s)
+                }
+            }
             PayloadStructure::GadgetPayload(entries) => {
+                let mut rendered: Vec<(String, String)> = entries
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        let s = v.to_string();
+                        (!s.to_lowercase().contains("empty")).then(|| (k.clone(), s))
+                    })
+                    .collect();
+                if rendered.is_empty() {
+                    return write!(f, "");
+                }
+
                 write!(f, "GadgetPayload{{")?;
-                let mut first = true;
-                for (key, value) in entries {
-                    if !first {
+                for (idx, (key, value)) in rendered.iter().enumerate() {
+                    if idx > 0 {
                         write!(f, ", ")?;
                     }
-                    first = false;
                     write!(f, "{}: {}", key, value)?;
                 }
                 write!(f, "}}")

@@ -8,12 +8,20 @@ use crate::{
     prover::payloads::{ArithPayload, TrackedPayload},
 };
 
-pub struct ExecutionPass<B> {
+pub struct TrackingPass<B> {
     // pub ctx: ExecCtx,
     _phantom: std::marker::PhantomData<(B)>,
 }
 
-impl<B> LocalPass<B, ArithPayload<B::F>, TrackedPayload<B>> for ExecutionPass<B>
+impl<B: SnarkBackend> TrackingPass<B> {
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<B> LocalPass<B, ArithPayload<B::F>, TrackedPayload<B>> for TrackingPass<B>
 where
     B: SnarkBackend,
 {
