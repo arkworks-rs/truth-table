@@ -2,6 +2,7 @@ use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
+use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -53,13 +54,16 @@ where
 }
 
 fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> ArithTable<F> {
-    let batches = mat.batches();
+    let batches = mat
+        .batches()
+        .expect("failed to read batches from materialized table");
     if batches.is_empty() {
         return ArithTable::new(None, IndexMap::new(), 0);
     }
 
     let schema_ref = batches[0].schema();
-    let combined_batch = datafusion::arrow::compute::concat_batches(&schema_ref, batches)
+    let batch_refs: Vec<&datafusion::arrow::record_batch::RecordBatch> = batches.iter().collect();
+    let combined_batch = concat_batches(&schema_ref, batch_refs)
         .expect("failed to concatenate record batches for arithmetization");
 
     let total_rows = combined_batch.num_rows();

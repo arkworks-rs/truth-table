@@ -1,11 +1,14 @@
-use std::fmt::Display;
-
-use arithmetic::table::{ArithTable, TrackedTable};
-use datafusion::{arrow::array::RecordBatch, datasource::MemTable, prelude::DataFrame};
-use indexmap::IndexMap;
-use datafusion::datasource::TableProvider;
 use crate::irs::{nodes::hints::HintDF, tree::Payload};
-
+use arithmetic::table::{ArithTable, TrackedTable};
+use datafusion::datasource::TableProvider;
+use datafusion::{
+    arrow::array::RecordBatch,
+    datasource::MemTable,
+    prelude::{DataFrame, SessionContext},
+};
+use datafusion_common::DataFusionError;
+use indexmap::IndexMap;
+use std::{fmt::Display, sync::Arc};
 #[derive(Debug)]
 pub enum PayloadStructure<T> {
     PlanPayload(T),
@@ -49,23 +52,14 @@ impl std::fmt::Display for EmptyPayload {
 
 #[derive(Debug)]
 pub struct MaterializedTable {
-    table: MemTable,
-    col_names: Vec<String>,
+    table: Arc<MemTable>,
     row_count: usize,
-    batches: Vec<RecordBatch>,
 }
 impl MaterializedTable {
-    pub fn new(
-        table: MemTable,
-        col_names: Vec<String>,
-        row_count: usize,
-        batches: Vec<RecordBatch>,
-    ) -> Self {
+    pub fn new(table: MemTable, row_count: usize) -> Self {
         Self {
-            table,
-            col_names,
+            table: Arc::new(table),
             row_count,
-            batches,
         }
     }
 
@@ -73,21 +67,62 @@ impl MaterializedTable {
         &self.table
     }
 
-    pub fn batches(&self) -> &[RecordBatch] {
-        &self.batches
+    pub fn batches(&self) -> datafusion_common::Result<Vec<RecordBatch>> {
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(self.table.clone())?;
+        collect_blocking_df(df)
     }
 }
 impl std::fmt::Display for MaterializedTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.col_names.is_empty() {
+        let cols: Vec<String> = self
+            .table
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().to_string())
+            .collect();
+        if cols.is_empty() {
             write!(f, "MaterializedTable empty")
         } else {
             write!(
                 f,
                 "MaterializedTable cols=({}), rows={}",
-                self.col_names.join(","),
+                cols.join(","),
                 self.row_count
             )
+        }
+    }
+}
+
+fn collect_blocking_df(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
         }
     }
 }
