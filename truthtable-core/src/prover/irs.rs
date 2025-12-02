@@ -16,6 +16,7 @@ pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::planning::PlanningPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use ark_piop::DefaultSnarkBackend;
@@ -132,6 +133,36 @@ mod test {
 
             println!("Planned Query: {query}");
             println!("{}", materialized_ir.display_graphviz(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn builds_arithmetized_ir_from_logical_plan() {
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
+        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+
+        for query in queries() {
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+
+            let tree = Tree::from_logical_plan(&lp);
+            let payloads = tree
+                .arena()
+                .keys()
+                .map(|id| (*id, EmptyPayload))
+                .collect::<IndexMap<_, _>>();
+
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
+            let arithmetized_ir =
+                materialized_ir.apply_local_pass_sequential(&arithmetization_pass);
+
+            println!("Planned Query: {query}");
+            println!("{}", arithmetized_ir.display_graphviz(true));
         }
     }
 }

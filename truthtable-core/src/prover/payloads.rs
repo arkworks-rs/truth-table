@@ -3,7 +3,7 @@ use std::fmt::Display;
 use arithmetic::table::{ArithTable, TrackedTable};
 use datafusion::{datasource::MemTable, prelude::DataFrame};
 use indexmap::IndexMap;
-
+use datafusion::datasource::TableProvider;
 use crate::irs::{nodes::hints::HintDF, tree::Payload};
 
 #[derive(Debug)]
@@ -48,9 +48,35 @@ impl std::fmt::Display for EmptyPayload {
 }
 
 #[derive(Debug)]
-pub struct MaterializedTable(MemTable);
+pub struct MaterializedTable {
+    table: MemTable,
+    col_names: Vec<String>,
+    row_count: usize,
+}
+impl MaterializedTable {
+    pub fn new(table: MemTable, col_names: Vec<String>, row_count: usize) -> Self {
+        Self {
+            table,
+            col_names,
+            row_count,
+        }
+    }
+
+    pub fn mem_table(&self) -> &MemTable {
+        &self.table
+    }
+}
 impl std::fmt::Display for MaterializedTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        if self.col_names.is_empty() {
+            write!(f, "MaterializedTable empty")
+        } else {
+            write!(
+                f,
+                "MaterializedTable cols=({}), rows={}",
+                self.col_names.join(","),
+                self.row_count
+            )
+        }
     }
 }
