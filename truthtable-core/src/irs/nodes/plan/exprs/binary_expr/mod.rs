@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_EXPR;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::FieldRef;
 use datafusion_expr::{BinaryExpr, Expr};
+use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node},
@@ -14,6 +16,20 @@ pub struct ProverNode<B: SnarkBackend> {
     pub left: Arc<Node<B>>,
     pub right: Arc<Node<B>>,
     pub scope: Arc<Node<B>>,
+}
+
+impl<B: SnarkBackend> ProverNode<B> {
+    fn should_materialize(&self) -> bool {
+        matches!(
+            self.binary_expression.op,
+            datafusion_expr::Operator::Eq
+                | datafusion_expr::Operator::NotEq
+                | datafusion_expr::Operator::Lt
+                | datafusion_expr::Operator::LtEq
+                | datafusion_expr::Operator::Gt
+                | datafusion_expr::Operator::GtEq
+        )
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
@@ -55,7 +71,23 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             ])
             .expect("binary expression projection should succeed");
 
-        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+        // Activator is always virtual; the expression column follows this node's
+        // materialization policy.
+        let should_materialize: IndexMap<FieldRef, bool> = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+                    false
+                } else {
+                    self.should_materialize()
+                };
+                (field.clone(), mat)
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 

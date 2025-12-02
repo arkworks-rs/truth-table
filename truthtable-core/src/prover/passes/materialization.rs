@@ -15,12 +15,19 @@ use crate::{
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-pub struct ExecutionPass<B> {
+pub struct MaterializationPass<B> {
     // pub ctx: ExecCtx,
     _phantom: std::marker::PhantomData<(B)>,
 }
+impl<B> MaterializationPass<B> {
+    pub fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
 
-impl<B> LocalPass<B, HintDFPayload, MaterializedPayload> for ExecutionPass<B>
+impl<B> LocalPass<B, HintDFPayload, MaterializedPayload> for MaterializationPass<B>
 where
     B: SnarkBackend,
 {
