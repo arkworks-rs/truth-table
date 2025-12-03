@@ -1,15 +1,20 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node};
+use crate::irs::nodes::{
+    IsGadgetNode, IsNode, IsPlanNode, Node,
+    gadget::{GadgetAncestry, utils::eq},
+};
 
-pub struct ProverNode<B: SnarkBackend>(PhantomData<B>);
+pub struct ProverNode<B: SnarkBackend> {
+    col_eq: Arc<Node<B>>,
+}
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
-        "Filter Gadget".to_string()
+        "Filter".to_string()
     }
 
     fn cost(
@@ -21,7 +26,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        vec![self.col_eq.clone()]
     }
 }
 
@@ -37,7 +42,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         IndexMap::new()
     }
 
-    fn ancestry(&self) -> super::GadgetAncestry {
+    fn ancestry(&self) -> GadgetAncestry {
         todo!()
     }
 
@@ -45,6 +50,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        Self(PhantomData)
+        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::ProverNode::new())));
+        Self {
+            col_eq: col_eq_gadget,
+        }
     }
 }

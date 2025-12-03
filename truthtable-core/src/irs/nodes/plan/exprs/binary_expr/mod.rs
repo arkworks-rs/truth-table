@@ -7,7 +7,7 @@ use datafusion_expr::{BinaryExpr, Expr};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node},
+    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node},
     tree::Tree,
 };
 
@@ -16,6 +16,7 @@ pub struct ProverNode<B: SnarkBackend> {
     pub left: Arc<Node<B>>,
     pub right: Arc<Node<B>>,
     pub scope: Arc<Node<B>>,
+    pub gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> ProverNode<B> {
@@ -46,13 +47,13 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.left.clone(), self.right.clone()]
+        vec![self.left.clone(), self.right.clone(), self.gadget().clone()]
     }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     fn gadget(&self) -> Arc<Node<B>> {
-        todo!()
+        self.gadget.clone()
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
@@ -121,12 +122,18 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         )
         .root()
         .clone();
-
+        let gadget = match binary_expression.op {
+            datafusion_expr::Operator::Eq => Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::exprs::bin_eq::ProverNode::new(),
+            ))),
+            _ => panic!("Unsupported operator for binary expression gadget"),
+        };
         Self {
             binary_expression,
             left,
             right,
             scope,
+            gadget,
         }
     }
 

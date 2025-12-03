@@ -6,7 +6,10 @@ use datafusion_expr::{Filter, LogicalPlan};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, gadget},
+    nodes::{
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node,
+        gadget::{self, lps::filter},
+    },
     tree::Tree,
 };
 
@@ -100,9 +103,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
             .root()
             .clone();
 
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            gadget::filter::ProverNode::new(),
-        )));
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::ProverNode::new())));
 
         Self {
             filter,

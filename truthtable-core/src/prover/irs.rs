@@ -58,7 +58,7 @@ mod test {
     fn queries() -> Vec<&'static str> {
         vec![
             "SELECT first_column, second_column FROM dummy_table ",
-            "SELECT first_column, second_column FROM dummy_table where third_column > 150",
+            "SELECT first_column, second_column FROM dummy_table where third_column = 150",
         ]
     }
     #[tokio::test]
@@ -170,7 +170,7 @@ mod test {
 
     #[tokio::test]
     async fn builds_tracked_ir_from_logical_plan() {
-        let (arg_prover, arg_verifier) = test_prelude().unwrap();
+        let (arg_prover, _) = test_prelude().unwrap();
         let ctx = SessionContext::new();
         register_dummy_table(&ctx);
         let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
