@@ -10,11 +10,11 @@ use crate::irs::{
 };
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
-    payloads: IndexMap<NodeId, Pd>,
+    payloads: IndexMap<NodeId, Option<Pd>>,
 }
 
 impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
-    pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Pd>) -> Self {
+    pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Option<Pd>>) -> Self {
         Self { tree, payloads }
     }
 
@@ -22,12 +22,12 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         &self.tree
     }
 
-    pub fn payloads(&self) -> &IndexMap<NodeId, Pd> {
+    pub fn payloads(&self) -> &IndexMap<NodeId, Option<Pd>> {
         &self.payloads
     }
 
     pub fn payload_for_node(&self, node_id: &NodeId) -> Option<&Pd> {
-        self.payloads.get(node_id)
+        self.payloads.get(node_id).and_then(|opt| opt.as_ref())
     }
 
     /// Render the IR as a Graphviz DOT string.
@@ -56,7 +56,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         for (id, node) in self.tree.arena().iter() {
             let name = node.name();
             let (label, html) = if show_payload {
-                if let Some(payload) = self.payloads.get(id) {
+                if let Some(Some(payload)) = self.payloads.get(id) {
                     let payload_str =
                         escape_html(&format!("{}", payload)).replace('\n', "<BR ALIGN=\"LEFT\"/>");
                     if payload_str.is_empty() {
@@ -106,11 +106,14 @@ where
         POut: Payload,
         P: LocalPass<B, PIn, POut>,
     {
-        let mut out = IndexMap::with_capacity(self.tree.arena().len());
+        let mut out: IndexMap<NodeId, Option<POut>> =
+            IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.tree.arena().iter() {
-            let p_in = &self.payloads[id];
+            let p_in = self.payloads[id]
+                .as_ref()
+                .expect("Expected payload for node");
             let p_out = pass.transform(node, id.clone(), p_in);
-            out.insert(id.clone(), p_out);
+            out.insert(id.clone(), Some(p_out));
         }
         Ir {
             tree: self.tree.clone(),
@@ -130,12 +133,15 @@ where
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
-                let p_in = &self.payloads[id];
+                let p_in = self.payloads[id]
+                    .as_ref()
+                    .expect("Expected payload for node");
                 let p_out = pass.transform(node, id.clone(), p_in);
                 (id.clone(), p_out)
             })
             .collect();
-        let out: IndexMap<NodeId, POut> = out_vec.into_iter().collect();
+        let out: IndexMap<NodeId, Option<POut>> =
+            out_vec.into_iter().map(|(id, p_out)| (id, Some(p_out))).collect();
         Ir {
             tree: self.tree.clone(),
             payloads: out,

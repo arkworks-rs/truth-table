@@ -74,7 +74,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (*id, EmptyPayload))
+                .map(|id| (*id, Some(EmptyPayload)))
                 .collect::<IndexMap<_, _>>();
 
             let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
@@ -98,7 +98,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (*id, EmptyPayload))
+                .map(|id| (*id, Some(EmptyPayload)))
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
@@ -126,7 +126,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (*id, EmptyPayload))
+                .map(|id| (*id, Some(EmptyPayload)))
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
@@ -154,7 +154,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (*id, EmptyPayload))
+                .map(|id| (*id, Some(EmptyPayload)))
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
@@ -186,7 +186,7 @@ mod test {
             let payloads = tree
                 .arena()
                 .keys()
-                .map(|id| (*id, EmptyPayload))
+                .map(|id| (*id, Some(EmptyPayload)))
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
