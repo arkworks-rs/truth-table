@@ -27,7 +27,7 @@ pub mod plan;
 
 pub type NodeId = u64;
 #[derive(Derivative)]
-#[derivative(Clone(bound = ""),)]
+#[derivative(Clone(bound = ""))]
 pub enum Node<B: SnarkBackend> {
     Plan(PlanNode<B>),
     Gadget(Arc<dyn IsGadgetNode<B>>),
@@ -263,6 +263,8 @@ where
         Self: Sized;
 
     fn hints(&self) -> IndexMap<String, HintDF>;
+    // Returns the ancestry of this gadget node.
+    // Serves as a unique identifier for the gadget
     fn ancestry(&self) -> GadgetAncestry;
 }
 pub trait IsLpNode<B>: IsPlanNode<B>
