@@ -66,7 +66,16 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedTable<B> {
 
 impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.pretty_string())
+        if self.tracked_polys.is_empty() {
+            write!(f, "TrackedTable empty")
+        } else {
+            let cols: Vec<String> = self
+                .tracked_polys
+                .keys()
+                .map(|field| field.name().to_string())
+                .collect();
+            write!(f, "TrackedTable cols=({}), log_size={}", cols.join(","), self.log_size)
+        }
     }
 }
 
