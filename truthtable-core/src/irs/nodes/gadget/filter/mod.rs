@@ -40,4 +40,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn ancestry(&self) -> super::GadgetAncestry {
         todo!()
     }
+
+    fn new() -> Self
+    where
+        Self: Sized,
+    {
+        Self(PhantomData)
+    }
 }

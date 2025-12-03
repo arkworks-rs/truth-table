@@ -53,6 +53,11 @@ where
         Self { root, arena }
     }
 
+    pub fn new_from_root(root: Arc<Node<B>>) -> Self {
+        let arena = build_arena(&root);
+        Self { root, arena }
+    }
+
     /// Get the root node of this tree.
     pub fn root(&self) -> &Arc<Node<B>> {
         &self.root

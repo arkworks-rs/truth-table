@@ -266,6 +266,9 @@ where
     // Returns the ancestry of this gadget node.
     // Serves as a unique identifier for the gadget
     fn ancestry(&self) -> GadgetAncestry;
+    fn new() -> Self
+    where
+        Self: Sized;
 }
 pub trait IsLpNode<B>: IsPlanNode<B>
 where

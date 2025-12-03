@@ -6,7 +6,7 @@ use datafusion_expr::{Filter, LogicalPlan};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node},
+    nodes::{IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, gadget},
     tree::Tree,
 };
 
@@ -23,6 +23,8 @@ where
     input: Arc<Node<B>>,
     // The prover predicate expression node for the filter condition
     predicate: Arc<Node<B>>,
+    // The gadget node for proving the filter operation
+    gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
@@ -39,13 +41,17 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.input.clone(), self.predicate.clone()]
+        vec![
+            self.input.clone(),
+            self.predicate.clone(),
+            self.gadget.clone(),
+        ]
     }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     fn gadget(&self) -> Arc<Node<B>> {
-        todo!()
+        self.gadget.clone()
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
@@ -93,10 +99,16 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
         let predicate = Tree::<B>::from_expr(&filter.predicate, Some(self_ref), input.clone())
             .root()
             .clone();
+
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            gadget::filter::ProverNode::new(),
+        )));
+
         Self {
             filter,
             input,
             predicate,
+            gadget,
         }
     }
 
