@@ -35,19 +35,15 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         use crate::prover::payloads::PayloadStructure;
-        use ark_piop::errors::SnarkError;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
-        // Locate the scope node id within the arena using pointer equality.
-        let Some(scope_id) = virtualized_ir
-            .tree()
-            .arena()
-            .iter()
-            .find_map(|(node_id, node)| {
-                std::sync::Arc::ptr_eq(node, &self.scope).then_some(*node_id)
-            })
-        else {
-            // If the scope cannot be found, leave the payload untouched.
-            return Ok(());
+        // Locate the scope node id by hashing the stored scope Arc the same way arena keys
+        // are derived.
+        let scope_id = {
+            let mut hasher = DefaultHasher::new();
+            self.scope.hash(&mut hasher);
+            hasher.finish()
         };
 
         // Fetch the scope payload to retrieve the tracked table.
