@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use rayon::prelude::*;
 
 use crate::irs::{
-    nodes::{IsNode, Node, NodeId},
+    nodes::{IsNode, Node, NodeId, PlanNode},
     tree::{Payload, Tree},
 };
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
@@ -64,7 +64,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
                     } else {
                         (
                             format!(
-                                "<{}<BR/><FONT COLOR=\"blue\">{}</FONT>>",
+                                "<{}<BR/><FONT COLOR=\"red\">{}</FONT>>",
                                 escape_html(&name),
                                 payload_str
                             ),
@@ -77,11 +77,18 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
             } else {
                 (escape_html(&name), false)
             };
+            let mut attrs = Vec::new();
             if html {
-                dot.push_str(&format!("  \"{}\" [label={}];\n", id, label));
+                attrs.push(format!("label={}", label));
             } else {
-                dot.push_str(&format!("  \"{}\" [label=\"{}\"];\n", id, label));
+                attrs.push(format!("label=\"{}\"", label));
             }
+            match node.as_ref() {
+                Node::Gadget(_) => attrs.push("color=\"purple\"".to_string()),
+                Node::Plan(PlanNode::LpBased(_)) => attrs.push("color=\"blue\"".to_string()),
+                Node::Plan(PlanNode::ExprBased(_)) => attrs.push("color=\"green\"".to_string()),
+            };
+            dot.push_str(&format!("  \"{}\" [{}];\n", id, attrs.join(", ")));
         }
 
         for (_id, node) in self.tree.arena().iter() {
