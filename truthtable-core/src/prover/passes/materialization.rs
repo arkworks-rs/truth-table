@@ -41,31 +41,39 @@ where
         _node: &Node<B>,
         _id: NodeId,
         payload: &HintDFPayload,
-    ) -> MaterializedPayload {
+    ) -> Option<MaterializedPayload> {
         match payload {
             PayloadStructure::PlanPayload(hint_df) => {
-                PayloadStructure::PlanPayload(materialize_hint_df(hint_df))
+                materialize_hint_df(hint_df).map(PayloadStructure::PlanPayload)
             }
             PayloadStructure::GadgetPayload(map) => {
                 #[cfg(feature = "parallel")]
                 let out: IndexMap<_, _> = map
                     .par_iter()
-                    .map(|(k, hint_df)| (k.clone(), materialize_hint_df(hint_df)))
+                    .filter_map(|(k, hint_df)| {
+                        materialize_hint_df(hint_df)
+                            .map(|mat| (k.clone(), mat))
+                    })
                     .collect();
 
                 #[cfg(not(feature = "parallel"))]
                 let out: IndexMap<_, _> = map
                     .iter()
-                    .map(|(k, hint_df)| (k.clone(), materialize_hint_df(hint_df)))
+                    .filter_map(|(k, hint_df)| {
+                        materialize_hint_df(hint_df)
+                            .map(|mat| (k.clone(), mat))
+                    })
                     .collect();
 
-                PayloadStructure::GadgetPayload(out)
+                Some(PayloadStructure::GadgetPayload(out))
             }
         }
     }
 }
 
-fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> MaterializedTable {
+fn materialize_hint_df(
+    hint_df: &crate::irs::nodes::hints::HintDF,
+) -> Option<MaterializedTable> {
     let df = hint_df.data_frame().clone();
     // Build projection of columns marked for materialization
     let projection: Vec<Expr> = hint_df
@@ -75,9 +83,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Materializ
         .collect();
 
     if projection.is_empty() {
-        let empty_mem =
-            MemTable::try_new(Arc::new(Schema::empty()), vec![vec![]]).expect("empty memtable");
-        return MaterializedTable::new(empty_mem, 0);
+        return None;
     }
 
     let df = df
@@ -98,7 +104,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Materializ
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
-    MaterializedTable::new(mem_table, row_count)
+    Some(MaterializedTable::new(mem_table, row_count))
 }
 
 fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {

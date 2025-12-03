@@ -23,28 +23,10 @@ pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
 impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PayloadStructure::PlanPayload(inner) => {
-                let s = inner.to_string();
-                if s.to_lowercase().contains("empty") {
-                    write!(f, "")
-                } else {
-                    write!(f, "PlanPayload({})", s)
-                }
-            }
+            PayloadStructure::PlanPayload(inner) => write!(f, "PlanPayload({})", inner),
             PayloadStructure::GadgetPayload(entries) => {
-                let mut rendered: Vec<(String, String)> = entries
-                    .iter()
-                    .filter_map(|(k, v)| {
-                        let s = v.to_string();
-                        (!s.to_lowercase().contains("empty")).then(|| (k.clone(), s))
-                    })
-                    .collect();
-                if rendered.is_empty() {
-                    return write!(f, "");
-                }
-
                 write!(f, "GadgetPayload{{")?;
-                for (idx, (key, value)) in rendered.iter().enumerate() {
+                for (idx, (key, value)) in entries.iter().enumerate() {
                     if idx > 0 {
                         write!(f, ", ")?;
                     }
@@ -98,16 +80,12 @@ impl std::fmt::Display for MaterializedTable {
             .iter()
             .map(|f| f.name().to_string())
             .collect();
-        if cols.is_empty() {
-            write!(f, "MaterializedTable empty")
-        } else {
-            write!(
-                f,
-                "MaterializedTable cols=({}), rows={}",
-                cols.join(","),
-                self.row_count
-            )
-        }
+        write!(
+            f,
+            "MaterializedTable cols=({}), rows={}",
+            cols.join(","),
+            self.row_count
+        )
     }
 }
 

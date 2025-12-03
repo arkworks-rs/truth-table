@@ -109,11 +109,10 @@ where
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.tree.arena().iter() {
-            let p_in = self.payloads[id]
+            let p_out = self.payloads[id]
                 .as_ref()
-                .expect("Expected payload for node");
-            let p_out = pass.transform(node, id.clone(), p_in);
-            out.insert(id.clone(), Some(p_out));
+                .and_then(|p_in| pass.transform(node, id.clone(), p_in));
+            out.insert(id.clone(), p_out);
         }
         Ir {
             tree: self.tree.clone(),
@@ -128,20 +127,18 @@ where
         P: LocalPass<B, PIn, POut> + Sync,
     {
         use rayon::prelude::*;
-        let out_vec: Vec<(NodeId, POut)> = self
+        let out_vec: Vec<(NodeId, Option<POut>)> = self
             .tree
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
-                let p_in = self.payloads[id]
+                let maybe = self.payloads[id]
                     .as_ref()
-                    .expect("Expected payload for node");
-                let p_out = pass.transform(node, id.clone(), p_in);
-                (id.clone(), p_out)
+                    .and_then(|p_in| pass.transform(node, id.clone(), p_in));
+                (id.clone(), maybe)
             })
             .collect();
-        let out: IndexMap<NodeId, Option<POut>> =
-            out_vec.into_iter().map(|(id, p_out)| (id, Some(p_out))).collect();
+        let out: IndexMap<NodeId, Option<POut>> = out_vec.into_iter().collect();
         Ir {
             tree: self.tree.clone(),
             payloads: out,
@@ -154,5 +151,5 @@ where
     PIn: Payload,
     POut: Payload,
 {
-    fn transform(&self, node: &Node<B>, id: NodeId, payload: &PIn) -> POut;
+    fn transform(&self, node: &Node<B>, id: NodeId, payload: &PIn) -> Option<POut>;
 }

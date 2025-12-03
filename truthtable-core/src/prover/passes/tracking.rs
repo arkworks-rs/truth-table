@@ -36,17 +36,20 @@ where
         node: &Node<B>,
         id: NodeId,
         payload: &ArithPayload<B::F>,
-    ) -> TrackedPayload<B> {
+    ) -> Option<TrackedPayload<B>> {
         match payload {
             ArithPayload::PlanPayload(arith_table) => {
-                TrackedPayload::PlanPayload(arith_to_tracked(arith_table, &self.prover))
+                Some(TrackedPayload::PlanPayload(arith_to_tracked(
+                    arith_table,
+                    &self.prover,
+                )))
             }
             ArithPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, arith_table) in map {
                     out.insert(k.clone(), arith_to_tracked(arith_table, &self.prover));
                 }
-                TrackedPayload::GadgetPayload(out)
+                Some(TrackedPayload::GadgetPayload(out))
             }
         }
     }

@@ -1,6 +1,4 @@
 use ark_piop::SnarkBackend;
-use datafusion::prelude::DataFrame;
-
 use crate::{
     irs::{
         ir::LocalPass,
@@ -33,10 +31,15 @@ impl<B> LocalPass<B, EmptyPayload, HintDFPayload> for PlanningPass<B>
 where
     B: SnarkBackend,
 {
-    fn transform(&self, node: &Node<B>, id: NodeId, _payload: &EmptyPayload) -> HintDFPayload {
+    fn transform(
+        &self,
+        node: &Node<B>,
+        _id: NodeId,
+        _payload: &EmptyPayload,
+    ) -> Option<HintDFPayload> {
         match node {
-            Node::Plan(plan_node) => PayloadStructure::PlanPayload(plan_node.output().clone()),
-            Node::Gadget(gadget_node) => PayloadStructure::GadgetPayload(gadget_node.hints()),
+            Node::Plan(plan_node) => Some(PayloadStructure::PlanPayload(plan_node.output().clone())),
+            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.hints())),
         }
     }
 }

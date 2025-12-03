@@ -37,17 +37,17 @@ where
         node: &Node<B>,
         id: NodeId,
         payload: &MaterializedPayload,
-    ) -> ArithPayload<B::F> {
+    ) -> Option<ArithPayload<B::F>> {
         match payload {
-            MaterializedPayload::PlanPayload(mat) => {
-                ArithPayload::PlanPayload(arithmetize_materialized_table(mat))
-            }
+            MaterializedPayload::PlanPayload(mat) => Some(ArithPayload::PlanPayload(
+                arithmetize_materialized_table(mat),
+            )),
             MaterializedPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, mat) in map {
                     out.insert(k.clone(), arithmetize_materialized_table(mat));
                 }
-                ArithPayload::GadgetPayload(out)
+                Some(ArithPayload::GadgetPayload(out))
             }
         }
     }
