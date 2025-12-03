@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 use datafusion::parquet::column;
 use datafusion_common::{Column, Statistics};
 
-use crate::irs::nodes::{IsExprNode, IsNode, IsPlanNode, Node};
+use crate::irs::nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId};
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
@@ -27,6 +27,55 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
+    }
+
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        use crate::prover::payloads::PayloadStructure;
+        use ark_piop::errors::SnarkError;
+
+        // Locate the scope node id within the arena using pointer equality.
+        let Some(scope_id) = virtualized_ir
+            .tree()
+            .arena()
+            .iter()
+            .find_map(|(node_id, node)| {
+                std::sync::Arc::ptr_eq(node, &self.scope).then_some(*node_id)
+            })
+        else {
+            // If the scope cannot be found, leave the payload untouched.
+            return Ok(());
+        };
+
+        // Fetch the scope payload to retrieve the tracked table.
+        let Some(scope_payload) = virtualized_ir
+            .payloads()
+            .get(&scope_id)
+            .and_then(|p| p.as_ref())
+        else {
+            return Ok(());
+        };
+
+        let scope_table = match scope_payload {
+            PayloadStructure::PlanPayload(table) => table,
+            PayloadStructure::GadgetPayload(_) => return Ok(()),
+        };
+
+        let Some(schema) = scope_table.schema_ref() else {
+            return Ok(());
+        };
+        let Ok(col_idx) = schema.index_of(self.column.name()) else {
+            return Ok(());
+        };
+
+        // Build a subtable containing just the requested column (plus activator if present).
+        let subtable = scope_table.tracked_subtable_by_indices(&[col_idx]);
+
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+        Ok(())
     }
 }
 

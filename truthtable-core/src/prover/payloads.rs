@@ -9,16 +9,27 @@ use datafusion::{
 use datafusion_common::DataFusionError;
 use indexmap::IndexMap;
 use std::{fmt::Display, sync::Arc};
+
 #[derive(Debug)]
 pub enum PayloadStructure<T> {
     PlanPayload(T),
     GadgetPayload(IndexMap<String, T>),
+}
+
+impl<T: Clone> Clone for PayloadStructure<T> {
+    fn clone(&self) -> Self {
+        match self {
+            PayloadStructure::PlanPayload(inner) => PayloadStructure::PlanPayload(inner.clone()),
+            PayloadStructure::GadgetPayload(map) => PayloadStructure::GadgetPayload(map.clone()),
+        }
+    }
 }
 impl<T: std::fmt::Debug + Display + 'static> Payload for PayloadStructure<T> {}
 pub type HintDFPayload = PayloadStructure<HintDF>;
 pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
 pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
+pub type VirtualizedPayload<B> = PayloadStructure<TrackedTable<B>>;
 
 impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -38,7 +49,7 @@ impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EmptyPayload;
 impl Payload for EmptyPayload {}
 
@@ -48,7 +59,7 @@ impl std::fmt::Display for EmptyPayload {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MaterializedTable {
     table: Arc<MemTable>,
     row_count: usize,

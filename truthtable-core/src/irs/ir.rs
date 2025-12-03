@@ -30,6 +30,14 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         self.payloads.get(node_id).and_then(|opt| opt.as_ref())
     }
 
+    pub fn set_payload_for_node(&mut self, node_id: NodeId, payload: Option<Pd>) {
+        self.payloads.insert(node_id, payload);
+    }
+
+    pub fn payloads_mut(&mut self) -> &mut IndexMap<NodeId, Option<Pd>> {
+        &mut self.payloads
+    }
+
     /// Render the IR as a Graphviz DOT string.
     ///
     /// When `show_payload` is `true`, each node label includes the debug
@@ -110,13 +118,18 @@ where
 {
     pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
+        PIn: Clone,
         POut: Payload,
         P: LocalPass<B, PIn, POut>,
     {
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.tree.arena().iter() {
-            let p_out = self.payloads[id]
+            let input_payload = self.payloads[id]
+                .as_ref()
+                .cloned()
+                .or_else(|| pass.fallback_payload(node, id.clone()));
+            let p_out = input_payload
                 .as_ref()
                 .and_then(|p_in| pass.transform(node, id.clone(), p_in));
             out.insert(id.clone(), p_out);
@@ -159,4 +172,10 @@ where
     POut: Payload,
 {
     fn transform(&self, node: &Node<B>, id: NodeId, payload: &PIn) -> Option<POut>;
+
+    /// Optional fallback payload to use when the input payload is missing. By default,
+    /// no fallback is provided and nodes without an input payload are skipped.
+    fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<PIn> {
+        None
+    }
 }

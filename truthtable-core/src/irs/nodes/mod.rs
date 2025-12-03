@@ -11,14 +11,17 @@ use datafusion_expr::{Expr, LogicalPlan};
 use derivative::Derivative;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::{
-    cost::ProvingCost,
-    gadget::GadgetAncestry,
-    hints::HintDF,
-    plan::{
-        exprs::{binary_expr, column, literal},
-        lps::{filter, projection, table_scan},
+use crate::{
+    irs::nodes::{
+        cost::ProvingCost,
+        gadget::GadgetAncestry,
+        hints::HintDF,
+        plan::{
+            exprs::{binary_expr, column, literal},
+            lps::{filter, projection, table_scan},
+        },
     },
+    prover::irs::VirtualizedIr,
 };
 pub mod cost;
 pub mod gadget;
@@ -88,6 +91,11 @@ where
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()>;
 }
 
 /// Shared plan-node interface (both LP and expr-based).
@@ -197,6 +205,17 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
         }
     }
+
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.add_virtual_witness(id, virtualized_ir),
+            Node::Gadget(gadget_node) => gadget_node.add_virtual_witness(id, virtualized_ir),
+        }
+    }
 }
 
 impl<B: SnarkBackend> PlanNode<B> {
@@ -249,6 +268,17 @@ impl<B: SnarkBackend> PlanNode<B> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.output(),
             PlanNode::ExprBased(expr_node) => expr_node.output(),
+        }
+    }
+
+    pub fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.add_virtual_witness(id, virtualized_ir),
+            PlanNode::ExprBased(expr_node) => expr_node.add_virtual_witness(id, virtualized_ir),
         }
     }
 }

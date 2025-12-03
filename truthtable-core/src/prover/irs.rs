@@ -4,6 +4,7 @@ use crate::{
     irs::ir::Ir,
     prover::payloads::{
         ArithPayload, EmptyPayload, HintDFPayload, MaterializedPayload, TrackedPayload,
+        VirtualizedPayload,
     },
 };
 
@@ -12,6 +13,7 @@ pub type PlannedIr<B> = Ir<B, HintDFPayload>;
 pub type ExecutedIr<B> = Ir<B, MaterializedPayload>;
 pub type ArithmetizedIr<B> = Ir<B, ArithPayload<<B as SnarkBackend>::F>>;
 pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
+pub type VirtualizedIr<B> = Ir<B, VirtualizedPayload<B>>;
 
 #[cfg(test)]
 mod test {
@@ -19,6 +21,7 @@ mod test {
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::planning::PlanningPass;
     use crate::prover::passes::tracking::TrackingPass;
+    use crate::prover::passes::virtualization::VirtualizationPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use ark_piop::DefaultSnarkBackend;
     use ark_piop::test_utils::test_prelude;
@@ -190,13 +193,45 @@ mod test {
                 .collect::<IndexMap<_, _>>();
 
             let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
-            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
-            let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
-            let arithmetized_ir =
-                materialized_ir.apply_local_pass_sequential(&arithmetization_pass);
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn builds_virtualized_ir_from_logical_plan() {
+        let (arg_prover, _) = test_prelude().unwrap();
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
+        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+
+        for query in queries() {
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+
+            let tree = Tree::from_logical_plan(&lp);
+            let payloads = tree
+                .arena()
+                .keys()
+                .map(|id| (*id, Some(EmptyPayload)))
+                .collect::<IndexMap<_, _>>();
+
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
+            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
+            let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+            println!("Planned Query: {query}");
+            println!("{}", virtualized_ir.display_graphviz(true));
         }
     }
 }

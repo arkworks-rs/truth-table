@@ -1,0 +1,81 @@
+use std::cell::RefCell;
+
+use ark_piop::SnarkBackend;
+
+use crate::irs::nodes::IsNode;
+use crate::prover::irs::{TrackedIr, VirtualizedIr};
+use crate::prover::payloads::VirtualizedPayload;
+use crate::{
+    irs::{
+        ir::LocalPass,
+        nodes::{Node, NodeId},
+    },
+    prover::payloads::TrackedPayload,
+};
+
+pub struct VirtualizationPass<B: SnarkBackend> {
+    // Mutable view so each node can add virtual witnesses into the shared IR.
+    virtualized_ir: RefCell<VirtualizedIr<B>>,
+    _phantom: std::marker::PhantomData<B>,
+}
+
+impl<B: SnarkBackend> VirtualizationPass<B> {
+    pub fn new(tracked_ir: &TrackedIr<B>) -> Self {
+        // Seed the virtualized IR with tracked payloads when present; for nodes that were
+        // purely virtual (and thus skipped by tracking), give them an empty tracked table so
+        // the pass can still run and populate real payloads.
+        let seeded_payloads = tracked_ir
+            .payloads()
+            .iter()
+            .map(|(id, payload)| {
+                let initial = payload.clone().or_else(|| {
+                    Some(crate::prover::payloads::PayloadStructure::PlanPayload(
+                        arithmetic::table::TrackedTable::default(),
+                    ))
+                });
+                (*id, initial)
+            })
+            .collect();
+
+        let virtualized_ir = VirtualizedIr::new(tracked_ir.tree().clone(), seeded_payloads);
+        Self {
+            virtualized_ir: RefCell::new(virtualized_ir),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<B> LocalPass<B, TrackedPayload<B>, VirtualizedPayload<B>> for VirtualizationPass<B>
+where
+    B: SnarkBackend,
+{
+    fn transform(
+        &self,
+        node: &Node<B>,
+        id: NodeId,
+        payload: &TrackedPayload<B>,
+    ) -> Option<VirtualizedPayload<B>> {
+        // Let each node inject its virtual witness into the shared IR view.
+        let updated = {
+            let mut ir = self.virtualized_ir.borrow_mut();
+            node.add_virtual_witness(id, &mut ir)
+                .expect("virtual witness insertion should succeed");
+            ir.payloads().get(&id).cloned().flatten()
+        };
+
+        // Always emit a payload: prefer the updated value, otherwise default to the incoming
+        // tracked payload, and finally fall back to an empty tracked table so columns do not
+        // remain empty.
+        updated.or_else(|| Some(payload.clone())).or_else(|| {
+            Some(crate::prover::payloads::PayloadStructure::PlanPayload(
+                arithmetic::table::TrackedTable::default(),
+            ))
+        })
+    }
+
+    fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
+        Some(crate::prover::payloads::PayloadStructure::PlanPayload(
+            arithmetic::table::TrackedTable::default(),
+        ))
+    }
+}

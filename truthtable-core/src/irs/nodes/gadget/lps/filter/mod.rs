@@ -28,6 +28,13 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.col_eq.clone()]
     }
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {

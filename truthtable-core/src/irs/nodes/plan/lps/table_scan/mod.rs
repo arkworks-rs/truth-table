@@ -27,6 +27,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
     }
+
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {

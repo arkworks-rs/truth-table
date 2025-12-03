@@ -49,6 +49,13 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<Arc<Node<B>>> {
         vec![self.left.clone(), self.right.clone(), self.gadget().clone()]
     }
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
