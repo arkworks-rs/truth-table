@@ -21,6 +21,7 @@ mod test {
     use crate::prover::passes::tracking::TrackingPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use ark_piop::DefaultSnarkBackend;
+    use ark_piop::test_utils::test_prelude;
     use datafusion::{
         arrow::{
             array::{ArrayRef, Int32Array},
@@ -169,12 +170,13 @@ mod test {
 
     #[tokio::test]
     async fn builds_tracked_ir_from_logical_plan() {
+        let (arg_prover, arg_verifier) = test_prelude().unwrap();
         let ctx = SessionContext::new();
         register_dummy_table(&ctx);
         let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
         let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
         let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new();
+        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
 
         for query in queries() {
             let df = ctx.sql(query).await.unwrap();

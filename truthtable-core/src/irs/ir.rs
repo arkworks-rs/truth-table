@@ -142,7 +142,7 @@ where
         }
     }
 }
-pub trait LocalPass<B, PIn, POut>: Sync
+pub trait LocalPass<B, PIn, POut> 
 where
     B: SnarkBackend,
     PIn: Payload,
