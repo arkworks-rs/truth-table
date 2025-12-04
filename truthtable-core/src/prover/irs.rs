@@ -1,5 +1,3 @@
-use ark_piop::SnarkBackend;
-
 use crate::{
     irs::ir::Ir,
     prover::payloads::{
@@ -7,6 +5,7 @@ use crate::{
         VirtualizedPayload,
     },
 };
+use ark_piop::SnarkBackend;
 
 pub type InitialIr<B> = Ir<B, EmptyPayload>;
 pub type PlannedIr<B> = Ir<B, HintDFPayload>;

@@ -47,30 +47,55 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         };
 
         // Fetch the scope payload to retrieve the tracked table.
-        let Some(scope_payload) = virtualized_ir
+        let scope_payload = virtualized_ir
             .payloads()
             .get(&scope_id)
-            .and_then(|p| p.as_ref())
-        else {
-            return Ok(());
+            .and_then(|p| p.as_ref());
+
+        // Helper: try to pull the requested column (and activator) from a tracked table.
+        let try_build_subtable =
+            |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
+                let schema = table.schema_ref()?;
+                let col_idx = schema.index_of(column_name).ok()?;
+                Some(table.tracked_subtable_by_indices(&[col_idx]))
+            };
+
+        // First try the scope payload itself.
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload {
+            if let Some(subtable) = try_build_subtable(table, self.column.name()) {
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+                return Ok(());
+            }
         };
 
-        let scope_table = match scope_payload {
-            PayloadStructure::PlanPayload(table) => table,
-            PayloadStructure::GadgetPayload(_) => return Ok(()),
-        };
+        // If the scope payload is missing the column (e.g. filtered away), walk the scope's
+        // plan children to find a payload that still contains it.
+        if let Some(scope_node) = virtualized_ir.tree().get_node(&scope_id) {
+            for child in scope_node.children() {
+                // Only plan children carry tracked tables.
+                if !matches!(child.as_ref(), crate::irs::nodes::Node::Plan(_)) {
+                    continue;
+                }
 
-        let Some(schema) = scope_table.schema_ref() else {
-            return Ok(());
-        };
-        let Ok(col_idx) = schema.index_of(self.column.name()) else {
-            return Ok(());
-        };
+                let mut hasher = DefaultHasher::new();
+                child.hash(&mut hasher);
+                let child_id = hasher.finish();
 
-        // Build a subtable containing just the requested column (plus activator if present).
-        let subtable = scope_table.tracked_subtable_by_indices(&[col_idx]);
+                if let Some(Some(PayloadStructure::PlanPayload(table))) =
+                    virtualized_ir.payloads().get(&child_id)
+                {
+                    if let Some(subtable) = try_build_subtable(table, self.column.name()) {
+                        virtualized_ir.set_payload_for_node(
+                            id,
+                            Some(PayloadStructure::PlanPayload(subtable)),
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
 
-        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
         Ok(())
     }
 }
