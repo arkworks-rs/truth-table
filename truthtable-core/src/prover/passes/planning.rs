@@ -1,4 +1,3 @@
-use ark_piop::SnarkBackend;
 use crate::{
     irs::{
         ir::LocalPass,
@@ -6,18 +5,16 @@ use crate::{
     },
     prover::payloads::{EmptyPayload, HintDFPayload, PayloadStructure},
 };
-use indexmap::IndexMap;
+use ark_piop::SnarkBackend;
 
-pub struct PlanningPass<B> {
-    // pub ctx: ExecCtx,
-    _phantom: std::marker::PhantomData<(B)>,
-}
+/// A planning pass that initializes the prover IR with hint DataFrames
+///
+/// This pass converts an IR with empty payloads into an IR with Hint DataFrames.
+pub struct PlanningPass<B>(std::marker::PhantomData<B>);
 
 impl<B> PlanningPass<B> {
     pub fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
+        Self(std::marker::PhantomData)
     }
 }
 
@@ -38,7 +35,9 @@ where
         _payload: &EmptyPayload,
     ) -> Option<HintDFPayload> {
         match node {
-            Node::Plan(plan_node) => Some(PayloadStructure::PlanPayload(plan_node.output().clone())),
+            Node::Plan(plan_node) => {
+                Some(PayloadStructure::PlanPayload(plan_node.output().clone()))
+            }
             Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.hints())),
         }
     }

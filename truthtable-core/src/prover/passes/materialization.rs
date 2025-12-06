@@ -20,15 +20,19 @@ use crate::{
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-pub struct MaterializationPass<B> {
-    // pub ctx: ExecCtx,
-    _phantom: std::marker::PhantomData<(B)>,
-}
+/// A materialization pass that materializes the prover's hint DataFrames
+///
+/// This pass converts an IR with Hint DataFrame payloads into an IR with materialized in-memory tables.
+pub struct MaterializationPass<B>(std::marker::PhantomData<B>);
 impl<B> MaterializationPass<B> {
     pub fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<B> Default for MaterializationPass<B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -51,8 +55,7 @@ where
                 let out: IndexMap<_, _> = map
                     .par_iter()
                     .filter_map(|(k, hint_df)| {
-                        materialize_hint_df(hint_df)
-                            .map(|mat| (k.clone(), mat))
+                        materialize_hint_df(hint_df).map(|mat| (k.clone(), mat))
                     })
                     .collect();
 
@@ -60,8 +63,7 @@ where
                 let out: IndexMap<_, _> = map
                     .iter()
                     .filter_map(|(k, hint_df)| {
-                        materialize_hint_df(hint_df)
-                            .map(|mat| (k.clone(), mat))
+                        materialize_hint_df(hint_df).map(|mat| (k.clone(), mat))
                     })
                     .collect();
 
@@ -71,9 +73,7 @@ where
     }
 }
 
-fn materialize_hint_df(
-    hint_df: &crate::irs::nodes::hints::HintDF,
-) -> Option<MaterializedTable> {
+fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<MaterializedTable> {
     let df = hint_df.data_frame().clone();
     // Build projection of columns marked for materialization
     let projection: Vec<Expr> = hint_df
@@ -89,13 +89,6 @@ fn materialize_hint_df(
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
-
-    let col_names: Vec<String> = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|f| f.name().to_string())
-        .collect();
 
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
     let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();

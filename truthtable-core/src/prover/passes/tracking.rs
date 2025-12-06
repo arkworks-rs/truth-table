@@ -1,4 +1,3 @@
-use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, prover::ArgProver};
 
 use crate::{
@@ -12,17 +11,17 @@ use arithmetic::table::TrackedTable;
 use indexmap::IndexMap;
 use std::cell::RefCell;
 
+/// A tracking pass that tracks and commits the prover's arithmetized tables
+///
+/// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK prover with an associated id. Note that this pass is stateful, as it requires access to the prover instance to perform the tracking and committing.
 pub struct TrackingPass<B: SnarkBackend> {
-    // pub ctx: ExecCtx,
     prover: RefCell<ArgProver<B>>,
-    _phantom: std::marker::PhantomData<(B)>,
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
     pub fn new(prover: ArgProver<B>) -> Self {
         Self {
             prover: RefCell::new(prover),
-            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -33,17 +32,14 @@ where
 {
     fn transform(
         &self,
-        node: &Node<B>,
-        id: NodeId,
+        _node: &Node<B>,
+        _id: NodeId,
         payload: &ArithPayload<B::F>,
     ) -> Option<TrackedPayload<B>> {
         match payload {
-            ArithPayload::PlanPayload(arith_table) => {
-                Some(TrackedPayload::PlanPayload(arith_to_tracked(
-                    arith_table,
-                    &self.prover,
-                )))
-            }
+            ArithPayload::PlanPayload(arith_table) => Some(TrackedPayload::PlanPayload(
+                arith_to_tracked(arith_table, &self.prover),
+            )),
             ArithPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, arith_table) in map {

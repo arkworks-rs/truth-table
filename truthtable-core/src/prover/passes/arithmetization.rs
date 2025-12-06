@@ -14,17 +14,20 @@ use crate::{
     },
     prover::payloads::{ArithPayload, MaterializedPayload, MaterializedTable},
 };
-
-pub struct ArithmetizationPass<B> {
-    // pub ctx: ExecCtx,
-    _phantom: std::marker::PhantomData<(B)>,
-}
+/// An arithmetization pass that arithmetizes the prover's materialized in-memory tables
+///
+/// This pass converts an IR with materialized in-memory tables into an IR with arithmetized tables, meaning that each column is encoded and represented as multilinear extensions (MLEs) over a finite field.
+pub struct ArithmetizationPass<B>(std::marker::PhantomData<B>);
 
 impl<B> ArithmetizationPass<B> {
     pub fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<B> Default for ArithmetizationPass<B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -34,8 +37,8 @@ where
 {
     fn transform(
         &self,
-        node: &Node<B>,
-        id: NodeId,
+        _node: &Node<B>,
+        _id: NodeId,
         payload: &MaterializedPayload,
     ) -> Option<ArithPayload<B::F>> {
         match payload {

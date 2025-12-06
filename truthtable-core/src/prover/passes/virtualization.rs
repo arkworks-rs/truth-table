@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 
+use arithmetic::table::TrackedTable;
 use ark_piop::SnarkBackend;
 
 use crate::irs::nodes::IsNode;
 use crate::prover::irs::{TrackedIr, VirtualizedIr};
-use crate::prover::payloads::VirtualizedPayload;
+use crate::prover::payloads::{PayloadStructure, VirtualizedPayload};
 use crate::{
     irs::{
         ir::LocalPass,
@@ -13,10 +14,13 @@ use crate::{
     prover::payloads::TrackedPayload,
 };
 
+/// A virtualization pass that allows nodes to inject virtual witnesses into the IR
+///
+/// This pass provides each node with a mutable view of a shared IR, allowing them to
+/// insert virtual witnesses as needed.
 pub struct VirtualizationPass<B: SnarkBackend> {
     // Mutable view so each node can add virtual witnesses into the shared IR.
     virtualized_ir: RefCell<VirtualizedIr<B>>,
-    _phantom: std::marker::PhantomData<B>,
 }
 
 impl<B: SnarkBackend> VirtualizationPass<B> {
@@ -28,11 +32,9 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
             .payloads()
             .iter()
             .map(|(id, payload)| {
-                let initial = payload.clone().or_else(|| {
-                    Some(crate::prover::payloads::PayloadStructure::PlanPayload(
-                        arithmetic::table::TrackedTable::default(),
-                    ))
-                });
+                let initial = payload
+                    .clone()
+                    .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTable::default())));
                 (*id, initial)
             })
             .collect();
@@ -40,7 +42,6 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
         let virtualized_ir = VirtualizedIr::new(tracked_ir.tree().clone(), seeded_payloads);
         Self {
             virtualized_ir: RefCell::new(virtualized_ir),
-            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -66,16 +67,12 @@ where
         // Always emit a payload: prefer the updated value, otherwise default to the incoming
         // tracked payload, and finally fall back to an empty tracked table so columns do not
         // remain empty.
-        updated.or_else(|| Some(payload.clone())).or_else(|| {
-            Some(crate::prover::payloads::PayloadStructure::PlanPayload(
-                arithmetic::table::TrackedTable::default(),
-            ))
-        })
+        updated
+            .or_else(|| Some(payload.clone()))
+            .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTable::default())))
     }
 
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
-        Some(crate::prover::payloads::PayloadStructure::PlanPayload(
-            arithmetic::table::TrackedTable::default(),
-        ))
+        Some(PayloadStructure::PlanPayload(TrackedTable::default()))
     }
 }
