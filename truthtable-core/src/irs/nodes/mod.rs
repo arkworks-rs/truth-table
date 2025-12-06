@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     sync::{Arc, Weak},
 };
@@ -82,6 +83,12 @@ where
     /// Returns a human-readable representation of this node.
     fn display(&self) -> String {
         self.name()
+    }
+    /// Deterministic node identifier derived from the hashing strategy used by the IR.
+    fn id(&self) -> NodeId {
+        let mut hasher = DefaultHasher::new();
+        std::ptr::hash(self, &mut hasher);
+        hasher.finish()
     }
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
@@ -182,6 +189,12 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Plan(plan_node) => plan_node.display(),
             Node::Gadget(gadget_node) => gadget_node.display(),
         }
+    }
+    /// Deterministic node identifier derived from the hashing strategy used by the IR.
+    fn id(&self) -> NodeId {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {

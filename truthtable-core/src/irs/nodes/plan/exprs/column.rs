@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_EXPR;
 use ark_piop::SnarkBackend;
-use datafusion::parquet::column;
 use datafusion_common::{Column, Statistics};
 
 use crate::irs::nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId};
@@ -35,22 +34,11 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         use crate::prover::payloads::PayloadStructure;
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        // Locate the scope node id by hashing the stored scope Arc the same way arena keys
-        // are derived.
-        let scope_id = {
-            let mut hasher = DefaultHasher::new();
-            self.scope.hash(&mut hasher);
-            hasher.finish()
-        };
+        // Locate the scope node id using the shared helper.
+        let scope_id = self.scope.id();
 
         // Fetch the scope payload to retrieve the tracked table.
-        let scope_payload = virtualized_ir
-            .payloads()
-            .get(&scope_id)
-            .and_then(|p| p.as_ref());
+        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
 
         // Helper: try to pull the requested column (and activator) from a tracked table.
         let try_build_subtable =
@@ -61,42 +49,18 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             };
 
         // First try the scope payload itself.
-        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload {
-            if let Some(subtable) = try_build_subtable(table, self.column.name()) {
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
-                return Ok(());
-            }
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+            && let Some(subtable) = try_build_subtable(table, self.column.name())
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
         };
 
-        // If the scope payload is missing the column (e.g. filtered away), walk the scope's
-        // plan children to find a payload that still contains it.
-        if let Some(scope_node) = virtualized_ir.tree().get_node(&scope_id) {
-            for child in scope_node.children() {
-                // Only plan children carry tracked tables.
-                if !matches!(child.as_ref(), crate::irs::nodes::Node::Plan(_)) {
-                    continue;
-                }
-
-                let mut hasher = DefaultHasher::new();
-                child.hash(&mut hasher);
-                let child_id = hasher.finish();
-
-                if let Some(Some(PayloadStructure::PlanPayload(table))) =
-                    virtualized_ir.payloads().get(&child_id)
-                {
-                    if let Some(subtable) = try_build_subtable(table, self.column.name()) {
-                        virtualized_ir.set_payload_for_node(
-                            id,
-                            Some(PayloadStructure::PlanPayload(subtable)),
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        panic!(
+            "Column node could not find its column '{}' in scope node {:?}",
+            self.column.name(),
+            scope_id
+        );
     }
 }
 

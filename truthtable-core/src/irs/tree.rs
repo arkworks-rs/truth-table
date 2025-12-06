@@ -4,9 +4,7 @@ use ark_std::fmt::Debug;
 use datafusion::{logical_expr::LogicalPlan, prelude::Expr};
 use derivative::Derivative;
 use indexmap::IndexMap;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt::Display;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Weak};
 
 fn build_arena<B>(root: &Arc<Node<B>>) -> IndexMap<NodeId, Arc<Node<B>>>
@@ -17,9 +15,7 @@ where
     where
         B: SnarkBackend,
     {
-        let mut hasher = DefaultHasher::new();
-        node.hash(&mut hasher);
-        let id = hasher.finish();
+        let id = node.id();
         if arena.contains_key(&id) {
             return;
         }

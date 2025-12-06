@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::FieldRef;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
 use indexmap::IndexMap;
 
@@ -53,9 +54,67 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        use crate::prover::payloads::PayloadStructure;
+
+        // Pull the tracked table from the filter's input.
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        // Start from this node's current payload (should already include the activator).
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_polys();
+        debug_assert!(
+            !merged_polys.is_empty(),
+            "Filter payload should already contain the activator column"
+        );
+
+        // Append all non-activator columns from the input into this table.
+        for (field, poly) in input_table.tracked_polys_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            merged_polys
+                .entry(field.clone())
+                .or_insert_with(|| poly.clone());
+        }
+
+        // Prefer existing schema metadata, otherwise inherit from the input table.
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        // Keep the existing log size when set; otherwise inherit from the input.
+        let log_size = match (current_table.log_size(), input_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Filter log sizes should match input");
+                current
+            }
+        };
+
+        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 }

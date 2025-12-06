@@ -51,14 +51,6 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
                 .replace('>', "&gt;")
         }
 
-        fn node_id<B: SnarkBackend>(node: &Node<B>) -> NodeId {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            node.hash(&mut hasher);
-            hasher.finish()
-        }
-
         let mut dot = String::from("digraph ir {\n  node [shape=box];\n");
 
         for (id, node) in self.tree.arena().iter() {
@@ -101,9 +93,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
 
         for (_id, node) in self.tree.arena().iter() {
             for child in node.children() {
-                let child_id = node_id(&child);
-                let parent_id = node_id(node);
-                dot.push_str(&format!("  \"{}\" -> \"{}\";\n", parent_id, child_id));
+                dot.push_str(&format!("  \"{}\" -> \"{}\";\n", node.id(), child.id()));
             }
         }
 
