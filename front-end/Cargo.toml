@@ -27,3 +27,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }
+ark-piop = { workspace = true, features = ["test-utils"] }

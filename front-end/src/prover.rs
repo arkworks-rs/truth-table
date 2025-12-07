@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use ark_piop::{prover::ArgProver, SnarkBackend};
 use datafusion::{
-    config::{self, ConfigOptions},
+    arrow::datatypes::Schema,
+    config::ConfigOptions,
     datasource::MemTable,
-    optimizer::{analyzer::AnalyzerRule, Analyzer, Optimizer, OptimizerContext, OptimizerRule},
+    optimizer::{Analyzer, Optimizer, OptimizerContext, OptimizerRule},
     prelude::SessionContext,
 };
+use datafusion_common::DFSchema;
 use datafusion_expr::LogicalPlan;
 use truthtable_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
-    irs::{ir::Ir, tree::Tree},
+    irs::{ir::Ir, nodes::Node, tree::Tree},
     prover::{
         irs::{MaterializedIr, VirtualizedIr},
         passes::{
@@ -36,6 +38,45 @@ pub struct TTProverConfig<B: SnarkBackend> {
 }
 
 impl<B: SnarkBackend> TTProverConfig<B> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        analyzer: Analyzer,
+        optimizer: Optimizer,
+        ctx_oracles: CtxOracles<B>,
+        session_ctx: SessionContext,
+        config_options: ConfigOptions,
+        optimizer_ctx: OptimizerContext,
+        observer: fn(&LogicalPlan, &dyn OptimizerRule),
+        arg_prover: ArgProver<B>,
+    ) -> Self {
+        Self {
+            analyzer,
+            optimizer,
+            ctx_oracles,
+            session_ctx,
+            config_options,
+            optimizer_ctx,
+            observer,
+            arg_prover,
+        }
+    }
+
+    pub fn with_defaults(
+        session_ctx: SessionContext,
+        arg_prover: ArgProver<B>,
+    ) -> Self {
+        Self::new(
+            Analyzer::new(),
+            Optimizer::new(),
+            CtxOracles::default(),
+            session_ctx,
+            ConfigOptions::new(),
+            OptimizerContext::new(),
+            |_plan_after_rule, _rule| {},
+            arg_prover,
+        )
+    }
+
     pub fn analyzer(&self) -> &Analyzer {
         &self.analyzer
     }
@@ -148,19 +189,31 @@ impl<B: SnarkBackend> TTProver<B> {
             .payloads()
             .get(&root_id)
             .cloned()
-            .expect("missing payload for root node");
-        let materialized_table = match payload {
-            Some(payload) => payload,
-            None => {
-                panic!()
-            }
-        };
+            .flatten();
 
-        let mem_table = match materialized_table {
-            PayloadStructure::PlanPayload(table) => table.mem_table_arc(),
-            _ => panic!("expected plan payload at root node"),
-        };
+        if let Some(materialized_table) = payload {
+            let mem_table = match materialized_table {
+                PayloadStructure::PlanPayload(table) => table.mem_table_arc(),
+                _ => panic!("expected plan payload at root node"),
+            };
+            return Ok(mem_table);
+        }
 
-        Ok(mem_table)
+        let output_hint_df = match materialized_ir.tree().root().as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("expected plan node at root"),
+        };
+        let df = output_hint_df.data_frame().clone();
+        let df_schema = df.schema().clone();
+        let batches = df
+            .collect()
+            .await
+            .expect("output dataframe collection should succeed");
+        let arrow_schema: Schema =
+            <DFSchema as AsRef<Schema>>::as_ref(&df_schema).clone();
+        let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches])
+            .expect("memtable creation should succeed");
+
+        Ok(Arc::new(mem_table))
     }
 }
