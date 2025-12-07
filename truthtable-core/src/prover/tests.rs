@@ -39,7 +39,7 @@ async fn build_proof_tree_for_query(
 
     let df = ctx.sql(query).await.unwrap();
     let plan = df.into_unoptimized_plan();
-    let shared_ctx: SharedCtx<DefaultSnarkBackend> = SharedCtx::default();
+    let shared_ctx: CtxOracles<DefaultSnarkBackend> = CtxOracles::default();
     ProverProofTree::from_lp(&ctx, shared_ctx, &plan, &None)
 }
 

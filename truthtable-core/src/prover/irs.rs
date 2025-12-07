@@ -22,7 +22,7 @@ pub type PlannedIr<B> = Ir<B, HintDFPayload>;
 /// The materialized Intermediate Representation with materialized in-memory table payloads.
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain materialized in-memory tables resulting from executing the hint dataframes.
-pub type ExecutedIr<B> = Ir<B, MaterializedPayload>;
+pub type MaterializedIr<B> = Ir<B, MaterializedPayload>;
 /// The arithmetized Intermediate Representation with polynomial payloads.
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain arithmetized polynomials derived from the materialized tables.
@@ -95,13 +95,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
-
-            let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             println!("Query: {query}");
             println!("{}", ir.display_graphviz(true));
             assert!(!ir.tree().arena().is_empty());
@@ -119,13 +113,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
-
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
 
             println!("Planned Query: {query}");
@@ -147,13 +135,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
-
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
 
@@ -175,13 +157,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
-
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
             let arithmetized_ir =
@@ -207,13 +183,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
-
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
@@ -238,13 +208,33 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, Some(EmptyPayload)))
-                .collect::<IndexMap<_, _>>();
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
+            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
+            let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+            println!("Planned Query: {query}");
+            println!("{}", virtualized_ir.display_graphviz(true));
+        }
+    }
 
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new(tree, payloads);
+    #[tokio::test]
+    async fn prove() {
+        let (arg_prover, _) = test_prelude().unwrap();
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
+        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+
+        for query in queries() {
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+            let tree = Tree::from_logical_plan(&lp);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);

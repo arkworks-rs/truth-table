@@ -34,6 +34,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         use crate::prover::payloads::PayloadStructure;
+
         // Locate the scope node id using the shared helper.
         let scope_id = self.scope.id();
 

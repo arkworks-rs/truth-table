@@ -219,7 +219,7 @@ where
 // {
 //     fn from_lp(
 //         ctx: &SessionContext,
-//         prover_ctx: arithmetic::ctx::SharedCtx<B>,
+//         prover_ctx: arithmetic::ctx::CtxOracles<B>,
 //         plan: LogicalPlan,
 //         parent_node_id: NodeId,
 //     ) -> Self

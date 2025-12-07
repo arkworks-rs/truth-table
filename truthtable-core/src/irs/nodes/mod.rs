@@ -84,12 +84,6 @@ where
     fn display(&self) -> String {
         self.name()
     }
-    /// Deterministic node identifier derived from the hashing strategy used by the IR.
-    fn id(&self) -> NodeId {
-        let mut hasher = DefaultHasher::new();
-        std::ptr::hash(self, &mut hasher);
-        hasher.finish()
-    }
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
     /// Returns this node's children.
@@ -117,6 +111,12 @@ where
 }
 
 impl<B: SnarkBackend> Node<B> {
+    /// Deterministic node identifier derived from the hashing strategy used by the IR.
+    pub fn id(&self) -> NodeId {
+        let mut hasher = DefaultHasher::new();
+        std::ptr::hash(self, &mut hasher);
+        hasher.finish()
+    }
     pub(crate) fn from_lp(plan: LogicalPlan) -> Arc<Self> {
         match plan.clone() {
             LogicalPlan::Projection(_) => Arc::new_cyclic(|weak_self| {
@@ -190,12 +190,7 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.display(),
         }
     }
-    /// Deterministic node identifier derived from the hashing strategy used by the IR.
-    fn id(&self) -> NodeId {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
+
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         match &self {

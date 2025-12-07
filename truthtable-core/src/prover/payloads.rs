@@ -76,6 +76,10 @@ impl MaterializedTable {
         &self.table
     }
 
+    pub fn mem_table_arc(&self) -> Arc<MemTable> {
+        Arc::clone(&self.table)
+    }
+
     pub fn batches(&self) -> datafusion_common::Result<Vec<RecordBatch>> {
         let ctx = SessionContext::new();
         let df = ctx.read_table(self.table.clone())?;

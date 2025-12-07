@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
+use arithmetic::{ctx::CtxOracles, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     verifier::Verifier,
@@ -204,7 +204,7 @@ fn load_proof(path: &Path) -> Result<Proof> {
 
 fn shared_ctx_from_oracles(
     oracles: &[ArithTableOracle<B>],
-) -> Result<SharedCtx<B>> {
+) -> Result<CtxOracles<B>> {
     let mut table_oracles = IndexMap::new();
     for oracle in oracles {
         let schema = oracle
@@ -212,5 +212,5 @@ fn shared_ctx_from_oracles(
             .ok_or_else(|| anyhow!("oracle does not provide a schema"))?;
         table_oracles.insert(schema, oracle.clone());
     }
-    Ok(SharedCtx::new(table_oracles))
+    Ok(CtxOracles::new(table_oracles))
 }

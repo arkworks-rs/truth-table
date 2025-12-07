@@ -4,17 +4,28 @@ use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
     pcs::PCS,
+    prover::structs::proof::SNARKProof,
     setup::structs::{SNARKPk, SNARKVk},
+    SnarkBackend,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use tracing::instrument;
 use truthtable_core::errors::TTResult;
 
-pub struct TTPk<B:SnarkBackend> {
+pub struct TTProof<B: SnarkBackend> {
+    snark_proof: SNARKProof<B>,
+}
+impl<B: SnarkBackend> TTProof<B> {
+    pub fn new(snark_proof: SNARKProof<B>) -> Self {
+        Self { snark_proof }
+    }
+}
+
+pub struct TTPk<B: SnarkBackend> {
     snark_pk: SNARKPk<B>,
 }
 
-pub struct TTVk<B:SnarkBackend> {
+pub struct TTVk<B: SnarkBackend> {
     snark_vk: SNARKVk<B>,
 }
 
@@ -38,7 +49,7 @@ pub trait Artifact: Sized {
 
 impl<B> Artifact for TTVk<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
         canonical_to_vec(&self.snark_vk)
@@ -53,7 +64,7 @@ B:SnarkBackend
 
 impl<B> Artifact for TTPk<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
     SNARKPk<B>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
@@ -69,7 +80,7 @@ B:SnarkBackend
 
 impl<B> TTVk<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     pub fn into_inner(self) -> SNARKVk<B> {
         self.snark_vk
@@ -82,7 +93,7 @@ B:SnarkBackend
 
 impl<B> TTPk<B>
 where
-B:SnarkBackend
+    B: SnarkBackend,
 {
     pub fn into_inner(self) -> SNARKPk<B> {
         self.snark_pk

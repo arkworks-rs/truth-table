@@ -66,7 +66,7 @@ where
 // {
 //     fn from_expr(
 //         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: SharedCtx<B>,
+//         prover_ctx: CtxOracles<B>,
 //         expr: Expr,
 //         parent: NodeId,
 //     ) -> Self {

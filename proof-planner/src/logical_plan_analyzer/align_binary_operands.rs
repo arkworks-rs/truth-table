@@ -4,10 +4,7 @@ use super::common::cast_expression_to_type;
 use datafusion::{
     arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
-use datafusion_common::{
-    tree_node::{Transformed, Node},
-    DFSchema, Result,
-};
+use datafusion_common::{DFSchema, Result, tree_node::{Transformed, TreeNode}};
 use datafusion_expr::{
     expr::{BinaryExpr, Exists, InSubquery},
     logical_plan::{LogicalPlan, Subquery},
@@ -63,7 +60,7 @@ impl<'a> AlignBinaryOperandsRewriter<'a> {
     }
 }
 
-impl<'a> datafusion_common::tree_node::NodeRewriter for AlignBinaryOperandsRewriter<'a> {
+impl<'a> datafusion_common::tree_node::TreeNodeRewriter for AlignBinaryOperandsRewriter<'a> {
     type Node = Expr;
 
     fn f_up(&mut self, expr: Expr) -> Result<Transformed<Expr>> {

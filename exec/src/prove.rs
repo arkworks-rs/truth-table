@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::{ctx::SharedCtx, table_oracle::ArithTableOracle};
+use arithmetic::{ctx::CtxOracles, table_oracle::ArithTableOracle};
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::ArgProver,
@@ -211,7 +211,7 @@ pub async fn prepare_prover_artifacts(
         table_oracles.insert(schema, oracle.clone());
     }
 
-    let shared_ctx = SharedCtx::new(table_oracles);
+    let shared_ctx = CtxOracles::new(table_oracles);
 
     let proof_tree =
         create_prover_proof_tree_with_ctx::<B>(&ctx, query, shared_ctx).await;

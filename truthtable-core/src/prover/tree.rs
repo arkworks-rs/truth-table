@@ -14,7 +14,7 @@ use crate::{
     },
     tree::{NodeId, ProverPlanTree},
 };
-use arithmetic::ctx::SharedCtx;
+use arithmetic::ctx::CtxOracles;
 use ark_ff::PrimeField;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -35,7 +35,7 @@ pub struct ProverProofTree<B>
 where
 B:SnarkBackend
 {
-    ctx: SharedCtx<B>,
+    ctx: CtxOracles<B>,
     root: Arc<dyn ProverPlanNode<B>>,
     arena: IndexMap<NodeId, Arc<dyn ProverPlanNode<B>>>,
 }
@@ -86,17 +86,17 @@ impl<B> ProverProofTree<B>
 where
 B:SnarkBackend
 {
-    pub fn ctx(&self) -> &SharedCtx<B> {
+    pub fn ctx(&self) -> &CtxOracles<B> {
         &self.ctx
     }
 
-    pub fn ctx_mut(&mut self) -> &mut SharedCtx<B> {
+    pub fn ctx_mut(&mut self) -> &mut CtxOracles<B> {
         &mut self.ctx
     }
 
     pub fn new(
         root: Arc<dyn ProverPlanNode<B>>,
-        ctx: SharedCtx<B>,
+        ctx: CtxOracles<B>,
     ) -> Self {
         let arena = build_arena::<B>(&root);
         Self { ctx, root, arena }
@@ -121,7 +121,7 @@ B:SnarkBackend
     #[instrument(level = "debug", skip_all)]
     pub fn from_expr(
         ctx: &SessionContext,
-        prover_ctx: SharedCtx<B>,
+        prover_ctx: CtxOracles<B>,
         expr: Expr,
         parent_node_id: &Option<NodeId>,
     ) -> Self
@@ -204,7 +204,7 @@ B:SnarkBackend
     #[instrument(level = "debug", skip_all)]
     pub fn from_lp(
         ctx: &SessionContext,
-        prover_ctx: SharedCtx<B>,
+        prover_ctx: CtxOracles<B>,
         plan: &LogicalPlan,
         parent_node_id: &Option<NodeId>,
     ) -> Self {

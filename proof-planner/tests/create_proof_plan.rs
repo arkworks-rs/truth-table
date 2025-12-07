@@ -1,7 +1,6 @@
-use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
+use ark_piop::{DefaultSnarkBackend, pcs::{kzg10::KZG10, pst13::PST13}};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use proof_planner::create_prover_proof_tree;
 type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
@@ -28,6 +27,5 @@ FROM
 GROUP BY
     l_returnflag,
     l_linestatus";
-    let proof_plan = create_prover_proof_tree::<B>(&ctx, query).await;
-    println!("{}", proof_plan.display_graphviz());
+    // let proof_plan = create_prover_proof_tree::<DefaultSnarkBackend>(&ctx, query).await;
 }

@@ -8,7 +8,6 @@
 pub mod activator;
 pub mod col;
 pub mod col_oracle;
-pub mod ctx;
 pub mod encoding;
 pub mod errors;
 pub mod table;

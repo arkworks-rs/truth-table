@@ -8,7 +8,8 @@ members = [
     # "tpch-data",
     # "exec",
     "truthtable-core",
-    # "proof-planner",
+    "proof-planner",
+    "front-end",
 ]
 
 # Add dependencies here

@@ -1,161 +1,33 @@
-use arithmetic::ctx::SharedCtx;
-use ark_ff::PrimeField;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
-use datafusion::{
-    execution::{session_state::SessionStateBuilder, SessionState},
-    optimizer::Analyzer,
-    prelude::SessionContext,
-};
+use ark_piop::SnarkBackend;
+use datafusion::prelude::SessionContext;
+use datafusion_expr::LogicalPlan;
 use tracing::instrument;
-use truthtable_core::{
-    prover::trees::proof_tree::ProverProofTree, verifier::trees::proof_tree::VerifierProofTree,
-};
-
-use crate::{
-    logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules},
-    logical_plan_optimizer::optimize_logical_plan,
-    proof_plan_optimizer::{
-        build_prover_proof_tree, build_verifier_proof_tree, default_shared_ctx,
-    },
-};
+use truthtable_core::prover::irs::InitialIr;
 
 pub mod logical_plan_analyzer;
 pub mod logical_plan_optimizer;
-pub mod proof_plan_optimizer;
 
-/// Create a new `SessionContext` configured with the custom logical-plan
-/// analyzer.
-pub fn new_session_context_with_custom_analyzer() -> SessionContext {
-    let base_ctx = SessionContext::new();
-    let base_state = base_ctx.state();
-    let mut builder = SessionStateBuilder::new_from_existing(base_state.clone());
-
-    let mut analyzer = Analyzer::with_rules(logical_plan_analyzer_rules());
-    analyzer.function_rewrites = base_state.analyzer().function_rewrites.clone();
-    builder.analyzer().replace(analyzer);
-
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+pub struct ProofPlanner<B: SnarkBackend> {
+    _marker: std::marker::PhantomData<B>,
+}
+impl<B: SnarkBackend> Default for ProofPlanner<B> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-pub async fn create_prover_proof_tree<B>(
-    df_session_ctx: &SessionContext,
-    query: &str,
-) -> ProverProofTree<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync,
-{
-    let df_session_state: SessionState = df_session_ctx.state();
-    let unoptimized_logical_plan = df_session_state.create_logical_plan(query).await.unwrap();
-    println!("{}", unoptimized_logical_plan.display_graphviz());
-    let analyzed_logical_plan = analyze_logical_plan(
-        unoptimized_logical_plan.clone(),
-        logical_plan_analyzer_rules(),
-    );
-
-    println!("{}", analyzed_logical_plan.display_graphviz());
-
-    let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
-    println!("{}", optimized_logical_plan.display_graphviz());
-    let shared_ctx = default_shared_ctx::<B>();
-    build_prover_proof_tree(
-        df_session_ctx,
-        unoptimized_logical_plan,
-        optimized_logical_plan,
-        shared_ctx,
-    )
+impl<B: SnarkBackend> ProofPlanner<B> {
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
+    #[instrument(level = "debug", skip_all)]
+    pub async fn plan(df_session_ctx: &SessionContext, logical_plan: LogicalPlan) -> InitialIr<B>
+    where
+        B: SnarkBackend,
+    {
+        todo!()
+    }
 }
 
-#[instrument(level = "debug", skip_all)]
-pub async fn create_prover_proof_tree_with_ctx<B>(
-    df_session_ctx: &SessionContext,
-    query: &str,
-    shared_ctx: SharedCtx<B>,
-) -> ProverProofTree<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync,
-{
-    let df_session_state: SessionState = df_session_ctx.state();
-    let unoptimized_logical_plan = df_session_state.create_logical_plan(query).await.unwrap();
-
-    let analyzed_logical_plan = analyze_logical_plan(
-        unoptimized_logical_plan.clone(),
-        logical_plan_analyzer_rules(),
-    );
-
-    let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
-    build_prover_proof_tree(
-        df_session_ctx,
-        unoptimized_logical_plan,
-        optimized_logical_plan,
-        shared_ctx,
-    )
-}
-
-pub async fn create_verifier_proof_tree<B>(
-    df_session_ctx: &SessionContext,
-    query: &str,
-) -> VerifierProofTree<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync,
-{
-    let df_session_state: SessionState = df_session_ctx.state();
-    let unoptimized_logical_plan = df_session_state.create_logical_plan(query).await.unwrap();
-
-    let analyzed_logical_plan = analyze_logical_plan(
-        unoptimized_logical_plan.clone(),
-        logical_plan_analyzer_rules(),
-    );
-
-    let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
-    let shared_ctx = default_shared_ctx::<B>();
-    build_verifier_proof_tree(
-        df_session_ctx,
-        unoptimized_logical_plan,
-        optimized_logical_plan,
-        shared_ctx,
-    )
-}
-
-pub async fn create_verifier_proof_tree_with_ctx<B>(
-    df_session_ctx: &SessionContext,
-    query: &str,
-    shared_ctx: SharedCtx<B>,
-) -> VerifierProofTree<B>
-where
-    F: PrimeField,
-    MvPCS: PCS<F, Poly = MLE<F>> + 'static,
-    UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync,
-{
-    let df_session_state: SessionState = df_session_ctx.state();
-    let unoptimized_logical_plan = df_session_state.create_logical_plan(query).await.unwrap();
-
-    let analyzed_logical_plan = analyze_logical_plan(
-        unoptimized_logical_plan.clone(),
-        logical_plan_analyzer_rules(),
-    );
-
-    let optimized_logical_plan = optimize_logical_plan(analyzed_logical_plan.clone());
-    build_verifier_proof_tree(
-        df_session_ctx,
-        unoptimized_logical_plan,
-        optimized_logical_plan,
-        shared_ctx,
-    )
-}
-
-// let verifier_ctx = SharedCtx::new(table_oracle_map);
-
-// verifier.set_proof(proof);
-// let verifier_proof_tree =
-//     VerifierProofTree::from_lp(&ctx, verifier_ctx.clone(), &logical_plan,
-// &NodeId::None);

@@ -18,6 +18,15 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         Self { tree, payloads }
     }
 
+    pub fn new_empty(tree: Tree<B>) -> Self {
+        let payloads = tree
+            .arena()
+            .keys()
+            .map(|id| (*id, None))
+            .collect::<IndexMap<_, _>>();
+        Self { tree, payloads }
+    }
+
     pub fn tree(&self) -> &Tree<B> {
         &self.tree
     }

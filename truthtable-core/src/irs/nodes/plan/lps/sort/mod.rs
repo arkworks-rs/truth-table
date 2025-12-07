@@ -2,7 +2,6 @@ mod gadget;
 mod output;
 use std::sync::Arc;
 
-use arithmetic::ctx::SharedCtx;
 use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
@@ -80,7 +79,7 @@ where
 // {
 //     fn from_lp(
 //         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: SharedCtx<B>,
+//         prover_ctx: CtxOracles<B>,
 //         plan: LogicalPlan,
 //         _parent: NodeId,
 //     ) -> Self
