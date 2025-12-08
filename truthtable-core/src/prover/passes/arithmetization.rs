@@ -39,9 +39,9 @@ where
         &self,
         _node: &Node<B>,
         _id: NodeId,
-        payload: &MaterializedPayload,
+        payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
-        match payload {
+        match payload? {
             MaterializedPayload::PlanPayload(mat) => Some(ArithPayload::PlanPayload(
                 arithmetize_materialized_table(mat),
             )),

@@ -1,21 +1,14 @@
 use std::sync::Arc;
 
 use ark_piop::{prover::ArgProver, SnarkBackend};
-use datafusion::{
-    arrow::datatypes::Schema,
-    config::ConfigOptions,
-    datasource::MemTable,
-    optimizer::{Analyzer, Optimizer, OptimizerContext, OptimizerRule},
-    prelude::SessionContext,
-};
+use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
 use datafusion_expr::LogicalPlan;
 use truthtable_core::{
-    ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::{ir::Ir, nodes::Node, tree::Tree},
     prover::{
-        irs::{MaterializedIr, VirtualizedIr},
+        irs::MaterializedIr,
         passes::{
             arithmetization::ArithmetizationPass, materialization::MaterializationPass,
             planning::PlanningPass, tracking::TrackingPass, virtualization::VirtualizationPass,
@@ -24,79 +17,16 @@ use truthtable_core::{
     },
 };
 
-use crate::structs::TTProof;
+use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct TTProverConfig<B: SnarkBackend> {
-    analyzer: Analyzer,
-    optimizer: Optimizer,
-    ctx_oracles: CtxOracles<B>,
-    session_ctx: SessionContext,
-    config_options: ConfigOptions,
-    optimizer_ctx: OptimizerContext,
-    observer: fn(&LogicalPlan, &dyn OptimizerRule),
-    arg_prover: ArgProver<B>,
+    phantom: std::marker::PhantomData<B>,
 }
-
 impl<B: SnarkBackend> TTProverConfig<B> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        analyzer: Analyzer,
-        optimizer: Optimizer,
-        ctx_oracles: CtxOracles<B>,
-        session_ctx: SessionContext,
-        config_options: ConfigOptions,
-        optimizer_ctx: OptimizerContext,
-        observer: fn(&LogicalPlan, &dyn OptimizerRule),
-        arg_prover: ArgProver<B>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
-            analyzer,
-            optimizer,
-            ctx_oracles,
-            session_ctx,
-            config_options,
-            optimizer_ctx,
-            observer,
-            arg_prover,
+            phantom: std::marker::PhantomData,
         }
-    }
-
-    pub fn with_defaults(
-        session_ctx: SessionContext,
-        arg_prover: ArgProver<B>,
-    ) -> Self {
-        Self::new(
-            Analyzer::new(),
-            Optimizer::new(),
-            CtxOracles::default(),
-            session_ctx,
-            ConfigOptions::new(),
-            OptimizerContext::new(),
-            |_plan_after_rule, _rule| {},
-            arg_prover,
-        )
-    }
-
-    pub fn analyzer(&self) -> &Analyzer {
-        &self.analyzer
-    }
-    pub fn optimizer(&self) -> &Optimizer {
-        &self.optimizer
-    }
-    pub fn ctx_oracles(&self) -> &CtxOracles<B> {
-        &self.ctx_oracles
-    }
-    pub fn session_ctx(&self) -> &SessionContext {
-        &self.session_ctx
-    }
-    pub fn config_options(&self) -> &ConfigOptions {
-        &self.config_options
-    }
-    pub fn optimizer_ctx(&self) -> &OptimizerContext {
-        &self.optimizer_ctx
-    }
-    pub fn observer(&self) -> fn(&LogicalPlan, &dyn OptimizerRule) {
-        self.observer
     }
     pub fn planning_pass(&self) -> PlanningPass<B> {
         PlanningPass::new()
@@ -107,26 +37,45 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn arithmetization_pass(&self) -> ArithmetizationPass<B> {
         ArithmetizationPass::new()
     }
-    pub fn tracking_pass(&self) -> TrackingPass<B> {
-        TrackingPass::new(self.arg_prover().clone())
+    pub fn tracking_pass(&self, arg_prover: ArgProver<B>) -> TrackingPass<B> {
+        TrackingPass::new(arg_prover)
     }
-    pub fn arg_prover(&self) -> &ArgProver<B> {
-        &self.arg_prover
+}
+
+impl<B: SnarkBackend> Default for TTProverConfig<B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 /// Prover configuration that bundles planner rules and context oracles.
 pub struct TTProver<B: SnarkBackend> {
-    config: TTProverConfig<B>,
+    prover_config: TTProverConfig<B>,
+    shared_config: TTSharedConfig<B>,
+    arg_prover: ArgProver<B>,
 }
 
 impl<B: SnarkBackend> TTProver<B> {
-    pub fn new(config: TTProverConfig<B>) -> Self {
-        Self { config }
+    pub fn new(
+        prover_config: TTProverConfig<B>,
+        shared_config: TTSharedConfig<B>,
+        arg_prover: ArgProver<B>,
+    ) -> Self {
+        Self {
+            prover_config,
+            shared_config,
+            arg_prover,
+        }
     }
 
-    pub fn config(&self) -> &TTProverConfig<B> {
-        &self.config
+    pub fn prover_config(&self) -> &TTProverConfig<B> {
+        &self.prover_config
+    }
+    pub fn shared_config(&self) -> &TTSharedConfig<B> {
+        &self.shared_config
+    }
+    pub fn arg_prover(&self) -> &ArgProver<B> {
+        &self.arg_prover
     }
 
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
@@ -136,47 +85,51 @@ impl<B: SnarkBackend> TTProver<B> {
         let materialized_ir = self.perform_primary_passes(tree).await;
         let output_memtable = self.extract_output_memtable(&materialized_ir).await?;
         self.perform_secondary_passes(materialized_ir).await;
-        let mut arg_prover = self.config().arg_prover.clone();
+        let mut arg_prover = self.arg_prover().clone();
         let arg_proof = arg_prover.build_proof().unwrap();
         let tt_proof = TTProof::new(arg_proof);
         Ok((output_memtable, tt_proof))
     }
 
     async fn query_to_lp(&self, query: &str) -> LogicalPlan {
-        let df = self.config.session_ctx().sql(query).await.unwrap();
+        let df = self.shared_config.session_ctx().sql(query).await.unwrap();
         df.into_unoptimized_plan()
     }
 
     async fn analyze_and_optimize_lp(&self, lp: LogicalPlan) -> LogicalPlan {
         let analyzed_lp = self
-            .config()
-            .analyzer
+            .shared_config
+            .analyzer()
             .execute_and_check(
                 lp,
-                &self.config().config_options,
+                self.shared_config().config_options(),
                 |_plan_after_rule, _rule| {},
             )
             .unwrap();
 
-        self.config()
-            .optimizer
+        self.shared_config()
+            .optimizer()
             .optimize(
                 analyzed_lp.clone(),
-                &self.config().optimizer_ctx,
-                self.config().observer,
+                self.shared_config().optimizer_ctx(),
+                self.shared_config().observer(),
             )
             .unwrap()
     }
     async fn perform_primary_passes(&self, tree: Tree<B>) -> MaterializedIr<B> {
         let initial_ir = Ir::<B, EmptyPayload>::new_empty(tree);
-        let planned_ir = initial_ir.apply_local_pass_parallel(&self.config().planning_pass());
-        planned_ir.apply_local_pass_parallel(&self.config().materialization_pass())
+        let planned_ir =
+            initial_ir.apply_local_pass_parallel(&self.prover_config().planning_pass());
+        planned_ir.apply_local_pass_parallel(&self.prover_config().materialization_pass())
     }
     async fn perform_secondary_passes(&self, materialized_ir: MaterializedIr<B>) {
         let arithmetized_ir =
-            materialized_ir.apply_local_pass_parallel(&self.config().arithmetization_pass());
-        let tracked_ir =
-            arithmetized_ir.apply_local_pass_sequential(&self.config().tracking_pass());
+            materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
+        let tracked_ir = arithmetized_ir.apply_local_pass_sequential(
+            &self
+                .prover_config()
+                .tracking_pass(self.arg_prover().clone()),
+        );
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
         tracked_ir.apply_local_pass_sequential(&virtualization_pass);
     }
@@ -185,11 +138,7 @@ impl<B: SnarkBackend> TTProver<B> {
         materialized_ir: &MaterializedIr<B>,
     ) -> TTResult<Arc<MemTable>> {
         let root_id = materialized_ir.tree().root().id();
-        let payload = materialized_ir
-            .payloads()
-            .get(&root_id)
-            .cloned()
-            .flatten();
+        let payload = materialized_ir.payloads().get(&root_id).cloned().flatten();
 
         if let Some(materialized_table) = payload {
             let mem_table = match materialized_table {
@@ -209,8 +158,7 @@ impl<B: SnarkBackend> TTProver<B> {
             .collect()
             .await
             .expect("output dataframe collection should succeed");
-        let arrow_schema: Schema =
-            <DFSchema as AsRef<Schema>>::as_ref(&df_schema).clone();
+        let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(&df_schema).clone();
         let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches])
             .expect("memtable creation should succeed");
 

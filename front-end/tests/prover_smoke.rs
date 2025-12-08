@@ -9,7 +9,10 @@ use datafusion::{
     datasource::{MemTable, TableProvider},
     prelude::SessionContext,
 };
-use front_end::prover::{TTProver, TTProverConfig};
+use front_end::{
+    prover::{TTProver, TTProverConfig},
+    shared::TTSharedConfig,
+};
 
 #[tokio::test]
 async fn prove_runs_on_basic_queries() {
@@ -21,8 +24,13 @@ async fn prove_runs_on_basic_queries() {
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(Int64Array::from(vec![1, 2, 3])),
-            Arc::new(Int64Array::from(vec![Some(10), Some(20), Some(30)])),
+            Arc::new(Int64Array::from(vec![1, 2, 3, 4])),
+            Arc::new(Int64Array::from(vec![
+                Some(10),
+                Some(20),
+                Some(30),
+                Some(40),
+            ])),
         ],
     )
     .unwrap();
@@ -37,8 +45,9 @@ async fn prove_runs_on_basic_queries() {
     let (arg_prover, _verifier) =
         ark_piop::test_utils::prelude_with_vars::<ark_piop::DefaultSnarkBackend>(4)
             .expect("prover prelude should succeed");
-    let prover_config = TTProverConfig::with_defaults(session_ctx, arg_prover);
-    let prover = TTProver::new(prover_config);
+    let shared_config = TTSharedConfig::with_defaults(session_ctx);
+    let prover_config = TTProverConfig::default();
+    let prover = TTProver::new(prover_config, shared_config, arg_prover);
 
     let queries = [
         "SELECT id, value FROM dummy",

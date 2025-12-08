@@ -54,7 +54,7 @@ where
         &self,
         node: &Node<B>,
         id: NodeId,
-        payload: &TrackedPayload<B>,
+        payload: Option<&TrackedPayload<B>>,
     ) -> Option<VirtualizedPayload<B>> {
         // Let each node inject its virtual witness into the shared IR view.
         let updated = {
@@ -68,7 +68,7 @@ where
         // tracked payload, and finally fall back to an empty tracked table so columns do not
         // remain empty.
         updated
-            .or_else(|| Some(payload.clone()))
+            .or_else(|| payload.cloned())
             .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTable::default())))
     }
 

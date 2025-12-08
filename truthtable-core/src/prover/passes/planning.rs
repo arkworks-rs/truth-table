@@ -32,7 +32,7 @@ where
         &self,
         node: &Node<B>,
         _id: NodeId,
-        _payload: &EmptyPayload,
+        _payload: Option<&EmptyPayload>,
     ) -> Option<HintDFPayload> {
         match node {
             Node::Plan(plan_node) => {

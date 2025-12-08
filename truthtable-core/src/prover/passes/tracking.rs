@@ -34,9 +34,9 @@ where
         &self,
         _node: &Node<B>,
         _id: NodeId,
-        payload: &ArithPayload<B::F>,
+        payload: Option<&ArithPayload<B::F>>,
     ) -> Option<TrackedPayload<B>> {
-        match payload {
+        match payload? {
             ArithPayload::PlanPayload(arith_table) => Some(TrackedPayload::PlanPayload(
                 arith_to_tracked(arith_table, &self.prover),
             )),

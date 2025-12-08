@@ -44,9 +44,9 @@ where
         &self,
         _node: &Node<B>,
         _id: NodeId,
-        payload: &HintDFPayload,
+        payload: Option<&HintDFPayload>,
     ) -> Option<MaterializedPayload> {
-        match payload {
+        match payload? {
             PayloadStructure::PlanPayload(hint_df) => {
                 materialize_hint_df(hint_df).map(PayloadStructure::PlanPayload)
             }

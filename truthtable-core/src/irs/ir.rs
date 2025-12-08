@@ -128,9 +128,7 @@ where
                 .as_ref()
                 .cloned()
                 .or_else(|| pass.fallback_payload(node, id.clone()));
-            let p_out = input_payload
-                .as_ref()
-                .and_then(|p_in| pass.transform(node, id.clone(), p_in));
+            let p_out = pass.transform(node, id.clone(), input_payload.as_ref());
             out.insert(id.clone(), p_out);
         }
         Ir {
@@ -151,9 +149,7 @@ where
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
-                let maybe = self.payloads[id]
-                    .as_ref()
-                    .and_then(|p_in| pass.transform(node, id.clone(), p_in));
+                let maybe = pass.transform(node, id.clone(), self.payloads[id].as_ref());
                 (id.clone(), maybe)
             })
             .collect();
@@ -170,7 +166,12 @@ where
     PIn: Payload,
     POut: Payload,
 {
-    fn transform(&self, node: &Node<B>, id: NodeId, payload: &PIn) -> Option<POut>;
+    fn transform(
+        &self,
+        node: &Node<B>,
+        id: NodeId,
+        payload: Option<&PIn>,
+    ) -> Option<POut>;
 
     /// Optional fallback payload to use when the input payload is missing. By default,
     /// no fallback is provided and nodes without an input payload are skipped.
