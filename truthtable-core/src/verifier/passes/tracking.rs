@@ -1,5 +1,8 @@
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
+use datafusion::arrow::datatypes::Schema;
+use datafusion_common::DFSchema;
+use indexmap::IndexMap;
 
 use crate::{
     irs::{
@@ -55,15 +58,28 @@ fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> TrackedTableOracle<B> {
-    // Consume tracker IDs for materialized columns so the verifier stays in sync with the prover.
-    {
-        let mut verifier_borrow = verifier.borrow_mut();
-        for (_field, should_mat) in hint_df.field_materialization_iter() {
-            if *should_mat {
-                let _ = verifier_borrow.gen_id();
-            }
+    let arrow_schema: Schema =
+        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+    let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
+    let mut log_size = 0usize;
+
+    let mut verifier = verifier.borrow_mut();
+    for (field, should_mat) in hint_df.field_materialization_iter() {
+        if !*should_mat {
+            continue;
         }
+        // Use the next expected id so the verifier's tracker stays in sync with the proof
+        let id = verifier.peek_next_id();
+        let oracle = verifier
+            .track_mv_com_by_id(id)
+            .expect("verifier should track prover commitment by id");
+        if log_size == 0 {
+            log_size = oracle.log_size();
+        } else {
+            debug_assert_eq!(log_size, oracle.log_size());
+        }
+        tracked_oracles.insert(field.clone(), oracle);
     }
 
-    TrackedTableOracle::default()
+    TrackedTableOracle::new(Some(arrow_schema), tracked_oracles, log_size)
 }

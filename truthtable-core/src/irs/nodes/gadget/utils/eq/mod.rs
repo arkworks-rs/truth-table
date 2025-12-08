@@ -33,11 +33,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
-    fn prove() -> ark_piop::errors::SnarkResult<()>
-    where
-        Self: Sized,
-    {
-        todo!()
+    fn prove(&self, _prover: &mut ark_piop::prover::ArgProver<B>) -> ark_piop::errors::SnarkResult<()> {
+        // TODO: implement gadget proof
+        Ok(())
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {

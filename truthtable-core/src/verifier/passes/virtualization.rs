@@ -1,19 +1,15 @@
 use std::cell::RefCell;
 
-use arithmetic::table::TrackedTable;
 use ark_piop::SnarkBackend;
 
-use crate::irs::nodes::IsNode;
 use crate::irs::payloads::PayloadStructure;
-use crate::prover::irs::{TrackedIr, VirtualizedIr};
-use crate::prover::payloads::VirtualizedPayload;
-use crate::{
-    irs::{
-        ir::LocalPass,
-        nodes::{Node, NodeId},
-    },
-    prover::payloads::TrackedPayload,
+use crate::irs::{
+    ir::LocalPass,
+    nodes::{Node, NodeId},
 };
+use crate::verifier::irs::{TrackedIr, VirtualizedIr};
+use crate::verifier::payloads::{TrackedPayload, VirtualizedPayload};
+use arithmetic::table_oracle::TrackedTableOracle;
 
 /// A virtualization pass that allows nodes to inject virtual witnesses into the IR
 ///
@@ -35,7 +31,7 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
             .map(|(id, payload)| {
                 let initial = payload
                     .clone()
-                    .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTable::default())));
+                    .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTableOracle::default())));
                 (*id, initial)
             })
             .collect();
@@ -57,23 +53,13 @@ where
         id: NodeId,
         payload: Option<&TrackedPayload<B>>,
     ) -> Option<VirtualizedPayload<B>> {
-        // Let each node inject its virtual witness into the shared IR view.
-        let updated = {
-            let mut ir = self.virtualized_ir.borrow_mut();
-            node.add_virtual_witness(id, &mut ir)
-                .expect("virtual witness insertion should succeed");
-            ir.payloads().get(&id).cloned().flatten()
-        };
-
-        // Always emit a payload: prefer the updated value, otherwise default to the incoming
-        // tracked payload, and finally fall back to an empty tracked table so columns do not
-        // remain empty.
-        updated
-            .or_else(|| payload.cloned())
-            .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTable::default())))
+        // Verifier side does not inject virtual witnesses; simply forward tracked payloads.
+        payload
+            .cloned()
+            .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTableOracle::default())))
     }
 
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
-        Some(PayloadStructure::PlanPayload(TrackedTable::default()))
+        Some(PayloadStructure::PlanPayload(TrackedTableOracle::default()))
     }
 }

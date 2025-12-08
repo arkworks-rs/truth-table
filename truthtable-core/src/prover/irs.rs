@@ -31,6 +31,7 @@ mod test {
     use crate::irs::payloads::EmptyPayload;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::planning::PlanningPass;
+    use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
@@ -115,12 +116,12 @@ mod test {
 
     #[tokio::test]
     async fn builds_materialized_ir_from_logical_plan() {
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
-        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
-
         for query in queries() {
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
 
@@ -136,13 +137,13 @@ mod test {
 
     #[tokio::test]
     async fn builds_arithmetized_ir_from_logical_plan() {
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
-        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
-        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-
         for query in queries() {
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+            let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
 
@@ -160,15 +161,15 @@ mod test {
 
     #[tokio::test]
     async fn builds_tracked_ir_from_logical_plan() {
-        let (arg_prover, _) = test_prelude().unwrap();
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
-        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
-        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
-
         for query in queries() {
+            let (arg_prover, _) = test_prelude().unwrap();
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+            let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
 
@@ -185,15 +186,15 @@ mod test {
 
     #[tokio::test]
     async fn builds_virtualized_ir_from_logical_plan() {
-        let (arg_prover, _) = test_prelude().unwrap();
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
-        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
-        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
-
         for query in queries() {
+            let (arg_prover, _) = test_prelude().unwrap();
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+            let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
 
@@ -212,15 +213,15 @@ mod test {
 
     #[tokio::test]
     async fn prove() {
-        let (arg_prover, _) = test_prelude().unwrap();
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
-        let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
-        let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-        let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
-
         for query in queries() {
+            let (arg_prover, _) = test_prelude().unwrap();
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+            let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover.clone());
+
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
             let tree = Tree::from_logical_plan(&lp);
@@ -231,8 +232,10 @@ mod test {
             let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+            let proving_pass = ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone());
+            let final_ir = virtualized_ir.apply_local_pass_sequential(&proving_pass);
             println!("Planned Query: {query}");
-            println!("{}", virtualized_ir.display_graphviz(true));
+            println!("{}", final_ir.display_graphviz(true));
         }
     }
 }

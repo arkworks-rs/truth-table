@@ -296,9 +296,7 @@ where
     B: SnarkBackend,
 {
     /// Runs the gadget prover
-    fn prove() -> SnarkResult<()>
-    where
-        Self: Sized;
+    fn prove(&self, prover: &mut ark_piop::prover::ArgProver<B>) -> SnarkResult<()>;
 
     fn hints(&self) -> IndexMap<String, HintDF>;
     // Returns the ancestry of this gadget node.

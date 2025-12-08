@@ -3,11 +3,15 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{LogicalPlan, Projection};
+use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node},
+    payloads::PayloadStructure,
     tree::Tree,
 };
 
@@ -43,9 +47,71 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Collect the tracked tables produced by each projection expression.
+        let mut output_cols: IndexMap<_, _> = IndexMap::new();
+        let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut log_size: Option<usize> = None;
+
+        for expr_node in &self.exprs {
+            let expr_id = expr_node.id();
+            let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection expression missing tracked table payload"),
+            };
+
+            // Keep the first activator we see; all expression nodes share the same one.
+            if activator.is_none() {
+                let activator_field = expr_table
+                    .tracked_polys()
+                    .keys()
+                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                    .cloned()
+                    .expect("expression table should carry an activator column");
+                let activator_poly = expr_table
+                    .activator_tracked_poly()
+                    .expect("expression table should carry an activator polynomial");
+                activator = Some((activator_field, activator_poly));
+            }
+
+            let expr_log_size = expr_table.log_size();
+            if let Some(ls) = log_size {
+                debug_assert_eq!(ls, expr_log_size);
+            } else {
+                log_size = Some(expr_log_size);
+            }
+
+            // Each expression contributes its data columns (excluding activator) to the projection output.
+            let tracked_polys = expr_table.tracked_polys();
+            for idx in expr_table.data_tracked_polys_indices() {
+                let (field, poly) = tracked_polys
+                    .get_index(idx)
+                    .expect("expression column index should be in bounds");
+                output_cols.insert(field.clone(), poly.clone());
+            }
+        }
+
+        // Append the shared activator column at the end to mirror the DF schema order.
+        if let Some((field, poly)) = activator {
+            output_cols.insert(field, poly);
+        } else {
+            panic!("Projection expected at least one activator column from its expressions");
+        }
+
+        // Build the output schema in projection order + activator.
+        let schema = Schema::new(
+            output_cols
+                .keys()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        );
+        let log_size = log_size.unwrap_or(0);
+        let projected_table =
+            arithmetic::table::TrackedTable::new(Some(schema), output_cols, log_size);
+        virtualized_ir
+            .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
     }
 }
