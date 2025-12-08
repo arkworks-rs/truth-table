@@ -4,7 +4,10 @@ use arithmetic::ACTIVATOR_EXPR;
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
-use crate::irs::nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId};
+use crate::irs::{
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId},
+    payloads::PayloadStructure,
+};
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
@@ -33,8 +36,6 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        use crate::prover::payloads::PayloadStructure;
-
         // Locate the scope node id using the shared helper.
         let scope_id = self.scope.id();
 

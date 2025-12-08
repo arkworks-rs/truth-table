@@ -10,8 +10,7 @@ use crate::irs::{
     nodes::{
         IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node,
         gadget::{self, lps::filter},
-    },
-    tree::Tree,
+    }, payloads::PayloadStructure, tree::Tree
 };
 
 mod hints;
@@ -57,7 +56,6 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        use crate::prover::payloads::PayloadStructure;
 
         // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {

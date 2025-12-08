@@ -14,8 +14,9 @@ use crate::{
     irs::{
         ir::LocalPass,
         nodes::{Node, NodeId},
+        payloads::{HintDFPayload, PayloadStructure},
     },
-    prover::payloads::{HintDFPayload, MaterializedPayload, MaterializedTable, PayloadStructure},
+    prover::payloads::{MaterializedPayload, MaterializedTable},
 };
 use indexmap::IndexMap;
 use std::sync::Arc;

@@ -2,7 +2,7 @@ use ark_piop::SnarkBackend;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::LogicalPlan;
 use tracing::instrument;
-use truthtable_core::prover::irs::InitialIr;
+use truthtable_core::irs::ir::InitialIr;
 
 pub mod logical_plan_analyzer;
 pub mod logical_plan_optimizer;
@@ -30,4 +30,3 @@ impl<B: SnarkBackend> ProofPlanner<B> {
         todo!()
     }
 }
-

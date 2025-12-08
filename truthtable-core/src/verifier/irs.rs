@@ -44,7 +44,6 @@ mod test {
         },
         prelude::SessionContext,
     };
-    use indexmap::IndexMap;
     use std::sync::Arc;
 
     fn dummy_schema() -> Arc<Schema> {

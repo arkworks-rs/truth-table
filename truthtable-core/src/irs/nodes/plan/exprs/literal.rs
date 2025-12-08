@@ -8,7 +8,10 @@ use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
 use rayon::iter::Either;
 
-use crate::irs::nodes::{IsExprNode, IsNode, IsPlanNode, Node};
+use crate::irs::{
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node},
+    payloads::PayloadStructure,
+};
 pub struct ProverNode<B: SnarkBackend> {
     pub literal: ScalarValue,
     pub scope: Arc<Node<B>>,
@@ -35,8 +38,6 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        use crate::prover::payloads::PayloadStructure;
-
         // Pull the scope's tracked table to inherit activator and tracker.
         let scope_id = self.scope.id();
         let scope_table = match virtualized_ir.payload_for_node(&scope_id) {

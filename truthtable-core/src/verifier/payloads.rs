@@ -1,3 +1,4 @@
+use crate::irs::payloads::PayloadStructure;
 use arithmetic::table::{ArithTable, TrackedTable};
 use datafusion::datasource::TableProvider;
 use datafusion::{
@@ -7,8 +8,6 @@ use datafusion::{
 };
 use datafusion_common::DataFusionError;
 use std::sync::Arc;
-
-use crate::irs::payloads::PayloadStructure;
 
 pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;

@@ -5,14 +5,18 @@ use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
 use truthtable_core::{
     errors::TTResult,
-    irs::{ir::Ir, nodes::Node, tree::Tree},
+    irs::{
+        ir::Ir,
+        nodes::Node,
+        payloads::{EmptyPayload, PayloadStructure},
+        tree::Tree,
+    },
     prover::{
         irs::MaterializedIr,
         passes::{
             arithmetization::ArithmetizationPass, materialization::MaterializationPass,
             planning::PlanningPass, tracking::TrackingPass, virtualization::VirtualizationPass,
         },
-        payloads::{EmptyPayload, PayloadStructure},
     },
 };
 
