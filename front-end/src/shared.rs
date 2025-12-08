@@ -72,4 +72,28 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     pub fn observer(&self) -> fn(&LogicalPlan, &dyn OptimizerRule) {
         self.observer
     }
+
+    pub async fn query_to_lp(&self, query: &str) -> LogicalPlan {
+        let df = self.session_ctx().sql(query).await.unwrap();
+        df.into_unoptimized_plan()
+    }
+
+    pub async fn analyze_and_optimize_lp(&self, lp: LogicalPlan) -> LogicalPlan {
+        let analyzed_lp = self
+            .analyzer()
+            .execute_and_check(
+                lp,
+                self.config_options(),
+                |_plan_after_rule, _rule| {},
+            )
+            .unwrap();
+
+        self.optimizer()
+            .optimize(
+                analyzed_lp.clone(),
+                self.optimizer_ctx(),
+                self.observer(),
+            )
+            .unwrap()
+    }
 }
