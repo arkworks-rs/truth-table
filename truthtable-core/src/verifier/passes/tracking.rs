@@ -1,3 +1,4 @@
+use arithmetic::table_oracle::TrackedTableOracle;
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
 
 use crate::{
@@ -36,10 +37,33 @@ where
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
         match payload? {
-            HintDFPayload::PlanPayload(hint_df) => Some(TrackedPayload::PlanPayload(todo!())),
+            HintDFPayload::PlanPayload(hint_df) => Some(TrackedPayload::PlanPayload(
+                track_hint_df(hint_df, &self.verifier),
+            )),
             HintDFPayload::GadgetPayload(map) => {
-                todo!()
+                let mut out = indexmap::IndexMap::new();
+                for (k, hint_df) in map {
+                    out.insert(k.clone(), track_hint_df(hint_df, &self.verifier));
+                }
+                Some(TrackedPayload::GadgetPayload(out))
             }
         }
     }
+}
+
+fn track_hint_df<B: SnarkBackend>(
+    hint_df: &crate::irs::nodes::hints::HintDF,
+    verifier: &RefCell<ArgVerifier<B>>,
+) -> TrackedTableOracle<B> {
+    // Consume tracker IDs for materialized columns so the verifier stays in sync with the prover.
+    {
+        let mut verifier_borrow = verifier.borrow_mut();
+        for (_field, should_mat) in hint_df.field_materialization_iter() {
+            if *should_mat {
+                let _ = verifier_borrow.gen_id();
+            }
+        }
+    }
+
+    TrackedTableOracle::default()
 }

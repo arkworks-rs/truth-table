@@ -15,8 +15,8 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
+use std::fmt::Display;
 use std::{convert::TryFrom, sync::Arc};
-
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked oracle to an arithmetized table in dbSNARK
@@ -38,6 +38,22 @@ impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
             tracked_oracles: IndexMap::new(),
             log_size: 0,
         }
+    }
+}
+
+impl<B: SnarkBackend> Display for TrackedTableOracle<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrackedTableOracle")
+            .field(
+                "num_total_tracked_col_oracles",
+                &self.num_total_tracked_col_oracles(),
+            )
+            .field(
+                "num_data_tracked_col_oracles",
+                &self.num_data_tracked_col_oracles(),
+            )
+            .field("log_size", &self.log_size())
+            .finish()
     }
 }
 
