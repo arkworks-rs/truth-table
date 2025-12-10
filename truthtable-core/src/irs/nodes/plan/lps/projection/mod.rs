@@ -114,6 +114,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
     }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {

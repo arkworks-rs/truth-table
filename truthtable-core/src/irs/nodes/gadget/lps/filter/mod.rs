@@ -1,12 +1,16 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node,
+    IsGadgetNode, IsNode, Node,
     gadget::{GadgetAncestry, utils::eq},
 };
+
+pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
+pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
+pub const FILTER_PREDICATE_LABEL: &str = "__filter_predicate__";
 
 pub struct ProverNode<B: SnarkBackend> {
     col_eq: Arc<Node<B>>,
@@ -35,10 +39,21 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
-    fn prove(&self, _prover: &mut ark_piop::prover::ArgProver<B>) -> ark_piop::errors::SnarkResult<()> {
+    fn prove(
+        &self,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
     }

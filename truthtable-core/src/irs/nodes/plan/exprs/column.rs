@@ -64,6 +64,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             scope_id
         );
     }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {

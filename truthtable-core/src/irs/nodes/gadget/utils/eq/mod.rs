@@ -30,6 +30,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {

@@ -101,11 +101,9 @@ where
     /// Optional hook for a pre-order gadget initialization pass.
     fn initialize_gadgets(
         &self,
-        _id: NodeId,
-        _virtualized_ir: &mut VirtualizedIr<B>,
-    ) -> SnarkResult<()> {
-        Ok(())
-    }
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()>;
 }
 
 /// Shared plan-node interface (both LP and expr-based).

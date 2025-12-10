@@ -9,8 +9,15 @@ use indexmap::IndexMap;
 use crate::irs::{
     nodes::{
         IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node,
-        gadget::{self, lps::filter},
-    }, payloads::PayloadStructure, tree::Tree
+        gadget::{
+            self,
+            lps::filter::{
+                self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
+            },
+        },
+    },
+    payloads::PayloadStructure,
+    tree::Tree,
 };
 
 mod hints;
@@ -134,12 +141,13 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
-        let output_table = virtualized_ir
-            .payload_for_node(&_id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            });
+        let output_table =
+            virtualized_ir
+                .payload_for_node(&_id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                });
         let predicate_table = virtualized_ir
             .payload_for_node(&self.predicate.id())
             .and_then(|payload| match payload {
@@ -153,13 +161,13 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         };
 
         if let Some(input) = input_table.as_ref() {
-            gadget_payload.insert("input_activator".to_string(), activator_only(input));
+            gadget_payload.insert(INPUT_ACTIVATOR_LABEL.to_string(), activator_only(input));
         }
         if let Some(output) = output_table.as_ref() {
-            gadget_payload.insert("output_activator".to_string(), activator_only(output));
+            gadget_payload.insert(OUTPUT_ACTIVATOR_LABEL.to_string(), activator_only(output));
         }
         if let Some(pred_table) = predicate_table {
-            gadget_payload.insert("predicate".to_string(), pred_table);
+            gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);
         }
 
         if !gadget_payload.is_empty() {
