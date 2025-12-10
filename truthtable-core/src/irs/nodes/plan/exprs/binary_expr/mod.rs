@@ -8,7 +8,11 @@ use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node},
+    payloads::PayloadStructure,
     tree::Tree,
+};
+use crate::irs::nodes::gadget::exprs::bin_eq::{
+    LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL,
 };
 
 pub struct ProverNode<B: SnarkBackend> {
@@ -60,8 +64,43 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let extract_plan_payload =
+            |node_id: &crate::irs::nodes::NodeId| -> Option<arithmetic::table::TrackedTable<B>> {
+                virtualized_ir
+                    .payload_for_node(node_id)
+                    .and_then(|payload| match payload {
+                        PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                        _ => None,
+                    })
+            };
+
+        let left_payload = extract_plan_payload(&self.left.id());
+        let right_payload = extract_plan_payload(&self.right.id());
+        let output_payload = extract_plan_payload(&_id);
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(table) = left_payload {
+            gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
+        }
+        if let Some(table) = right_payload {
+            gadget_payload.insert(RIGHT_INPUT_LABEL.to_string(), table);
+        }
+        if let Some(table) = output_payload {
+            gadget_payload.insert(OUTPUT_LABEL.to_string(), table);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }

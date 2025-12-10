@@ -5,6 +5,9 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node, gadget::GadgetAncestry};
 
+pub const LEFT_LABEL: &str = "left";
+pub const RIGHT_LABEL: &str = "right";
+
 pub struct ProverNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
