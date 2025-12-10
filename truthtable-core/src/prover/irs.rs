@@ -4,7 +4,9 @@
 
 use crate::{
     irs::ir::Ir,
-    prover::payloads::{ArithPayload, MaterializedPayload, TrackedPayload, VirtualizedPayload},
+    prover::payloads::{
+        ArithPayload, GadgetReadyPayload, MaterializedPayload, TrackedPayload, VirtualizedPayload,
+    },
 };
 use ark_piop::SnarkBackend;
 
@@ -24,12 +26,14 @@ pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
 ///
 /// This IR represents the final stage in the prover's pipeline where the virtual witnesses were added to the proof tree nodes.
 pub type VirtualizedIr<B> = Ir<B, VirtualizedPayload<B>>;
+pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::irs::payloads::EmptyPayload;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
+    use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
     use crate::prover::passes::planning::PlanningPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
@@ -208,6 +212,43 @@ mod test {
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
             println!("Planned Query: {query}");
             println!("{}", virtualized_ir.display_graphviz(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn builds_gadget_ready_ir_from_logical_plan() {
+        for query in queries() {
+            let (arg_prover, _) = test_prelude().unwrap();
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
+            let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+
+            let tree = Tree::from_logical_plan(&lp);
+            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
+            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
+            let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+
+            let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
+                virtualized_ir.tree().clone(),
+                virtualized_ir.payloads().clone(),
+            );
+            let gadget_initialization_pass =
+                GadgetInitializationPass::<DefaultSnarkBackend>::new(gadget_ir_view);
+            let gadget_ready_ir =
+                virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+
+            println!("Planned Query: {query}");
+            println!("{}", gadget_ready_ir.display_graphviz(true));
         }
     }
 

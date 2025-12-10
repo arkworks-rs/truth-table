@@ -5,6 +5,7 @@
 pub mod arithmetization;
 pub mod materialization;
 pub mod planning;
+pub mod gadget_initialization;
 pub mod proving;
 pub mod tracking;
 pub mod virtualization;

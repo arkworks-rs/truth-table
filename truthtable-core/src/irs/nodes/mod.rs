@@ -97,6 +97,15 @@ where
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B>,
     ) -> SnarkResult<()>;
+
+    /// Optional hook for a pre-order gadget initialization pass.
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        Ok(())
+    }
 }
 
 /// Shared plan-node interface (both LP and expr-based).
@@ -224,6 +233,17 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.add_virtual_witness(id, virtualized_ir),
         }
     }
+
+    fn initialize_gadgets(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.initialize_gadgets(id, virtualized_ir),
+            Node::Gadget(gadget_node) => gadget_node.initialize_gadgets(id, virtualized_ir),
+        }
+    }
 }
 
 impl<B: SnarkBackend> PlanNode<B> {
@@ -287,6 +307,17 @@ impl<B: SnarkBackend> PlanNode<B> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.add_virtual_witness(id, virtualized_ir),
             PlanNode::ExprBased(expr_node) => expr_node.add_virtual_witness(id, virtualized_ir),
+        }
+    }
+
+    pub fn initialize_gadgets(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.initialize_gadgets(id, virtualized_ir),
+            PlanNode::ExprBased(expr_node) => expr_node.initialize_gadgets(id, virtualized_ir),
         }
     }
 }

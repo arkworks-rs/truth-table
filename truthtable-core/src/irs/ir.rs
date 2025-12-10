@@ -9,6 +9,7 @@ use crate::irs::{
     payloads::{EmptyPayload, HintDFPayload},
     tree::{Payload, Tree},
 };
+use std::sync::Arc;
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Option<Pd>>,
@@ -125,6 +126,32 @@ where
     B: SnarkBackend,
     PIn: Payload,
 {
+    fn ordered_nodes(&self, order: PassOrder) -> Vec<(NodeId, Arc<Node<B>>)> {
+        match order {
+            PassOrder::PostOrder => self
+                .tree
+                .arena()
+                .iter()
+                .map(|(id, node)| (id.clone(), node.clone()))
+                .collect(),
+            PassOrder::PreOrder => {
+                fn walk<B: SnarkBackend>(
+                    node: Arc<Node<B>>,
+                    out: &mut Vec<(NodeId, Arc<Node<B>>)>,
+                ) {
+                    let id = node.id();
+                    out.push((id, node.clone()));
+                    for child in node.children() {
+                        walk(child, out);
+                    }
+                }
+                let mut out = Vec::with_capacity(self.tree.arena().len());
+                walk(self.tree.root().clone(), &mut out);
+                out
+            }
+        }
+    }
+
     pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
         PIn: Clone,
@@ -133,12 +160,12 @@ where
     {
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
-        for (id, node) in self.tree.arena().iter() {
-            let input_payload = self.payloads[id]
+        for (id, node) in self.ordered_nodes(pass.order()) {
+            let input_payload = self.payloads[&id]
                 .as_ref()
                 .cloned()
-                .or_else(|| pass.fallback_payload(node, id.clone()));
-            let p_out = pass.transform(node, id.clone(), input_payload.as_ref());
+                .or_else(|| pass.fallback_payload(&node, id.clone()));
+            let p_out = pass.transform(&node, id.clone(), input_payload.as_ref());
             out.insert(id.clone(), p_out);
         }
         Ir {
@@ -153,6 +180,9 @@ where
         POut: Payload + Send + Sync,
         P: LocalPass<B, PIn, POut> + Sync,
     {
+        if matches!(pass.order(), PassOrder::PreOrder) {
+            panic!("PreOrder passes are not supported in parallel traversal");
+        }
         use rayon::prelude::*;
         let out_vec: Vec<(NodeId, Option<POut>)> = self
             .tree
@@ -170,6 +200,11 @@ where
         }
     }
 }
+#[derive(Copy, Clone)]
+pub enum PassOrder {
+    PreOrder,
+    PostOrder,
+}
 pub trait LocalPass<B, PIn, POut>
 where
     B: SnarkBackend,
@@ -177,6 +212,10 @@ where
     POut: Payload,
 {
     fn transform(&self, node: &Node<B>, id: NodeId, payload: Option<&PIn>) -> Option<POut>;
+
+    fn order(&self) -> PassOrder {
+        PassOrder::PostOrder
+    }
 
     /// Optional fallback payload to use when the input payload is missing. By default,
     /// no fallback is provided and nodes without an input payload are skipped.

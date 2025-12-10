@@ -56,7 +56,6 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-
         // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
@@ -113,6 +112,62 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Helper to extract a table containing only the activator column.
+        let activator_only = |table: &TrackedTable<B>| {
+            let idx = table
+                .tracked_polys()
+                .keys()
+                .position(|field| field.name() == ACTIVATOR_COL_NAME)
+                .expect("table should include activator column");
+            table.tracked_subtable_by_indices(&[idx])
+        };
+
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let output_table = virtualized_ir
+            .payload_for_node(&_id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            });
+        let predicate_table = virtualized_ir
+            .payload_for_node(&self.predicate.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            });
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(input) = input_table.as_ref() {
+            gadget_payload.insert("input_activator".to_string(), activator_only(input));
+        }
+        if let Some(output) = output_table.as_ref() {
+            gadget_payload.insert("output_activator".to_string(), activator_only(output));
+        }
+        if let Some(pred_table) = predicate_table {
+            gadget_payload.insert("predicate".to_string(), pred_table);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }

@@ -14,6 +14,7 @@ pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
 pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
 pub type VirtualizedPayload<B> = PayloadStructure<TrackedTable<B>>;
+pub type GadgetReadyPayload<B> = PayloadStructure<TrackedTable<B>>;
 
 #[derive(Debug, Clone)]
 pub struct MaterializedTable {

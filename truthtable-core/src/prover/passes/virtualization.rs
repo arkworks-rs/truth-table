@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use arithmetic::table::TrackedTable;
 use ark_piop::SnarkBackend;
 
+use crate::irs::ir::PassOrder;
 use crate::irs::nodes::IsNode;
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::{TrackedIr, VirtualizedIr};
@@ -51,6 +52,10 @@ impl<B> LocalPass<B, TrackedPayload<B>, VirtualizedPayload<B>> for Virtualizatio
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> PassOrder {
+        PassOrder::PostOrder
+    }
+
     fn transform(
         &self,
         node: &Node<B>,

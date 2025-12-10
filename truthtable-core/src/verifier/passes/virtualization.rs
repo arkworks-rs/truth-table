@@ -5,6 +5,7 @@ use ark_piop::SnarkBackend;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
     ir::LocalPass,
+    ir::PassOrder,
     nodes::{Node, NodeId},
 };
 use crate::verifier::irs::{TrackedIr, VirtualizedIr};
@@ -47,6 +48,10 @@ impl<B> LocalPass<B, TrackedPayload<B>, VirtualizedPayload<B>> for Virtualizatio
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> PassOrder {
+        PassOrder::PostOrder
+    }
+
     fn transform(
         &self,
         node: &Node<B>,
