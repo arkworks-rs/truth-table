@@ -39,8 +39,10 @@ mod test {
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
+    use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::DefaultSnarkBackend;
     use ark_piop::test_utils::test_prelude;
+    use datafusion::arrow::array::BooleanArray;
     use datafusion::{
         arrow::{
             array::{ArrayRef, Int32Array},
@@ -49,7 +51,6 @@ mod test {
         },
         prelude::SessionContext,
     };
-    use indexmap::IndexMap;
     use std::sync::Arc;
 
     fn dummy_schema() -> Arc<Schema> {
@@ -57,6 +58,7 @@ mod test {
             Field::new("first_column", DataType::Int32, false),
             Field::new("second_column", DataType::Int32, false),
             Field::new("third_column", DataType::Int32, false),
+            (**ACTIVATOR_FIELD).clone(),
         ]))
     }
 
@@ -68,6 +70,7 @@ mod test {
                 Arc::new(Int32Array::from(vec![1, 2, 3, 4])) as ArrayRef,
                 Arc::new(Int32Array::from(vec![10, 20, 30, 40])) as ArrayRef,
                 Arc::new(Int32Array::from(vec![100, 200, 300, 400])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, false, true])),
             ],
         )
         .unwrap();
@@ -77,7 +80,7 @@ mod test {
     fn queries() -> Vec<&'static str> {
         vec![
             "SELECT first_column, second_column FROM dummy_table ",
-            "SELECT first_column, second_column FROM dummy_table where third_column = 150",
+            "SELECT first_column, second_column FROM dummy_table where third_column = 100",
         ]
     }
     #[tokio::test]
@@ -273,8 +276,16 @@ mod test {
             let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+            let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
+                virtualized_ir.tree().clone(),
+                virtualized_ir.payloads().clone(),
+            );
+            let gadget_initialization_pass =
+                GadgetInitializationPass::<DefaultSnarkBackend>::new(gadget_ir_view);
+            let gadget_ready_ir =
+                virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
             let proving_pass = ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone());
-            let final_ir = virtualized_ir.apply_local_pass_sequential(&proving_pass);
+            let final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
             println!("Planned Query: {query}");
             println!("{}", final_ir.display_graphviz(true));
         }
