@@ -52,11 +52,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
-
-    fn ancestry(&self) -> GadgetAncestry {
-        todo!()
-    }
-
     fn new() -> Self
     where
         Self: Sized,

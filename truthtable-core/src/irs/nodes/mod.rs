@@ -328,9 +328,7 @@ where
     fn prove(&self, prover: &mut ark_piop::prover::ArgProver<B>) -> SnarkResult<()>;
 
     fn hints(&self) -> IndexMap<String, HintDF>;
-    // Returns the ancestry of this gadget node.
-    // Serves as a unique identifier for the gadget
-    fn ancestry(&self) -> GadgetAncestry;
+
     fn new() -> Self
     where
         Self: Sized;
