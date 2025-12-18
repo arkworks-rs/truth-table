@@ -9,6 +9,7 @@ use crate::irs::nodes::{
     gadget::{GadgetAncestry, utils::eq},
 };
 use crate::irs::payloads::PayloadStructure;
+use crate::prover::irs::GadgetReadyIr;
 
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
 pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
@@ -106,6 +107,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())

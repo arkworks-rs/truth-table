@@ -284,7 +284,12 @@ mod test {
                 GadgetInitializationPass::<DefaultSnarkBackend>::new(gadget_ir_view);
             let gadget_ready_ir =
                 virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-            let proving_pass = ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone());
+            let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
+                gadget_ready_ir.tree().clone(),
+                gadget_ready_ir.payloads().clone(),
+            );
+            let proving_pass =
+                ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone(), proving_ir_view);
             let final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
             println!("Planned Query: {query}");
             println!("{}", final_ir.display_graphviz(true));

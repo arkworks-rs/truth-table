@@ -16,6 +16,7 @@ use crate::irs::nodes::{
     },
 };
 use crate::irs::payloads::PayloadStructure;
+use crate::prover::irs::GadgetReadyIr;
 
 pub const LEFT_INPUT_LABEL: &str = "left_input";
 pub const RIGHT_INPUT_LABEL: &str = "right_input";
@@ -155,6 +156,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())

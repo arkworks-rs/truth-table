@@ -3,7 +3,10 @@ use std::marker::PhantomData;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node, gadget::GadgetAncestry};
+use crate::{
+    irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node, gadget::GadgetAncestry},
+    prover::irs::GadgetReadyIr,
+};
 
 pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
@@ -44,7 +47,11 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
-    fn prove(&self, _prover: &mut ark_piop::prover::ArgProver<B>) -> ark_piop::errors::SnarkResult<()> {
+    fn prove(
+        &self,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
     }

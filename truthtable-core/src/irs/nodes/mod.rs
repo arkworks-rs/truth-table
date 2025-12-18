@@ -22,7 +22,7 @@ use crate::{
             lps::{filter, projection, table_scan},
         },
     },
-    prover::irs::VirtualizedIr,
+    prover::irs::{GadgetReadyIr, VirtualizedIr},
 };
 pub mod cost;
 pub mod gadget;
@@ -325,7 +325,11 @@ where
     B: SnarkBackend,
 {
     /// Runs the gadget prover
-    fn prove(&self, prover: &mut ark_piop::prover::ArgProver<B>) -> SnarkResult<()>;
+    fn prove(
+        &self,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+    ) -> SnarkResult<()>;
 
     fn hints(&self) -> IndexMap<String, HintDF>;
 
