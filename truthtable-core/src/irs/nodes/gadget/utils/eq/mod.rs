@@ -1,10 +1,12 @@
-use std::marker::PhantomData;
+use core::panic;
+use std::{marker::PhantomData, sync::Arc};
 
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::{
     irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node, gadget::GadgetAncestry},
+    irs::payloads::PayloadStructure,
     prover::irs::GadgetReadyIr,
 };
 
@@ -49,10 +51,36 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // TODO: implement gadget proof
+        dbg!("Proving Eq gadget");
+        // Identify this gadget's node id inside the gadget-ready IR.
+        let self_ptr: *const dyn IsGadgetNode<B> = self;
+        let node_id = gadget_ready_ir
+            .tree()
+            .arena()
+            .iter()
+            .find_map(|(id, node)| match node.as_ref() {
+                Node::Gadget(gadget) if std::ptr::eq(self_ptr, Arc::as_ptr(gadget)) => Some(*id),
+                _ => None,
+            })
+            .expect("gadget node should exist in the IR arena");
+
+        // Fetch the left/right tracked tables prepared for this gadget.
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            gadget_ready_ir.payload_for_node(&node_id)
+        else {
+            panic!("gadget payload should exist for Eq gadget")
+        };
+        let (Some(left_input), Some(right_input)) = (
+            payload.get(LEFT_LABEL).cloned(),
+            payload.get(RIGHT_LABEL).cloned(),
+        ) else {
+            panic!("left/right inputs should exist for Eq gadget")
+        };
+
+
         Ok(())
     }
 
