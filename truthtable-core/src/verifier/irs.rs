@@ -24,8 +24,14 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::irs::{payloads::HintDFPayload, tree::Tree};
-    use crate::prover::passes::planning::PlanningPass;
+    use crate::irs::{payloads::EmptyPayload, payloads::HintDFPayload, tree::Tree};
+    use crate::prover::passes::{
+        arithmetization::ArithmetizationPass, gadget_initialization::GadgetInitializationPass,
+        materialization::MaterializationPass, planning::PlanningPass,
+        proving::ProvingPass,
+        tracking::TrackingPass as ProverTrackingPass,
+        virtualization::VirtualizationPass as ProverVirtualizationPass,
+    };
     use crate::verifier::passes::{tracking::TrackingPass, virtualization::VirtualizationPass};
     use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::{
@@ -35,6 +41,7 @@ mod test {
         structs::TrackerID,
         test_utils::test_prelude,
         verifier::ArgVerifier,
+        prover::ArgProver,
     };
     use datafusion::arrow::array::BooleanArray;
     use datafusion::{
@@ -120,5 +127,58 @@ mod test {
     }
 
     #[tokio::test]
-    async fn builds_tracked_ir_from_logical_plan() {}
+    async fn builds_tracked_ir_from_logical_plan() {
+        for query in queries() {
+            let (mut arg_prover, mut arg_verifier) = test_prelude::<Backend>().unwrap();
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+
+            let planning_pass = PlanningPass::<Backend>::new();
+            let materialization_pass = MaterializationPass::<Backend>::new();
+            let arithmetization_pass = ArithmetizationPass::<Backend>::new();
+            let prover_tracking_pass = ProverTrackingPass::<Backend>::new(arg_prover.clone());
+
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+            let tree = Tree::from_logical_plan(&lp);
+            let initial_ir = Ir::<Backend, EmptyPayload>::new_empty(tree);
+
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
+            let tracked_ir_prover =
+                arithmetized_ir.apply_local_pass_sequential(&prover_tracking_pass);
+            let prover_virtualization_pass =
+                ProverVirtualizationPass::<Backend>::new(&tracked_ir_prover);
+            let virtualized_ir =
+                tracked_ir_prover.apply_local_pass_sequential(&prover_virtualization_pass);
+            let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
+                virtualized_ir.tree().clone(),
+                virtualized_ir.payloads().clone(),
+            );
+            let gadget_initialization_pass =
+                GadgetInitializationPass::<Backend>::new(gadget_ir_view);
+            let gadget_ready_ir =
+                virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+            let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
+                gadget_ready_ir.tree().clone(),
+                gadget_ready_ir.payloads().clone(),
+            );
+            let proving_pass = ProvingPass::<Backend>::new(arg_prover.clone(), proving_ir_view);
+            let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+
+            // Build proof from the shared prover tracker and hand it to the verifier.
+            let proof = arg_prover
+                .build_proof()
+                .expect("prover should build proof");
+            arg_verifier.set_proof(proof);
+
+            // Run verifier tracking on the original planned IR and visualize.
+            let verifier_tracking_pass = TrackingPass::<Backend>::new(arg_verifier);
+            let tracked_ir =
+                planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
+            println!("Planned Query: {query}");
+            println!("{}", tracked_ir.display_graphviz(true));
+        }
+    }
 }
