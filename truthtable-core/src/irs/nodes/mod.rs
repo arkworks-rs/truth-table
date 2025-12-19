@@ -329,6 +329,7 @@ where
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: NodeId,
     ) -> SnarkResult<()>;
 
     fn hints(&self) -> IndexMap<String, HintDF>;

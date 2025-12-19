@@ -33,6 +33,7 @@ indexmap = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 derivative = { workspace = true }
+either = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 libc = { workspace = true }

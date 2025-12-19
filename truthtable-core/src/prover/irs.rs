@@ -292,7 +292,7 @@ mod test {
                 ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone(), proving_ir_view);
             let final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
             println!("Planned Query: {query}");
-            println!("{}", final_ir.display_graphviz(true));
+            println!("{}", gadget_ready_ir.display_graphviz(true));
         }
     }
 }

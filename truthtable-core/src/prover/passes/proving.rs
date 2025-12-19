@@ -44,7 +44,7 @@ where
                 let mut arg_prover = self.arg_prover.borrow_mut();
                 let mut gadget_ready_ir = self.gadget_ready_ir.borrow_mut();
                 gadget_node
-                    .prove(&mut arg_prover, &mut gadget_ready_ir)
+                    .prove(&mut arg_prover, &mut gadget_ready_ir, _id)
                     .expect("gadget proving should succeed");
                 Some(EmptyPayload)
             }

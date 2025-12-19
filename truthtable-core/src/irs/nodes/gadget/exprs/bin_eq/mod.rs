@@ -157,6 +157,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
