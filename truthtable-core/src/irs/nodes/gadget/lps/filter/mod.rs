@@ -54,7 +54,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         // Fetch the gadget payload populated by the parent plan node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
+            _ => panic!("Expected gadget payload for filter node"),
         };
 
         let (input_act, output_act, predicate) = match (
@@ -65,24 +65,25 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             (Some(input), Some(output), Some(pred)) => {
                 (input.clone(), output.clone(), pred.clone())
             }
-            _ => return Ok(()),
+            _ => panic!("Expected input, output, and predicate activator tables"),
         };
 
         // Extract the activator polynomial from the input and the predicate polynomial
         // (the first non-activator column) to build the left input.
-        let input_act_poly = input_act.activator_tracked_poly();
+        let input_act_poly = input_act
+            .tracked_polys_iter()
+            .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
         let predicate_poly = predicate
             .tracked_polys_iter()
             .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
         let left_field = input_act
             .tracked_polys_iter()
-            .next()
-            .map(|(field, _)| field.clone());
+            .find_map(|(field, _)| (field.name() != ACTIVATOR_COL_NAME).then(|| field.clone()));
 
         let (Some(input_act_poly), Some(predicate_poly), Some(field_ref)) =
             (input_act_poly, predicate_poly, left_field)
         else {
-            return Ok(());
+            panic!("Expected input activator polynomial, predicate polynomial, and left field");
         };
 
         let left_poly = &input_act_poly * &predicate_poly;

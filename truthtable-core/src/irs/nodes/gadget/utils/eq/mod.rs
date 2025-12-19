@@ -56,36 +56,40 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the left/right tracked tables prepared for this gadget.
+        // First fetch the payloads prepared for this gadget to consume
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
-            return Ok(());
+            panic!("Expected gadget payload for Eq gadget node");
         };
+        // Then inside that payload, fetch the left and right inputs
         let (Some(left_input), Some(right_input)) = (
             payload.get(LEFT_LABEL).cloned(),
             payload.get(RIGHT_LABEL).cloned(),
         ) else {
-            return Ok(());
+            panic!("Expected left and right inputs for Eq gadget");
         };
+        // Each of the left and right inputs should have exactly one data tracked polynomial, Because we are checking the equality of two columns
         debug_assert_eq!(
             left_input.data_tracked_polys_indices().len(),
             1,
-            "Eq gadget currently only supports one tracked polynomial per input."
+            "Eq gadget supports one tracked polynomial per input."
         );
         debug_assert_eq!(
             right_input.data_tracked_polys_indices().len(),
             1,
-            "Eq gadget currently only supports one tracked polynomial per input."
+            "Eq gadget supports one tracked polynomial per input."
         );
+        // Extract the indices corresponding to the left and right data tracked polynomials
         let left_data_ind = left_input.data_tracked_polys_indices()[0];
         let right_data_ind = right_input.data_tracked_polys_indices()[0];
+        // Fetch the tracked columns corresponding to those indices
         let left_col = left_input.tracked_col_by_ind(left_data_ind);
         let right_col = right_input.tracked_col_by_ind(right_data_ind);
+        // Form the polynomial that should be zero if the two columns are equal
         let zero_poly =
             &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+        // Emit the zero-check claim for this polynomial
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
-        println!("{}", left_input.pretty_string());
-        println!("{}", right_input.pretty_string());
         Ok(())
     }
 
