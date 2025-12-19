@@ -40,8 +40,8 @@ mod test {
     use crate::prover::passes::virtualization::VirtualizationPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use arithmetic::ACTIVATOR_FIELD;
-    use ark_piop::DefaultSnarkBackend;
     use ark_piop::test_utils::test_prelude;
+    use ark_piop::{DefaultSnarkBackend, prover};
     use datafusion::arrow::array::BooleanArray;
     use datafusion::{
         arrow::{
@@ -258,7 +258,7 @@ mod test {
     #[tokio::test]
     async fn prove() {
         for query in queries() {
-            let (arg_prover, _) = test_prelude().unwrap();
+            let (mut arg_prover, _) = test_prelude().unwrap();
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
             let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
@@ -290,7 +290,8 @@ mod test {
             );
             let proving_pass =
                 ProvingPass::<DefaultSnarkBackend>::new(arg_prover.clone(), proving_ir_view);
-            let final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+            let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+            let _arg_proof = arg_prover.build_proof().unwrap();
             println!("Planned Query: {query}");
             println!("{}", gadget_ready_ir.display_graphviz(true));
         }

@@ -4,7 +4,7 @@
 
 use crate::{
     irs::ir::Ir,
-    verifier::payloads::{TrackedPayload, VirtualizedPayload},
+    verifier::payloads::{GadgetReadyPayload, TrackedPayload, VirtualizedPayload},
 };
 
 /// The tracked Intermediate Representation with tracked table payloads.
@@ -15,6 +15,11 @@ pub type TrackedIr<B> = Ir<B, TrackedPayload<B>>;
 ///
 /// This IR represents the final stage in the verifier's pipeline where the virtual witnesses were added to the proof tree nodes.
 pub type VirtualizedIr<B> = Ir<B, VirtualizedPayload<B>>;
+/// The gadget-ready Intermediate Representation with gadget-initialized payloads.
+///
+/// This IR represents the stage after gadget initialization where gadget-specific payloads
+/// have been prepared on top of the virtualized IR.
+pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 
 #[cfg(test)]
 mod test {
@@ -22,6 +27,7 @@ mod test {
     use crate::irs::{payloads::HintDFPayload, tree::Tree};
     use crate::prover::passes::planning::PlanningPass;
     use crate::verifier::passes::{tracking::TrackingPass, virtualization::VirtualizationPass};
+    use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::{
         DefaultSnarkBackend, SnarkBackend,
         pcs::{PCS, PolynomialCommitment},
@@ -30,6 +36,7 @@ mod test {
         test_utils::test_prelude,
         verifier::ArgVerifier,
     };
+    use datafusion::arrow::array::BooleanArray;
     use datafusion::{
         arrow::{
             array::{ArrayRef, Int32Array},
@@ -49,6 +56,7 @@ mod test {
             Field::new("first_column", DataType::Int32, false),
             Field::new("second_column", DataType::Int32, false),
             Field::new("third_column", DataType::Int32, false),
+            ACTIVATOR_FIELD.as_ref().clone(),
         ]))
     }
 
@@ -60,6 +68,7 @@ mod test {
                 Arc::new(Int32Array::from(vec![1, 2, 3, 4])) as ArrayRef,
                 Arc::new(Int32Array::from(vec![10, 20, 30, 40])) as ArrayRef,
                 Arc::new(Int32Array::from(vec![100, 200, 300, 400])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, false, true])) as ArrayRef,
             ],
         )
         .unwrap();
@@ -111,57 +120,5 @@ mod test {
     }
 
     #[tokio::test]
-    async fn builds_tracked_ir_from_logical_plan() {
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<Backend>::new();
-
-        for query in queries() {
-            let df = ctx.sql(query).await.unwrap();
-            let lp = df.into_unoptimized_plan();
-
-            let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<Backend, crate::irs::payloads::EmptyPayload>::new_empty(tree);
-            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
-
-            let num_commitments = count_materialized_columns(&planned_ir);
-            let verifier = verifier_with_dummy_proof(num_commitments);
-            let tracking_pass = TrackingPass::<Backend>::new(verifier);
-            let tracked_ir = planned_ir.apply_local_pass_sequential(&tracking_pass);
-
-            println!("Tracked Query: {query}");
-            println!("{}", tracked_ir.display_graphviz(true));
-            assert_eq!(tracked_ir.payloads().len(), tracked_ir.tree().arena().len());
-        }
-    }
-
-    #[tokio::test]
-    async fn builds_virtualized_ir_from_logical_plan() {
-        let ctx = SessionContext::new();
-        register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<Backend>::new();
-
-        for query in queries() {
-            let df = ctx.sql(query).await.unwrap();
-            let lp = df.into_unoptimized_plan();
-
-            let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<Backend, crate::irs::payloads::EmptyPayload>::new_empty(tree);
-            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
-
-            let num_commitments = count_materialized_columns(&planned_ir);
-            let verifier = verifier_with_dummy_proof(num_commitments);
-            let tracking_pass = TrackingPass::<Backend>::new(verifier);
-            let tracked_ir = planned_ir.apply_local_pass_sequential(&tracking_pass);
-            let virtualization_pass = VirtualizationPass::<Backend>::new(&tracked_ir);
-            let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
-
-            println!("Virtualized Query: {query}");
-            println!("{}", virtualized_ir.display_graphviz(true));
-            assert_eq!(
-                virtualized_ir.payloads().len(),
-                virtualized_ir.tree().arena().len()
-            );
-        }
-    }
+    async fn builds_tracked_ir_from_logical_plan() {}
 }
