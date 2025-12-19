@@ -74,7 +74,12 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
                 .keys()
                 .map(|field| field.name().to_string())
                 .collect();
-            write!(f, "TrackedTable cols=({}), log_size={}", cols.join(","), self.log_size)
+            write!(
+                f,
+                "TrackedTable cols=({}), log_size={}",
+                cols.join(","),
+                self.log_size
+            )
         }
     }
 }
@@ -241,6 +246,50 @@ impl<B: SnarkBackend> TrackedTable<B> {
             .iter()
             .map(|&i| self.tracked_col_by_ind(i))
             .collect()
+    }
+
+    /// Renames the column at the given index, updating both the field reference
+    /// keys and the stored schema (when present).
+    pub fn rename_col(&mut self, idx: usize, new_name: &str) {
+        assert!(idx < self.tracked_polys.len(), "column index out of bounds");
+
+        // Build the new field reference using the existing field's properties.
+        let old_field = self
+            .tracked_polys
+            .get_index(idx)
+            .map(|(f, _)| f.clone())
+            .expect("column index out of bounds");
+        let new_field_ref = Arc::new(
+            Field::new(
+                new_name,
+                old_field.data_type().clone(),
+                old_field.is_nullable(),
+            )
+            .with_metadata(old_field.metadata().clone()),
+        );
+
+        // Rebuild the tracked_polys map to preserve ordering.
+        let mut new_polys = IndexMap::with_capacity(self.tracked_polys.len());
+        for (i, (field, poly)) in self.tracked_polys.clone().into_iter().enumerate() {
+            if i == idx {
+                new_polys.insert(new_field_ref.clone(), poly);
+            } else {
+                new_polys.insert(field, poly);
+            }
+        }
+        self.tracked_polys = new_polys;
+
+        // Update schema if present.
+        if let Some(schema) = &self.schema {
+            let metadata = schema.metadata().clone();
+            let mut fields = schema
+                .fields()
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>();
+            fields[idx] = new_field_ref.as_ref().clone();
+            self.schema = Some(Schema::new_with_metadata(fields, metadata));
+        }
     }
 
     /// Returns a subtable containing the tracked columns at the specified

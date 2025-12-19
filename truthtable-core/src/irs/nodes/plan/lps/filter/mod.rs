@@ -134,7 +134,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
                 .keys()
                 .position(|field| field.name() == ACTIVATOR_COL_NAME)
                 .expect("table should include activator column");
-            table.tracked_subtable_by_indices(&[idx])
+            let mut output = table.tracked_subtable_by_indices(&[idx]);
+            output.rename_col(0, "data");
+            output
         };
 
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {

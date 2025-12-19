@@ -1,12 +1,13 @@
-use core::panic;
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::{
-    irs::nodes::{IsGadgetNode, IsNode, IsPlanNode, Node, gadget::GadgetAncestry},
-    irs::payloads::PayloadStructure,
+    irs::{
+        nodes::{IsGadgetNode, IsNode, Node},
+        payloads::PayloadStructure,
+    },
     prover::irs::GadgetReadyIr,
 };
 
@@ -53,34 +54,38 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        dbg!("Proving Eq gadget");
-        // Identify this gadget's node id inside the gadget-ready IR.
-        let self_ptr: *const dyn IsGadgetNode<B> = self;
-        let node_id = gadget_ready_ir
-            .tree()
-            .arena()
-            .iter()
-            .find_map(|(id, node)| match node.as_ref() {
-                Node::Gadget(gadget) if std::ptr::eq(self_ptr, Arc::as_ptr(gadget)) => Some(*id),
-                _ => None,
-            })
-            .expect("gadget node should exist in the IR arena");
-
         // Fetch the left/right tracked tables prepared for this gadget.
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            gadget_ready_ir.payload_for_node(&node_id)
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
-            panic!("gadget payload should exist for Eq gadget")
+            return Ok(());
         };
         let (Some(left_input), Some(right_input)) = (
             payload.get(LEFT_LABEL).cloned(),
             payload.get(RIGHT_LABEL).cloned(),
         ) else {
-            panic!("left/right inputs should exist for Eq gadget")
+            return Ok(());
         };
-
-
+        debug_assert_eq!(
+            left_input.data_tracked_polys_indices().len(),
+            1,
+            "Eq gadget currently only supports one tracked polynomial per input."
+        );
+        debug_assert_eq!(
+            right_input.data_tracked_polys_indices().len(),
+            1,
+            "Eq gadget currently only supports one tracked polynomial per input."
+        );
+        let left_data_ind = left_input.data_tracked_polys_indices()[0];
+        let right_data_ind = right_input.data_tracked_polys_indices()[0];
+        let left_col = left_input.tracked_col_by_ind(left_data_ind);
+        let right_col = right_input.tracked_col_by_ind(right_data_ind);
+        let zero_poly =
+            &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+        println!("{}", left_input.pretty_string());
+        println!("{}", right_input.pretty_string());
         Ok(())
     }
 

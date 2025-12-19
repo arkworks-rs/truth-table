@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
-use ark_piop::SnarkBackend;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
+use ark_piop::{SnarkBackend, prover::structs::polynomial::TrackedPoly};
+use arrow_schema::{Field, FieldRef};
+use datafusion::functions::unicode::right;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
@@ -10,6 +12,7 @@ use crate::irs::nodes::{
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
+use ark_std::One;
 
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
 pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
@@ -45,11 +48,11 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the gadget payload populated by the parent plan node.
-        let gadget_payload = match virtualized_ir.payload_for_node(&_id) {
+        let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
@@ -92,6 +95,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
+
+        // The right input is just the output activator.
         col_eq_payload.insert(eq::LEFT_LABEL.to_string(), left_table);
         col_eq_payload.insert(eq::RIGHT_LABEL.to_string(), output_act);
 
@@ -108,6 +113,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
@@ -116,8 +122,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
-
-
 
     fn new() -> Self
     where
