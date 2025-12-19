@@ -128,14 +128,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.
-        let activator_only = |table: &TrackedTable<B>| {
+        let activator_only = |table: &TrackedTable<B>, col_name: &str| {
             let idx = table
                 .tracked_polys()
                 .keys()
                 .position(|field| field.name() == ACTIVATOR_COL_NAME)
                 .expect("table should include activator column");
             let mut output = table.tracked_subtable_by_indices(&[idx]);
-            output.rename_col(0, "data");
+            output.rename_col(0, col_name);
             output
         };
 
@@ -162,11 +162,12 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             _ => IndexMap::new(),
         };
 
+
         if let Some(input) = input_table.as_ref() {
-            gadget_payload.insert(INPUT_ACTIVATOR_LABEL.to_string(), activator_only(input));
+            gadget_payload.insert(INPUT_ACTIVATOR_LABEL.to_string(), activator_only(input, "input_activator"));
         }
         if let Some(output) = output_table.as_ref() {
-            gadget_payload.insert(OUTPUT_ACTIVATOR_LABEL.to_string(), activator_only(output));
+            gadget_payload.insert(OUTPUT_ACTIVATOR_LABEL.to_string(), activator_only(output, "output_activator"));
         }
         if let Some(pred_table) = predicate_table {
             gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);

@@ -52,15 +52,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
-        use datafusion_expr::lit;
 
         let ctx = SessionContext::new();
         let df = DataFrame::new(
             ctx.state(),
             datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone()),
-        )
-        .with_column(ACTIVATOR_COL_NAME, lit(true))
-        .expect("failed to append activator column to table scan output");
+        );
 
         crate::irs::nodes::hints::HintDF::new_materialized(df)
     }

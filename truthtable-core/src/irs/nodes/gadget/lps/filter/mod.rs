@@ -68,6 +68,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             _ => panic!("Expected input, output, and predicate activator tables"),
         };
 
+
         // Extract the activator polynomial from the input and the predicate polynomial
         // (the first non-activator column) to build the left input.
         let input_act_poly = input_act

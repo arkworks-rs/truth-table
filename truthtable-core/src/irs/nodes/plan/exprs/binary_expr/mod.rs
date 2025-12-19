@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
-use arithmetic::ACTIVATOR_EXPR;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::FieldRef;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
 use indexmap::IndexMap;
 
+use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
     nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node},
     payloads::PayloadStructure,
     tree::Tree,
-};
-use crate::irs::nodes::gadget::exprs::bin_eq::{
-    LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL,
 };
 
 pub struct ProverNode<B: SnarkBackend> {
@@ -55,9 +53,56 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Pull activator from the left child.
+        let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        let activator_entry = left_table
+            .tracked_polys_iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(f, p)| (f.clone(), p.clone()));
+        let Some((act_field, act_poly)) = activator_entry else {
+            return Ok(());
+        };
+
+        // Start from existing payload (if any).
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_polys();
+        merged_polys.insert(act_field.clone(), act_poly.clone());
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| left_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), left_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, left) => {
+                debug_assert_eq!(curr, left, "BinaryExpr log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 
