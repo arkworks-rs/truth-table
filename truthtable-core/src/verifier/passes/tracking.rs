@@ -39,24 +39,16 @@ where
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
-        // If there is no payload
+        // If there is no payload, do nothing
         let payload = payload?;
         match payload {
+            // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
                 track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
-                let mut out = indexmap::IndexMap::new();
-                for (k, hint_df) in map {
-                    if let Some(tracked) = track_hint_df(hint_df, &self.verifier) {
-                        out.insert(k.clone(), tracked);
-                    }
-                }
-                if out.is_empty() {
-                    None
-                } else {
-                    Some(TrackedPayload::GadgetPayload(out))
-                }
+                //TODO: Handle gadget payloads if needed
+                None
             }
         }
     }
@@ -68,10 +60,12 @@ fn track_hint_df<B: SnarkBackend>(
 ) -> Option<TrackedTableOracle<B>> {
     let base_schema: Schema =
         <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+    // Initialize some variables
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
 
     let mut verifier = verifier.borrow_mut();
+    // Iterate through each field that needs materialization
     for (field, should_mat) in hint_df.field_materialization_iter() {
         if !*should_mat {
             continue;
@@ -88,7 +82,7 @@ fn track_hint_df<B: SnarkBackend>(
         }
         tracked_oracles.insert(field.clone(), oracle);
     }
-
+    // If there was no columns to be materialized, return None
     if tracked_oracles.is_empty() {
         None
     } else {

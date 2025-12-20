@@ -33,7 +33,10 @@ mod test {
         tracking::TrackingPass as ProverTrackingPass,
         virtualization::VirtualizationPass as ProverVirtualizationPass,
     };
-    use crate::verifier::passes::{tracking::TrackingPass, virtualization::VirtualizationPass};
+    use crate::verifier::passes::{
+        tracking::TrackingPass as VerifierTrackingPass,
+        virtualization::VirtualizationPass as VerifierVirtualizationPass,
+    };
     use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::{
         DefaultSnarkBackend, SnarkBackend,
@@ -192,7 +195,7 @@ mod test {
 
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
-            let verifier_tracking_pass = TrackingPass::<Backend>::new(arg_verifier);
+            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
