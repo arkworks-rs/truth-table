@@ -130,58 +130,58 @@ mod test {
             .sum()
     }
 
+    async fn perform_prover_passes(
+        query: &str,
+        arg_prover: &mut ArgProver<Backend>,
+    ) -> SNARKProof<Backend> {
+        ////////////////////////////////////////////////////////////////////////
+        // Prover stuff
+        ////////////////////////////////////////////////////////////////////////
+        let ctx = SessionContext::new();
+        register_dummy_table(&ctx);
+
+        let planning_pass = PlanningPass::<Backend>::new();
+        let materialization_pass = MaterializationPass::<Backend>::new();
+        let arithmetization_pass = ArithmetizationPass::<Backend>::new();
+        let prover_tracking_pass = ProverTrackingPass::<Backend>::new(arg_prover.clone());
+
+        let df = ctx.sql(query).await.unwrap();
+        let lp = df.into_unoptimized_plan();
+        let tree = Tree::from_logical_plan(&lp);
+        let initial_ir = EmptyIr::<Backend>::new_empty(tree);
+
+        let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+        let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
+        let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
+        let tracked_ir_prover = arithmetized_ir.apply_local_pass_sequential(&prover_tracking_pass);
+        let prover_virtualization_pass =
+            ProverVirtualizationPass::<Backend>::new(&tracked_ir_prover);
+        let virtualized_ir =
+            tracked_ir_prover.apply_local_pass_sequential(&prover_virtualization_pass);
+        let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
+            virtualized_ir.tree().clone(),
+            virtualized_ir.payloads().clone(),
+        );
+        let gadget_initialization_pass = GadgetInitializationPass::<Backend>::new(gadget_ir_view);
+        let gadget_ready_ir =
+            virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+        let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
+            gadget_ready_ir.tree().clone(),
+            gadget_ready_ir.payloads().clone(),
+        );
+        let proving_pass = ProvingPass::<Backend>::new(arg_prover.clone(), proving_ir_view);
+        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+
+        arg_prover.build_proof().expect("prover should build proof")
+    }
+
     #[tokio::test]
     async fn builds_tracked_ir_from_logical_plan() {
         for query in queries() {
             // Create a prover and a verifier
             let (mut arg_prover, mut arg_verifier) = test_prelude::<Backend>().unwrap();
-
-            ////////////////////////////////////////////////////////////////////////
-            // Prover stuff
-            ////////////////////////////////////////////////////////////////////////
-            let ctx = SessionContext::new();
-            register_dummy_table(&ctx);
-
-            let planning_pass = PlanningPass::<Backend>::new();
-            let materialization_pass = MaterializationPass::<Backend>::new();
-            let arithmetization_pass = ArithmetizationPass::<Backend>::new();
-            let prover_tracking_pass = ProverTrackingPass::<Backend>::new(arg_prover.clone());
-
-            let df = ctx.sql(query).await.unwrap();
-            let lp = df.into_unoptimized_plan();
-            let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = EmptyIr::<Backend>::new_empty(tree);
-
-            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
-            let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
-            let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-            let tracked_ir_prover =
-                arithmetized_ir.apply_local_pass_sequential(&prover_tracking_pass);
-            let prover_virtualization_pass =
-                ProverVirtualizationPass::<Backend>::new(&tracked_ir_prover);
-            let virtualized_ir =
-                tracked_ir_prover.apply_local_pass_sequential(&prover_virtualization_pass);
-            let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
-                virtualized_ir.tree().clone(),
-                virtualized_ir.payloads().clone(),
-            );
-            let gadget_initialization_pass =
-                GadgetInitializationPass::<Backend>::new(gadget_ir_view);
-            let gadget_ready_ir =
-                virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-            let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
-                gadget_ready_ir.tree().clone(),
-                gadget_ready_ir.payloads().clone(),
-            );
-            let proving_pass = ProvingPass::<Backend>::new(arg_prover.clone(), proving_ir_view);
-            let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
-
-            let proof = arg_prover.build_proof().expect("prover should build proof");
+            let proof = perform_prover_passes(query, &mut arg_prover).await;
             arg_verifier.set_proof(proof);
-
-            ////////////////////////////////////////////////////////////////////////
-            // Verifier stuff
-            ////////////////////////////////////////////////////////////////////////
 
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
@@ -197,6 +197,37 @@ mod test {
 
             let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
+            println!("Planned Query: {query}");
+            println!("{}", tracked_ir.display_graphviz(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn builds_virtualized_ir_from_logical_plan() {
+        for query in queries() {
+            // Create a prover and a verifier
+            let (mut arg_prover, mut arg_verifier) = test_prelude::<Backend>().unwrap();
+            let proof = perform_prover_passes(query, &mut arg_prover).await;
+            arg_verifier.set_proof(proof);
+
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+
+            let planning_pass = PlanningPass::<Backend>::new();
+
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+            let tree = Tree::from_logical_plan(&lp);
+            let initial_ir = EmptyIr::<Backend>::new_empty(tree);
+
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+
+            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
+            let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
+            let verifier_virtualization_pass =
+                VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
+            let virtualized_ir =
+                tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
         }

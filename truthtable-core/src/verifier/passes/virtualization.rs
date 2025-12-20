@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use ark_piop::SnarkBackend;
 
+use crate::irs::nodes::IsNode;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
     ir::LocalPass,
@@ -29,9 +30,7 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
         let seeded_payloads = tracked_ir
             .payloads()
             .iter()
-            .map(|(id, payload)| {
-                (*id, payload.clone())
-            })
+            .map(|(id, payload)| (*id, payload.clone()))
             .collect();
 
         let virtualized_ir = VirtualizedIr::new(tracked_ir.tree().clone(), seeded_payloads);
@@ -55,11 +54,23 @@ where
         id: NodeId,
         payload: Option<&TrackedPayload<B>>,
     ) -> Option<VirtualizedPayload<B>> {
-        // Verifier side does not inject virtual witnesses; simply forward tracked payloads.
-        payload.cloned()
+        // Let each node inject its virtual witness into the shared IR view.
+        let updated = {
+            let mut ir = self.virtualized_ir.borrow_mut();
+            node.add_virtual_witness(id, &mut ir)
+                .expect("virtual witness insertion should succeed");
+            ir.payloads().get(&id).cloned().flatten()
+        };
+
+        // Always emit a payload: prefer the updated value, otherwise default to the incoming
+        // tracked payload, and finally fall back to an empty tracked table so columns do not
+        // remain empty.
+        updated
+            .or_else(|| payload.cloned())
+            .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTableOracle::default())))
     }
 
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
-        None
+        Some(PayloadStructure::PlanPayload(TrackedTableOracle::default()))
     }
 }
