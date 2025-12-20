@@ -30,10 +30,7 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
             .payloads()
             .iter()
             .map(|(id, payload)| {
-                let initial = payload
-                    .clone()
-                    .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTableOracle::default())));
-                (*id, initial)
+                (*id, payload.clone())
             })
             .collect();
 
@@ -59,12 +56,10 @@ where
         payload: Option<&TrackedPayload<B>>,
     ) -> Option<VirtualizedPayload<B>> {
         // Verifier side does not inject virtual witnesses; simply forward tracked payloads.
-        payload
-            .cloned()
-            .or_else(|| Some(PayloadStructure::PlanPayload(TrackedTableOracle::default())))
+        payload.cloned()
     }
 
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
-        Some(PayloadStructure::PlanPayload(TrackedTableOracle::default()))
+        None
     }
 }

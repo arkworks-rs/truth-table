@@ -39,16 +39,24 @@ where
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
-        match payload? {
-            HintDFPayload::PlanPayload(hint_df) => Some(TrackedPayload::PlanPayload(
-                track_hint_df(hint_df, &self.verifier),
-            )),
+        // If there is no payload
+        let payload = payload?;
+        match payload {
+            HintDFPayload::PlanPayload(hint_df) => {
+                track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
+            }
             HintDFPayload::GadgetPayload(map) => {
                 let mut out = indexmap::IndexMap::new();
                 for (k, hint_df) in map {
-                    out.insert(k.clone(), track_hint_df(hint_df, &self.verifier));
+                    if let Some(tracked) = track_hint_df(hint_df, &self.verifier) {
+                        out.insert(k.clone(), tracked);
+                    }
                 }
-                Some(TrackedPayload::GadgetPayload(out))
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(TrackedPayload::GadgetPayload(out))
+                }
             }
         }
     }
@@ -57,8 +65,8 @@ where
 fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
-) -> TrackedTableOracle<B> {
-    let arrow_schema: Schema =
+) -> Option<TrackedTableOracle<B>> {
+    let base_schema: Schema =
         <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
@@ -81,5 +89,15 @@ fn track_hint_df<B: SnarkBackend>(
         tracked_oracles.insert(field.clone(), oracle);
     }
 
-    TrackedTableOracle::new(Some(arrow_schema), tracked_oracles, log_size)
+    if tracked_oracles.is_empty() {
+        None
+    } else {
+        let metadata = base_schema.metadata().clone();
+        let fields = tracked_oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+        Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
+    }
 }
