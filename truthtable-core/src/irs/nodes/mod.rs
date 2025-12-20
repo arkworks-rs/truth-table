@@ -36,7 +36,7 @@ pub type NodeId = u64;
 #[derivative(Clone(bound = ""))]
 pub enum Node<B: SnarkBackend> {
     Plan(PlanNode<B>),
-    Gadget(Arc<dyn IsGadgetNode<B>>),
+    Gadget(Arc<dyn IsProverGadgetNode<B>>),
 }
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
@@ -151,38 +151,22 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
                 if let Some(node) = node_any
                     .downcast_ref::<crate::irs::nodes::gadget::exprs::bin_eq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
-                if let Some(node) = node_any
-                    .downcast_ref::<crate::irs::nodes::gadget::lps::filter::ProverNode<B>>()
+                if let Some(node) =
+                    node_any.downcast_ref::<crate::irs::nodes::gadget::lps::filter::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
-                if let Some(node) = node_any
-                    .downcast_ref::<crate::irs::nodes::gadget::utils::eq::ProverNode<B>>()
+                if let Some(node) =
+                    node_any.downcast_ref::<crate::irs::nodes::gadget::utils::eq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
-                if let Some(node) = node_any
-                    .downcast_ref::<crate::irs::nodes::gadget::utils::neq::ProverNode<B>>()
+                if let Some(node) =
+                    node_any.downcast_ref::<crate::irs::nodes::gadget::utils::neq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 Ok(())
             }
@@ -204,50 +188,26 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::LpBased(lp_node) => {
                 let node_any = lp_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 Ok(())
             }
             PlanNode::ExprBased(expr_node) => {
                 let node_any = expr_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::add_virtual_witness(node, id, virtualized_ir);
                 }
                 Ok(())
             }
@@ -267,50 +227,26 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::LpBased(lp_node) => {
                 let node_any = lp_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 Ok(())
             }
             PlanNode::ExprBased(expr_node) => {
                 let node_any = expr_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
+                    return NodeVirtualWitnessOps::initialize_gadgets(node, id, virtualized_ir);
                 }
                 Ok(())
             }
@@ -531,7 +467,7 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
     }
 }
 
-pub trait IsGadgetNode<B>: IsNode<B>
+pub trait IsProverGadgetNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
@@ -548,6 +484,18 @@ where
     fn new() -> Self
     where
         Self: Sized;
+}
+
+pub trait IsVerifierGadgetNode<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
+    fn verify(
+        &self,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
+        id: NodeId,
+    ) -> SnarkResult<()>;
 }
 pub trait IsLpNode<B>: IsPlanNode<B>
 where
