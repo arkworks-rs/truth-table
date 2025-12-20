@@ -15,14 +15,14 @@ use indexmap::IndexMap;
 use crate::{
     irs::nodes::{
         cost::ProvingCost,
-        gadget::GadgetAncestry,
         hints::HintDF,
         plan::{
             exprs::{binary_expr, column, literal},
             lps::{filter, projection, table_scan},
         },
     },
-    prover::irs::{GadgetReadyIr, VirtualizedIr},
+    prover::irs::{GadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
+    verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
 pub mod cost;
 pub mod gadget;
@@ -92,17 +92,41 @@ where
     fn child_edge_labels(&self) -> Vec<Option<String>> {
         self.children().into_iter().map(|_| None).collect()
     }
+}
+
+pub trait ProverNodeOps<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
     fn add_virtual_witness(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 
     /// Optional hook for a pre-order gadget initialization pass.
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+}
+
+pub trait VerifierNodeOps<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+
+    /// Optional hook for a pre-order gadget initialization pass.
+    fn initialize_gadgets(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 }
 
@@ -136,7 +160,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Filter(_) => Arc::new_cyclic(|weak_self| {
-                let node = filter::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                let node = filter::FilterNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             _ => todo!(),
@@ -220,11 +244,13 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.child_edge_labels(),
         }
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => plan_node.add_virtual_witness(id, virtualized_ir),
@@ -235,12 +261,31 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => plan_node.initialize_gadgets(id, virtualized_ir),
             Node::Gadget(gadget_node) => gadget_node.initialize_gadgets(id, virtualized_ir),
         }
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
+    // Verifier-specific node behavior is currently a no-op until specialized implementations exist.
+    fn add_virtual_witness(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        Ok(())
     }
 }
 
@@ -296,11 +341,35 @@ impl<B: SnarkBackend> PlanNode<B> {
             PlanNode::ExprBased(expr_node) => expr_node.output(),
         }
     }
+}
 
-    pub fn add_virtual_witness(
+impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
+    fn name(&self) -> String {
+        PlanNode::name(self)
+    }
+
+    fn display(&self) -> String {
+        PlanNode::display(self)
+    }
+
+    fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
+        PlanNode::cost(self, statistics, schema)
+    }
+
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        PlanNode::children(self)
+    }
+
+    fn child_edge_labels(&self) -> Vec<Option<String>> {
+        PlanNode::child_edge_labels(self)
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
+    fn add_virtual_witness(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.add_virtual_witness(id, virtualized_ir),
@@ -308,10 +377,10 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
-    pub fn initialize_gadgets(
+    fn initialize_gadgets(
         &self,
         id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B>,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.initialize_gadgets(id, virtualized_ir),
@@ -320,7 +389,7 @@ impl<B: SnarkBackend> PlanNode<B> {
     }
 }
 
-pub trait IsGadgetNode<B>: IsNode<B>
+pub trait IsGadgetNode<B>: IsNode<B> + ProverNodeOps<B>
 where
     B: SnarkBackend,
 {
@@ -338,7 +407,7 @@ where
     where
         Self: Sized;
 }
-pub trait IsLpNode<B>: IsPlanNode<B>
+pub trait IsLpNode<B>: IsPlanNode<B> + ProverNodeOps<B>
 where
     B: SnarkBackend,
 {
@@ -351,7 +420,7 @@ where
     fn lp(&self) -> LogicalPlan;
 }
 
-pub trait IsExprNode<B>: IsPlanNode<B>
+pub trait IsExprNode<B>: IsPlanNode<B> + ProverNodeOps<B>
 where
     B: SnarkBackend,
 {

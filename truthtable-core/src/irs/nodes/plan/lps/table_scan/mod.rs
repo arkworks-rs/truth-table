@@ -3,7 +3,7 @@ use ark_piop::SnarkBackend;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::TableScan;
 
-use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node};
+use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps};
 
 mod gadget;
 #[derive(Debug)]
@@ -27,7 +27,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

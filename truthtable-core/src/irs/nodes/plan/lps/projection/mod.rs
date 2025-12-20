@@ -10,7 +10,7 @@ use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node},
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -45,6 +45,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         out.extend(self.exprs.iter().cloned());
         out
     }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,

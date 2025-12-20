@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps},
     payloads::PayloadStructure,
 };
 
@@ -30,7 +30,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,

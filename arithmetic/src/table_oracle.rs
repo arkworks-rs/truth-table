@@ -135,6 +135,10 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         self.tracked_oracles.clone()
     }
 
+    pub fn tracked_oracles_iter(&self) -> impl Iterator<Item = (&FieldRef, &TrackedOracle<B>)> {
+        self.tracked_oracles.iter()
+    }
+
     pub fn data_tracked_oracles_indices(&self) -> Vec<usize> {
         self.tracked_oracles
             .iter()
@@ -146,6 +150,10 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// Returns the optional schema of the table
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
+    }
+
+    pub fn schema_ref(&self) -> Option<&Schema> {
+        self.schema.as_ref()
     }
 
     /// Returns the log size of the table
@@ -406,7 +414,9 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
     pub fn schema(&self) -> Option<Schema> {
         self.schema.clone()
     }
-
+    pub fn schema_ref(&self) -> Option<&Schema> {
+        self.schema.as_ref()
+    }
     /// Constructs an `ArithTableOracle` from a `TrackedTableOracle` by
     /// extracting
     pub fn from_tracked_table_oracle(table_oracle: &TrackedTableOracle<B>) -> Self

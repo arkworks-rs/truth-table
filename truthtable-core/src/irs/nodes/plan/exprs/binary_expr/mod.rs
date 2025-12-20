@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
-    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node},
+    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -51,6 +51,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<Arc<Node<B>>> {
         vec![self.left.clone(), self.right.clone(), self.gadget().clone()]
     }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,

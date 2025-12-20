@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -32,7 +32,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

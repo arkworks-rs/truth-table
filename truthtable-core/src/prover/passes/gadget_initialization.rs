@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 
 use crate::irs::ir::{LocalPass, PassOrder};
 use crate::irs::nodes::NodeId;
-use crate::irs::nodes::{IsNode, Node};
+use crate::irs::nodes::{Node, ProverNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::VirtualizedIr;
 use crate::prover::payloads::{GadgetReadyPayload, VirtualizedPayload};

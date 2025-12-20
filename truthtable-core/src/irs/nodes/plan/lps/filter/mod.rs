@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
         gadget::{
             self,
             lps::filter::{
@@ -23,7 +23,7 @@ use crate::irs::{
 mod hints;
 
 /// The implementation of a filter node in the prover proof tree.
-pub struct ProverNode<B>
+pub struct FilterNode<B>
 where
     B: SnarkBackend,
 {
@@ -37,7 +37,7 @@ where
     gadget: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
     fn name(&self) -> String {
         "Filter".to_string()
     }
@@ -57,7 +57,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             self.gadget.clone(),
         ]
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -162,12 +164,17 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             _ => IndexMap::new(),
         };
 
-
         if let Some(input) = input_table.as_ref() {
-            gadget_payload.insert(INPUT_ACTIVATOR_LABEL.to_string(), activator_only(input, "input_activator"));
+            gadget_payload.insert(
+                INPUT_ACTIVATOR_LABEL.to_string(),
+                activator_only(input, "input_activator"),
+            );
         }
         if let Some(output) = output_table.as_ref() {
-            gadget_payload.insert(OUTPUT_ACTIVATOR_LABEL.to_string(), activator_only(output, "output_activator"));
+            gadget_payload.insert(
+                OUTPUT_ACTIVATOR_LABEL.to_string(),
+                activator_only(output, "output_activator"),
+            );
         }
         if let Some(pred_table) = predicate_table {
             gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);
@@ -183,7 +190,81 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Pull the tracked table from the filter's input.
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        // Start from this node's current payload (should already include the activator).
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_oracles();
+        debug_assert!(
+            !merged_polys.is_empty(),
+            "Filter payload should already contain the activator column"
+        );
+
+        // Append all non-activator columns from the input into this table.
+        for (field, poly) in input_table.tracked_oracles_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            merged_polys
+                .entry(field.clone())
+                .or_insert_with(|| poly.clone());
+        }
+
+        // Prefer existing schema metadata, otherwise inherit from the input table.
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        // Keep the existing log size when set; otherwise inherit from the input.
+        let log_size = match (current_table.log_size(), input_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Filter log sizes should match input");
+                current
+            }
+        };
+
+        let updated_table = TrackedTableOracle::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
     fn gadget(&self) -> Arc<Node<B>> {
         self.gadget.clone()
     }
@@ -214,7 +295,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
     fn from_lp(_plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,

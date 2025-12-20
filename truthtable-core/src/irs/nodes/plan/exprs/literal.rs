@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rayon::iter::Either;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps},
     payloads::PayloadStructure,
 };
 pub struct ProverNode<B: SnarkBackend> {
@@ -32,7 +32,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<crate::irs::nodes::Node<B>>> {
         vec![]
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,

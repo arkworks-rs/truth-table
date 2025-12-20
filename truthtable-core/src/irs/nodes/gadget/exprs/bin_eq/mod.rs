@@ -9,7 +9,7 @@ use datafusion_expr::Operator;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node,
+    IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps,
     gadget::{
         GadgetAncestry,
         utils::{eq, neq},
@@ -43,6 +43,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.eq.clone(), self.neq.clone()]
     }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

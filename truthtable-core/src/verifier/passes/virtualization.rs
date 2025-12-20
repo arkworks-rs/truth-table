@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use ark_piop::SnarkBackend;
 
-use crate::irs::nodes::IsNode;
+use crate::irs::nodes::VerifierNodeOps;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
     ir::LocalPass,

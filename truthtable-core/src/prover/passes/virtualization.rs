@@ -4,7 +4,7 @@ use arithmetic::table::TrackedTable;
 use ark_piop::SnarkBackend;
 
 use crate::irs::ir::PassOrder;
-use crate::irs::nodes::IsNode;
+use crate::irs::nodes::ProverNodeOps;
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::{TrackedIr, VirtualizedIr};
 use crate::prover::payloads::VirtualizedPayload;
