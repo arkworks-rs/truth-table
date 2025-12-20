@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{ACTIVATOR_COL_NAME, IsTable, table::TrackedTable};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
@@ -8,7 +8,8 @@ use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
+        VerifierNodeOps,
         gadget::{
             self,
             lps::filter::{
@@ -59,12 +60,16 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
-    fn add_virtual_witness(
+impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
+    fn add_virtual_witness_generic<T>(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable,
+        T::Column: Clone,
+    {
         // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
@@ -80,18 +85,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             })
             .unwrap_or_default();
 
-        let mut merged_polys = current_table.tracked_polys();
+        let mut merged_cols = current_table.columns();
         debug_assert!(
-            !merged_polys.is_empty(),
+            !merged_cols.is_empty(),
             "Filter payload should already contain the activator column"
         );
 
         // Append all non-activator columns from the input into this table.
-        for (field, poly) in input_table.tracked_polys_iter() {
+        for (field, poly) in input_table.columns_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            merged_polys
+            merged_cols
                 .entry(field.clone())
                 .or_insert_with(|| poly.clone());
         }
@@ -103,7 +108,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
 
-        let fields = merged_polys
+        let fields = merged_cols
             .keys()
             .map(|field| field.as_ref().clone())
             .collect::<Vec<_>>();
@@ -119,11 +124,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             }
         };
 
-        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = T::new_with(schema, merged_cols, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -191,70 +198,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
-    fn add_virtual_witness(
-        &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull the tracked table from the filter's input.
-        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
-        };
-
-        // Start from this node's current payload (should already include the activator).
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        let mut merged_polys = current_table.tracked_oracles();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Filter payload should already contain the activator column"
-        );
-
-        // Append all non-activator columns from the input into this table.
-        for (field, poly) in input_table.tracked_oracles_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            merged_polys
-                .entry(field.clone())
-                .or_insert_with(|| poly.clone());
-        }
-
-        // Prefer existing schema metadata, otherwise inherit from the input table.
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-
-        let fields = merged_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        // Keep the existing log size when set; otherwise inherit from the input.
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Filter log sizes should match input");
-                current
-            }
-        };
-
-        let updated_table = TrackedTableOracle::new(schema, merged_polys, log_size);
-        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
-        Ok(())
-    }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,

@@ -9,7 +9,7 @@ use datafusion_expr::Operator;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps,
+    IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
     gadget::{
         GadgetAncestry,
         utils::{eq, neq},
@@ -17,6 +17,7 @@ use crate::irs::nodes::{
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
+use arithmetic::IsTable;
 
 pub const LEFT_INPUT_LABEL: &str = "left_input";
 pub const RIGHT_INPUT_LABEL: &str = "right_input";
@@ -45,15 +46,21 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-    fn add_virtual_witness(
+impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
+    fn add_virtual_witness_generic<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable,
+        T::Column: Clone,
+    {
         Ok(())
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,

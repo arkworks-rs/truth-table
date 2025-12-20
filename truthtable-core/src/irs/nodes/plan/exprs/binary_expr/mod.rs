@@ -8,10 +8,13 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
-    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps},
+    nodes::{
+        IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
+    },
     payloads::PayloadStructure,
     tree::Tree,
 };
+use arithmetic::IsTable;
 
 pub struct ProverNode<B: SnarkBackend> {
     pub binary_expression: BinaryExpr,
@@ -53,19 +56,23 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-    fn add_virtual_witness(
+impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
+    fn add_virtual_witness_generic<T>(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable,
+        T::Column: Clone,
+    {
         // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
         let activator_entry = left_table
-            .tracked_polys_iter()
+            .columns_iter()
             .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
             .map(|(f, p)| (f.clone(), p.clone()));
         let Some((act_field, act_poly)) = activator_entry else {
@@ -81,7 +88,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             })
             .unwrap_or_default();
 
-        let mut merged_polys = current_table.tracked_polys();
+        let mut merged_polys = current_table.columns();
         merged_polys.insert(act_field.clone(), act_poly.clone());
 
         let metadata = current_table
@@ -104,11 +111,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             }
         };
 
-        let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = T::new_with(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
+}
 
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,

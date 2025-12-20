@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use ark_piop::SnarkBackend;
 
-use crate::irs::nodes::VerifierNodeOps;
+use crate::irs::nodes::NodeVirtualWitnessOps;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
     ir::LocalPass,
@@ -57,7 +57,7 @@ where
         // Let each node inject its virtual witness into the shared IR view.
         let updated = {
             let mut ir = self.virtualized_ir.borrow_mut();
-            node.add_virtual_witness(id, &mut ir)
+            NodeVirtualWitnessOps::add_virtual_witness_generic(node, id, &mut ir)
                 .expect("virtual witness insertion should succeed");
             ir.payloads().get(&id).cloned().flatten()
         };

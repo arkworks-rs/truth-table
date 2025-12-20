@@ -1,4 +1,4 @@
-use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME};
+use crate::{col_oracle::TrackedColOracle, table::TrackedTable, table_traits::IsTable, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::{
@@ -338,6 +338,55 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         }
 
         Ok(Self::new(schema, data_map, log_size))
+    }
+}
+
+impl<B: SnarkBackend> IsTable for TrackedTableOracle<B> {
+    type Scalar = <B as SnarkBackend>::F;
+    type Column = TrackedOracle<B>;
+
+    fn columns(&self) -> IndexMap<FieldRef, Self::Column> {
+        self.tracked_oracles()
+    }
+
+    fn columns_iter(&self) -> Box<dyn Iterator<Item = (&FieldRef, &Self::Column)> + '_> {
+        Box::new(self.tracked_oracles_iter())
+    }
+
+    fn schema_ref(&self) -> Option<&Schema> {
+        self.schema_ref()
+    }
+
+    fn log_size(&self) -> usize {
+        self.log_size()
+    }
+
+    fn new_with(
+        schema: Option<Schema>,
+        columns: IndexMap<FieldRef, Self::Column>,
+        log_size: usize,
+    ) -> Self {
+        Self::new(schema, columns, log_size)
+    }
+
+    fn subtable_by_indices(&self, indices: &[usize]) -> Self {
+        self.tracked_subtable_by_indices(indices)
+    }
+
+    fn data_columns_indices(&self) -> Vec<usize> {
+        self.data_tracked_oracles_indices()
+    }
+
+    fn activator_column(&self) -> Option<Self::Column> {
+        self.activator_tracked_poly()
+    }
+
+    fn column_from_scalar(
+        _scalar: Self::Scalar,
+        _log_size: usize,
+        _activator: &Self::Column,
+    ) -> Option<Self::Column> {
+        None
     }
 }
 
