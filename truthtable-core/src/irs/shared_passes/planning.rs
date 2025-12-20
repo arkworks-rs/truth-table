@@ -5,7 +5,7 @@ use crate::irs::{
 };
 use ark_piop::SnarkBackend;
 
-/// A planning pass that initializes the prover IR with hint DataFrames
+/// A planning pass that initializes the IR with hint DataFrames.
 ///
 /// This pass converts an IR with empty payloads into an IR with Hint DataFrames.
 pub struct PlanningPass<B>(std::marker::PhantomData<B>);

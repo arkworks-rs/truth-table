@@ -31,10 +31,10 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::irs::payloads::EmptyPayload;
+    use crate::irs::shared_ir::{EmptyIr, PlannedIr};
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
-    use crate::prover::passes::planning::PlanningPass;
+    use crate::irs::shared_passes::PlanningPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
@@ -93,7 +93,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             println!("Query: {query}");
             println!("{}", ir.display_graphviz(true));
             assert!(!ir.tree().arena().is_empty());
@@ -111,8 +111,9 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
-            let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
+            let planned_ir: PlannedIr<DefaultSnarkBackend> =
+                initial_ir.apply_local_pass_sequential(&planning_pass);
 
             println!("Planned Query: {query}");
             println!("{}", planned_ir.display_graphviz(true));
@@ -133,7 +134,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
 
@@ -155,7 +156,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_sequential(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_sequential(&materialization_pass);
             let arithmetized_ir =
@@ -181,7 +182,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
@@ -206,7 +207,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
@@ -233,7 +234,7 @@ mod test {
             let lp = df.into_unoptimized_plan();
 
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
@@ -269,7 +270,7 @@ mod test {
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
             let tree = Tree::from_logical_plan(&lp);
-            let initial_ir = Ir::<DefaultSnarkBackend, EmptyPayload>::new_empty(tree);
+            let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);

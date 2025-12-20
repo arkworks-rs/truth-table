@@ -6,7 +6,6 @@ use rayon::prelude::*;
 
 use crate::irs::{
     nodes::{IsNode, Node, NodeId, PlanNode},
-    payloads::{EmptyPayload, HintDFPayload},
     tree::{Payload, Tree},
 };
 use std::sync::Arc;
@@ -14,15 +13,6 @@ pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Option<Pd>>,
 }
-
-/// The initial Intermediate Representation with empty payloads.
-///
-/// This IR represents the starting point of the prover's pipeline, where the proof tree nodes contain no additional information.
-pub type InitialIr<B> = Ir<B, EmptyPayload>;
-/// The planned Intermediate Representation with hint dataframe payloads.
-///
-/// This IR represents the stage in the prover's pipeline where the proof tree nodes contain hint dataframes (or logical plans) that will be executed in later stages.
-pub type PlannedIr<B> = Ir<B, HintDFPayload>;
 
 impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Option<Pd>>) -> Self {

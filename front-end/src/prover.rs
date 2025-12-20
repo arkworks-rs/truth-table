@@ -9,13 +9,14 @@ use truthtable_core::{
         ir::Ir,
         nodes::Node,
         payloads::{EmptyPayload, PayloadStructure},
+        shared_passes::PlanningPass,
         tree::Tree,
     },
     prover::{
         irs::MaterializedIr,
         passes::{
             arithmetization::ArithmetizationPass, materialization::MaterializationPass,
-            planning::PlanningPass, tracking::TrackingPass, virtualization::VirtualizationPass,
+            tracking::TrackingPass, virtualization::VirtualizationPass,
         },
     },
 };
