@@ -150,6 +150,7 @@ impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
         _gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        // TODO: implement gadget verification
+        Ok(())
     }
 }

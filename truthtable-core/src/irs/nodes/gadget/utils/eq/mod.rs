@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsProverGadgetNode, IsVerifierGadgetNode, IsNode, Node, NodeVirtualWitnessOps},
+        nodes::{IsNode, IsProverGadgetNode, IsVerifierGadgetNode, Node, NodeVirtualWitnessOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -119,10 +119,48 @@ impl<B: SnarkBackend> IsProverGadgetNode<B> for ProverNode<B> {
 impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Eq gadget node");
+        };
+        let (Some(left_input), Some(right_input)) = (
+            payload.get(LEFT_LABEL).cloned(),
+            payload.get(RIGHT_LABEL).cloned(),
+        ) else {
+            panic!("Expected left and right inputs for Eq gadget");
+        };
+        let mut left_data_inds = left_input.data_tracked_oracles_indices();
+        if left_data_inds.is_empty() && left_input.num_total_tracked_col_oracles() > 0 {
+            left_data_inds.push(0);
+        }
+        let mut right_data_inds = right_input.data_tracked_oracles_indices();
+        if right_data_inds.is_empty() && right_input.num_total_tracked_col_oracles() > 0 {
+            right_data_inds.push(0);
+        }
+        if left_data_inds.is_empty() || right_data_inds.is_empty() {
+            return Ok(());
+        }
+        debug_assert_eq!(
+            left_data_inds.len(),
+            1,
+            "Eq gadget supports one tracked oracle per input."
+        );
+        debug_assert_eq!(
+            right_data_inds.len(),
+            1,
+            "Eq gadget supports one tracked oracle per input."
+        );
+        let left_data_ind = left_data_inds[0];
+        let right_data_ind = right_data_inds[0];
+        let left_col = left_input.tracked_col_oracle_by_ind(left_data_ind);
+        let right_col = right_input.tracked_col_oracle_by_ind(right_data_ind);
+        let zero_poly =
+            &left_col.activated_data_tracked_oracle() - &right_col.activated_data_tracked_oracle();
+        verifier.add_zerocheck_claim(zero_poly.id());
+        Ok(())
     }
 }
