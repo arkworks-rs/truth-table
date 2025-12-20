@@ -60,7 +60,7 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
 }
 
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
-    fn add_virtual_witness_generic<T>(
+    fn add_virtual_witness<T>(
         &self,
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
@@ -128,7 +128,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
         Ok(())
     }
 
-    fn initialize_gadgets_generic<T>(
+    fn initialize_gadgets<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
