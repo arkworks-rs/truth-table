@@ -35,7 +35,7 @@ mod test {
     };
     use crate::verifier::passes::{
         gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
-        tracking::TrackingPass as VerifierTrackingPass,
+        tracking::TrackingPass as VerifierTrackingPass, verifying::VerifyingPass,
         virtualization::VirtualizationPass as VerifierVirtualizationPass,
     };
     use arithmetic::ACTIVATOR_FIELD;
@@ -272,6 +272,52 @@ mod test {
 
             println!("Planned Query: {query}");
             println!("{}", gadget_ready_ir.display_graphviz(true));
+        }
+    }
+
+    #[tokio::test]
+    async fn verify() {
+        for query in queries() {
+            // Create a prover and a verifier
+            let (mut arg_prover, mut arg_verifier) = test_prelude::<Backend>().unwrap();
+            let proof = perform_prover_passes(query, &mut arg_prover).await;
+            arg_verifier.set_proof(proof);
+
+            let ctx = SessionContext::new();
+            register_dummy_table(&ctx);
+
+            let planning_pass = PlanningPass::<Backend>::new();
+
+            let df = ctx.sql(query).await.unwrap();
+            let lp = df.into_unoptimized_plan();
+            let tree = Tree::from_logical_plan(&lp);
+            let initial_ir = EmptyIr::<Backend>::new_empty(tree);
+
+            let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
+
+            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier.clone());
+            let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
+            let verifier_virtualization_pass =
+                VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
+            let virtualized_ir =
+                tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
+
+            let gadget_ir_view = crate::verifier::irs::VirtualizedIr::new(
+                virtualized_ir.tree().clone(),
+                virtualized_ir.payloads().clone(),
+            );
+            let gadget_initialization_pass =
+                VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+            let gadget_ready_ir =
+                virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+            let gadget_ready_ir_view = crate::verifier::irs::GadgetReadyIr::new(
+                gadget_ready_ir.tree().clone(),
+                gadget_ready_ir.payloads().clone(),
+            );
+            let verifying_pass = VerifyingPass::<Backend>::new(arg_verifier, gadget_ready_ir_view);
+            let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verifying_pass);
+
+            println!("Planned Query: {query}");
         }
     }
 }
