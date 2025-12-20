@@ -1,15 +1,12 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
-use ark_ff::One;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
-use ark_piop::prover::structs::polynomial::TrackedPoly;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::Operator;
+use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
+    IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps,
     gadget::{
         GadgetAncestry,
         utils::{eq, neq},
@@ -53,19 +50,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable,
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone,
     {
         Ok(())
     }
-}
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-    fn initialize_gadgets(
+    fn initialize_gadgets_generic<T>(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
         // Fetch the payload for this gadget node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -80,31 +79,24 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             (Some(left), Some(right), Some(output)) => {
                 (left.clone(), right.clone(), output.clone())
             }
-            _ => panic!("Expected left, right, and output tables for binary equality gadget"),
+            _ => return Ok(()),
         };
 
-        // Ensure that the left and right inputs and output share the same activator polynomial. otherwise a binary operation on those inputs is invalid.
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            right_input.activator_tracked_poly(),
-            "Left and right inputs must share the same activator polynomial"
-        );
+        // Shared activator for left/right/output when present.
+        let shared_activator = left_input.activator_column();
 
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            output.activator_tracked_poly(),
-            "Left input and output must share the same activator polynomial"
-        );
+        let output_ind = match output.data_columns_indices().get(0) {
+            Some(idx) => *idx,
+            None => return Ok(()),
+        };
+        let output_poly = match output.columns().get_index(output_ind) {
+            Some((_, poly)) => poly.clone(),
+            None => return Ok(()),
+        };
 
-        // Now that we are sure that the left and right inputs share the same activator polynomial, we get this activator.
-        let shared_activator = left_input.activator_tracked_poly();
-
-        let output_ind = output.data_tracked_polys_indices()[0];
-        let output_poly = output.tracked_col_by_ind(output_ind).data_tracked_poly();
-
-        let build_table_with_activator = |table: &TrackedTable<B>, activator: &TrackedPoly<B>| {
+        let build_table_with_activator = |table: &T, activator: &T::Column| {
             let mut polys = IndexMap::new();
-            for (field, poly) in table.tracked_polys_iter() {
+            for (field, poly) in table.columns_iter() {
                 if field.name() == ACTIVATOR_COL_NAME {
                     continue;
                 }
@@ -119,12 +111,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             let fields = polys.keys().map(|f| f.as_ref().clone()).collect::<Vec<_>>();
             let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-            TrackedTable::new(schema, polys, table.log_size())
+            T::new_with(schema, polys, table.log_size())
         };
 
         // Build the eq gadget inputs
         let eq_activator = match &shared_activator {
-            Some(poly) => poly * &output_poly,
+            Some(poly) => T::mul_columns(poly, &output_poly),
             None => output_poly.clone(),
         };
         let eq_left = build_table_with_activator(&left_input, &eq_activator.clone());
@@ -141,11 +133,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         );
 
         // Build the neq gadget inputs
-        let neg_output_activator = output_poly
-            .mul_scalar_poly(-B::F::one())
-            .add_scalar_poly(B::F::one());
+        let mut neg_output_activator = T::mul_column_scalar(&output_poly, T::scalar_neg_one());
+        neg_output_activator = T::add_column_scalar(&neg_output_activator, T::scalar_one());
         let neq_activator = match &shared_activator {
-            Some(poly) => poly * &neg_output_activator,
+            Some(poly) => T::mul_columns(poly, &neg_output_activator),
             None => neg_output_activator.clone(),
         };
         let neq_left = build_table_with_activator(&left_input, &neq_activator.clone());
@@ -163,7 +154,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         Ok(())
     }
 }
-
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,

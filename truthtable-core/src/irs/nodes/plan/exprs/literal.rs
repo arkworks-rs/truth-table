@@ -8,7 +8,7 @@ use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps},
     payloads::PayloadStructure,
 };
 use arithmetic::IsTable;
@@ -88,20 +88,18 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         Ok(())
     }
 
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-
-
-    fn initialize_gadgets(
+    fn initialize_gadgets_generic<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
         Ok(())
     }
 }
-
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     fn gadget(&self) -> std::sync::Arc<crate::irs::nodes::Node<B>> {
         todo!()

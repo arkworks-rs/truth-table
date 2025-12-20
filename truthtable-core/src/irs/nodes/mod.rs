@@ -108,6 +108,15 @@ where
     where
         T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone;
+
+    fn initialize_gadgets_generic<T>(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B, T>,
+    ) -> SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone;
 }
 
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
@@ -122,6 +131,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
     {
         match &self {
             Node::Plan(plan_node) => plan_node.add_virtual_witness_generic(id, virtualized_ir),
+            Node::Gadget(_) => Ok(()),
+        }
+    }
+
+    fn initialize_gadgets_generic<T>(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VirtualizedIr<B, T>,
+    ) -> SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
+        match &self {
+            Node::Plan(plan_node) => plan_node.initialize_gadgets_generic(id, virtualized_ir),
             Node::Gadget(_) => Ok(()),
         }
     }
@@ -190,18 +214,69 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             }
         }
     }
-}
 
-pub trait ProverNodeOps<B>: IsNode<B>
-where
-    B: SnarkBackend,
-{
-    /// Optional hook for a pre-order gadget initialization pass.
-    fn initialize_gadgets(
+    fn initialize_gadgets_generic<T>(
         &self,
         id: NodeId,
-        virtualized_ir: &mut ProverVirtualizedIr<B>,
-    ) -> SnarkResult<()>;
+        virtualized_ir: &mut VirtualizedIr<B, T>,
+    ) -> SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                let node_any = lp_node.as_ref() as &dyn Any;
+                if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                Ok(())
+            }
+            PlanNode::ExprBased(expr_node) => {
+                let node_any = expr_node.as_ref() as &dyn Any;
+                if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
+                        node,
+                        id,
+                        virtualized_ir,
+                    );
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 pub trait VerifierNodeOps<B>: IsNode<B>
@@ -331,20 +406,6 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
 }
-
-impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
-    fn initialize_gadgets(
-        &self,
-        id: NodeId,
-        virtualized_ir: &mut ProverVirtualizedIr<B>,
-    ) -> SnarkResult<()> {
-        match &self {
-            Node::Plan(plan_node) => plan_node.initialize_gadgets(id, virtualized_ir),
-            Node::Gadget(gadget_node) => gadget_node.initialize_gadgets(id, virtualized_ir),
-        }
-    }
-}
-
 impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
     fn initialize_gadgets(
         &self,
@@ -431,20 +492,7 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
-    fn initialize_gadgets(
-        &self,
-        id: NodeId,
-        virtualized_ir: &mut ProverVirtualizedIr<B>,
-    ) -> SnarkResult<()> {
-        match &self {
-            PlanNode::LpBased(lp_node) => lp_node.initialize_gadgets(id, virtualized_ir),
-            PlanNode::ExprBased(expr_node) => expr_node.initialize_gadgets(id, virtualized_ir),
-        }
-    }
-}
-
-pub trait IsGadgetNode<B>: IsNode<B> + ProverNodeOps<B>
+pub trait IsGadgetNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
@@ -462,7 +510,7 @@ where
     where
         Self: Sized;
 }
-pub trait IsLpNode<B>: IsPlanNode<B> + ProverNodeOps<B>
+pub trait IsLpNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
@@ -475,7 +523,7 @@ where
     fn lp(&self) -> LogicalPlan;
 }
 
-pub trait IsExprNode<B>: IsPlanNode<B> + ProverNodeOps<B>
+pub trait IsExprNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {

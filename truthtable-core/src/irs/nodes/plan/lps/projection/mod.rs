@@ -10,7 +10,7 @@ use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -55,7 +55,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable,
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone,
     {
         // Collect the tracked tables produced by each projection expression.
@@ -121,17 +121,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
     }
-}
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-    fn initialize_gadgets(
+    fn initialize_gadgets_generic<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
         Ok(())
     }
 }
+
+
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     fn gadget(&self) -> Arc<Node<B>> {

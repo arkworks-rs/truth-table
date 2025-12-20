@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, NodeVirtualWitnessOps},
     payloads::PayloadStructure,
 };
 use arithmetic::IsTable;
@@ -40,7 +40,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable,
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone,
     {
         // Locate the scope node id using the shared helper.
@@ -70,14 +70,16 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             scope_id
         );
     }
-}
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-    fn initialize_gadgets(
+    fn initialize_gadgets_generic<T>(
         &self,
         _id: NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
+        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
+    ) -> ark_piop::errors::SnarkResult<()>
+    where
+        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T::Column: Clone,
+    {
         Ok(())
     }
 }
