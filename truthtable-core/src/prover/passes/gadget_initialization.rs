@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 
 use crate::irs::ir::{LocalPass, PassOrder};
 use crate::irs::nodes::NodeId;
-use crate::irs::nodes::{Node, ProverNodeOps};
+use crate::irs::nodes::{Node, NodeVirtualWitnessOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::VirtualizedIr;
 use crate::prover::payloads::{GadgetReadyPayload, VirtualizedPayload};
@@ -43,7 +43,7 @@ where
             ir.set_payload_for_node(id, payload.cloned());
         }
 
-        node.initialize_gadgets(id, &mut ir)
+        NodeVirtualWitnessOps::initialize_gadgets_generic(node, id, &mut ir)
             .expect("gadget initialization should succeed");
 
         ir.payloads()
