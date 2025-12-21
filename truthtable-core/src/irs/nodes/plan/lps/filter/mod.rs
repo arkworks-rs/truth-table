@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps,
         gadget::{
             self,
             lps::filter::{
