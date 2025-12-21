@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use crate::irs::nodes::IsProverGadgetNode;
 use crate::irs::{
     nodes::{
-        IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
         gadget::{
             self,
             lps::filter::{

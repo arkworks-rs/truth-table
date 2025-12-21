@@ -8,12 +8,11 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps},
+    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
 use arithmetic::IsTable;
-use crate::irs::nodes::IsProverGadgetNode;
 pub struct ProverNode<B: SnarkBackend> {
     pub binary_expression: BinaryExpr,
     pub left: Arc<Node<B>>,
