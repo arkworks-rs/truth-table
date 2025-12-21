@@ -55,7 +55,7 @@ pub enum PlanNode<B: SnarkBackend> {
     /// A plan node based on DataFusion expressions.
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
-
+/// Hash implementations for Node, used to derive NodeId.
 impl<B: SnarkBackend> Hash for Node<B> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -70,7 +70,7 @@ impl<B: SnarkBackend> Hash for Node<B> {
         }
     }
 }
-
+/// Hash implementations for PlanNode, used to derive NodeId.
 impl<B: SnarkBackend> Hash for PlanNode<B> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
