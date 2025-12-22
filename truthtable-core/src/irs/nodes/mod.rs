@@ -24,6 +24,7 @@ use crate::{
     },
     irs::shared_ir::VirtualizedIr,
     prover::irs::GadgetReadyIr,
+    verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
 pub mod cost;
 pub mod gadget;
@@ -106,14 +107,10 @@ where
     }
 }
 
-/// Operations for adding virtual witnesses and initializing gadgets.
 pub trait NodeVirtualWitnessOps<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
-    /// Adds virtual witnesses required by this node to the virtualized IR.
-    ///
-    /// T: The table type used in the virtualized IR, depending on wether it's prover or verifier calling this method.
     fn add_virtual_witness<T>(
         &self,
         id: NodeId,
@@ -122,9 +119,7 @@ where
     where
         T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone;
-    /// Initializes gadgets required by this node in the virtualized IR.
-    ////
-    /// T: The table type used in the virtualized IR, depending on wether it's prover or verifier calling this method.
+
     fn initialize_gadgets<T>(
         &self,
         id: NodeId,
@@ -135,7 +130,6 @@ where
         T::Column: Clone;
 }
 
-/// NodeVirtualWitnessOps implementation for Node that delegates to the inner node.
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
     fn add_virtual_witness<T>(
         &self,
@@ -271,6 +265,18 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
     }
 }
 
+pub trait VerifierNodeOps<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
+    /// Optional hook for a pre-order gadget initialization pass.
+    fn initialize_gadgets(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+}
+
 /// Shared plan-node interface (both LP and expr-based).
 pub trait IsPlanNode<B>: IsNode<B>
 where
@@ -386,8 +392,16 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
         }
     }
 }
+impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        Ok(())
+    }
+}
 
-/// PlanNode methods that delegate to the inner node.
 impl<B: SnarkBackend> PlanNode<B> {
     /// Returns the human-readable name of this node.
     fn name(&self) -> String {
@@ -442,7 +456,6 @@ impl<B: SnarkBackend> PlanNode<B> {
     }
 }
 
-/// IsNode implementation for PlanNode that delegates to the inner node.
 impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
     fn name(&self) -> String {
         PlanNode::name(self)
@@ -465,7 +478,6 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
     }
 }
 
-/// The interface for gadget nodes in the IR.
 pub trait IsGadgetNode<B>: IsNode<B>
 where
     B: SnarkBackend,
@@ -477,35 +489,33 @@ where
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
-    /// Runs the gadget verifier
+
+    fn hints(&self) -> IndexMap<String, HintDF>;
+
+    fn new() -> Self
+    where
+        Self: Sized;
+
     fn verify(
         &self,
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
-    /// Returns hints produced by this gadget node.
-    fn hints(&self) -> IndexMap<String, HintDF>;
-    /// Constructs a new instance of this gadget node.
-    fn new() -> Self
-    where
-        Self: Sized;
 }
-
-/// The interface for nodes that are built from DataFusion logical plans.
 pub trait IsLpNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
 {
     /// Constructs a proof plan node from a DataFusion logical plan.
+    // TODO: We might not need ctx here
     fn from_lp(_plan: LogicalPlan, self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized;
-    /// Returns the DataFusion logical plan that this node represents.
+
     fn lp(&self) -> LogicalPlan;
 }
 
-/// The interface for nodes that are built from DataFusion expressions.
 pub trait IsExprNode<B>: IsPlanNode<B>
 where
     B: SnarkBackend,
@@ -522,16 +532,20 @@ where
     where
         Self: Sized;
 
-    /// Returns the DataFusion expression that this node represents.
     fn expr(&self) -> Expr;
 
-    /// Returns the parent plan node of this expression node.
     fn parent(&self) -> PlanNode<B>
     where
         Self: Sized;
 
-    /// Returns the scope plan node of this expression node. This is required for resolving some column references.
     fn scope(&self) -> Arc<Node<B>>
     where
         Self: Sized;
+
+    fn ctx_lp_node(&self) -> Arc<dyn IsLpNode<B>>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }
