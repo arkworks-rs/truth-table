@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
-use crate::irs::nodes::IsProverGadgetNode;
+use arithmetic::{ACTIVATOR_COL_NAME, IsTable};
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
+use datafusion_expr::{Filter, LogicalPlan};
+use indexmap::IndexMap;
+
 use crate::irs::{
     nodes::{
-        IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
         gadget::{
             self,
             lps::filter::{
@@ -14,11 +19,6 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, IsTable};
-use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::{Filter, LogicalPlan};
-use indexmap::IndexMap;
 
 mod hints;
 
