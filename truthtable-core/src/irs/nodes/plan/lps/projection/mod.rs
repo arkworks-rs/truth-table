@@ -10,7 +10,7 @@ use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps},
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -142,6 +142,24 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
         let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
     }
 }
 

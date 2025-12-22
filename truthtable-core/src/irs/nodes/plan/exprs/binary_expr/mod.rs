@@ -8,7 +8,9 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
-    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps},
+    nodes::{
+        IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+    },
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -127,6 +129,106 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         let left_payload = extract_plan_payload(&self.left.id());
         let right_payload = extract_plan_payload(&self.right.id());
         let output_payload = extract_plan_payload(&_id);
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(table) = left_payload {
+            gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
+        }
+        if let Some(table) = right_payload {
+            gadget_payload.insert(RIGHT_INPUT_LABEL.to_string(), table);
+        }
+        if let Some(table) = output_payload {
+            gadget_payload.insert(OUTPUT_LABEL.to_string(), table);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Pull activator from the left child.
+        let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        let activator_entry = left_table
+            .tracked_oracles_iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(f, o)| (f.clone(), o.clone()));
+        let Some((act_field, act_oracle)) = activator_entry else {
+            return Ok(());
+        };
+
+        // Start from existing payload (if any).
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_oracles = current_table.tracked_oracles();
+        merged_oracles.insert(act_field.clone(), act_oracle.clone());
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| left_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), left_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, left) => {
+                debug_assert_eq!(curr, left, "BinaryExpr log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table =
+            arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let extract_plan_payload = |node_id: &crate::irs::nodes::NodeId| {
+            virtualized_ir
+                .payload_for_node(node_id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                })
+        };
+
+        let left_payload = extract_plan_payload(&self.left.id());
+        let right_payload = extract_plan_payload(&self.right.id());
+        let output_payload = extract_plan_payload(&id);
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),

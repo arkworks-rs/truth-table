@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
 use indexmap::IndexMap;
 
@@ -260,7 +260,74 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        // Helper to extract a table containing only the activator column.
+        let activator_only = |table: &TrackedTableOracle<B>, col_name: &str| {
+            let (field_ref, activator_oracle) = table
+                .tracked_oracles_iter()
+                .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+                .expect("table should include activator column");
+            let renamed_field = Arc::new(Field::new(
+                col_name,
+                field_ref.data_type().clone(),
+                field_ref.is_nullable(),
+            ));
+            let mut oracles = IndexMap::new();
+            oracles.insert(renamed_field.clone(), activator_oracle.clone());
+            let schema = table.schema_ref().map(|schema| {
+                Schema::new_with_metadata(
+                    vec![renamed_field.as_ref().clone()],
+                    schema.metadata().clone(),
+                )
+            });
+            TrackedTableOracle::new(schema, oracles, table.log_size())
+        };
+
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let output_table =
+            virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                });
+        let predicate_table = virtualized_ir
+            .payload_for_node(&self.predicate.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            });
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(input) = input_table.as_ref() {
+            gadget_payload.insert(
+                INPUT_ACTIVATOR_LABEL.to_string(),
+                activator_only(input, "input_activator"),
+            );
+        }
+        if let Some(output) = output_table.as_ref() {
+            gadget_payload.insert(
+                OUTPUT_ACTIVATOR_LABEL.to_string(),
+                activator_only(output, "output_activator"),
+            );
+        }
+        if let Some(pred_table) = predicate_table {
+            gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
+        Ok(())
     }
 }
 

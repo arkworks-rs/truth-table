@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rayon::iter::Either;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
 };
 pub struct ProverNode<B: SnarkBackend> {
@@ -129,6 +129,67 @@ fn scalar_to_field<B: SnarkBackend>(scalar: &ScalarValue) -> Option<<B as SnarkB
         UInt32(Some(v)) => f(*v as i128),
         UInt64(Some(v)) => f(*v as i128),
         _ => None,
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Pull the scope's tracked table oracle to inherit activator and tracker.
+        let scope_id = self.scope.id();
+        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Literal scope missing tracked table payload"),
+        };
+
+        let activator_oracle = scope_table
+            .activator_tracked_poly()
+            .expect("Literal scope should carry an activator column");
+        let tracker = activator_oracle.tracker();
+        let log_size = activator_oracle.log_size();
+
+        let literal_value = scalar_to_field::<B>(&self.literal)
+            .expect("Unsupported literal type for virtual witness");
+        let literal_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
+            Either::Right(literal_value),
+            tracker.clone(),
+            log_size,
+        );
+
+        // Columns: literal value and activator.
+        let literal_field = FieldRef::new(Field::new(
+            self.literal.to_string(),
+            self.literal.data_type(),
+            true,
+        ));
+        let activator_field =
+            FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
+
+        let columns = IndexMap::from([
+            (literal_field.clone(), literal_oracle),
+            (activator_field.clone(), activator_oracle.clone()),
+        ]);
+
+        let schema = Schema::new(vec![
+            literal_field.as_ref().clone(),
+            activator_field.as_ref().clone(),
+        ]);
+
+        let updated_table =
+            arithmetic::table_oracle::TrackedTableOracle::new(Some(schema), columns, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
     }
 }
 

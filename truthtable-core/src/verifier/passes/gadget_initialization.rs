@@ -4,8 +4,7 @@ use arithmetic::table_oracle::TrackedTableOracle;
 use ark_piop::SnarkBackend;
 
 use crate::irs::ir::{LocalPass, PassOrder};
-use crate::irs::nodes::NodeId;
-use crate::irs::nodes::Node;
+use crate::irs::nodes::{Node, NodeId, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::verifier::irs::VirtualizedIr;
 use crate::verifier::payloads::{GadgetReadyPayload, VirtualizedPayload};
@@ -43,6 +42,9 @@ where
             ir.set_payload_for_node(id, payload.cloned());
         }
 
+        node.initialize_gadgets(id, &mut ir)
+            .expect("gadget initialization should succeed");
+
         ir.payloads()
             .get(&id)
             .cloned()
@@ -51,6 +53,8 @@ where
     }
 
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<GadgetReadyPayload<B>> {
-        None
+        Some(PayloadStructure::PlanPayload(
+            TrackedTableOracle::default(),
+        ))
     }
 }

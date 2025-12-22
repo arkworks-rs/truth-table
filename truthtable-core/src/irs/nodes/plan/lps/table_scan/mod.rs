@@ -3,7 +3,7 @@ use ark_piop::SnarkBackend;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::TableScan;
 
-use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps};
+use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps};
 
 mod gadget;
 #[derive(Debug)]
@@ -62,6 +62,24 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
         );
 
         crate::irs::nodes::hints::HintDF::new_materialized(df)
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode {
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
     }
 }
 

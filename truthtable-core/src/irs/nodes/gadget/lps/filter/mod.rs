@@ -7,11 +7,12 @@ use datafusion::functions::unicode::right;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps,
+    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
     gadget::{GadgetAncestry, utils::eq},
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
+use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 use ark_std::One;
 
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
@@ -113,6 +114,87 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Fetch the gadget payload populated by the parent plan node.
+        let gadget_payload = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => panic!("Expected gadget payload for filter node"),
+        };
+
+        let (input_act, output_act, predicate) = match (
+            gadget_payload.get(INPUT_ACTIVATOR_LABEL),
+            gadget_payload.get(OUTPUT_ACTIVATOR_LABEL),
+            gadget_payload.get(FILTER_PREDICATE_LABEL),
+        ) {
+            (Some(input), Some(output), Some(pred)) => {
+                (input.clone(), output.clone(), pred.clone())
+            }
+            _ => panic!("Expected input, output, and predicate activator tables"),
+        };
+
+        // Extract the activator oracle from the input and the predicate oracle
+        // (the first non-activator column) to build the left input.
+        let input_act_oracle = input_act
+            .tracked_oracles_iter()
+            .find_map(|(field, oracle)| {
+                (field.name() != ACTIVATOR_COL_NAME).then(|| oracle.clone())
+            });
+        let predicate_oracle = predicate
+            .tracked_oracles_iter()
+            .find_map(|(field, oracle)| {
+                (field.name() != ACTIVATOR_COL_NAME).then(|| oracle.clone())
+            });
+        let left_field = input_act
+            .tracked_oracles_iter()
+            .find_map(|(field, _)| (field.name() != ACTIVATOR_COL_NAME).then(|| field.clone()));
+
+        let (Some(input_act_oracle), Some(predicate_oracle), Some(field_ref)) =
+            (input_act_oracle, predicate_oracle, left_field)
+        else {
+            panic!("Expected input activator oracle, predicate oracle, and left field");
+        };
+
+        let left_oracle = &input_act_oracle * &predicate_oracle;
+        let mut left_oracles = IndexMap::new();
+        left_oracles.insert(field_ref, left_oracle);
+        let left_table =
+            arithmetic::table_oracle::TrackedTableOracle::new(
+                input_act.schema(),
+                left_oracles,
+                input_act.log_size(),
+            );
+
+        // Populate the col_eq gadget inputs.
+        let mut col_eq_payload = match virtualized_ir.payload_for_node(&self.col_eq.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        // The right input is just the output activator.
+        col_eq_payload.insert(eq::LEFT_LABEL.to_string(), left_table);
+        col_eq_payload.insert(eq::RIGHT_LABEL.to_string(), output_act);
+
+        virtualized_ir.set_payload_for_node(
+            self.col_eq.id(),
+            Some(PayloadStructure::GadgetPayload(col_eq_payload)),
+        );
+        Ok(())
+    }
+}
+
 impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
@@ -121,6 +203,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
         _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
+        Ok(())
+    }
+
+    fn verify(
+        &self,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 

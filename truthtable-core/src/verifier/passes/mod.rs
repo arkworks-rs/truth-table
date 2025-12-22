@@ -5,3 +5,4 @@
 pub mod tracking;
 pub mod virtualization;
 pub mod gadget_initialization;
+pub mod verify;

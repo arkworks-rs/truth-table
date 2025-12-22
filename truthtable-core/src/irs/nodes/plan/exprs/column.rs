@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
 };
 
@@ -98,6 +98,50 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             .expect("column projection should succeed");
 
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // Locate the scope node id using the shared helper.
+        let scope_id = self.scope.id();
+
+        // Fetch the scope payload to retrieve the tracked table oracle.
+        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
+
+        // Helper: try to pull the requested column (and activator) from a tracked table oracle.
+        let try_build_subtable =
+            |table: &arithmetic::table_oracle::TrackedTableOracle<B>, column_name: &str| {
+                let schema = table.schema_ref()?;
+                let col_idx = schema.index_of(column_name).ok()?;
+                Some(table.tracked_subtable_by_indices(&[col_idx]))
+            };
+
+        // First try the scope payload itself.
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+            && let Some(subtable) = try_build_subtable(table, self.column.name())
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
+        };
+
+        panic!(
+            "Column node could not find its column '{}' in scope node {:?}",
+            self.column.name(),
+            scope_id
+        );
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
     }
 }
 
