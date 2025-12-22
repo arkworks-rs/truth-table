@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use arithmetic::IsTable;
 use ark_piop::{SnarkBackend, errors::SnarkResult};
 use arrow_schema::SchemaRef;
 use datafusion_common::Statistics;
@@ -22,7 +21,6 @@ use crate::{
             lps::{filter, projection, table_scan},
         },
     },
-    irs::shared_ir::VirtualizedIr,
     prover::irs::{GadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
@@ -96,106 +94,16 @@ where
     }
 }
 
-pub trait NodeVirtualWitnessOps<B>: IsNode<B>
-where
-    B: SnarkBackend,
-{
-    fn add_virtual_witness_generic<T>(
-        &self,
-        id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B, T>,
-    ) -> SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone;
-}
-
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
-    fn add_virtual_witness_generic<T>(
-        &self,
-        id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B, T>,
-    ) -> SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
-        match &self {
-            Node::Plan(plan_node) => plan_node.add_virtual_witness_generic(id, virtualized_ir),
-            Node::Gadget(_) => Ok(()),
-        }
-    }
-}
-
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
-    fn add_virtual_witness_generic<T>(
-        &self,
-        id: NodeId,
-        virtualized_ir: &mut VirtualizedIr<B, T>,
-    ) -> SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
-        match &self {
-            PlanNode::LpBased(lp_node) => {
-                let node_any = lp_node.as_ref() as &dyn Any;
-                if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                Ok(())
-            }
-            PlanNode::ExprBased(expr_node) => {
-                let node_any = expr_node.as_ref() as &dyn Any;
-                if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
-                        node,
-                        id,
-                        virtualized_ir,
-                    );
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 pub trait ProverNodeOps<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+
     /// Optional hook for a pre-order gadget initialization pass.
     fn initialize_gadgets(
         &self,
@@ -208,6 +116,12 @@ pub trait VerifierNodeOps<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+
     /// Optional hook for a pre-order gadget initialization pass.
     fn initialize_gadgets(
         &self,
@@ -333,6 +247,17 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.add_virtual_witness(id, virtualized_ir),
+            Node::Gadget(gadget_node) => gadget_node.add_virtual_witness(id, virtualized_ir),
+        }
+    }
+
     fn initialize_gadgets(
         &self,
         id: NodeId,
@@ -346,6 +271,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
+    // Verifier-specific node behavior is currently a no-op until specialized implementations exist.
+    fn add_virtual_witness(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        Ok(())
+    }
+
     fn initialize_gadgets(
         &self,
         _id: NodeId,
@@ -432,6 +366,17 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.add_virtual_witness(id, virtualized_ir),
+            PlanNode::ExprBased(expr_node) => expr_node.add_virtual_witness(id, virtualized_ir),
+        }
+    }
+
     fn initialize_gadgets(
         &self,
         id: NodeId,

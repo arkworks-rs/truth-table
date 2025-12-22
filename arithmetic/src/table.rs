@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
-use crate::{col::TrackedCol, table_traits::IsTable, ACTIVATOR_COL_NAME};
+use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
 use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -404,60 +404,6 @@ impl<B: SnarkBackend> TrackedTable<B> {
 
         out.push_str(&border_line(&widths));
         out
-    }
-}
-
-impl<B: SnarkBackend> IsTable for TrackedTable<B> {
-    type Scalar = <B as SnarkBackend>::F;
-    type Column = TrackedPoly<B>;
-
-    fn columns(&self) -> IndexMap<FieldRef, Self::Column> {
-        self.tracked_polys()
-    }
-
-    fn columns_iter(&self) -> Box<dyn Iterator<Item = (&FieldRef, &Self::Column)> + '_> {
-        Box::new(self.tracked_polys_iter())
-    }
-
-    fn schema_ref(&self) -> Option<&Schema> {
-        self.schema_ref()
-    }
-
-    fn log_size(&self) -> usize {
-        self.log_size()
-    }
-
-    fn new_with(
-        schema: Option<Schema>,
-        columns: IndexMap<FieldRef, Self::Column>,
-        log_size: usize,
-    ) -> Self {
-        Self::new(schema, columns, log_size)
-    }
-
-    fn subtable_by_indices(&self, indices: &[usize]) -> Self {
-        self.tracked_subtable_by_indices(indices)
-    }
-
-    fn data_columns_indices(&self) -> Vec<usize> {
-        self.data_tracked_polys_indices()
-    }
-
-    fn activator_column(&self) -> Option<Self::Column> {
-        self.activator_tracked_poly()
-    }
-
-    fn column_from_scalar(
-        scalar: Self::Scalar,
-        log_size: usize,
-        activator: &Self::Column,
-    ) -> Option<Self::Column> {
-        let tracker = activator.tracker();
-        Some(TrackedPoly::new(
-            either::Either::Right(scalar),
-            log_size,
-            tracker,
-        ))
     }
 }
 

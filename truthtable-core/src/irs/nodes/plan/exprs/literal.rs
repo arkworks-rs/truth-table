@@ -6,12 +6,12 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
+use rayon::iter::Either;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps},
     payloads::PayloadStructure,
 };
-use arithmetic::IsTable;
 pub struct ProverNode<B: SnarkBackend> {
     pub literal: ScalarValue,
     pub scope: Arc<Node<B>>,
@@ -34,16 +34,12 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
-    fn add_virtual_witness_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table to inherit activator and tracker.
         let scope_id = self.scope.id();
         let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
@@ -51,12 +47,19 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             _ => panic!("Literal scope missing tracked table payload"),
         };
 
+        let log_size = scope_table.log_size();
+        let activator_poly = scope_table
+            .activator_tracked_poly()
+            .expect("Literal scope should carry an activator column");
+        let tracker = activator_poly.tracker();
+
         let literal_value = scalar_to_field::<B>(&self.literal)
             .expect("Unsupported literal type for virtual witness");
-        let activator = match scope_table.activator_column() {
-            Some(activator) => activator,
-            None => return Ok(()),
-        };
+        let literal_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
+            Either::Right(literal_value),
+            log_size,
+            tracker,
+        );
 
         // Columns: literal value and activator.
         let literal_field = FieldRef::new(Field::new(
@@ -67,15 +70,9 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         let activator_field =
             FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
 
-        let log_size = scope_table.log_size();
-        let literal_col = match T::column_from_scalar(literal_value, log_size, &activator) {
-            Some(col) => col,
-            None => return Ok(()),
-        };
-
         let mut columns = IndexMap::from([
-            (literal_field.clone(), literal_col),
-            (activator_field.clone(), activator.clone()),
+            (literal_field.clone(), literal_poly),
+            (activator_field.clone(), activator_poly.clone()),
         ]);
 
         let schema = Schema::new(vec![
@@ -83,15 +80,10 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             activator_field.as_ref().clone(),
         ]);
 
-        let updated_table = T::new_with(Some(schema), columns, log_size);
+        let updated_table = arithmetic::table::TrackedTable::new(Some(schema), columns, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
-
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-
 
     fn initialize_gadgets(
         &self,

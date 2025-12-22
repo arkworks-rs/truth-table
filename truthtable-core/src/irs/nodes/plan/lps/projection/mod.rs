@@ -10,11 +10,10 @@ use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::IsTable;
 
 pub(super) mod hints;
 
@@ -48,16 +47,12 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
-    fn add_virtual_witness_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Collect the tracked tables produced by each projection expression.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
@@ -73,14 +68,14 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             // Keep the first activator we see; all expression nodes share the same one.
             if activator.is_none() {
                 let activator_field = expr_table
-                    .columns()
+                    .tracked_polys()
                     .keys()
                     .find(|field| field.name() == ACTIVATOR_COL_NAME)
                     .cloned()
                     .expect("expression table should carry an activator column");
                 let activator_poly = expr_table
-                    .activator_column()
-                    .expect("expression table should carry an activator column");
+                    .activator_tracked_poly()
+                    .expect("expression table should carry an activator polynomial");
                 activator = Some((activator_field, activator_poly));
             }
 
@@ -92,8 +87,8 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             }
 
             // Each expression contributes its data columns (excluding activator) to the projection output.
-            let tracked_polys = expr_table.columns();
-            for idx in expr_table.data_columns_indices() {
+            let tracked_polys = expr_table.tracked_polys();
+            for idx in expr_table.data_tracked_polys_indices() {
                 let (field, poly) = tracked_polys
                     .get_index(idx)
                     .expect("expression column index should be in bounds");
@@ -116,14 +111,13 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
                 .collect::<Vec<_>>(),
         );
         let log_size = log_size.unwrap_or(0);
-        let projected_table = T::new_with(Some(schema), output_cols, log_size);
+        let projected_table =
+            arithmetic::table::TrackedTable::new(Some(schema), output_cols, log_size);
         virtualized_ir
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
     }
-}
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,

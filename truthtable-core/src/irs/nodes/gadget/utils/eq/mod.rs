@@ -5,12 +5,11 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
 };
-use arithmetic::IsTable;
 
 pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
@@ -35,22 +34,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
-    fn add_virtual_witness_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
-
 
     fn initialize_gadgets(
         &self,

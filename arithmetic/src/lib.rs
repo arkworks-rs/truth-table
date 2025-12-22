@@ -12,7 +12,5 @@ pub mod encoding;
 pub mod errors;
 pub mod table;
 pub mod table_oracle;
-pub mod table_traits;
 
 pub use activator::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
-pub use table_traits::IsTable;

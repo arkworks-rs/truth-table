@@ -4,7 +4,7 @@ use arithmetic::table::TrackedTable;
 use ark_piop::SnarkBackend;
 
 use crate::irs::ir::PassOrder;
-use crate::irs::nodes::NodeVirtualWitnessOps;
+use crate::irs::nodes::ProverNodeOps;
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::{TrackedIr, VirtualizedIr};
 use crate::prover::payloads::VirtualizedPayload;
@@ -65,7 +65,7 @@ where
         // Let each node inject its virtual witness into the shared IR view.
         let updated = {
             let mut ir = self.virtualized_ir.borrow_mut();
-            NodeVirtualWitnessOps::add_virtual_witness_generic(node, id, &mut ir)
+            node.add_virtual_witness(id, &mut ir)
                 .expect("virtual witness insertion should succeed");
             ir.payloads().get(&id).cloned().flatten()
         };

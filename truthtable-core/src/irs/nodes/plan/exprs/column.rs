@@ -5,10 +5,9 @@ use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, NodeVirtualWitnessOps, ProverNodeOps},
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps},
     payloads::PayloadStructure,
 };
-use arithmetic::IsTable;
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
@@ -33,16 +32,12 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
-    fn add_virtual_witness_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
         &self,
         id: NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Locate the scope node id using the shared helper.
         let scope_id = self.scope.id();
 
@@ -50,11 +45,12 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         let scope_payload = virtualized_ir.payload_for_node(&scope_id);
 
         // Helper: try to pull the requested column (and activator) from a tracked table.
-        let try_build_subtable = |table: &T, column_name: &str| -> Option<_> {
-            let schema = table.schema_ref()?;
-            let col_idx = schema.index_of(column_name).ok()?;
-            Some(table.subtable_by_indices(&[col_idx]))
-        };
+        let try_build_subtable =
+            |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
+                let schema = table.schema_ref()?;
+                let col_idx = schema.index_of(column_name).ok()?;
+                Some(table.tracked_subtable_by_indices(&[col_idx]))
+            };
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
@@ -70,9 +66,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             scope_id
         );
     }
-}
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         _id: NodeId,

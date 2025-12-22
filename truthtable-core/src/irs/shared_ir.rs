@@ -2,7 +2,6 @@ use crate::irs::{
     ir::Ir,
     payloads::{EmptyPayload, HintDFPayload},
 };
-use crate::irs::payloads::PayloadStructure;
 
 /// The empty Intermediate Representation with empty payloads.
 ///
@@ -17,6 +16,3 @@ pub type PlannedIr<B> = Ir<B, HintDFPayload>;
 
 /// Backwards-compatible alias for the empty IR.
 pub type InitialIr<B> = EmptyIr<B>;
-
-/// The virtualized Intermediate Representation with generic table payloads.
-pub type VirtualizedIr<B, T> = Ir<B, PayloadStructure<T>>;
