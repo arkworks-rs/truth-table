@@ -1,10 +1,8 @@
 use std::marker::PhantomData;
 
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use arithmetic::col::TrackedCol;
 use ark_piop::{SnarkBackend, piop::PIOP};
-use col_toolbox::no_zeros_check::{
-    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
-};
+use col_toolbox::no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput};
 use indexmap::IndexMap;
 
 use crate::{
@@ -126,57 +124,10 @@ impl<B: SnarkBackend> IsProverGadgetNode<B> for ProverNode<B> {
 impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
     fn verify(
         &self,
-        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            return Ok(());
-        };
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
-            return Ok(());
-        };
-
-        let mut left_data_inds = left_input.data_tracked_oracles_indices();
-        if left_data_inds.is_empty() && left_input.num_total_tracked_col_oracles() > 0 {
-            left_data_inds.push(0);
-        }
-        let mut right_data_inds = right_input.data_tracked_oracles_indices();
-        if right_data_inds.is_empty() && right_input.num_total_tracked_col_oracles() > 0 {
-            right_data_inds.push(0);
-        }
-        if left_data_inds.is_empty() || right_data_inds.is_empty() {
-            return Ok(());
-        }
-        debug_assert_eq!(
-            left_data_inds.len(),
-            1,
-            "Neq gadget supports one tracked oracle per input."
-        );
-        debug_assert_eq!(
-            right_data_inds.len(),
-            1,
-            "Neq gadget supports one tracked oracle per input."
-        );
-        let left_data_ind = left_data_inds[0];
-        let right_data_ind = right_data_inds[0];
-        let left_col = left_input.tracked_col_oracle_by_ind(left_data_ind);
-        let right_col = right_input.tracked_col_oracle_by_ind(right_data_ind);
-        let non_zero_oracle = &left_col.activated_data_tracked_oracle()
-            - &right_col.activated_data_tracked_oracle();
-        let nozero_oracle = TrackedColOracle::new(
-            non_zero_oracle,
-            left_col.activator_tracked_oracle(),
-            None,
-        );
-        let nozerocheck_piop_verifier_input = NoZerosCheckVerifierInput {
-            tracked_col_oracle: nozero_oracle,
-        };
-        NoZerosCheck::verify(verifier, nozerocheck_piop_verifier_input)?;
-        Ok(())
+        todo!()
     }
 }
