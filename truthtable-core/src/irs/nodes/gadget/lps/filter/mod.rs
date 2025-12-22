@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, IsTable};
-use ark_piop::SnarkBackend;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
+use ark_piop::{SnarkBackend, prover::structs::polynomial::TrackedPoly};
+use arrow_schema::{Field, FieldRef};
+use datafusion::functions::unicode::right;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps,
+    IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
     gadget::{GadgetAncestry, utils::eq},
 };
+use arithmetic::IsTable;
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
+use ark_std::One;
 
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
 pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
@@ -44,25 +48,23 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T: IsTable,
         T::Column: Clone,
     {
         Ok(())
     }
+}
 
-    fn initialize_gadgets_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the gadget payload populated by the parent plan node.
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
+            _ => panic!("Expected gadget payload for filter node"),
         };
 
         let (input_act, output_act, predicate) = match (
@@ -73,31 +75,32 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
             (Some(input), Some(output), Some(pred)) => {
                 (input.clone(), output.clone(), pred.clone())
             }
-            _ => return Ok(()),
+            _ => panic!("Expected input, output, and predicate activator tables"),
         };
+
 
         // Extract the activator polynomial from the input and the predicate polynomial
         // (the first non-activator column) to build the left input.
         let input_act_poly = input_act
-            .columns_iter()
+            .tracked_polys_iter()
             .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
         let predicate_poly = predicate
-            .columns_iter()
+            .tracked_polys_iter()
             .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
         let left_field = input_act
-            .columns_iter()
+            .tracked_polys_iter()
             .find_map(|(field, _)| (field.name() != ACTIVATOR_COL_NAME).then(|| field.clone()));
 
         let (Some(input_act_poly), Some(predicate_poly), Some(field_ref)) =
             (input_act_poly, predicate_poly, left_field)
         else {
-            return Ok(());
+            panic!("Expected input activator polynomial, predicate polynomial, and left field");
         };
 
-        let left_poly = T::mul_columns(&input_act_poly, &predicate_poly);
+        let left_poly = &input_act_poly * &predicate_poly;
         let mut left_polys = IndexMap::new();
         left_polys.insert(field_ref, left_poly);
-        let left_table = T::new_with(input_act.schema(), left_polys, input_act.log_size());
+        let left_table = TrackedTable::new(input_act.schema(), left_polys, input_act.log_size());
 
         // Populate the col_eq gadget inputs.
         let mut col_eq_payload = match virtualized_ir.payload_for_node(&self.col_eq.id()) {

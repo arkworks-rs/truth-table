@@ -1,7 +1,4 @@
-use crate::{
-    col_oracle::TrackedColOracle, table::TrackedTable, table_traits::IsTable, ACTIVATOR_COL_NAME,
-};
-use ark_ff::One;
+use crate::{col_oracle::TrackedColOracle, table::TrackedTable, table_traits::IsTable, ACTIVATOR_COL_NAME};
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::{
@@ -356,10 +353,6 @@ impl<B: SnarkBackend> IsTable for TrackedTableOracle<B> {
         Box::new(self.tracked_oracles_iter())
     }
 
-    fn schema(&self) -> Option<Schema> {
-        self.schema()
-    }
-
     fn schema_ref(&self) -> Option<&Schema> {
         self.schema_ref()
     }
@@ -386,68 +379,6 @@ impl<B: SnarkBackend> IsTable for TrackedTableOracle<B> {
 
     fn activator_column(&self) -> Option<Self::Column> {
         self.activator_tracked_poly()
-    }
-
-    fn rename_column(&mut self, idx: usize, new_name: &str) {
-        assert!(
-            idx < self.tracked_oracles.len(),
-            "column index out of bounds"
-        );
-
-        let old_field = self
-            .tracked_oracles
-            .get_index(idx)
-            .map(|(f, _)| f.clone())
-            .expect("column index out of bounds");
-        let new_field_ref = Arc::new(
-            Field::new(
-                new_name,
-                old_field.data_type().clone(),
-                old_field.is_nullable(),
-            )
-            .with_metadata(old_field.metadata().clone()),
-        );
-
-        let mut new_oracles = IndexMap::with_capacity(self.tracked_oracles.len());
-        for (i, (field, oracle)) in self.tracked_oracles.clone().into_iter().enumerate() {
-            if i == idx {
-                new_oracles.insert(new_field_ref.clone(), oracle);
-            } else {
-                new_oracles.insert(field, oracle);
-            }
-        }
-        self.tracked_oracles = new_oracles;
-
-        if let Some(schema) = &self.schema {
-            let metadata = schema.metadata().clone();
-            let mut fields = schema
-                .fields()
-                .iter()
-                .map(|f| f.as_ref().clone())
-                .collect::<Vec<_>>();
-            fields[idx] = new_field_ref.as_ref().clone();
-            self.schema = Some(Schema::new_with_metadata(fields, metadata));
-        }
-    }
-
-    fn mul_columns(left: &Self::Column, right: &Self::Column) -> Self::Column {
-        left * right
-    }
-
-    fn mul_column_scalar(col: &Self::Column, scalar: Self::Scalar) -> Self::Column {
-        col.clone() * scalar
-    }
-
-    fn add_column_scalar(col: &Self::Column, scalar: Self::Scalar) -> Self::Column {
-        col.clone() + scalar
-    }
-
-    fn scalar_one() -> Self::Scalar {
-        <B as SnarkBackend>::F::one()
-    }
-
-    fn scalar_neg_one() -> Self::Scalar {
-        -<B as SnarkBackend>::F::one()
     }
 
     fn column_from_scalar(

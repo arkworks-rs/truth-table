@@ -8,7 +8,9 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
 use crate::irs::{
-    nodes::{IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps},
+    nodes::{
+        IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
+    },
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -61,7 +63,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T: IsTable,
         T::Column: Clone,
     {
         // Pull activator from the left child.
@@ -113,24 +115,23 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
+}
 
-    fn initialize_gadgets_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
-        let extract_plan_payload = |node_id: &crate::irs::nodes::NodeId| -> Option<T> {
-            virtualized_ir
-                .payload_for_node(node_id)
-                .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                    _ => None,
-                })
-        };
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let extract_plan_payload =
+            |node_id: &crate::irs::nodes::NodeId| -> Option<arithmetic::table::TrackedTable<B>> {
+                virtualized_ir
+                    .payload_for_node(node_id)
+                    .and_then(|payload| match payload {
+                        PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                        _ => None,
+                    })
+            };
 
         let left_payload = extract_plan_payload(&self.left.id());
         let right_payload = extract_plan_payload(&self.right.id());

@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps},
+        nodes::{IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps, ProverNodeOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -42,21 +42,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T: IsTable,
         T::Column: Clone,
     {
         Ok(())
     }
+}
 
-    fn initialize_gadgets_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+
+
+    fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }

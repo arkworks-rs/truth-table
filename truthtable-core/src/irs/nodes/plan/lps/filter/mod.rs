@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, IsTable};
+use arithmetic::{ACTIVATOR_COL_NAME, IsTable, table::TrackedTable};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
@@ -8,7 +8,8 @@ use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, VerifierNodeOps,
+        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps, ProverNodeOps,
+        VerifierNodeOps,
         gadget::{
             self,
             lps::filter::{
@@ -66,7 +67,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
         virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
     ) -> ark_piop::errors::SnarkResult<()>
     where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
+        T: IsTable,
         T::Column: Clone,
     {
         // Pull the tracked table from the filter's input.
@@ -127,25 +128,23 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
+}
 
-    fn initialize_gadgets_generic<T>(
+impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
+    fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
-    ) -> ark_piop::errors::SnarkResult<()>
-    where
-        T: IsTable<Scalar = <B as SnarkBackend>::F>,
-        T::Column: Clone,
-    {
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.
-        let activator_only = |table: &T, col_name: &str| {
+        let activator_only = |table: &TrackedTable<B>, col_name: &str| {
             let idx = table
-                .columns()
+                .tracked_polys()
                 .keys()
                 .position(|field| field.name() == ACTIVATOR_COL_NAME)
                 .expect("table should include activator column");
-            let mut output = table.subtable_by_indices(&[idx]);
-            output.rename_column(0, col_name);
+            let mut output = table.tracked_subtable_by_indices(&[idx]);
+            output.rename_col(0, col_name);
             output
         };
 
@@ -195,6 +194,16 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for FilterNode<B> {
             );
         }
         Ok(())
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
+    fn initialize_gadgets(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
 }
 

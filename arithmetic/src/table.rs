@@ -1,8 +1,8 @@
 use std::{fmt, sync::Arc};
 
-use crate::{col::TrackedCol, table_traits::IsTable, ACTIVATOR_COL_NAME};
-use ark_ff::One;
 use ark_ff::PrimeField;
+
+use crate::{col::TrackedCol, table_traits::IsTable, ACTIVATOR_COL_NAME};
 use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -419,10 +419,6 @@ impl<B: SnarkBackend> IsTable for TrackedTable<B> {
         Box::new(self.tracked_polys_iter())
     }
 
-    fn schema(&self) -> Option<Schema> {
-        self.schema()
-    }
-
     fn schema_ref(&self) -> Option<&Schema> {
         self.schema_ref()
     }
@@ -449,30 +445,6 @@ impl<B: SnarkBackend> IsTable for TrackedTable<B> {
 
     fn activator_column(&self) -> Option<Self::Column> {
         self.activator_tracked_poly()
-    }
-
-    fn rename_column(&mut self, idx: usize, new_name: &str) {
-        self.rename_col(idx, new_name);
-    }
-
-    fn mul_columns(left: &Self::Column, right: &Self::Column) -> Self::Column {
-        left * right
-    }
-
-    fn mul_column_scalar(col: &Self::Column, scalar: Self::Scalar) -> Self::Column {
-        col.mul_scalar_poly(scalar)
-    }
-
-    fn add_column_scalar(col: &Self::Column, scalar: Self::Scalar) -> Self::Column {
-        col.add_scalar_poly(scalar)
-    }
-
-    fn scalar_one() -> Self::Scalar {
-        <B as SnarkBackend>::F::one()
-    }
-
-    fn scalar_neg_one() -> Self::Scalar {
-        -<B as SnarkBackend>::F::one()
     }
 
     fn column_from_scalar(
