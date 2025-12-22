@@ -373,16 +373,7 @@ impl<B: SnarkBackend> IsTable for TrackedTableOracle<B> {
         columns: IndexMap<FieldRef, Self::Column>,
         log_size: usize,
     ) -> Self {
-        let resolved_log_size = if log_size == 0 && !columns.is_empty() {
-            columns
-                .values()
-                .next()
-                .expect("columns should be non-empty")
-                .log_size()
-        } else {
-            log_size
-        };
-        Self::new(schema, columns, resolved_log_size)
+        Self::new(schema, columns, log_size)
     }
 
     fn subtable_by_indices(&self, indices: &[usize]) -> Self {
