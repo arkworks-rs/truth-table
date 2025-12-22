@@ -23,7 +23,7 @@ use crate::{
         },
     },
     irs::shared_ir::VirtualizedIr,
-    prover::irs::GadgetReadyIr,
+    prover::irs::{GadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
 pub mod cost;
@@ -31,28 +31,17 @@ pub mod gadget;
 pub mod hints;
 pub mod plan;
 
-/// Unique identifier for a node in the IR.
-///
-/// This usually corresponds to a hash of the node's contents.
 pub type NodeId = u64;
-
-/// The highest-level enum representing all possible nodes in the IR.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
 pub enum Node<B: SnarkBackend> {
-    /// A plan node (either LP-based or expr-based).
     Plan(PlanNode<B>),
-    /// A gadget node.
-    Gadget(Arc<dyn IsGadgetNode<B>>),
+    Gadget(Arc<dyn IsProverGadgetNode<B>>),
 }
-
-/// An enum representing all possible plan nodes in the IR.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
 pub enum PlanNode<B: SnarkBackend> {
-    /// A plan node based on DataFusion logical plans.
     LpBased(Arc<dyn IsLpNode<B>>),
-    /// A plan node based on DataFusion expressions.
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
 
@@ -478,7 +467,7 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
     }
 }
 
-pub trait IsGadgetNode<B>: IsNode<B>
+pub trait IsProverGadgetNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
@@ -495,7 +484,12 @@ where
     fn new() -> Self
     where
         Self: Sized;
+}
 
+pub trait IsVerifierGadgetNode<B>: IsNode<B>
+where
+    B: SnarkBackend,
+{
     fn verify(
         &self,
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,

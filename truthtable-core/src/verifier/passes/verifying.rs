@@ -5,7 +5,7 @@ use ark_piop::{SnarkBackend, verifier::ArgVerifier};
 use crate::{
     irs::{
         ir::LocalPass,
-        nodes::{IsGadgetNode, Node, NodeId},
+        nodes::{IsVerifierGadgetNode, Node, NodeId},
         payloads::EmptyPayload,
     },
     verifier::{

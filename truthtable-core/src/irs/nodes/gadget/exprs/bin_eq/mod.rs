@@ -6,7 +6,7 @@ use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps,
+    IsProverGadgetNode, IsVerifierGadgetNode, IsNode, IsPlanNode, Node, NodeVirtualWitnessOps,
     gadget::{
         GadgetAncestry,
         utils::{eq, neq},
@@ -154,7 +154,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
         Ok(())
     }
 }
-impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsProverGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
@@ -180,7 +180,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
             neq: col_neq_gadget,
         }
     }
+}
 
+impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
     fn verify(
         &self,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,

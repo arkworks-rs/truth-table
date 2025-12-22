@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps},
+        nodes::{IsProverGadgetNode, IsVerifierGadgetNode, IsNode, Node, NodeVirtualWitnessOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -65,7 +65,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
 
 
 
-impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsProverGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
@@ -121,7 +121,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     {
         Self(PhantomData)
     }
+}
 
+impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
     fn verify(
         &self,
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,

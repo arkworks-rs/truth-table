@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, NodeVirtualWitnessOps,
+    IsProverGadgetNode, IsVerifierGadgetNode, IsNode, Node, NodeVirtualWitnessOps,
     gadget::{GadgetAncestry, utils::eq},
 };
 use crate::irs::payloads::PayloadStructure;
@@ -117,7 +117,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsProverGadgetNode<B> for ProverNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
@@ -141,7 +141,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
             col_eq: col_eq_gadget,
         }
     }
+}
 
+impl<B: SnarkBackend> IsVerifierGadgetNode<B> for ProverNode<B> {
     fn verify(
         &self,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
