@@ -31,7 +31,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
 }
 
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode {
-    fn add_virtual_witness<T>(
+    fn add_virtual_witness_generic<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
         _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,
@@ -43,7 +43,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for ProverNode {
         Ok(())
     }
 
-    fn initialize_gadgets<T>(
+    fn initialize_gadgets_generic<T>(
         &self,
         _id: crate::irs::nodes::NodeId,
         _virtualized_ir: &mut crate::irs::shared_ir::VirtualizedIr<B, T>,

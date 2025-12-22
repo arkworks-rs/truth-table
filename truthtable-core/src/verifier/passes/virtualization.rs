@@ -57,7 +57,7 @@ where
         // Let each node inject its virtual witness into the shared IR view.
         let updated = {
             let mut ir = self.virtualized_ir.borrow_mut();
-            NodeVirtualWitnessOps::add_virtual_witness(node, id, &mut ir)
+            NodeVirtualWitnessOps::add_virtual_witness_generic(node, id, &mut ir)
                 .expect("virtual witness insertion should succeed");
             ir.payloads().get(&id).cloned().flatten()
         };

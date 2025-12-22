@@ -43,7 +43,7 @@ where
             ir.set_payload_for_node(id, payload.cloned());
         }
 
-        NodeVirtualWitnessOps::initialize_gadgets(node, id, &mut ir)
+        NodeVirtualWitnessOps::initialize_gadgets_generic(node, id, &mut ir)
             .expect("gadget initialization should succeed");
 
         ir.payloads()

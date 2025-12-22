@@ -100,7 +100,7 @@ pub trait NodeVirtualWitnessOps<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
-    fn add_virtual_witness<T>(
+    fn add_virtual_witness_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -109,7 +109,7 @@ where
         T: IsTable<Scalar = <B as SnarkBackend>::F>,
         T::Column: Clone;
 
-    fn initialize_gadgets<T>(
+    fn initialize_gadgets_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -120,7 +120,7 @@ where
 }
 
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
-    fn add_virtual_witness<T>(
+    fn add_virtual_witness_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -130,12 +130,12 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
         T::Column: Clone,
     {
         match &self {
-            Node::Plan(plan_node) => plan_node.add_virtual_witness(id, virtualized_ir),
+            Node::Plan(plan_node) => plan_node.add_virtual_witness_generic(id, virtualized_ir),
             Node::Gadget(_) => Ok(()),
         }
     }
 
-    fn initialize_gadgets<T>(
+    fn initialize_gadgets_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -145,13 +145,13 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
         T::Column: Clone,
     {
         match &self {
-            Node::Plan(plan_node) => plan_node.initialize_gadgets(id, virtualized_ir),
+            Node::Plan(plan_node) => plan_node.initialize_gadgets_generic(id, virtualized_ir),
             Node::Gadget(gadget_node) => {
                 let node_any = gadget_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any
                     .downcast_ref::<crate::irs::nodes::gadget::exprs::bin_eq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -160,7 +160,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
                 if let Some(node) = node_any
                     .downcast_ref::<crate::irs::nodes::gadget::lps::filter::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -169,7 +169,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
                 if let Some(node) = node_any
                     .downcast_ref::<crate::irs::nodes::gadget::utils::eq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -178,7 +178,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
                 if let Some(node) = node_any
                     .downcast_ref::<crate::irs::nodes::gadget::utils::neq::ProverNode<B>>()
                 {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -191,7 +191,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for Node<B> {
 }
 
 impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
-    fn add_virtual_witness<T>(
+    fn add_virtual_witness_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -204,21 +204,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::LpBased(lp_node) => {
                 let node_any = lp_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -229,21 +229,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::ExprBased(expr_node) => {
                 let node_any = expr_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::add_virtual_witness(
+                    return NodeVirtualWitnessOps::add_virtual_witness_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -254,7 +254,7 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
         }
     }
 
-    fn initialize_gadgets<T>(
+    fn initialize_gadgets_generic<T>(
         &self,
         id: NodeId,
         virtualized_ir: &mut VirtualizedIr<B, T>,
@@ -267,21 +267,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::LpBased(lp_node) => {
                 let node_any = lp_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<filter::FilterNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<projection::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<table_scan::ProverNode>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
@@ -292,21 +292,21 @@ impl<B: SnarkBackend> NodeVirtualWitnessOps<B> for PlanNode<B> {
             PlanNode::ExprBased(expr_node) => {
                 let node_any = expr_node.as_ref() as &dyn Any;
                 if let Some(node) = node_any.downcast_ref::<column::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<literal::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
                     );
                 }
                 if let Some(node) = node_any.downcast_ref::<binary_expr::ProverNode<B>>() {
-                    return NodeVirtualWitnessOps::initialize_gadgets(
+                    return NodeVirtualWitnessOps::initialize_gadgets_generic(
                         node,
                         id,
                         virtualized_ir,
