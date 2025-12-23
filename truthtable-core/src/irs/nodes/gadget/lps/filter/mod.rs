@@ -1,19 +1,15 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
-use ark_piop::{SnarkBackend, prover::structs::polynomial::TrackedPoly};
-use arrow_schema::{Field, FieldRef};
-use datafusion::functions::unicode::right;
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
+use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-    gadget::{GadgetAncestry, utils::eq},
+    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::eq,
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-use ark_std::One;
 
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
 pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
@@ -30,8 +26,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -45,7 +41,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -71,7 +67,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             }
             _ => panic!("Expected input, output, and predicate activator tables"),
         };
-
 
         // Extract the activator polynomial from the input and the predicate polynomial
         // (the first non-activator column) to build the left input.
@@ -170,12 +165,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let left_oracle = &input_act_oracle * &predicate_oracle;
         let mut left_oracles = IndexMap::new();
         left_oracles.insert(field_ref, left_oracle);
-        let left_table =
-            arithmetic::table_oracle::TrackedTableOracle::new(
-                input_act.schema(),
-                left_oracles,
-                input_act.log_size(),
-            );
+        let left_table = arithmetic::table_oracle::TrackedTableOracle::new(
+            input_act.schema(),
+            left_oracles,
+            input_act.log_size(),
+        );
 
         // Populate the col_eq gadget inputs.
         let mut col_eq_payload = match virtualized_ir.payload_for_node(&self.col_eq.id()) {

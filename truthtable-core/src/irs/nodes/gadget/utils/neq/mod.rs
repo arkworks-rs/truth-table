@@ -26,8 +26,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -41,7 +41,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -82,15 +82,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
-            return Ok(());
+            panic!("Expected gadget payload for neq gadget");
         };
         let (Some(left_input), Some(right_input)) = (
             payload.get(LEFT_LABEL).cloned(),
             payload.get(RIGHT_LABEL).cloned(),
         ) else {
-            return Ok(());
+            panic!("Expected left and right inputs for neq gadget");
         };
-
 
         // Each of the left and right inputs should have exactly one data tracked polynomial, Because we are checking the equality of two columns
         debug_assert_eq!(
@@ -128,13 +127,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
         else {
-            return Ok(());
+            panic!("Expected gadget payload for neq gadget");
         };
         let (Some(left_input), Some(right_input)) = (
             payload.get(LEFT_LABEL).cloned(),
             payload.get(RIGHT_LABEL).cloned(),
         ) else {
-            return Ok(());
+            panic!("Expected left and right inputs for neq gadget");
         };
 
         // Each of the left and right inputs should have exactly one data tracked oracle.
