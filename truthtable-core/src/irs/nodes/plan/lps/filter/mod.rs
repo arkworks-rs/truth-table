@@ -8,12 +8,9 @@ use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::{
-            self,
-            lps::filter::{
-                self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
-            },
+        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+        gadget::lps::filter::{
+            self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
         },
     },
     payloads::PayloadStructure,
@@ -44,8 +41,8 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -286,13 +283,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
-        let output_table =
-            virtualized_ir
-                .payload_for_node(&id)
-                .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                    _ => None,
-                });
+        let output_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            });
         let predicate_table = virtualized_ir
             .payload_for_node(&self.predicate.id())
             .and_then(|payload| match payload {
@@ -382,7 +378,7 @@ impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
             .root()
             .clone();
 
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::ProverNode::new())));
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::FilterNode::new())));
 
         Self {
             filter,

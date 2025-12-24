@@ -1,19 +1,15 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::Operator;
+use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
-    gadget::{
-        GadgetAncestry,
-        utils::{eq, neq},
-    },
+    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+    gadget::utils::{eq, neq},
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -23,20 +19,20 @@ pub const LEFT_INPUT_LABEL: &str = "left_input";
 pub const RIGHT_INPUT_LABEL: &str = "right_input";
 pub const OUTPUT_LABEL: &str = "output";
 
-pub struct ProverNode<B: SnarkBackend> {
+pub struct BinEqNode<B: SnarkBackend> {
     eq: Arc<Node<B>>,
     neq: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for BinEqNode<B> {
     fn name(&self) -> String {
         "Binary Equality".to_string()
     }
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -46,7 +42,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -158,7 +154,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -209,37 +205,41 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .tracked_col_oracle_by_ind(output_ind)
             .data_tracked_oracle();
 
-        let build_table_with_activator = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-                                          activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
-            let mut oracles = IndexMap::new();
-            for (field, oracle) in table.tracked_oracles_iter() {
-                if field.name() == ACTIVATOR_COL_NAME {
-                    continue;
+        let build_table_with_activator =
+            |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+             activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
+                let mut oracles = IndexMap::new();
+                for (field, oracle) in table.tracked_oracles_iter() {
+                    if field.name() == ACTIVATOR_COL_NAME {
+                        continue;
+                    }
+                    oracles.insert(field.clone(), oracle.clone());
                 }
-                oracles.insert(field.clone(), oracle.clone());
-            }
-            oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+                oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
 
-            let metadata = table
-                .schema_ref()
-                .map(|s| s.metadata().clone())
-                .unwrap_or_default();
-            let fields = oracles.keys().map(|f| f.as_ref().clone()).collect::<Vec<_>>();
-            let schema = Some(Schema::new_with_metadata(fields, metadata));
+                let metadata = table
+                    .schema_ref()
+                    .map(|s| s.metadata().clone())
+                    .unwrap_or_default();
+                let fields = oracles
+                    .keys()
+                    .map(|f| f.as_ref().clone())
+                    .collect::<Vec<_>>();
+                let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-            let table_log_size = table.log_size();
-            let activator_log_size = activator.log_size();
-            let log_size = if table_log_size == 0 {
-                activator_log_size
-            } else {
-                debug_assert_eq!(
-                    table_log_size, activator_log_size,
-                    "BinEq gadget activator log size should match table log size"
-                );
-                table_log_size
+                let table_log_size = table.log_size();
+                let activator_log_size = activator.log_size();
+                let log_size = if table_log_size == 0 {
+                    activator_log_size
+                } else {
+                    debug_assert_eq!(
+                        table_log_size, activator_log_size,
+                        "BinEq gadget activator log size should match table log size"
+                    );
+                    table_log_size
+                };
+                arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, log_size)
             };
-            arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, log_size)
-        };
 
         // Build the eq gadget inputs.
         let eq_activator = match &shared_activator {
@@ -283,7 +283,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
@@ -306,13 +306,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for ProverNode<B> {
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
+}
 
-    fn new() -> Self
+impl<B: SnarkBackend> BinEqNode<B> {
+    pub fn new() -> Self
     where
         Self: Sized,
     {
-        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::ProverNode::new())));
-        let col_neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(neq::ProverNode::new())));
+        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::EqNode::new())));
+        let col_neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(neq::NeqNode::new())));
         Self {
             eq: col_eq_gadget,
             neq: col_neq_gadget,

@@ -472,9 +472,6 @@ where
     ) -> SnarkResult<()>;
     fn hints(&self) -> IndexMap<String, HintDF>;
 
-    fn new() -> Self
-    where
-        Self: Sized;
 }
 pub trait IsLpNode<B>: IsPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
 where

@@ -6,11 +6,11 @@ use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::exprs::bin_eq::{LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL};
+use crate::irs::nodes::gadget::exprs::bin_eq::{
+    self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL,
+};
 use crate::irs::{
-    nodes::{
-        IsExprNode, IsGadgetNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
-    },
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -44,8 +44,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -327,9 +327,9 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         .root()
         .clone();
         let gadget = match binary_expression.op {
-            datafusion_expr::Operator::Eq => Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::gadget::exprs::bin_eq::ProverNode::new(),
-            ))),
+            datafusion_expr::Operator::Eq => {
+                Arc::new(Node::<B>::Gadget(Arc::new(bin_eq::BinEqNode::new())))
+            }
             _ => panic!("Unsupported operator for binary expression gadget"),
         };
         Self {
