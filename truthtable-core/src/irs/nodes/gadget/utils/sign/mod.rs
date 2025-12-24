@@ -230,7 +230,7 @@ impl<B: SnarkBackend> SignNode<B> {
                 acc += *value * B::F::from(1u64 << i);
             }
             if !has_zero {
-                let mut acc_eq_zero = B::F::zero();
+                let mut acc_eq_zero = B::F::one();
                 for value in x.iter() {
                     acc_eq_zero *= B::F::one() - *value;
                 }
