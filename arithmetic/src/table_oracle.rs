@@ -1,4 +1,4 @@
-use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME};
+use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::{
@@ -74,6 +74,21 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedTableOracle<B> {
 }
 
 impl<B: SnarkBackend> TrackedTableOracle<B> {
+    /// Constructs a single-column oracle table and optionally appends an activator column.
+    pub fn single_column_with_activator(
+        field: FieldRef,
+        data_oracle: TrackedOracle<B>,
+        activator: Option<TrackedOracle<B>>,
+    ) -> Self {
+        let log_size = data_oracle.log_size();
+        let mut oracles = IndexMap::new();
+        oracles.insert(field, data_oracle);
+        if let Some(activator_oracle) = activator {
+            oracles.insert(ACTIVATOR_FIELD.clone(), activator_oracle);
+        }
+        TrackedTableOracle::new(None, oracles, log_size)
+    }
+
     /// Constructs a new `TrackedTableOracle` from the provided schema (if any),
     /// tracked oracles, and log size of the table
     pub fn new(

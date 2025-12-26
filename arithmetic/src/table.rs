@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
-use crate::{col::TrackedCol, ACTIVATOR_COL_NAME};
+use crate::{col::TrackedCol, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::{lde::LDE, mle::MLE},
@@ -85,6 +85,21 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
 }
 
 impl<B: SnarkBackend> TrackedTable<B> {
+    /// Constructs a single-column table and optionally appends an activator column.
+    pub fn single_column_with_activator(
+        field: FieldRef,
+        data_poly: TrackedPoly<B>,
+        activator: Option<TrackedPoly<B>>,
+    ) -> Self {
+        let log_size = data_poly.log_size();
+        let mut polys = IndexMap::new();
+        polys.insert(field, data_poly);
+        if let Some(activator_poly) = activator {
+            polys.insert(ACTIVATOR_FIELD.clone(), activator_poly);
+        }
+        TrackedTable::new(None, polys, log_size)
+    }
+
     /// Constructs a new `TrackedTable` from the provided schema (if any),
     /// tracked polynomials, and log size of the table
     pub fn new(
