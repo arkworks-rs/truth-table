@@ -6,15 +6,20 @@ use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
 use indexmap::IndexMap;
 
-use crate::irs::{
-    nodes::{
-        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::lps::filter::{
-            self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
+use crate::{
+    irs::{
+        nodes::{
+            IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+            gadget::lps::filter::{
+                self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
+            },
+            hints::HintDF,
         },
+        payloads::PayloadStructure,
+        tree::Tree,
     },
-    payloads::PayloadStructure,
-    tree::Tree,
+    prover::irs::VirtualizedIr as ProverVirtualizedIr,
+    verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
 
 mod hints;
@@ -61,16 +66,17 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull the tracked table from the filter's input.
+        // Pull the tracked table that is the input to this filter node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
 
-        // Start from this node's current payload (should already include the activator).
+        // Get the table payload for this filter node from the current state of the Virtualized IR.
+        // This table should already include only one column which is the activator column.
         let current_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
@@ -102,10 +108,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
 
+        // Get the fields from the merged polys for the new schema.
         let fields = merged_polys
             .keys()
             .map(|field| field.as_ref().clone())
             .collect::<Vec<_>>();
+        // Create the new schema with the merged fields and metadata.
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // Keep the existing log size when set; otherwise inherit from the input.
@@ -123,10 +131,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
         Ok(())
     }
 
+    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
+    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.
         let activator_only = |table: &TrackedTable<B>, col_name: &str| {
@@ -140,10 +150,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             output
         };
 
+        // Fetch the input table to this filter node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
+        // Fetch the output table of this filter node.
         let output_table =
             virtualized_ir
                 .payload_for_node(&_id)
@@ -151,34 +163,38 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
                     PayloadStructure::PlanPayload(table) => Some(table.clone()),
                     _ => None,
                 });
+        // Fetch the predicate table for this filter node.
         let predicate_table = virtualized_ir
             .payload_for_node(&self.predicate.id())
             .and_then(|payload| match payload {
                 PayloadStructure::PlanPayload(table) => Some(table.clone()),
                 _ => None,
             });
-
+        // Get a mutable reference to the gadget payload for this filter node.
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-
+        // Now we start adding the necessary tables to the gadget payload.
+        // 1. Input activator table, we rename the activator column to "input_activator"
         if let Some(input) = input_table.as_ref() {
             gadget_payload.insert(
                 INPUT_ACTIVATOR_LABEL.to_string(),
                 activator_only(input, "input_activator"),
             );
         }
+        // 2. Output activator table, we rename the activator column to "output_activator"
         if let Some(output) = output_table.as_ref() {
             gadget_payload.insert(
                 OUTPUT_ACTIVATOR_LABEL.to_string(),
                 activator_only(output, "output_activator"),
             );
         }
+        // 3. Predicate table, as is.
         if let Some(pred_table) = predicate_table {
             gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);
         }
-
+        // Adding the gadget payload to the virtualized IR if not empty.
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
                 self.gadget.id(),
@@ -192,8 +208,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
@@ -256,8 +272,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.
         let activator_only = |table: &TrackedTableOracle<B>, col_name: &str| {
@@ -334,7 +350,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
         self.gadget.clone()
     }
 
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+    fn output(&self) -> HintDF {
         // Derive the output by updating the activator column instead of dropping rows.
         let input_hint_df = match self.input.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),

@@ -280,7 +280,7 @@ fn run_filter_case(predicate_expr: Expr, predicate_evals: &[u64]) -> SnarkResult
 }
 
 #[test]
-fn completeness_filter_prove_and_verify() {
+fn eq_completeness() {
     let cases = vec![
         (
             col("a").eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
@@ -299,32 +299,168 @@ fn completeness_filter_prove_and_verify() {
 }
 
 #[test]
-fn soundness_filter_rejects_all_true_predicate() {
-    let predicate = col("a").eq(Expr::Literal(ScalarValue::Int32(Some(2))));
-    let evals = vec![1_u64, 1, 1, 1];
-    let err = run_filter_case(predicate, &evals).unwrap_err();
-    assert_soundness_error(err);
+fn eq_soundness() {
+    let cases = vec![
+        (
+            col("a").eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![1_u64, 1, 1, 1],
+        ),
+        (
+            col("b").eq(Expr::Literal(ScalarValue::Int32(Some(30)))),
+            vec![0_u64, 1, 1, 1],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        let err = run_filter_case(predicate, &evals).unwrap_err();
+        assert_soundness_error(err);
+    }
 }
 
 #[test]
-fn soundness_filter_rejects_all_false_predicate() {
-    let predicate = col("a").eq(Expr::Literal(ScalarValue::Int32(Some(2))));
-    let evals = vec![0_u64, 0, 0, 0];
-    let err = run_filter_case(predicate, &evals).unwrap_err();
-    assert_soundness_error(err);
+fn geq_completeness() {
+    let cases = vec![
+        (
+            col("a").gt_eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![0_u64, 1, 1, 1],
+        ),
+        (
+            col("b").gt_eq(Expr::Literal(ScalarValue::Int32(Some(20)))),
+            vec![0_u64, 1, 1, 1],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        run_filter_case(predicate, &evals).unwrap();
+    }
 }
 
 #[test]
-fn completeness_filter_geq_two() {
-    let predicate = col("a").gt_eq(Expr::Literal(ScalarValue::Int32(Some(2))));
-    let evals = vec![0_u64, 1, 1, 1];
-    run_filter_case(predicate, &evals).unwrap();
+fn geq_soundness() {
+    let cases = vec![
+        (
+            col("a").gt_eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![1_u64, 1, 1, 1],
+        ),
+        (
+            col("b").gt_eq(Expr::Literal(ScalarValue::Int32(Some(20)))),
+            vec![0_u64, 0, 1, 1],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        let err = run_filter_case(predicate, &evals).unwrap_err();
+        assert_soundness_error(err);
+    }
 }
 
 #[test]
-fn soundness_filter_geq_two_rejects_false_positive() {
-    let predicate = col("a").gt_eq(Expr::Literal(ScalarValue::Int32(Some(2))));
-    let evals = vec![1_u64, 1, 1, 1];
-    let err = run_filter_case(predicate, &evals).unwrap_err();
-    assert_soundness_error(err);
+fn leq_completeness() {
+    let cases = vec![
+        (
+            col("a").lt_eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![1_u64, 1, 0, 0],
+        ),
+        (
+            col("b").lt_eq(Expr::Literal(ScalarValue::Int32(Some(30)))),
+            vec![1_u64, 1, 1, 0],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        run_filter_case(predicate, &evals).unwrap();
+    }
+}
+
+#[test]
+fn leq_soundness() {
+    let cases = vec![
+        (
+            col("a").lt_eq(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![1_u64, 0, 0, 0],
+        ),
+        (
+            col("b").lt_eq(Expr::Literal(ScalarValue::Int32(Some(30)))),
+            vec![1_u64, 1, 0, 0],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        let err = run_filter_case(predicate, &evals).unwrap_err();
+        assert_soundness_error(err);
+    }
+}
+
+#[test]
+fn ge_completeness() {
+    let cases = vec![
+        (
+            col("a").gt(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![0_u64, 0, 1, 1],
+        ),
+        (
+            col("b").gt(Expr::Literal(ScalarValue::Int32(Some(20)))),
+            vec![0_u64, 0, 1, 1],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        run_filter_case(predicate, &evals).unwrap();
+    }
+}
+
+#[test]
+fn ge_soundness() {
+    let cases = vec![
+        (
+            col("a").gt(Expr::Literal(ScalarValue::Int32(Some(2)))),
+            vec![0_u64, 1, 1, 1],
+        ),
+        (
+            col("b").gt(Expr::Literal(ScalarValue::Int32(Some(20)))),
+            vec![1_u64, 0, 1, 1],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        let err = run_filter_case(predicate, &evals).unwrap_err();
+        assert_soundness_error(err);
+    }
+}
+
+#[test]
+fn le_completeness() {
+    let cases = vec![
+        (
+            col("a").lt(Expr::Literal(ScalarValue::Int32(Some(3)))),
+            vec![1_u64, 1, 0, 0],
+        ),
+        (
+            col("b").lt(Expr::Literal(ScalarValue::Int32(Some(30)))),
+            vec![1_u64, 1, 0, 0],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        run_filter_case(predicate, &evals).unwrap();
+    }
+}
+
+#[test]
+fn le_soundness() {
+    let cases = vec![
+        (
+            col("a").lt(Expr::Literal(ScalarValue::Int32(Some(3)))),
+            vec![1_u64, 0, 0, 0],
+        ),
+        (
+            col("b").lt(Expr::Literal(ScalarValue::Int32(Some(30)))),
+            vec![1_u64, 1, 1, 0],
+        ),
+    ];
+
+    for (predicate, evals) in cases {
+        let err = run_filter_case(predicate, &evals).unwrap_err();
+        assert_soundness_error(err);
+    }
 }
