@@ -8,26 +8,87 @@ use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-    gadget::utils::{eq, neq, sign},
+    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::sign,
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
+
 #[cfg(test)]
 mod tests;
+
 pub const LEFT_INPUT_LABEL: &str = "left_input";
 pub const RIGHT_INPUT_LABEL: &str = "right_input";
 pub const OUTPUT_LABEL: &str = "output";
 
-pub struct BinGeqNode<B: SnarkBackend> {
-    non_neg: Arc<Node<B>>,
-    neg: Arc<Node<B>>,
+#[derive(Clone, Copy, Debug)]
+pub enum BinCmpOp {
+    Geq,
+    Leq,
+    Gt,
+    Lt,
 }
 
-impl<B: SnarkBackend> IsNode<B> for BinGeqNode<B> {
+pub struct BinCmpNode<B: SnarkBackend> {
+    op: BinCmpOp,
+    true_sign: Arc<Node<B>>,
+    false_sign: Arc<Node<B>>,
+}
+
+impl<B: SnarkBackend> BinCmpNode<B> {
+    pub fn new(op: BinCmpOp) -> Self {
+        let (true_sign, false_sign) = Self::sign_pair(op);
+        let true_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            true_sign,
+        ))));
+        let false_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            false_sign,
+        ))));
+        Self {
+            op,
+            true_sign: true_sign_gadget,
+            false_sign: false_sign_gadget,
+        }
+    }
+
+    pub fn geq() -> Self {
+        Self::new(BinCmpOp::Geq)
+    }
+
+    pub fn leq() -> Self {
+        Self::new(BinCmpOp::Leq)
+    }
+
+    pub fn gt() -> Self {
+        Self::new(BinCmpOp::Gt)
+    }
+
+    pub fn lt() -> Self {
+        Self::new(BinCmpOp::Lt)
+    }
+
+    fn sign_pair(op: BinCmpOp) -> (sign::Sign, sign::Sign) {
+        match op {
+            BinCmpOp::Geq => (sign::Sign::NonNegative, sign::Sign::Negative),
+            BinCmpOp::Leq => (sign::Sign::NonPositive, sign::Sign::Positive),
+            BinCmpOp::Gt => (sign::Sign::Positive, sign::Sign::NonPositive),
+            BinCmpOp::Lt => (sign::Sign::Negative, sign::Sign::NonNegative),
+        }
+    }
+
+    fn name_for_op(op: BinCmpOp) -> &'static str {
+        match op {
+            BinCmpOp::Geq => "Binary GEQ",
+            BinCmpOp::Leq => "Binary LEQ",
+            BinCmpOp::Gt => "Binary GT",
+            BinCmpOp::Lt => "Binary LT",
+        }
+    }
+}
+
+impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
     fn name(&self) -> String {
-        "Binary GEQ".to_string()
+        Self::name_for_op(self.op).to_string()
     }
 
     fn cost(
@@ -39,11 +100,11 @@ impl<B: SnarkBackend> IsNode<B> for BinGeqNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.non_neg.clone(), self.neg.clone()]
+        vec![self.true_sign.clone(), self.false_sign.clone()]
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for BinGeqNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -71,10 +132,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinGeqNode<B> {
             (Some(left), Some(right), Some(output)) => {
                 (left.clone(), right.clone(), output.clone())
             }
-            _ => panic!("Expected left, right, and output tables for binary GEQ gadget"),
+            _ => panic!("Expected left, right, and output tables for binary compare gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator polynomial. otherwise a binary operation on those inputs is invalid.
+        // Ensure that the left and right inputs and output share the same activator polynomial.
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
             right_input.activator_tracked_poly(),
@@ -113,45 +174,37 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinGeqNode<B> {
             TrackedTable::new(schema, polys, table.log_size())
         };
 
-        // Compute the activator for the non_negative gadget
-        let non_negative_activator = match &shared_activator {
+        // Compute the activator for the true branch.
+        let true_activator = match &shared_activator {
             Some(poly) => poly * &output_poly,
             None => output_poly.clone(),
         };
-        // Create the non_negative input table
-        let non_negative_input =
-            build_table_with_activator(&left_input, &non_negative_activator.clone());
-        // Create the payload for the non_negative gadget node
-        let non_negative_payload =
-            IndexMap::from([(sign::INPUT_LABEL.to_string(), non_negative_input)]);
-        // Set the payload for the non_negative gadget node
+        let true_input = build_table_with_activator(&left_input, &true_activator.clone());
+        let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
         virtualized_ir.set_payload_for_node(
-            self.non_neg.id(),
-            Some(PayloadStructure::GadgetPayload(non_negative_payload)),
+            self.true_sign.id(),
+            Some(PayloadStructure::GadgetPayload(true_payload)),
         );
 
-        // Compute the activator for the negative gadget
+        // Compute the activator for the false branch.
         let neg_output_activator = output_poly
             .mul_scalar_poly(-B::F::one())
             .add_scalar_poly(B::F::one());
-        let negative_activator = match &shared_activator {
+        let false_activator = match &shared_activator {
             Some(poly) => poly * &neg_output_activator,
             None => neg_output_activator.clone(),
         };
-        // Create the negative input table
-        let negative_input = build_table_with_activator(&left_input, &negative_activator.clone());
-        // Create the payload for the negative gadget node
-        let negative_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), negative_input)]);
-        // Set the payload for the negative gadget node
+        let false_input = build_table_with_activator(&left_input, &false_activator.clone());
+        let false_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), false_input)]);
         virtualized_ir.set_payload_for_node(
-            self.neg.id(),
-            Some(PayloadStructure::GadgetPayload(negative_payload)),
+            self.false_sign.id(),
+            Some(PayloadStructure::GadgetPayload(false_payload)),
         );
         Ok(())
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for BinGeqNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -179,7 +232,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinGeqNode<B> {
             (Some(left), Some(right), Some(output)) => {
                 (left.clone(), right.clone(), output.clone())
             }
-            _ => panic!("Expected left, right, and output tables for binary GEQ gadget"),
+            _ => panic!("Expected left, right, and output tables for binary compare gadget"),
         };
 
         // Ensure that the left and right inputs and output share the same activator oracle.
@@ -231,45 +284,44 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinGeqNode<B> {
                 } else {
                     debug_assert_eq!(
                         table_log_size, activator_log_size,
-                        "BinQeq gadget activator log size should match table log size"
+                        "BinCmp gadget activator log size should match table log size"
                     );
                     table_log_size
                 };
                 arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, log_size)
             };
 
-        // Build the non-negative gadget inputs.
-        let non_negative_activator = match &shared_activator {
+        // Build the true-branch gadget inputs.
+        let true_activator = match &shared_activator {
             Some(oracle) => oracle * &output_oracle,
             None => output_oracle.clone(),
         };
-        let non_negative_input = build_table_with_activator(&left_input, &non_negative_activator);
-        let non_negative_payload =
-            IndexMap::from([(sign::INPUT_LABEL.to_string(), non_negative_input)]);
+        let true_input = build_table_with_activator(&left_input, &true_activator);
+        let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
         virtualized_ir.set_payload_for_node(
-            self.non_neg.id(),
-            Some(PayloadStructure::GadgetPayload(non_negative_payload)),
+            self.true_sign.id(),
+            Some(PayloadStructure::GadgetPayload(true_payload)),
         );
 
-        // Build the negative gadget inputs.
+        // Build the false-branch gadget inputs.
         let neg_output_activator = output_oracle
             .mul_scalar_oracle(-B::F::one())
             .add_scalar_oracle(B::F::one());
-        let negative_activator = match &shared_activator {
+        let false_activator = match &shared_activator {
             Some(oracle) => oracle * &neg_output_activator,
             None => neg_output_activator.clone(),
         };
-        let negative_input = build_table_with_activator(&left_input, &negative_activator);
-        let negative_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), negative_input)]);
+        let false_input = build_table_with_activator(&left_input, &false_activator);
+        let false_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), false_input)]);
         virtualized_ir.set_payload_for_node(
-            self.neg.id(),
-            Some(PayloadStructure::GadgetPayload(negative_payload)),
+            self.false_sign.id(),
+            Some(PayloadStructure::GadgetPayload(false_payload)),
         );
         Ok(())
     }
 }
 
-impl<B: SnarkBackend> IsGadgetNode<B> for BinGeqNode<B> {
+impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
@@ -291,23 +343,5 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinGeqNode<B> {
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
-    }
-}
-
-impl<B: SnarkBackend> BinGeqNode<B> {
-    fn new() -> Self
-    where
-        Self: Sized,
-    {
-        let col_non_neg_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-            sign::Sign::NonNegative,
-        ))));
-        let col_neg_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-            sign::Sign::NonPositive,
-        ))));
-        Self {
-            neg: col_neg_gadget,
-            non_neg: col_non_neg_gadget,
-        }
     }
 }

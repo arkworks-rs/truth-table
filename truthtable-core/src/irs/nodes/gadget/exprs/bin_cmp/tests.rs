@@ -7,7 +7,6 @@ use ark_piop::errors::{SnarkError, SnarkResult};
 use ark_piop::prover::ArgProver;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::test_utils::test_prelude;
-use ark_piop::verifier::ArgVerifier;
 use ark_piop::{DefaultSnarkBackend, SnarkBackend};
 use datafusion::arrow::datatypes::{DataType, Field};
 use indexmap::IndexMap;
@@ -16,8 +15,10 @@ use crate::irs::nodes::Node;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 use crate::prover::passes::gadget_initialization::GadgetInitializationPass as ProverGadgetInitializationPass;
+use crate::prover::passes::proving::ProvingPass;
 use crate::prover::passes::virtualization::VirtualizationPass as ProverVirtualizationPass;
 use crate::verifier::passes::gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass;
+use crate::verifier::passes::verify::VerifyPass;
 use crate::verifier::passes::virtualization::VirtualizationPass as VerifierVirtualizationPass;
 
 type Backend = DefaultSnarkBackend;
@@ -68,32 +69,6 @@ fn tracked_poly_from_evals(
     prover.track_and_commit_mat_mv_poly(&mle).unwrap()
 }
 
-fn prove_gadgets(
-    prover: &mut ArgProver<Backend>,
-    gadget_ready_ir: &mut crate::prover::irs::GadgetReadyIr<Backend>,
-) -> SnarkResult<()> {
-    let nodes: Vec<_> = gadget_ready_ir.tree().arena().values().cloned().collect();
-    for node in nodes {
-        if let Node::Gadget(gadget_node) = node.as_ref() {
-            gadget_node.prove(prover, gadget_ready_ir, node.id())?;
-        }
-    }
-    Ok(())
-}
-
-fn verify_gadgets(
-    verifier: &mut ArgVerifier<Backend>,
-    gadget_ready_ir: &mut crate::verifier::irs::GadgetReadyIr<Backend>,
-) -> SnarkResult<()> {
-    let nodes: Vec<_> = gadget_ready_ir.tree().arena().values().cloned().collect();
-    for node in nodes {
-        if let Node::Gadget(gadget_node) = node.as_ref() {
-            gadget_node.verify(verifier, gadget_ready_ir, node.id())?;
-        }
-    }
-    Ok(())
-}
-
 fn end_to_end_bin_geq_prove_and_verify(
     left: &[i64],
     right: &[i64],
@@ -133,8 +108,8 @@ fn end_to_end_bin_geq_prove_and_verify(
         Some(shared_activator.clone()),
     );
 
-    // Build a BinQeq gadget node and a minimal tree with that gadget as the root.
-    let bin_node = Arc::new(BinGeqNode::<Backend>::new());
+    // Build a BinCmp gadget node and a minimal tree with that gadget as the root.
+    let bin_node = Arc::new(BinCmpNode::<Backend>::geq());
     let root = Arc::new(Node::Gadget(bin_node.clone()));
     let tree = Tree::new_from_root(root.clone());
 
@@ -165,11 +140,16 @@ fn end_to_end_bin_geq_prove_and_verify(
         virtualized_ir.payloads().clone(),
     );
     let gadget_initialization_pass = ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view);
-    let mut gadget_ready_ir =
-        virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+    let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
-    // Prove every gadget in post-order, so children are satisfied before parents.
-    prove_gadgets(&mut prover, &mut gadget_ready_ir)?;
+    // Run the proving pass to invoke every gadget in post-order.
+    let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
+        gadget_ready_ir.tree().clone(),
+        gadget_ready_ir.payloads().clone(),
+    );
+    let proving_pass = ProvingPass::<Backend>::new(prover.clone(), proving_ir_view);
+    let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+    proving_pass.take_result()?;
 
     // Finalize the prover transcript into a proof that the verifier can consume.
     let proof = prover.build_proof()?;
@@ -242,11 +222,16 @@ fn end_to_end_bin_geq_prove_and_verify(
     );
     let gadget_initialization_pass =
         VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
-    let mut gadget_ready_ir =
-        virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+    let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
-    // Verify every gadget against the proof transcript.
-    verify_gadgets(&mut verifier, &mut gadget_ready_ir)?;
+    // Run the verifier pass to invoke every gadget against the proof transcript.
+    let verify_ir_view = crate::verifier::irs::GadgetReadyIr::new(
+        gadget_ready_ir.tree().clone(),
+        gadget_ready_ir.payloads().clone(),
+    );
+    let verify_pass = VerifyPass::<Backend>::new(verifier.clone(), verify_ir_view);
+    let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
+    verify_pass.take_result()?;
 
     // Run the global verifier checks to finish the roundtrip.
     verifier.verify()?;
@@ -255,26 +240,29 @@ fn end_to_end_bin_geq_prove_and_verify(
 
 #[test]
 fn completeness_bin_geq_roundtrip() {
-    let activator = [1, 1, 1, 1];
     end_to_end_bin_geq_prove_and_verify(
         &[20, -3, -4, -5],
         &[20, 2, 3, 4],
         &[1, 0, 0, 0],
-        &activator,
+        &[1, 1, 1, 1],
     )
     .unwrap();
-    end_to_end_bin_geq_prove_and_verify(&[0, 5, -2, 7], &[0, 6, -3, 10], &[1, 0, 1, 0], &activator)
-        .unwrap();
+    end_to_end_bin_geq_prove_and_verify(
+        &[0, 5, -2, -7],
+        &[-1, 4, -1, -6],
+        &[1, 1, 0, 0],
+        &[1, 1, 1, 1],
+    )
+    .unwrap();
 }
 
 #[test]
 fn soundness_bin_geq_rejects_false_positive() {
-    let activator = [1, 1, 1, 1];
     let err = end_to_end_bin_geq_prove_and_verify(
         &[1, 2, 3, 4],
         &[0, 3, 3, 5],
         &[1, 1, 1, 0],
-        &activator,
+        &[1, 1, 1, 1],
     )
     .unwrap_err();
     assert_soundness_error(err);
@@ -282,12 +270,11 @@ fn soundness_bin_geq_rejects_false_positive() {
 
 #[test]
 fn soundness_bin_geq_rejects_false_negative() {
-    let activator = [1, 1, 1, 1];
     let err = end_to_end_bin_geq_prove_and_verify(
         &[4, 2, 1, 0],
         &[4, 1, 2, 0],
         &[0, 1, 0, 1],
-        &activator,
+        &[1, 1, 1, 1],
     )
     .unwrap_err();
     assert_soundness_error(err);
