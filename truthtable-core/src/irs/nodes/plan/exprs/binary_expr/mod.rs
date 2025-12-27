@@ -1,6 +1,7 @@
+use core::panic;
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
@@ -16,15 +17,22 @@ use crate::irs::{
     tree::Tree,
 };
 
-pub struct ProverNode<B: SnarkBackend> {
+pub struct BinaryExprNode<B: SnarkBackend> {
+    /// The binary expression being represented.
     pub binary_expression: BinaryExpr,
+    /// The left child node.
     pub left: Arc<Node<B>>,
+    /// The right child node.
     pub right: Arc<Node<B>>,
+    /// The scope node.
     pub scope: Arc<Node<B>>,
+    /// The gadget node.
     pub gadget: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> ProverNode<B> {
+impl<B: SnarkBackend> BinaryExprNode<B> {
+    /// Determines whether the result of the binary expression should be materialized or not.
+    /// Some operators require materialization (e.g., comparisions), while others may not (e.g., arithmetic operations).
     fn should_materialize(&self) -> bool {
         matches!(
             self.binary_expression.op,
@@ -36,9 +44,31 @@ impl<B: SnarkBackend> ProverNode<B> {
                 | datafusion_expr::Operator::GtEq
         )
     }
+    /// Dispatches to the appropriate gadget node based on the binary operator.
+    /// Since binary expressions can represent a variety of operations, we need to select the correct gadget node.
+    fn dispatch_gadget(op: datafusion_expr::Operator) -> Arc<Node<B>> {
+        match op {
+            datafusion_expr::Operator::Eq => {
+                Arc::new(Node::<B>::Gadget(Arc::new(bin_eq::BinEqNode::new())))
+            }
+            datafusion_expr::Operator::GtEq => Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_cmp::BinCmpNode::new(BinCmpOp::Geq),
+            ))),
+            datafusion_expr::Operator::LtEq => Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_cmp::BinCmpNode::new(BinCmpOp::Leq),
+            ))),
+            datafusion_expr::Operator::Gt => Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_cmp::BinCmpNode::new(BinCmpOp::Gt),
+            ))),
+            datafusion_expr::Operator::Lt => Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
+            ))),
+            _ => panic!("Unsupported operator for binary expression gadget"),
+        }
+    }
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
     fn name(&self) -> String {
         "BinaryExpr".to_string()
     }
@@ -56,7 +86,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -65,15 +95,28 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
+            _ => panic!("Expected PlanPayload for left child in BinaryExprNode"),
         };
-        let activator_entry = left_table
-            .tracked_polys_iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .map(|(f, p)| (f.clone(), p.clone()));
-        let Some((act_field, act_poly)) = activator_entry else {
-            return Ok(());
+        let left_activator = left_table.activator_tracked_poly();
+
+        // Pull activator from the right child.
+        let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Expected PlanPayload for right child in BinaryExprNode"),
         };
+        let right_activator = right_table.activator_tracked_poly();
+
+        // Assert that the left and right activators are the same.
+        debug_assert!(
+            match (left_activator.as_ref(), right_activator.as_ref()) {
+                (Some(l), Some(r)) => l == r,
+                (None, None) => true,
+                _ => false,
+            },
+            "Left and right activators should match in BinaryExprNode"
+        );
+
+        let output_activator = left_activator.clone();
 
         // Start from existing payload (if any).
         let current_table = virtualized_ir
@@ -85,7 +128,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_polys();
-        merged_polys.insert(act_field.clone(), act_poly.clone());
+        if let Some(activator) = output_activator {
+            merged_polys.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
 
         let metadata = current_table
             .schema_ref()
@@ -135,36 +180,42 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             datafusion_expr::Operator::GtEq
             | datafusion_expr::Operator::LtEq
             | datafusion_expr::Operator::Gt
-            | datafusion_expr::Operator::Lt => match (left_payload.as_ref(), right_payload.as_ref()) {
-                (Some(left), Some(right)) => {
-                    debug_assert_eq!(
-                        left.data_tracked_polys_indices().len(),
-                        1,
-                        "BinaryExpr comparison expects one left data column"
-                    );
-                    debug_assert_eq!(
-                        right.data_tracked_polys_indices().len(),
-                        1,
-                        "BinaryExpr comparison expects one right data column"
-                    );
+            | datafusion_expr::Operator::Lt => {
+                match (left_payload.as_ref(), right_payload.as_ref()) {
+                    (Some(left), Some(right)) => {
+                        debug_assert_eq!(
+                            left.data_tracked_polys_indices().len(),
+                            1,
+                            "BinaryExpr comparison expects one left data column"
+                        );
+                        debug_assert_eq!(
+                            right.data_tracked_polys_indices().len(),
+                            1,
+                            "BinaryExpr comparison expects one right data column"
+                        );
 
-                    let left_col = left.tracked_col_by_ind(left.data_tracked_polys_indices()[0]);
-                    let right_col = right.tracked_col_by_ind(right.data_tracked_polys_indices()[0]);
-                    let left_poly = left_col.data_tracked_poly();
-                    let right_poly = right_col.data_tracked_poly();
-                    let diff_poly = &left_poly - &right_poly;
-                    let diff_field = left_col
-                        .field_ref()
-                        .expect("BinaryExpr comparison expects a left field reference");
+                        let left_col =
+                            left.tracked_col_by_ind(left.data_tracked_polys_indices()[0]);
+                        let right_col =
+                            right.tracked_col_by_ind(right.data_tracked_polys_indices()[0]);
+                        let left_poly = left_col.data_tracked_poly();
+                        let right_poly = right_col.data_tracked_poly();
+                        let diff_poly = &left_poly - &right_poly;
+                        let diff_field = left_col
+                            .field_ref()
+                            .expect("BinaryExpr comparison expects a left field reference");
 
-                    Some(arithmetic::table::TrackedTable::single_column_with_activator(
-                        diff_field,
-                        diff_poly,
-                        left_col.activator_tracked_poly(),
-                    ))
+                        Some(
+                            arithmetic::table::TrackedTable::single_column_with_activator(
+                                diff_field,
+                                diff_poly,
+                                left_col.activator_tracked_poly(),
+                            ),
+                        )
+                    }
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             _ => left_payload.clone(),
         };
 
@@ -193,7 +244,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -272,40 +323,42 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             datafusion_expr::Operator::GtEq
             | datafusion_expr::Operator::LtEq
             | datafusion_expr::Operator::Gt
-            | datafusion_expr::Operator::Lt => match (left_payload.as_ref(), right_payload.as_ref()) {
-                (Some(left), Some(right)) => {
-                    debug_assert_eq!(
-                        left.data_tracked_oracles_indices().len(),
-                        1,
-                        "BinaryExpr comparison expects one left data column"
-                    );
-                    debug_assert_eq!(
-                        right.data_tracked_oracles_indices().len(),
-                        1,
-                        "BinaryExpr comparison expects one right data column"
-                    );
+            | datafusion_expr::Operator::Lt => {
+                match (left_payload.as_ref(), right_payload.as_ref()) {
+                    (Some(left), Some(right)) => {
+                        debug_assert_eq!(
+                            left.data_tracked_oracles_indices().len(),
+                            1,
+                            "BinaryExpr comparison expects one left data column"
+                        );
+                        debug_assert_eq!(
+                            right.data_tracked_oracles_indices().len(),
+                            1,
+                            "BinaryExpr comparison expects one right data column"
+                        );
 
-                    let left_col =
-                        left.tracked_col_oracle_by_ind(left.data_tracked_oracles_indices()[0]);
-                    let right_col =
-                        right.tracked_col_oracle_by_ind(right.data_tracked_oracles_indices()[0]);
-                    let left_oracle = left_col.data_tracked_oracle();
-                    let right_oracle = right_col.data_tracked_oracle();
-                    let diff_oracle = &left_oracle - &right_oracle;
-                    let diff_field = left_col
-                        .field_ref()
-                        .expect("BinaryExpr comparison expects a left field reference");
+                        let left_col =
+                            left.tracked_col_oracle_by_ind(left.data_tracked_oracles_indices()[0]);
+                        let right_col = right
+                            .tracked_col_oracle_by_ind(right.data_tracked_oracles_indices()[0]);
+                        let left_oracle = left_col.data_tracked_oracle();
+                        let right_oracle = right_col.data_tracked_oracle();
+                        let diff_oracle = &left_oracle - &right_oracle;
+                        let diff_field = left_col
+                            .field_ref()
+                            .expect("BinaryExpr comparison expects a left field reference");
 
-                    Some(
+                        Some(
                         arithmetic::table_oracle::TrackedTableOracle::single_column_with_activator(
                             diff_field,
                             diff_oracle,
                             left_col.activator_tracked_oracle(),
                         ),
                     )
+                    }
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             _ => left_payload.clone(),
         };
 
@@ -334,7 +387,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
     fn gadget(&self) -> Arc<Node<B>> {
         self.gadget.clone()
     }
@@ -375,22 +428,23 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
     fn from_expr(
-        _expr: datafusion_expr::Expr,
+        expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
-        parent: Option<std::sync::Weak<Node<B>>>,
+        _parent: Option<std::sync::Weak<Node<B>>>,
         scope: std::sync::Arc<Node<B>>,
     ) -> Self
     where
         Self: Sized,
     {
-        let binary_expression = match _expr {
+        // Extract the binary expression.
+        let binary_expression = match expr {
             datafusion_expr::Expr::BinaryExpr(bin_expr) => bin_expr,
             _ => panic!("Expected Expr::BinaryExpr"),
         };
 
-        // Recurse into the left and right expressions to build their nodes.
+        // Recurse into the left expression to build its nodes.
         let left = Tree::<B>::from_expr(
             &binary_expression.left,
             Some(self_ref.clone()),
@@ -398,6 +452,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         )
         .root()
         .clone();
+        // Recurse into the right expression to build its nodes.
         let right = Tree::<B>::from_expr(
             &binary_expression.right,
             Some(self_ref.clone()),
@@ -405,24 +460,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         )
         .root()
         .clone();
-        let gadget = match binary_expression.op {
-            datafusion_expr::Operator::Eq => {
-                Arc::new(Node::<B>::Gadget(Arc::new(bin_eq::BinEqNode::new())))
-            }
-            datafusion_expr::Operator::GtEq => Arc::new(Node::<B>::Gadget(Arc::new(
-                bin_cmp::BinCmpNode::new(BinCmpOp::Geq),
-            ))),
-            datafusion_expr::Operator::LtEq => Arc::new(Node::<B>::Gadget(Arc::new(
-                bin_cmp::BinCmpNode::new(BinCmpOp::Leq),
-            ))),
-            datafusion_expr::Operator::Gt => Arc::new(Node::<B>::Gadget(Arc::new(
-                bin_cmp::BinCmpNode::new(BinCmpOp::Gt),
-            ))),
-            datafusion_expr::Operator::Lt => Arc::new(Node::<B>::Gadget(Arc::new(
-                bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
-            ))),
-            _ => panic!("Unsupported operator for binary expression gadget"),
-        };
+        // Dispatch to the appropriate gadget node.
+        let gadget = Self::dispatch_gadget(binary_expression.op);
         Self {
             binary_expression,
             left,

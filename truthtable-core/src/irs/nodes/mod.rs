@@ -194,7 +194,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::BinaryExpr(_) => Arc::new_cyclic(|weak_self| {
-                let node = binary_expr::ProverNode::from_expr(
+                let node = binary_expr::BinaryExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -471,7 +471,6 @@ where
         id: NodeId,
     ) -> SnarkResult<()>;
     fn hints(&self) -> IndexMap<String, HintDF>;
-
 }
 pub trait IsLpNode<B>: IsPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
 where
