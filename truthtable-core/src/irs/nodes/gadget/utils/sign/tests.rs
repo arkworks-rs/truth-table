@@ -10,11 +10,15 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use indexmap::IndexMap;
 
 use super::{INPUT_LABEL, Sign, SignNode};
-use crate::irs::nodes::{IsGadgetNode, Node};
+use crate::irs::nodes::Node;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
-use crate::prover::irs::GadgetReadyIr as ProverGadgetReadyIr;
-use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
+use crate::prover::passes::gadget_initialization::GadgetInitializationPass as ProverGadgetInitializationPass;
+use crate::prover::passes::proving::ProvingPass;
+use crate::prover::passes::virtualization::VirtualizationPass as ProverVirtualizationPass;
+use crate::verifier::passes::gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass;
+use crate::verifier::passes::verify::VerifyPass;
+use crate::verifier::passes::virtualization::VirtualizationPass as VerifierVirtualizationPass;
 
 type Backend = DefaultSnarkBackend;
 const LOG_SIZE: usize = 2;
@@ -43,6 +47,56 @@ fn assert_soundness_error(err: SnarkError) {
     }
 }
 
+trait IntoField {
+    fn into_field<B: SnarkBackend>(self) -> B::F;
+}
+
+macro_rules! impl_into_field_signed {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl IntoField for $t {
+                fn into_field<B: SnarkBackend>(self) -> B::F {
+                    <B as SnarkBackend>::F::from(self as i64)
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_into_field_unsigned {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl IntoField for $t {
+                fn into_field<B: SnarkBackend>(self) -> B::F {
+                    <B as SnarkBackend>::F::from(self as u128)
+                }
+            }
+        )+
+    };
+}
+
+impl_into_field_signed!(i8, i16, i32, i64, isize);
+impl_into_field_unsigned!(u8, u16, u32, u64, u128, usize);
+
+impl IntoField for i128 {
+    fn into_field<B: SnarkBackend>(self) -> B::F {
+        if self >= i128::from(i64::MIN) && self <= i128::from(i64::MAX) {
+            <B as SnarkBackend>::F::from(self as i64)
+        } else if self < 0 {
+            -<B as SnarkBackend>::F::from((-self) as u128)
+        } else {
+            <B as SnarkBackend>::F::from(self as u128)
+        }
+    }
+}
+
+fn evals_from_ints<T: IntoField + Copy>(evals: &[T]) -> Vec<<Backend as SnarkBackend>::F> {
+    evals
+        .iter()
+        .map(|value| (*value).into_field::<Backend>())
+        .collect()
+}
+
 fn run_sign_lookup_roundtrip(
     sign: Sign,
     data_type: DataType,
@@ -65,14 +119,33 @@ fn run_sign_lookup_roundtrip(
     let tree = Tree::new_from_root(root.clone());
 
     let gadget_payload = IndexMap::from([(INPUT_LABEL.to_string(), tracked_table)]);
-    let mut prover_payloads = IndexMap::new();
+    let mut prover_payloads = tree
+        .arena()
+        .keys()
+        .map(|id| (*id, None))
+        .collect::<IndexMap<_, _>>();
     prover_payloads.insert(
         root.id(),
         Some(PayloadStructure::GadgetPayload(gadget_payload)),
     );
-    let mut gadget_ir = ProverGadgetReadyIr::new(tree.clone(), prover_payloads);
+    let tracked_ir = crate::prover::irs::TrackedIr::new(tree.clone(), prover_payloads);
 
-    sign_node.prove(&mut prover, &mut gadget_ir, root.id())?;
+    let virtualization_pass = ProverVirtualizationPass::<Backend>::new(&tracked_ir);
+    let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+    let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
+        virtualized_ir.tree().clone(),
+        virtualized_ir.payloads().clone(),
+    );
+    let gadget_initialization_pass = ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+    let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+
+    let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
+        gadget_ready_ir.tree().clone(),
+        gadget_ready_ir.payloads().clone(),
+    );
+    let proving_pass = ProvingPass::<Backend>::new(prover.clone(), proving_ir_view);
+    let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+    proving_pass.take_result()?;
 
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
@@ -83,105 +156,142 @@ fn run_sign_lookup_roundtrip(
     let table_oracle = TrackedTableOracle::new(Some(schema), tracked_oracles, LOG_SIZE);
 
     let gadget_payload = IndexMap::from([(INPUT_LABEL.to_string(), table_oracle)]);
-    let mut verifier_payloads = IndexMap::new();
+    let mut verifier_payloads = tree
+        .arena()
+        .keys()
+        .map(|id| (*id, None))
+        .collect::<IndexMap<_, _>>();
     verifier_payloads.insert(
         root.id(),
         Some(PayloadStructure::GadgetPayload(gadget_payload)),
     );
-    let mut verifier_ir = VerifierGadgetReadyIr::new(tree, verifier_payloads);
+    let tracked_ir = crate::verifier::irs::TrackedIr::new(tree, verifier_payloads);
 
-    sign_node.verify(&mut verifier, &mut verifier_ir, root.id())?;
+    let virtualization_pass = VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
+    let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+    let gadget_ir_view = crate::verifier::irs::VirtualizedIr::new(
+        virtualized_ir.tree().clone(),
+        virtualized_ir.payloads().clone(),
+    );
+    let gadget_initialization_pass =
+        VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+    let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+
+    let verify_ir_view = crate::verifier::irs::GadgetReadyIr::new(
+        gadget_ready_ir.tree().clone(),
+        gadget_ready_ir.payloads().clone(),
+    );
+    let verify_pass = VerifyPass::<Backend>::new(verifier.clone(), verify_ir_view);
+    let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
+    verify_pass.take_result()?;
+
     verifier.verify()?;
     Ok(())
 }
 
 #[test]
-fn completeness_sign_non_negative_lookup_roundtrip() {
-    let evals = vec![
-        <Backend as SnarkBackend>::F::from(0u64),
-        <Backend as SnarkBackend>::F::from(1u64),
-        <Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(3u64),
-    ];
+fn gadget_sign_completeness_nonnegative_uint8() {
+    let evals = evals_from_ints(&[5_i64, 1, 2, 3]);
     run_sign_lookup_roundtrip(Sign::NonNegative, DataType::UInt8, evals).unwrap();
 }
-
 #[test]
-fn completeness_sign_non_positive_lookup_roundtrip() {
-    let evals = vec![
-        <Backend as SnarkBackend>::F::from(0u64),
-        -<Backend as SnarkBackend>::F::from(1u64),
-        -<Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(0u64),
-    ];
+fn gadget_sign_completeness_nonpositive_int8() {
+    let evals = evals_from_ints(&[0_i64, -1, -2, 0]);
     run_sign_lookup_roundtrip(Sign::NonPositive, DataType::Int8, evals).unwrap();
 }
 
 #[test]
-fn completeness_sign_positive_lookup_roundtrip() {
-    let evals = vec![
-        <Backend as SnarkBackend>::F::from(1u64),
-        <Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(3u64),
-        <Backend as SnarkBackend>::F::from(4u64),
-    ];
+fn gadget_sign_completeness_positive_uint8() {
+    let evals = evals_from_ints(&[1_i64, 2, 3, 4]);
     run_sign_lookup_roundtrip(Sign::Positive, DataType::UInt8, evals).unwrap();
 }
 
 #[test]
-fn completeness_sign_negative_lookup_roundtrip() {
-    let evals = vec![
-        -<Backend as SnarkBackend>::F::from(1u64),
-        -<Backend as SnarkBackend>::F::from(2u64),
-        -<Backend as SnarkBackend>::F::from(3u64),
-        -<Backend as SnarkBackend>::F::from(4u64),
-    ];
+fn gadget_sign_completeness_negative_int8() {
+    let evals = evals_from_ints(&[-1_i64, -2, -3, -4]);
     run_sign_lookup_roundtrip(Sign::Negative, DataType::Int8, evals).unwrap();
 }
 
 #[test]
-fn soundness_sign_positive_rejects_zero() {
-    let evals = vec![
-        <Backend as SnarkBackend>::F::from(1u64),
-        <Backend as SnarkBackend>::F::from(0u64),
-        <Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(3u64),
-    ];
+fn gadget_sign_soundness_positive_uint8_rejects_zero() {
+    let evals = evals_from_ints(&[1_i64, 0, 2, 3]);
     let err = run_sign_lookup_roundtrip(Sign::Positive, DataType::UInt8, evals).unwrap_err();
     assert_soundness_error(err);
 }
 #[test]
-fn soundness_sign_non_negative_rejects_negative() {
-    let evals = vec![
-        -<Backend as SnarkBackend>::F::from(1u64),
-        <Backend as SnarkBackend>::F::from(0u64),
-        <Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(3u64),
-    ];
+fn gadget_sign_soundness_nonnegative_int8_rejects_negative() {
+    let evals = evals_from_ints(&[-1_i64, 0, 2, 3]);
     let err = run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int8, evals).unwrap_err();
     assert_soundness_error(err);
 }
 
 #[test]
-fn soundness_sign_non_positive_rejects_positive() {
-    let evals = vec![
-        -<Backend as SnarkBackend>::F::from(1u64),
-        <Backend as SnarkBackend>::F::from(0u64),
-        <Backend as SnarkBackend>::F::from(2u64),
-        -<Backend as SnarkBackend>::F::from(3u64),
-    ];
+fn gadget_sign_soundness_nonpositive_int8_rejects_positive() {
+    let evals = evals_from_ints(&[-1_i64, 0, 2, -3]);
     let err = run_sign_lookup_roundtrip(Sign::NonPositive, DataType::Int8, evals).unwrap_err();
     assert_soundness_error(err);
 }
 
 #[test]
-fn soundness_sign_negative_rejects_zero() {
-    let evals = vec![
-        -<Backend as SnarkBackend>::F::from(1u64),
-        -<Backend as SnarkBackend>::F::from(2u64),
-        <Backend as SnarkBackend>::F::from(0u64),
-        -<Backend as SnarkBackend>::F::from(3u64),
-    ];
+fn gadget_sign_soundness_negative_int8_rejects_zero() {
+    let evals = evals_from_ints(&[-1_i64, -2, 0, -3]);
     let err = run_sign_lookup_roundtrip(Sign::Negative, DataType::Int8, evals).unwrap_err();
+    assert_soundness_error(err);
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_uint16() {
+    let evals = evals_from_ints(&[0_u16, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::UInt16, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_uint32() {
+    let evals = evals_from_ints(&[0_u32, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::UInt32, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_uint64() {
+    let evals = evals_from_ints(&[0_u64, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::UInt64, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_int16() {
+    let evals = evals_from_ints(&[0_i16, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int16, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_int32() {
+    let evals = evals_from_ints(&[0_i32, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int32, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_int64() {
+    let evals = evals_from_ints(&[0_i64, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int64, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_completeness_nonnegative_uint256() {
+    let evals = evals_from_ints(&[0_u128, 1, 2, 3]);
+    run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Utf8View, evals).unwrap();
+}
+
+#[test]
+fn gadget_sign_soundness_positive_int128_rejects_zero() {
+    let evals = evals_from_ints(&[1_i128, 0, 2, 3]);
+    let err =
+        run_sign_lookup_roundtrip(Sign::Positive, DataType::Decimal128(38, 0), evals).unwrap_err();
+    assert_soundness_error(err);
+}
+
+#[test]
+fn gadget_sign_soundness_nonnegative_int32_rejects_negative() {
+    let evals = evals_from_ints(&[-1_i32, 0, 2, 3]);
+    let err = run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int32, evals).unwrap_err();
     assert_soundness_error(err);
 }
