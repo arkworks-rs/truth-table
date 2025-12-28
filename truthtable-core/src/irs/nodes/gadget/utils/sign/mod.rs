@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{One, Zero};
@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::neq},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -25,6 +25,7 @@ use crate::{
 pub const INPUT_LABEL: &str = "input";
 #[cfg(test)]
 mod tests;
+#[derive(Debug, Clone, Copy)]
 pub enum Sign {
     NonNegative,
     Negative,
@@ -33,7 +34,8 @@ pub enum Sign {
 }
 pub struct SignNode<B: SnarkBackend> {
     sign: Sign,
-    phantom: PhantomData<B>,
+    has_zero: bool,
+    neq_zero_gadget: Option<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for SignNode<B> {
@@ -180,19 +182,27 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
 
 impl<B: SnarkBackend> SignNode<B> {
     pub fn new(sign: Sign) -> Self {
+        let has_zero = match sign {
+            Sign::NonNegative | Sign::NonPositive => true,
+            Sign::Positive | Sign::Negative => false,
+        };
+        let neq_zero_gadget = if !has_zero {
+            Some(Arc::new(Node::<B>::Gadget(Arc::new(neq::NeqNode::new()))))
+        } else {
+            None
+        };
+
         Self {
             sign,
-            phantom: PhantomData,
+            neq_zero_gadget,
+            has_zero,
         }
     }
 
-    fn dense_range_poly_by_nv(nv: usize, has_zero: bool) -> MLE<B::F> {
+    fn dense_range_poly_by_nv(nv: usize) -> MLE<B::F> {
         let mut evals = (0..2_usize.pow(nv as u32))
             .map(|x| B::F::from(x as u64))
             .collect::<Vec<_>>();
-        if !has_zero {
-            evals[0] = B::F::one();
-        }
         MLE::from_evaluations_vec(nv, evals)
     }
 
@@ -200,9 +210,8 @@ impl<B: SnarkBackend> SignNode<B> {
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
         nv: usize,
-        has_zero: bool,
     ) -> SnarkResult<()> {
-        let range_poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv, has_zero));
+        let range_poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv));
         let activated_poly = col.activated_data_tracked_poly();
         prover.add_mv_lookup_claim(range_poly.id(), activated_poly.id())
     }
@@ -223,18 +232,11 @@ impl<B: SnarkBackend> SignNode<B> {
         )
     }
 
-    fn range_oracle(nv: usize, has_zero: bool) -> Oracle<B::F> {
+    fn range_oracle(nv: usize) -> Oracle<B::F> {
         Oracle::new_multivariate(nv, move |x| {
             let mut acc = B::F::zero();
             for (i, value) in x.iter().enumerate() {
                 acc += *value * B::F::from(1u64 << i);
-            }
-            if !has_zero {
-                let mut acc_eq_zero = B::F::one();
-                for value in x.iter() {
-                    acc_eq_zero *= B::F::one() - *value;
-                }
-                acc += acc_eq_zero;
             }
             Ok(acc)
         })
@@ -244,9 +246,8 @@ impl<B: SnarkBackend> SignNode<B> {
         verifier: &mut ArgVerifier<B>,
         col: &TrackedColOracle<B>,
         nv: usize,
-        has_zero: bool,
     ) -> SnarkResult<()> {
-        let range_oracle = verifier.track_oracle(Self::range_oracle(nv, has_zero));
+        let range_oracle = verifier.track_oracle(Self::range_oracle(nv));
         let activated_oracle = col.activated_data_tracked_oracle();
         verifier.add_mv_lookup_claim(range_oracle.id(), activated_oracle.id())
     }
@@ -256,54 +257,49 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
         sign: Sign,
     ) -> SnarkResult<()> {
-        let has_zero = match sign {
-            Sign::NonNegative => true,
-            Sign::Positive => false,
-            _ => unreachable!(),
-        };
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_lookup(prover, col, 8, has_zero)?;
+                Self::add_range_lookup(prover, col, 8)?;
             }
             DataType::Int8 => {
-                Self::add_range_lookup(prover, col, 7, has_zero)?;
+                Self::add_range_lookup(prover, col, 7)?;
             }
             DataType::UInt16 => {
-                Self::add_range_lookup(prover, col, 16, has_zero)?;
+                Self::add_range_lookup(prover, col, 16)?;
             }
             DataType::Int16 => {
-                Self::add_range_lookup(prover, col, 15, has_zero)?;
+                Self::add_range_lookup(prover, col, 15)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup(prover, &segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, &segment, 16)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::prove_non_neg_int32(prover, col)?;
-                Self::add_range_lookup(prover, &chunk3, 15, has_zero)?;
+                Self::add_range_lookup(prover, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup(prover, &segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, &segment, 16)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup(prover, &segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, &segment, 16)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::prove_non_neg_int64(prover, col)?;
-                Self::add_range_lookup(prover, &chunk3, 15, has_zero)?;
+                Self::add_range_lookup(prover, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup(prover, &segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, &segment, 16)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -311,15 +307,15 @@ impl<B: SnarkBackend> SignNode<B> {
                 let (top, rest) = chunks
                     .split_first()
                     .expect("chunked integer representation must be non-empty");
-                Self::add_range_lookup(prover, top, 15, has_zero)?;
+                Self::add_range_lookup(prover, top, 15)?;
                 for segment in rest {
-                    Self::add_range_lookup(prover, segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, segment, 16)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = SignCheckPIOP::<B>::prove_non_neg_uint256(prover, col)?;
                 for segment in segments {
-                    Self::add_range_lookup(prover, &segment, 16, has_zero)?;
+                    Self::add_range_lookup(prover, &segment, 16)?;
                 }
             }
             _ => {
@@ -338,67 +334,62 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedColOracle<B>,
         sign: Sign,
     ) -> SnarkResult<()> {
-        let has_zero = match sign {
-            Sign::NonNegative => true,
-            Sign::Positive => false,
-            _ => unreachable!(),
-        };
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_lookup_oracle(verifier, col, 8, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, col, 8)?;
             }
             DataType::Int8 => {
-                Self::add_range_lookup_oracle(verifier, col, 7, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, col, 7)?;
             }
             DataType::UInt16 => {
-                Self::add_range_lookup_oracle(verifier, col, 16, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, col, 16)?;
             }
             DataType::Int16 => {
-                Self::add_range_lookup_oracle(verifier, col, 15, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, col, 15)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::verify_non_neg_uint32(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::verify_non_neg_int32(verifier, col)?;
-                Self::add_range_lookup_oracle(verifier, &chunk3, 15, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::verify_non_neg_uint64(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     SignCheckPIOP::<B>::verify_non_neg_int64(verifier, col)?;
-                Self::add_range_lookup_oracle(verifier, &chunk3, 15, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Decimal128(..) => {
                 let (top, rest) = SignCheckPIOP::<B>::verify_non_neg_int128(verifier, col)?;
-                Self::add_range_lookup_oracle(verifier, &top, 15, has_zero)?;
+                Self::add_range_lookup_oracle(verifier, &top, 15)?;
                 for segment in rest {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = SignCheckPIOP::<B>::verify_non_neg_uint256(verifier, col)?;
                 for segment in segments {
-                    Self::add_range_lookup_oracle(verifier, &segment, 16, has_zero)?;
+                    Self::add_range_lookup_oracle(verifier, &segment, 16)?;
                 }
             }
             _ => {

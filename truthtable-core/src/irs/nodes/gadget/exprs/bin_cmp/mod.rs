@@ -7,12 +7,19 @@ use ark_piop::prover::structs::polynomial::TrackedPoly;
 use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
 
+use crate::irs::nodes::NodeId;
+use crate::irs::nodes::cost::ProvingCost;
+use crate::irs::nodes::hints::HintDF;
 use crate::irs::nodes::{
     IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::sign,
 };
 use crate::irs::payloads::PayloadStructure;
-use crate::prover::irs::GadgetReadyIr;
-use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
+use crate::prover::irs::{
+    GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr,
+};
+use crate::verifier::irs::{
+    GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
+};
 
 #[cfg(test)]
 mod tests;
@@ -38,12 +45,10 @@ pub struct BinCmpNode<B: SnarkBackend> {
 impl<B: SnarkBackend> BinCmpNode<B> {
     pub fn new(op: BinCmpOp) -> Self {
         let (true_sign, false_sign) = Self::sign_pair(op);
-        let true_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-            true_sign,
-        ))));
-        let false_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-            false_sign,
-        ))));
+        let true_sign_gadget =
+            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(true_sign))));
+        let false_sign_gadget =
+            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(false_sign))));
         Self {
             op,
             true_sign: true_sign_gadget,
@@ -95,7 +100,7 @@ impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
         &self,
         _statistics: datafusion_common::Statistics,
         _schema: arrow_schema::SchemaRef,
-    ) -> crate::irs::nodes::cost::ProvingCost {
+    ) -> ProvingCost {
         todo!()
     }
 
@@ -107,8 +112,8 @@ impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: NodeId,
+        _virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -148,38 +153,58 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
             "Left input and output must share the same activator polynomial"
         );
 
+        let left_data_ind = left_input.data_tracked_polys_indices()[0];
+        let left_data_poly = left_input
+            .tracked_col_by_ind(left_data_ind)
+            .data_tracked_poly();
+        let right_data_ind = right_input.data_tracked_polys_indices()[0];
+        let right_data_poly = right_input
+            .tracked_col_by_ind(right_data_ind)
+            .data_tracked_poly();
+
+        let diff_data_poly = &left_data_poly - &right_data_poly;
         // Now that we are sure that the left and right inputs share the same activator polynomial, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
 
         let output_ind = output.data_tracked_polys_indices()[0];
         let output_poly = output.tracked_col_by_ind(output_ind).data_tracked_poly();
 
-        let build_table_with_activator = |table: &TrackedTable<B>, activator: &TrackedPoly<B>| {
-            let mut polys = IndexMap::new();
-            for (field, poly) in table.tracked_polys_iter() {
-                if field.name() == ACTIVATOR_COL_NAME {
-                    continue;
-                }
-                polys.insert(field.clone(), poly.clone());
-            }
-            polys.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+        let data_field = left_input
+            .tracked_polys()
+            .keys()
+            .find(|field| field.name() != ACTIVATOR_COL_NAME)
+            .cloned()
+            .expect("BinCmp left input should include a data column");
+        let metadata = left_input
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .unwrap_or_default();
 
-            let metadata = table
-                .schema_ref()
-                .map(|s| s.metadata().clone())
-                .unwrap_or_default();
-            let fields = polys.keys().map(|f| f.as_ref().clone()).collect::<Vec<_>>();
-            let schema = Some(Schema::new_with_metadata(fields, metadata));
+        let build_table_with_activator =
+            |data_poly: &TrackedPoly<B>, activator: &TrackedPoly<B>| {
+                let mut polys = IndexMap::new();
+                polys.insert(data_field.clone(), data_poly.clone());
+                polys.insert(ACTIVATOR_FIELD.clone(), activator.clone());
 
-            TrackedTable::new(schema, polys, table.log_size())
-        };
+                let fields = polys.keys().map(|f| f.as_ref().clone()).collect::<Vec<_>>();
+                let schema = Some(Schema::new_with_metadata(fields, metadata.clone()));
+
+                let data_log_size = data_poly.log_size();
+                debug_assert_eq!(
+                    data_log_size,
+                    activator.log_size(),
+                    "BinCmp gadget activator log size should match data log size"
+                );
+                TrackedTable::new(schema, polys, data_log_size)
+            };
 
         // Compute the activator for the true branch.
         let true_activator = match &shared_activator {
             Some(poly) => poly * &output_poly,
             None => output_poly.clone(),
         };
-        let true_input = build_table_with_activator(&left_input, &true_activator.clone());
+        let true_input = build_table_with_activator(&diff_data_poly, &true_activator.clone());
+        println!("{}", true_input.pretty_string());
         let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
         virtualized_ir.set_payload_for_node(
             self.true_sign.id(),
@@ -194,7 +219,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
             Some(poly) => poly * &neg_output_activator,
             None => neg_output_activator.clone(),
         };
-        let false_input = build_table_with_activator(&left_input, &false_activator.clone());
+        let false_input = build_table_with_activator(&diff_data_poly, &false_activator.clone());
+        println!("{}", false_input.pretty_string());
         let false_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), false_input)]);
         virtualized_ir.set_payload_for_node(
             self.false_sign.id(),
@@ -325,8 +351,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
     fn prove(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        _gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
+        _id: NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
@@ -336,12 +362,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
         &self,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        _id: NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 
-    fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
+    fn hints(&self) -> indexmap::IndexMap<String, HintDF> {
         IndexMap::new()
     }
 }

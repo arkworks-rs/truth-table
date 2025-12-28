@@ -1,21 +1,31 @@
-use core::panic;
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::exprs::{
-    bin_cmp::{self, BinCmpOp},
-    bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
-};
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
+use crate::{
+    irs::nodes::{
+        NodeId,
+        gadget::exprs::{
+            bin_cmp::{self, BinCmpOp},
+            bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
+        },
+    },
+    prover::irs::VirtualizedIr as ProverVirtualizedIr,
+    verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
+};
+
+#[cfg(test)]
+mod tests;
+mod virtual_ops;
 
 pub struct BinaryExprNode<B: SnarkBackend> {
     /// The binary expression being represented.
@@ -89,8 +99,8 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
@@ -117,6 +127,30 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
         );
 
         let output_activator = left_activator.clone();
+        let output_tracked_poly = if self.should_materialize() {
+            None
+        } else {
+            let left_data_indices = left_table.data_tracked_polys_indices();
+            let right_data_indices = right_table.data_tracked_polys_indices();
+            debug_assert_eq!(
+                left_data_indices.len(),
+                1,
+                "BinaryExpr virtual ops expect one left data column"
+            );
+            debug_assert_eq!(
+                right_data_indices.len(),
+                1,
+                "BinaryExpr virtual ops expect one right data column"
+            );
+
+            let left_col = left_table.tracked_col_by_ind(left_data_indices[0]);
+            let right_col = right_table.tracked_col_by_ind(right_data_indices[0]);
+            Some(virtual_ops::output_virtual_table(
+                &self.binary_expression,
+                &left_col.data_tracked_poly(),
+                &right_col.data_tracked_poly(),
+            ))
+        };
 
         // Start from existing payload (if any).
         let current_table = virtualized_ir
@@ -128,6 +162,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_polys();
+        if let Some(output_poly) = output_tracked_poly {
+            let output_field = self
+                .output()
+                .data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name() != ACTIVATOR_COL_NAME)
+                .cloned()
+                .expect("BinaryExpr output should include a data column");
+            merged_polys.insert(output_field, output_poly);
+        }
+
         if let Some(activator) = output_activator {
             merged_polys.insert(ACTIVATOR_FIELD.clone(), activator);
         }
@@ -159,8 +206,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let extract_plan_payload =
             |node_id: &crate::irs::nodes::NodeId| -> Option<arithmetic::table::TrackedTable<B>> {
@@ -176,55 +223,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
         let right_payload = extract_plan_payload(&self.right.id());
         let output_payload = extract_plan_payload(&_id);
 
-        let left_input = match self.binary_expression.op {
-            datafusion_expr::Operator::GtEq
-            | datafusion_expr::Operator::LtEq
-            | datafusion_expr::Operator::Gt
-            | datafusion_expr::Operator::Lt => {
-                match (left_payload.as_ref(), right_payload.as_ref()) {
-                    (Some(left), Some(right)) => {
-                        debug_assert_eq!(
-                            left.data_tracked_polys_indices().len(),
-                            1,
-                            "BinaryExpr comparison expects one left data column"
-                        );
-                        debug_assert_eq!(
-                            right.data_tracked_polys_indices().len(),
-                            1,
-                            "BinaryExpr comparison expects one right data column"
-                        );
-
-                        let left_col =
-                            left.tracked_col_by_ind(left.data_tracked_polys_indices()[0]);
-                        let right_col =
-                            right.tracked_col_by_ind(right.data_tracked_polys_indices()[0]);
-                        let left_poly = left_col.data_tracked_poly();
-                        let right_poly = right_col.data_tracked_poly();
-                        let diff_poly = &left_poly - &right_poly;
-                        let diff_field = left_col
-                            .field_ref()
-                            .expect("BinaryExpr comparison expects a left field reference");
-
-                        Some(
-                            arithmetic::table::TrackedTable::single_column_with_activator(
-                                diff_field,
-                                diff_poly,
-                                left_col.activator_tracked_poly(),
-                            ),
-                        )
-                    }
-                    _ => None,
-                }
-            }
-            _ => left_payload.clone(),
-        };
-
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
 
-        if let Some(table) = left_input {
+        if let Some(table) = left_payload {
             gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
         }
         if let Some(table) = right_payload {
@@ -247,20 +251,57 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull activator from the left child.
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
+            _ => panic!("Expected PlanPayload for left child in BinaryExprNode"),
         };
-        let activator_entry = left_table
-            .tracked_oracles_iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-            .map(|(f, o)| (f.clone(), o.clone()));
-        let Some((act_field, act_oracle)) = activator_entry else {
-            return Ok(());
+        let left_activator = left_table.activator_tracked_poly();
+
+        // Pull activator from the right child.
+        let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Expected PlanPayload for right child in BinaryExprNode"),
+        };
+        let right_activator = right_table.activator_tracked_poly();
+
+        // Assert that the left and right activators are the same.
+        debug_assert!(
+            match (left_activator.as_ref(), right_activator.as_ref()) {
+                (Some(l), Some(r)) => l == r,
+                (None, None) => true,
+                _ => false,
+            },
+            "Left and right activators should match in BinaryExprNode"
+        );
+
+        let output_activator = left_activator.clone();
+        let output_table = if self.should_materialize() {
+            None
+        } else {
+            let left_data_indices = left_table.data_tracked_oracles_indices();
+            let right_data_indices = right_table.data_tracked_oracles_indices();
+            debug_assert_eq!(
+                left_data_indices.len(),
+                1,
+                "BinaryExpr virtual ops expect one left data column"
+            );
+            debug_assert_eq!(
+                right_data_indices.len(),
+                1,
+                "BinaryExpr virtual ops expect one right data column"
+            );
+
+            let left_col = left_table.tracked_col_oracle_by_ind(left_data_indices[0]);
+            let right_col = right_table.tracked_col_oracle_by_ind(right_data_indices[0]);
+            Some(virtual_ops::output_virtual_table_oracle(
+                &self.binary_expression,
+                &left_col.data_tracked_oracle(),
+                &right_col.data_tracked_oracle(),
+            ))
         };
 
         // Start from existing payload (if any).
@@ -273,7 +314,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
             .unwrap_or_default();
 
         let mut merged_oracles = current_table.tracked_oracles();
-        merged_oracles.insert(act_field.clone(), act_oracle.clone());
+        if let Some(output_oracle) = output_table {
+            let output_field = self
+                .output()
+                .data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name() != ACTIVATOR_COL_NAME)
+                .cloned()
+                .expect("BinaryExpr output should include a data column");
+            merged_oracles.insert(output_field, output_oracle);
+        }
+        if let Some(activator) = output_activator {
+            merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
 
         let metadata = current_table
             .schema_ref()
@@ -303,10 +358,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let extract_plan_payload = |node_id: &crate::irs::nodes::NodeId| {
+        let extract_plan_payload = |node_id: &NodeId| {
             virtualized_ir
                 .payload_for_node(node_id)
                 .and_then(|payload| match payload {
@@ -319,55 +374,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
         let right_payload = extract_plan_payload(&self.right.id());
         let output_payload = extract_plan_payload(&id);
 
-        let left_input = match self.binary_expression.op {
-            datafusion_expr::Operator::GtEq
-            | datafusion_expr::Operator::LtEq
-            | datafusion_expr::Operator::Gt
-            | datafusion_expr::Operator::Lt => {
-                match (left_payload.as_ref(), right_payload.as_ref()) {
-                    (Some(left), Some(right)) => {
-                        debug_assert_eq!(
-                            left.data_tracked_oracles_indices().len(),
-                            1,
-                            "BinaryExpr comparison expects one left data column"
-                        );
-                        debug_assert_eq!(
-                            right.data_tracked_oracles_indices().len(),
-                            1,
-                            "BinaryExpr comparison expects one right data column"
-                        );
-
-                        let left_col =
-                            left.tracked_col_oracle_by_ind(left.data_tracked_oracles_indices()[0]);
-                        let right_col = right
-                            .tracked_col_oracle_by_ind(right.data_tracked_oracles_indices()[0]);
-                        let left_oracle = left_col.data_tracked_oracle();
-                        let right_oracle = right_col.data_tracked_oracle();
-                        let diff_oracle = &left_oracle - &right_oracle;
-                        let diff_field = left_col
-                            .field_ref()
-                            .expect("BinaryExpr comparison expects a left field reference");
-
-                        Some(
-                        arithmetic::table_oracle::TrackedTableOracle::single_column_with_activator(
-                            diff_field,
-                            diff_oracle,
-                            left_col.activator_tracked_oracle(),
-                        ),
-                    )
-                    }
-                    _ => None,
-                }
-            }
-            _ => left_payload.clone(),
-        };
-
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
 
-        if let Some(table) = left_input {
+        if let Some(table) = left_payload {
             gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
         }
         if let Some(table) = right_payload {
