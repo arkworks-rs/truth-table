@@ -19,6 +19,9 @@ pub const LEFT_INPUT_LABEL: &str = "left_input";
 pub const RIGHT_INPUT_LABEL: &str = "right_input";
 pub const OUTPUT_LABEL: &str = "output";
 
+#[cfg(test)]
+mod tests;
+
 pub struct BinEqNode<B: SnarkBackend> {
     eq: Arc<Node<B>>,
     neq: Arc<Node<B>>,
