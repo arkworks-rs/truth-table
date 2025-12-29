@@ -198,8 +198,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        println!("{}", left_table.pretty_string());
-        println!("{}", right_table.pretty_string());
         neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
         neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
         virtualized_ir.set_payload_for_node(

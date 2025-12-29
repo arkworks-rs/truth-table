@@ -48,16 +48,45 @@ fn assert_soundness_error(err: SnarkError) {
     }
 }
 
-fn evals_from_i64(evals: &[i64]) -> Vec<<Backend as SnarkBackend>::F> {
+trait IntoField {
+    fn into_field<B: SnarkBackend>(self) -> B::F;
+}
+
+macro_rules! impl_into_field_signed {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl IntoField for $t {
+                fn into_field<B: SnarkBackend>(self) -> B::F {
+                    if self < 0 {
+                        -<B as SnarkBackend>::F::from((-self) as u128)
+                    } else {
+                        <B as SnarkBackend>::F::from(self as u128)
+                    }
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_into_field_unsigned {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl IntoField for $t {
+                fn into_field<B: SnarkBackend>(self) -> B::F {
+                    <B as SnarkBackend>::F::from(self as u128)
+                }
+            }
+        )+
+    };
+}
+
+impl_into_field_signed!(i8, i16, i32, i64, i128, isize);
+impl_into_field_unsigned!(u8, u16, u32, u64, u128, usize);
+
+fn evals_from_ints<T: IntoField + Copy>(evals: &[T]) -> Vec<<Backend as SnarkBackend>::F> {
     evals
         .iter()
-        .map(|value| {
-            if *value < 0 {
-                -<Backend as SnarkBackend>::F::from((-*value) as u64)
-            } else {
-                <Backend as SnarkBackend>::F::from(*value as u64)
-            }
-        })
+        .map(|value| (*value).into_field::<Backend>())
         .collect()
 }
 
@@ -69,43 +98,68 @@ fn tracked_poly_from_evals(
     prover.track_and_commit_mat_mv_poly(&mle).unwrap()
 }
 
-fn end_to_end_bin_geq_prove_and_verify(
-    left: &[i64],
-    right: &[i64],
-    output: &[i64],
-    activator: &[i64],
+struct BinCmpCase<T> {
+    left: [T; 4],
+    right: [T; 4],
+    output: [T; 4],
+    activator: Option<[T; 4]>,
+}
+
+fn bin_cmp_case<T>(
+    left: [T; 4],
+    right: [T; 4],
+    output: [T; 4],
+    activator: Option<[T; 4]>,
+) -> BinCmpCase<T> {
+    BinCmpCase {
+        left,
+        right,
+        output,
+        activator,
+    }
+}
+
+fn end_to_end_bin_geq_prove_and_verify<T: IntoField + Copy>(
+    data_type: DataType,
+    left: &[T],
+    right: &[T],
+    output: &[T],
+    activator: Option<&[T]>,
 ) -> SnarkResult<()> {
     // Keep the test vectors consistent with the log size of this gadget (2^LOG_SIZE rows).
     let expected_len = 1 << LOG_SIZE;
     debug_assert_eq!(left.len(), expected_len);
     debug_assert_eq!(right.len(), expected_len);
     debug_assert_eq!(output.len(), expected_len);
-    debug_assert_eq!(activator.len(), expected_len);
+    if let Some(activator) = activator {
+        debug_assert_eq!(activator.len(), expected_len);
+    }
 
     // Set up a fresh prover/verifier pair with shared transcript parameters.
     let (mut prover, mut verifier) = test_prelude::<Backend>().unwrap();
 
     // Commit prover polynomials for the left/right operands, output bit, and shared activator.
-    let left_poly = tracked_poly_from_evals(&mut prover, evals_from_i64(left));
-    let right_poly = tracked_poly_from_evals(&mut prover, evals_from_i64(right));
-    let output_poly = tracked_poly_from_evals(&mut prover, evals_from_i64(output));
-    let shared_activator = tracked_poly_from_evals(&mut prover, evals_from_i64(activator));
+    let left_poly = tracked_poly_from_evals(&mut prover, evals_from_ints(left));
+    let right_poly = tracked_poly_from_evals(&mut prover, evals_from_ints(right));
+    let output_poly = tracked_poly_from_evals(&mut prover, evals_from_ints(output));
+    let shared_activator =
+        activator.map(|activator| tracked_poly_from_evals(&mut prover, evals_from_ints(activator)));
 
     // Wrap each tracked polynomial as a single-column tracked table with the same activator.
     let left_table = TrackedTable::single_column_with_activator(
-        Arc::new(Field::new("left", DataType::Int8, false)),
+        Arc::new(Field::new("left", data_type.clone(), false)),
         left_poly.clone(),
-        Some(shared_activator.clone()),
+        shared_activator.clone(),
     );
     let right_table = TrackedTable::single_column_with_activator(
-        Arc::new(Field::new("right", DataType::Int8, false)),
+        Arc::new(Field::new("right", data_type.clone(), false)),
         right_poly.clone(),
-        Some(shared_activator.clone()),
+        shared_activator.clone(),
     );
     let output_table = TrackedTable::single_column_with_activator(
-        Arc::new(Field::new("output", DataType::Int8, false)),
+        Arc::new(Field::new("output", data_type.clone(), false)),
         output_poly.clone(),
-        Some(shared_activator.clone()),
+        shared_activator.clone(),
     );
 
     // Build a BinCmp gadget node and a minimal tree with that gadget as the root.
@@ -158,12 +212,10 @@ fn end_to_end_bin_geq_prove_and_verify(
     verifier.set_proof(proof);
 
     // Track commitments in a deterministic order to keep tracker IDs aligned.
-    let mut tracked_ids = vec![
-        left_poly.id(),
-        right_poly.id(),
-        output_poly.id(),
-        shared_activator.id(),
-    ];
+    let mut tracked_ids = vec![left_poly.id(), right_poly.id(), output_poly.id()];
+    if let Some(shared_activator) = &shared_activator {
+        tracked_ids.push(shared_activator.id());
+    }
     tracked_ids.sort();
     let mut oracle_by_id = IndexMap::new();
     for id in tracked_ids {
@@ -174,7 +226,9 @@ fn end_to_end_bin_geq_prove_and_verify(
     let left_oracle = oracle_by_id[&left_poly.id()].clone();
     let right_oracle = oracle_by_id[&right_poly.id()].clone();
     let output_oracle = oracle_by_id[&output_poly.id()].clone();
-    let activator_oracle = oracle_by_id[&shared_activator.id()].clone();
+    let activator_oracle = shared_activator
+        .as_ref()
+        .map(|shared_activator| oracle_by_id[&shared_activator.id()].clone());
 
     // Build the verifier payloads that mirror the prover's tracked tables.
     let mut verifier_payloads = tree
@@ -188,25 +242,25 @@ fn end_to_end_bin_geq_prove_and_verify(
             (
                 LEFT_INPUT_LABEL.to_string(),
                 TrackedTableOracle::single_column_with_activator(
-                    Arc::new(Field::new("left", DataType::Int8, false)),
+                    Arc::new(Field::new("left", data_type.clone(), false)),
                     left_oracle,
-                    Some(activator_oracle.clone()),
+                    activator_oracle.clone(),
                 ),
             ),
             (
                 RIGHT_INPUT_LABEL.to_string(),
                 TrackedTableOracle::single_column_with_activator(
-                    Arc::new(Field::new("right", DataType::Int8, false)),
+                    Arc::new(Field::new("right", data_type.clone(), false)),
                     right_oracle,
-                    Some(activator_oracle.clone()),
+                    activator_oracle.clone(),
                 ),
             ),
             (
                 OUTPUT_LABEL.to_string(),
                 TrackedTableOracle::single_column_with_activator(
-                    Arc::new(Field::new("output", DataType::Int8, false)),
+                    Arc::new(Field::new("output", data_type, false)),
                     output_oracle,
-                    Some(activator_oracle),
+                    activator_oracle,
                 ),
             ),
         ]))),
@@ -238,44 +292,410 @@ fn end_to_end_bin_geq_prove_and_verify(
     Ok(())
 }
 
-#[test]
-fn completeness_bin_geq_roundtrip() {
-    end_to_end_bin_geq_prove_and_verify(
-        &[20, -3, -4, -5],
-        &[20, 2, 3, 4],
-        &[1, 0, 0, 0],
-        &[1, 1, 1, 1],
-    )
-    .unwrap();
-    // end_to_end_bin_geq_prove_and_verify(
-    //     &[0, 5, -2, -7],
-    //     &[-1, 4, -1, -6],
-    //     &[1, 1, 0, 0],
-    //     &[1, 1, 1, 1],
-    // )
-    // .unwrap();
+fn run_bin_cmp_completeness_cases<T: IntoField + Copy>(
+    data_type: DataType,
+    cases: &[BinCmpCase<T>],
+) {
+    for case in cases {
+        let activator = case.activator.as_ref().map(|values| &values[..]);
+        end_to_end_bin_geq_prove_and_verify(
+            data_type.clone(),
+            &case.left,
+            &case.right,
+            &case.output,
+            activator,
+        )
+        .unwrap();
+    }
+}
+
+fn run_bin_cmp_soundness_cases<T: IntoField + Copy>(data_type: DataType, cases: &[BinCmpCase<T>]) {
+    for case in cases {
+        let activator = case.activator.as_ref().map(|values| &values[..]);
+        let err = end_to_end_bin_geq_prove_and_verify(
+            data_type.clone(),
+            &case.left,
+            &case.right,
+            &case.output,
+            activator,
+        )
+        .unwrap_err();
+        assert_soundness_error(err);
+    }
 }
 
 #[test]
-fn soundness_bin_geq_rejects_false_positive() {
-    let err = end_to_end_bin_geq_prove_and_verify(
-        &[1, 2, 3, 4],
-        &[0, 3, 3, 5],
-        &[1, 1, 1, 0],
-        &[1, 1, 1, 1],
-    )
-    .unwrap_err();
-    assert_soundness_error(err);
+fn gadget_bin_cmp_completeness_uint8() {
+    let cases: [BinCmpCase<u8>; 4] = [
+        bin_cmp_case([20_u8, 3, 4, 5], [20_u8, 4, 3, 6], [1_u8, 0, 1, 0], None),
+        bin_cmp_case([0_u8, 5, 2, 7], [1_u8, 4, 3, 6], [0_u8, 1, 0, 1], None),
+        bin_cmp_case(
+            [0_u8, 5, 2, 7],
+            [1_u8, 4, 3, 6],
+            [0_u8, 1, 0, 1],
+            Some([0_u8, 1, 1, 1]),
+        ),
+        bin_cmp_case(
+            [0_u8, 5, 2, 7],
+            [1_u8, 4, 3, 6],
+            [0_u8, 1, 0, 0],
+            Some([0_u8, 1, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::UInt8, &cases);
 }
 
 #[test]
-fn soundness_bin_geq_rejects_false_negative() {
-    let err = end_to_end_bin_geq_prove_and_verify(
-        &[4, 2, 1, 0],
-        &[4, 1, 2, 0],
-        &[0, 1, 0, 1],
-        &[1, 1, 1, 1],
-    )
-    .unwrap_err();
-    assert_soundness_error(err);
+fn gadget_bin_cmp_soundness_uint8() {
+    let cases: [BinCmpCase<u8>; 3] = [
+        bin_cmp_case([1_u8, 2, 3, 4], [0_u8, 3, 3, 5], [1_u8, 1, 1, 0], None),
+        bin_cmp_case([4_u8, 2, 1, 0], [4_u8, 1, 2, 0], [0_u8, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u8, 5, 1, 7],
+            [1_u8, 6, 1, 2],
+            [0_u8, 0, 1, 1],
+            Some([1_u8, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::UInt8, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_int8() {
+    let cases: [BinCmpCase<i8>; 3] = [
+        bin_cmp_case([20_i8, -3, -4, -5], [20_i8, 2, 3, 4], [1_i8, 0, 0, 0], None),
+        bin_cmp_case([0_i8, 5, -2, -7], [-1_i8, 4, -1, -6], [1_i8, 1, 0, 0], None),
+        bin_cmp_case(
+            [2_i8, 5, 1, 7],
+            [1_i8, 6, 1, 2],
+            [1_i8, 0, 1, 1],
+            Some([1_i8, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Int8, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_int8() {
+    let cases: [BinCmpCase<i8>; 3] = [
+        bin_cmp_case([1_i8, 2, 3, 4], [0_i8, 3, 3, 5], [1_i8, 1, 1, 0], None),
+        bin_cmp_case([4_i8, 2, 1, 0], [4_i8, 1, 2, 0], [0_i8, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_i8, 5, 1, 7],
+            [1_i8, 6, 1, 2],
+            [0_i8, 0, 1, 1],
+            Some([1_i8, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Int8, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_uint16() {
+    let cases: [BinCmpCase<u16>; 3] = [
+        bin_cmp_case([20_u16, 3, 4, 5], [20_u16, 4, 3, 6], [1_u16, 0, 1, 0], None),
+        bin_cmp_case([0_u16, 5, 2, 7], [1_u16, 4, 3, 6], [0_u16, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u16, 5, 1, 7],
+            [1_u16, 6, 1, 2],
+            [1_u16, 0, 1, 1],
+            Some([1_u16, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::UInt16, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_uint16() {
+    let cases: [BinCmpCase<u16>; 3] = [
+        bin_cmp_case([1_u16, 2, 3, 4], [0_u16, 3, 3, 5], [1_u16, 1, 1, 0], None),
+        bin_cmp_case([4_u16, 2, 1, 0], [4_u16, 1, 2, 0], [0_u16, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u16, 5, 1, 7],
+            [1_u16, 6, 1, 2],
+            [0_u16, 0, 1, 1],
+            Some([1_u16, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::UInt16, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_int16() {
+    let cases: [BinCmpCase<i16>; 3] = [
+        bin_cmp_case(
+            [20_i16, -3, -4, -5],
+            [20_i16, 2, 3, 4],
+            [1_i16, 0, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [0_i16, 5, -2, -7],
+            [-1_i16, 4, -1, -6],
+            [1_i16, 1, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [2_i16, 5, 1, 7],
+            [1_i16, 6, 1, 2],
+            [1_i16, 0, 1, 1],
+            Some([1_i16, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Int16, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_int16() {
+    let cases: [BinCmpCase<i16>; 3] = [
+        bin_cmp_case([1_i16, 2, 3, 4], [0_i16, 3, 3, 5], [1_i16, 1, 1, 0], None),
+        bin_cmp_case([4_i16, 2, 1, 0], [4_i16, 1, 2, 0], [0_i16, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_i16, 5, 1, 7],
+            [1_i16, 6, 1, 2],
+            [0_i16, 0, 1, 1],
+            Some([1_i16, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Int16, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_uint32() {
+    let cases: [BinCmpCase<u32>; 3] = [
+        bin_cmp_case([20_u32, 3, 4, 5], [20_u32, 4, 3, 6], [1_u32, 0, 1, 0], None),
+        bin_cmp_case([0_u32, 5, 2, 7], [1_u32, 4, 3, 6], [0_u32, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u32, 5, 1, 7],
+            [1_u32, 6, 1, 2],
+            [1_u32, 0, 1, 1],
+            Some([1_u32, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::UInt32, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_uint32() {
+    let cases: [BinCmpCase<u32>; 3] = [
+        bin_cmp_case([1_u32, 2, 3, 4], [0_u32, 3, 3, 5], [1_u32, 1, 1, 0], None),
+        bin_cmp_case([4_u32, 2, 1, 0], [4_u32, 1, 2, 0], [0_u32, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u32, 5, 1, 7],
+            [1_u32, 6, 1, 2],
+            [0_u32, 0, 1, 1],
+            Some([1_u32, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::UInt32, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_int32() {
+    let cases: [BinCmpCase<i32>; 3] = [
+        bin_cmp_case(
+            [20_i32, -3, -4, -5],
+            [20_i32, 2, 3, 4],
+            [1_i32, 0, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [0_i32, 5, -2, -7],
+            [-1_i32, 4, -1, -6],
+            [1_i32, 1, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [2_i32, 5, 1, 7],
+            [1_i32, 6, 1, 2],
+            [1_i32, 0, 1, 1],
+            Some([1_i32, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Int32, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_int32() {
+    let cases: [BinCmpCase<i32>; 3] = [
+        bin_cmp_case([1_i32, 2, 3, 4], [0_i32, 3, 3, 5], [1_i32, 1, 1, 0], None),
+        bin_cmp_case([4_i32, 2, 1, 0], [4_i32, 1, 2, 0], [0_i32, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_i32, 5, 1, 7],
+            [1_i32, 6, 1, 2],
+            [0_i32, 0, 1, 1],
+            Some([1_i32, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Int32, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_uint64() {
+    let cases: [BinCmpCase<u64>; 3] = [
+        bin_cmp_case([20_u64, 3, 4, 5], [20_u64, 4, 3, 6], [1_u64, 0, 1, 0], None),
+        bin_cmp_case([0_u64, 5, 2, 7], [1_u64, 4, 3, 6], [0_u64, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u64, 5, 1, 7],
+            [1_u64, 6, 1, 2],
+            [1_u64, 0, 1, 1],
+            Some([1_u64, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::UInt64, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_uint64() {
+    let cases: [BinCmpCase<u64>; 3] = [
+        bin_cmp_case([1_u64, 2, 3, 4], [0_u64, 3, 3, 5], [1_u64, 1, 1, 0], None),
+        bin_cmp_case([4_u64, 2, 1, 0], [4_u64, 1, 2, 0], [0_u64, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_u64, 5, 1, 7],
+            [1_u64, 6, 1, 2],
+            [0_u64, 0, 1, 1],
+            Some([1_u64, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::UInt64, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_int64() {
+    let cases: [BinCmpCase<i64>; 3] = [
+        bin_cmp_case(
+            [20_i64, -3, -4, -5],
+            [20_i64, 2, 3, 4],
+            [1_i64, 0, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [0_i64, 5, -2, -7],
+            [-1_i64, 4, -1, -6],
+            [1_i64, 1, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [2_i64, 5, 1, 7],
+            [1_i64, 6, 1, 2],
+            [1_i64, 0, 1, 1],
+            Some([1_i64, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Int64, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_int64() {
+    let cases: [BinCmpCase<i64>; 3] = [
+        bin_cmp_case([1_i64, 2, 3, 4], [0_i64, 3, 3, 5], [1_i64, 1, 1, 0], None),
+        bin_cmp_case([4_i64, 2, 1, 0], [4_i64, 1, 2, 0], [0_i64, 1, 0, 1], None),
+        bin_cmp_case(
+            [2_i64, 5, 1, 7],
+            [1_i64, 6, 1, 2],
+            [0_i64, 0, 1, 1],
+            Some([1_i64, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Int64, &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_uint128() {
+    let cases: [BinCmpCase<u128>; 3] = [
+        bin_cmp_case(
+            [20_u128, 3, 4, 5],
+            [20_u128, 4, 3, 6],
+            [1_u128, 0, 1, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [0_u128, 5, 2, 7],
+            [1_u128, 4, 3, 6],
+            [0_u128, 1, 0, 1],
+            None,
+        ),
+        bin_cmp_case(
+            [2_u128, 5, 1, 7],
+            [1_u128, 6, 1, 2],
+            [1_u128, 0, 1, 1],
+            Some([1_u128, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Decimal128(38, 0), &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_uint128() {
+    let cases: [BinCmpCase<u128>; 3] = [
+        bin_cmp_case(
+            [1_u128, 2, 3, 4],
+            [0_u128, 3, 3, 5],
+            [1_u128, 1, 1, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [4_u128, 2, 1, 0],
+            [4_u128, 1, 2, 0],
+            [0_u128, 1, 0, 1],
+            None,
+        ),
+        bin_cmp_case(
+            [2_u128, 5, 1, 7],
+            [1_u128, 6, 1, 2],
+            [0_u128, 0, 1, 1],
+            Some([1_u128, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Decimal128(38, 0), &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_completeness_int128() {
+    let cases: [BinCmpCase<i128>; 3] = [
+        bin_cmp_case(
+            [20_i128, -3, -4, -5],
+            [20_i128, 2, 3, 4],
+            [1_i128, 0, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [0_i128, 5, -2, -7],
+            [-1_i128, 4, -1, -6],
+            [1_i128, 1, 0, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [2_i128, 5, 1, 7],
+            [1_i128, 6, 1, 2],
+            [1_i128, 0, 1, 1],
+            Some([1_i128, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_completeness_cases(DataType::Decimal128(38, 0), &cases);
+}
+
+#[test]
+fn gadget_bin_cmp_soundness_int128() {
+    let cases: [BinCmpCase<i128>; 3] = [
+        bin_cmp_case(
+            [1_i128, 2, 3, 4],
+            [0_i128, 3, 3, 5],
+            [1_i128, 1, 1, 0],
+            None,
+        ),
+        bin_cmp_case(
+            [4_i128, 2, 1, 0],
+            [4_i128, 1, 2, 0],
+            [0_i128, 1, 0, 1],
+            None,
+        ),
+        bin_cmp_case(
+            [2_i128, 5, 1, 7],
+            [1_i128, 6, 1, 2],
+            [0_i128, 0, 1, 1],
+            Some([1_i128, 0, 1, 0]),
+        ),
+    ];
+    run_bin_cmp_soundness_cases(DataType::Decimal128(38, 0), &cases);
 }
