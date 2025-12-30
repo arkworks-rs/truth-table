@@ -48,8 +48,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode {
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
-    fn gadget(&self) -> std::sync::Arc<Node<B>> {
-        todo!()
+    fn gadget(&self) -> Option<Node<B>> {
+        None
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {

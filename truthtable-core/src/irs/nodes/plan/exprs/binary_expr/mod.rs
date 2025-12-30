@@ -37,7 +37,7 @@ pub struct BinaryExprNode<B: SnarkBackend> {
     /// The scope node.
     pub scope: Arc<Node<B>>,
     /// The gadget node.
-    pub gadget: Arc<Node<B>>,
+    pub gadget: Option<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> BinaryExprNode<B> {
@@ -56,23 +56,27 @@ impl<B: SnarkBackend> BinaryExprNode<B> {
     }
     /// Dispatches to the appropriate gadget node based on the binary operator.
     /// Since binary expressions can represent a variety of operations, we need to select the correct gadget node.
-    fn dispatch_gadget(op: datafusion_expr::Operator) -> Arc<Node<B>> {
+    fn dispatch_gadget(op: datafusion_expr::Operator) -> Option<Arc<Node<B>>> {
         match op {
-            datafusion_expr::Operator::Eq => {
-                Arc::new(Node::<B>::Gadget(Arc::new(bin_eq::BinEqNode::new())))
-            }
-            datafusion_expr::Operator::GtEq => Arc::new(Node::<B>::Gadget(Arc::new(
+            datafusion_expr::Operator::Eq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_eq::BinEqNode::new(),
+            )))),
+            datafusion_expr::Operator::GtEq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Geq),
-            ))),
-            datafusion_expr::Operator::LtEq => Arc::new(Node::<B>::Gadget(Arc::new(
+            )))),
+            datafusion_expr::Operator::LtEq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Leq),
-            ))),
-            datafusion_expr::Operator::Gt => Arc::new(Node::<B>::Gadget(Arc::new(
+            )))),
+            datafusion_expr::Operator::Gt => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Gt),
-            ))),
-            datafusion_expr::Operator::Lt => Arc::new(Node::<B>::Gadget(Arc::new(
+            )))),
+            datafusion_expr::Operator::Lt => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
-            ))),
+            )))),
+            datafusion_expr::Operator::Multiply => None,
+            datafusion_expr::Operator::Plus => None,
+            datafusion_expr::Operator::Minus => None,
+            datafusion_expr::Operator::And => None,
             _ => panic!("Unsupported operator for binary expression gadget"),
         }
     }
@@ -92,7 +96,11 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.left.clone(), self.right.clone(), self.gadget().clone()]
+        let mut children = vec![self.left.clone(), self.right.clone()];
+        if let Some(gadget) = &self.gadget {
+            children.push(gadget.clone());
+        }
+        children
     }
 }
 
@@ -209,6 +217,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
         _id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.gadget.is_none() {
+            return Ok(());
+        }
         let extract_plan_payload =
             |node_id: &crate::irs::nodes::NodeId| -> Option<arithmetic::table::TrackedTable<B>> {
                 virtualized_ir
@@ -223,10 +234,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
         let right_payload = extract_plan_payload(&self.right.id());
         let output_payload = extract_plan_payload(&_id);
 
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut gadget_payload =
+            match virtualized_ir.payload_for_node(&self.gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
         if let Some(table) = left_payload {
             gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
@@ -240,7 +252,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
+                self.gadget.as_ref().unwrap().id(),
                 Some(PayloadStructure::GadgetPayload(gadget_payload)),
             );
         }
@@ -361,6 +373,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.gadget.is_none() {
+            return Ok(());
+        }
         let extract_plan_payload = |node_id: &NodeId| {
             virtualized_ir
                 .payload_for_node(node_id)
@@ -374,10 +389,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
         let right_payload = extract_plan_payload(&self.right.id());
         let output_payload = extract_plan_payload(&id);
 
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut gadget_payload =
+            match virtualized_ir.payload_for_node(&self.gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
         if let Some(table) = left_payload {
             gadget_payload.insert(LEFT_INPUT_LABEL.to_string(), table);
@@ -391,7 +407,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
+                self.gadget.as_ref().unwrap().id(),
                 Some(PayloadStructure::GadgetPayload(gadget_payload)),
             );
         }
@@ -400,8 +416,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
-    fn gadget(&self) -> Arc<Node<B>> {
-        self.gadget.clone()
+    fn gadget(&self) -> Option<Node<B>> {
+        self.gadget.as_ref().map(|gadget| gadget.as_ref().clone())
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {

@@ -346,8 +346,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
-    fn gadget(&self) -> Arc<Node<B>> {
-        self.gadget.clone()
+    fn gadget(&self) -> Option<Node<B>> {
+        Some(self.gadget.as_ref().clone())
     }
 
     fn output(&self) -> HintDF {

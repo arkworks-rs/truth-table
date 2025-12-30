@@ -137,8 +137,8 @@ pub trait IsPlanNode<B>: IsNode<B>
 where
     B: SnarkBackend,
 {
-    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<Node<B>>;
+    /// Returns the gadget associated with this plan node, if any.
+    fn gadget(&self) -> Option<Node<B>>;
     /// Outputs the DataFrame resulting from executing this plan node.
     fn output(&self) -> HintDF;
 }
@@ -349,8 +349,8 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
-    /// Returns the gadget associated with this plan node. Note that each plan node has exactly one gadget.
-    fn gadget(&self) -> Arc<Node<B>> {
+    /// Returns the gadget associated with this plan node, if any.
+    fn gadget(&self) -> Option<Node<B>> {
         match &self {
             PlanNode::LpBased(lp_node) => lp_node.gadget(),
             PlanNode::ExprBased(expr_node) => expr_node.gadget(),
