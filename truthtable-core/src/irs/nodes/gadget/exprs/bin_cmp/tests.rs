@@ -100,14 +100,19 @@ fn tracked_poly_from_evals(
 
 struct BinCmpCase<T> {
     left: [T; 4],
-    right: [T; 4],
+    right: RightInput<T>,
     output: [T; 4],
     activator: Option<[T; 4]>,
 }
 
+enum RightInput<T> {
+    Column([T; 4]),
+    Literal(T),
+}
+
 fn bin_cmp_case<T>(
     left: [T; 4],
-    right: [T; 4],
+    right: RightInput<T>,
     output: [T; 4],
     activator: Option<[T; 4]>,
 ) -> BinCmpCase<T> {
@@ -116,6 +121,21 @@ fn bin_cmp_case<T>(
         right,
         output,
         activator,
+    }
+}
+
+fn right_col<T>(values: [T; 4]) -> RightInput<T> {
+    RightInput::Column(values)
+}
+
+fn right_lit<T>(value: T) -> RightInput<T> {
+    RightInput::Literal(value)
+}
+
+fn expand_right<T: Copy>(right: &RightInput<T>) -> [T; 4] {
+    match right {
+        RightInput::Column(values) => *values,
+        RightInput::Literal(value) => [*value; 4],
     }
 }
 
@@ -298,10 +318,11 @@ fn run_bin_cmp_completeness_cases<T: IntoField + Copy>(
 ) {
     for case in cases {
         let activator = case.activator.as_ref().map(|values| &values[..]);
+        let right_vals = expand_right(&case.right);
         end_to_end_bin_geq_prove_and_verify(
             data_type.clone(),
             &case.left,
-            &case.right,
+            &right_vals,
             &case.output,
             activator,
         )
@@ -312,10 +333,11 @@ fn run_bin_cmp_completeness_cases<T: IntoField + Copy>(
 fn run_bin_cmp_soundness_cases<T: IntoField + Copy>(data_type: DataType, cases: &[BinCmpCase<T>]) {
     for case in cases {
         let activator = case.activator.as_ref().map(|values| &values[..]);
+        let right_vals = expand_right(&case.right);
         let err = end_to_end_bin_geq_prove_and_verify(
             data_type.clone(),
             &case.left,
-            &case.right,
+            &right_vals,
             &case.output,
             activator,
         )
@@ -327,18 +349,18 @@ fn run_bin_cmp_soundness_cases<T: IntoField + Copy>(data_type: DataType, cases: 
 #[test]
 fn gadget_bin_cmp_completeness_uint8() {
     let cases: [BinCmpCase<u8>; 4] = [
-        bin_cmp_case([20_u8, 3, 4, 5], [20_u8, 4, 3, 6], [1_u8, 0, 1, 0], None),
-        bin_cmp_case([0_u8, 5, 2, 7], [1_u8, 4, 3, 6], [0_u8, 1, 0, 1], None),
+        bin_cmp_case([20_u8, 3, 4, 5], right_col([20_u8, 4, 3, 6]), [1_u8, 0, 1, 0], None),
+        bin_cmp_case([0_u8, 5, 2, 7], right_col([1_u8, 4, 3, 6]), [0_u8, 1, 0, 1], None),
         bin_cmp_case(
             [0_u8, 5, 2, 7],
-            [1_u8, 4, 3, 6],
+            right_col([1_u8, 4, 3, 6]),
             [0_u8, 1, 0, 1],
             Some([0_u8, 1, 1, 1]),
         ),
         bin_cmp_case(
             [0_u8, 5, 2, 7],
-            [1_u8, 4, 3, 6],
-            [0_u8, 1, 0, 0],
+            right_lit(2_u8),
+            [0_u8, 1, 1, 0],
             Some([0_u8, 1, 1, 0]),
         ),
     ];
@@ -348,11 +370,11 @@ fn gadget_bin_cmp_completeness_uint8() {
 #[test]
 fn gadget_bin_cmp_soundness_uint8() {
     let cases: [BinCmpCase<u8>; 3] = [
-        bin_cmp_case([1_u8, 2, 3, 4], [0_u8, 3, 3, 5], [1_u8, 1, 1, 0], None),
-        bin_cmp_case([4_u8, 2, 1, 0], [4_u8, 1, 2, 0], [0_u8, 1, 0, 1], None),
+        bin_cmp_case([1_u8, 2, 3, 4], right_col([0_u8, 3, 3, 5]), [1_u8, 1, 1, 0], None),
+        bin_cmp_case([4_u8, 2, 1, 0], right_col([4_u8, 1, 2, 0]), [0_u8, 1, 0, 1], None),
         bin_cmp_case(
             [2_u8, 5, 1, 7],
-            [1_u8, 6, 1, 2],
+            right_lit(2_u8),
             [0_u8, 0, 1, 1],
             Some([1_u8, 0, 1, 0]),
         ),
@@ -363,12 +385,12 @@ fn gadget_bin_cmp_soundness_uint8() {
 #[test]
 fn gadget_bin_cmp_completeness_int8() {
     let cases: [BinCmpCase<i8>; 3] = [
-        bin_cmp_case([20_i8, -3, -4, -5], [20_i8, 2, 3, 4], [1_i8, 0, 0, 0], None),
-        bin_cmp_case([0_i8, 5, -2, -7], [-1_i8, 4, -1, -6], [1_i8, 1, 0, 0], None),
+        bin_cmp_case([20_i8, -3, -4, -5], right_col([20_i8, 2, 3, 4]), [1_i8, 0, 0, 0], None),
+        bin_cmp_case([0_i8, 5, -2, -7], right_col([-1_i8, 4, -1, -6]), [1_i8, 1, 0, 0], None),
         bin_cmp_case(
             [2_i8, 5, 1, 7],
-            [1_i8, 6, 1, 2],
-            [1_i8, 0, 1, 1],
+            right_lit(2_i8),
+            [1_i8, 1, 0, 1],
             Some([1_i8, 0, 1, 0]),
         ),
     ];
@@ -378,11 +400,11 @@ fn gadget_bin_cmp_completeness_int8() {
 #[test]
 fn gadget_bin_cmp_soundness_int8() {
     let cases: [BinCmpCase<i8>; 3] = [
-        bin_cmp_case([1_i8, 2, 3, 4], [0_i8, 3, 3, 5], [1_i8, 1, 1, 0], None),
-        bin_cmp_case([4_i8, 2, 1, 0], [4_i8, 1, 2, 0], [0_i8, 1, 0, 1], None),
+        bin_cmp_case([1_i8, 2, 3, 4], right_col([0_i8, 3, 3, 5]), [1_i8, 1, 1, 0], None),
+        bin_cmp_case([4_i8, 2, 1, 0], right_col([4_i8, 1, 2, 0]), [0_i8, 1, 0, 1], None),
         bin_cmp_case(
             [2_i8, 5, 1, 7],
-            [1_i8, 6, 1, 2],
+            right_lit(2_i8),
             [0_i8, 0, 1, 1],
             Some([1_i8, 0, 1, 0]),
         ),
@@ -393,12 +415,12 @@ fn gadget_bin_cmp_soundness_int8() {
 #[test]
 fn gadget_bin_cmp_completeness_uint16() {
     let cases: [BinCmpCase<u16>; 3] = [
-        bin_cmp_case([20_u16, 3, 4, 5], [20_u16, 4, 3, 6], [1_u16, 0, 1, 0], None),
-        bin_cmp_case([0_u16, 5, 2, 7], [1_u16, 4, 3, 6], [0_u16, 1, 0, 1], None),
+        bin_cmp_case([20_u16, 3, 4, 5], right_col([20_u16, 4, 3, 6]), [1_u16, 0, 1, 0], None),
+        bin_cmp_case([0_u16, 5, 2, 7], right_col([1_u16, 4, 3, 6]), [0_u16, 1, 0, 1], None),
         bin_cmp_case(
             [2_u16, 5, 1, 7],
-            [1_u16, 6, 1, 2],
-            [1_u16, 0, 1, 1],
+            right_lit(2_u16),
+            [1_u16, 1, 0, 1],
             Some([1_u16, 0, 1, 0]),
         ),
     ];
@@ -408,11 +430,11 @@ fn gadget_bin_cmp_completeness_uint16() {
 #[test]
 fn gadget_bin_cmp_soundness_uint16() {
     let cases: [BinCmpCase<u16>; 3] = [
-        bin_cmp_case([1_u16, 2, 3, 4], [0_u16, 3, 3, 5], [1_u16, 1, 1, 0], None),
-        bin_cmp_case([4_u16, 2, 1, 0], [4_u16, 1, 2, 0], [0_u16, 1, 0, 1], None),
+        bin_cmp_case([1_u16, 2, 3, 4], right_col([0_u16, 3, 3, 5]), [1_u16, 1, 1, 0], None),
+        bin_cmp_case([4_u16, 2, 1, 0], right_col([4_u16, 1, 2, 0]), [0_u16, 1, 0, 1], None),
         bin_cmp_case(
             [2_u16, 5, 1, 7],
-            [1_u16, 6, 1, 2],
+            right_lit(2_u16),
             [0_u16, 0, 1, 1],
             Some([1_u16, 0, 1, 0]),
         ),
@@ -425,20 +447,20 @@ fn gadget_bin_cmp_completeness_int16() {
     let cases: [BinCmpCase<i16>; 3] = [
         bin_cmp_case(
             [20_i16, -3, -4, -5],
-            [20_i16, 2, 3, 4],
+            right_col([20_i16, 2, 3, 4]),
             [1_i16, 0, 0, 0],
             None,
         ),
         bin_cmp_case(
             [0_i16, 5, -2, -7],
-            [-1_i16, 4, -1, -6],
+            right_col([-1_i16, 4, -1, -6]),
             [1_i16, 1, 0, 0],
             None,
         ),
         bin_cmp_case(
             [2_i16, 5, 1, 7],
-            [1_i16, 6, 1, 2],
-            [1_i16, 0, 1, 1],
+            right_lit(2_i16),
+            [1_i16, 1, 0, 1],
             Some([1_i16, 0, 1, 0]),
         ),
     ];
@@ -448,11 +470,11 @@ fn gadget_bin_cmp_completeness_int16() {
 #[test]
 fn gadget_bin_cmp_soundness_int16() {
     let cases: [BinCmpCase<i16>; 3] = [
-        bin_cmp_case([1_i16, 2, 3, 4], [0_i16, 3, 3, 5], [1_i16, 1, 1, 0], None),
-        bin_cmp_case([4_i16, 2, 1, 0], [4_i16, 1, 2, 0], [0_i16, 1, 0, 1], None),
+        bin_cmp_case([1_i16, 2, 3, 4], right_col([0_i16, 3, 3, 5]), [1_i16, 1, 1, 0], None),
+        bin_cmp_case([4_i16, 2, 1, 0], right_col([4_i16, 1, 2, 0]), [0_i16, 1, 0, 1], None),
         bin_cmp_case(
             [2_i16, 5, 1, 7],
-            [1_i16, 6, 1, 2],
+            right_lit(2_i16),
             [0_i16, 0, 1, 1],
             Some([1_i16, 0, 1, 0]),
         ),
@@ -463,12 +485,12 @@ fn gadget_bin_cmp_soundness_int16() {
 #[test]
 fn gadget_bin_cmp_completeness_uint32() {
     let cases: [BinCmpCase<u32>; 3] = [
-        bin_cmp_case([20_u32, 3, 4, 5], [20_u32, 4, 3, 6], [1_u32, 0, 1, 0], None),
-        bin_cmp_case([0_u32, 5, 2, 7], [1_u32, 4, 3, 6], [0_u32, 1, 0, 1], None),
+        bin_cmp_case([20_u32, 3, 4, 5], right_col([20_u32, 4, 3, 6]), [1_u32, 0, 1, 0], None),
+        bin_cmp_case([0_u32, 5, 2, 7], right_col([1_u32, 4, 3, 6]), [0_u32, 1, 0, 1], None),
         bin_cmp_case(
             [2_u32, 5, 1, 7],
-            [1_u32, 6, 1, 2],
-            [1_u32, 0, 1, 1],
+            right_lit(2_u32),
+            [1_u32, 1, 0, 1],
             Some([1_u32, 0, 1, 0]),
         ),
     ];
@@ -478,11 +500,11 @@ fn gadget_bin_cmp_completeness_uint32() {
 #[test]
 fn gadget_bin_cmp_soundness_uint32() {
     let cases: [BinCmpCase<u32>; 3] = [
-        bin_cmp_case([1_u32, 2, 3, 4], [0_u32, 3, 3, 5], [1_u32, 1, 1, 0], None),
-        bin_cmp_case([4_u32, 2, 1, 0], [4_u32, 1, 2, 0], [0_u32, 1, 0, 1], None),
+        bin_cmp_case([1_u32, 2, 3, 4], right_col([0_u32, 3, 3, 5]), [1_u32, 1, 1, 0], None),
+        bin_cmp_case([4_u32, 2, 1, 0], right_col([4_u32, 1, 2, 0]), [0_u32, 1, 0, 1], None),
         bin_cmp_case(
             [2_u32, 5, 1, 7],
-            [1_u32, 6, 1, 2],
+            right_lit(2_u32),
             [0_u32, 0, 1, 1],
             Some([1_u32, 0, 1, 0]),
         ),
@@ -495,20 +517,20 @@ fn gadget_bin_cmp_completeness_int32() {
     let cases: [BinCmpCase<i32>; 3] = [
         bin_cmp_case(
             [20_i32, -3, -4, -5],
-            [20_i32, 2, 3, 4],
+            right_col([20_i32, 2, 3, 4]),
             [1_i32, 0, 0, 0],
             None,
         ),
         bin_cmp_case(
             [0_i32, 5, -2, -7],
-            [-1_i32, 4, -1, -6],
+            right_col([-1_i32, 4, -1, -6]),
             [1_i32, 1, 0, 0],
             None,
         ),
         bin_cmp_case(
             [2_i32, 5, 1, 7],
-            [1_i32, 6, 1, 2],
-            [1_i32, 0, 1, 1],
+            right_lit(2_i32),
+            [1_i32, 1, 0, 1],
             Some([1_i32, 0, 1, 0]),
         ),
     ];
@@ -518,11 +540,11 @@ fn gadget_bin_cmp_completeness_int32() {
 #[test]
 fn gadget_bin_cmp_soundness_int32() {
     let cases: [BinCmpCase<i32>; 3] = [
-        bin_cmp_case([1_i32, 2, 3, 4], [0_i32, 3, 3, 5], [1_i32, 1, 1, 0], None),
-        bin_cmp_case([4_i32, 2, 1, 0], [4_i32, 1, 2, 0], [0_i32, 1, 0, 1], None),
+        bin_cmp_case([1_i32, 2, 3, 4], right_col([0_i32, 3, 3, 5]), [1_i32, 1, 1, 0], None),
+        bin_cmp_case([4_i32, 2, 1, 0], right_col([4_i32, 1, 2, 0]), [0_i32, 1, 0, 1], None),
         bin_cmp_case(
             [2_i32, 5, 1, 7],
-            [1_i32, 6, 1, 2],
+            right_lit(2_i32),
             [0_i32, 0, 1, 1],
             Some([1_i32, 0, 1, 0]),
         ),
@@ -533,12 +555,12 @@ fn gadget_bin_cmp_soundness_int32() {
 #[test]
 fn gadget_bin_cmp_completeness_uint64() {
     let cases: [BinCmpCase<u64>; 3] = [
-        bin_cmp_case([20_u64, 3, 4, 5], [20_u64, 4, 3, 6], [1_u64, 0, 1, 0], None),
-        bin_cmp_case([0_u64, 5, 2, 7], [1_u64, 4, 3, 6], [0_u64, 1, 0, 1], None),
+        bin_cmp_case([20_u64, 3, 4, 5], right_col([20_u64, 4, 3, 6]), [1_u64, 0, 1, 0], None),
+        bin_cmp_case([0_u64, 5, 2, 7], right_col([1_u64, 4, 3, 6]), [0_u64, 1, 0, 1], None),
         bin_cmp_case(
             [2_u64, 5, 1, 7],
-            [1_u64, 6, 1, 2],
-            [1_u64, 0, 1, 1],
+            right_lit(2_u64),
+            [1_u64, 1, 0, 1],
             Some([1_u64, 0, 1, 0]),
         ),
     ];
@@ -548,11 +570,11 @@ fn gadget_bin_cmp_completeness_uint64() {
 #[test]
 fn gadget_bin_cmp_soundness_uint64() {
     let cases: [BinCmpCase<u64>; 3] = [
-        bin_cmp_case([1_u64, 2, 3, 4], [0_u64, 3, 3, 5], [1_u64, 1, 1, 0], None),
-        bin_cmp_case([4_u64, 2, 1, 0], [4_u64, 1, 2, 0], [0_u64, 1, 0, 1], None),
+        bin_cmp_case([1_u64, 2, 3, 4], right_col([0_u64, 3, 3, 5]), [1_u64, 1, 1, 0], None),
+        bin_cmp_case([4_u64, 2, 1, 0], right_col([4_u64, 1, 2, 0]), [0_u64, 1, 0, 1], None),
         bin_cmp_case(
             [2_u64, 5, 1, 7],
-            [1_u64, 6, 1, 2],
+            right_lit(2_u64),
             [0_u64, 0, 1, 1],
             Some([1_u64, 0, 1, 0]),
         ),
@@ -565,20 +587,20 @@ fn gadget_bin_cmp_completeness_int64() {
     let cases: [BinCmpCase<i64>; 3] = [
         bin_cmp_case(
             [20_i64, -3, -4, -5],
-            [20_i64, 2, 3, 4],
+            right_col([20_i64, 2, 3, 4]),
             [1_i64, 0, 0, 0],
             None,
         ),
         bin_cmp_case(
             [0_i64, 5, -2, -7],
-            [-1_i64, 4, -1, -6],
+            right_col([-1_i64, 4, -1, -6]),
             [1_i64, 1, 0, 0],
             None,
         ),
         bin_cmp_case(
             [2_i64, 5, 1, 7],
-            [1_i64, 6, 1, 2],
-            [1_i64, 0, 1, 1],
+            right_lit(2_i64),
+            [1_i64, 1, 0, 1],
             Some([1_i64, 0, 1, 0]),
         ),
     ];
@@ -588,11 +610,11 @@ fn gadget_bin_cmp_completeness_int64() {
 #[test]
 fn gadget_bin_cmp_soundness_int64() {
     let cases: [BinCmpCase<i64>; 3] = [
-        bin_cmp_case([1_i64, 2, 3, 4], [0_i64, 3, 3, 5], [1_i64, 1, 1, 0], None),
-        bin_cmp_case([4_i64, 2, 1, 0], [4_i64, 1, 2, 0], [0_i64, 1, 0, 1], None),
+        bin_cmp_case([1_i64, 2, 3, 4], right_col([0_i64, 3, 3, 5]), [1_i64, 1, 1, 0], None),
+        bin_cmp_case([4_i64, 2, 1, 0], right_col([4_i64, 1, 2, 0]), [0_i64, 1, 0, 1], None),
         bin_cmp_case(
             [2_i64, 5, 1, 7],
-            [1_i64, 6, 1, 2],
+            right_lit(2_i64),
             [0_i64, 0, 1, 1],
             Some([1_i64, 0, 1, 0]),
         ),
@@ -605,20 +627,20 @@ fn gadget_bin_cmp_completeness_uint128() {
     let cases: [BinCmpCase<u128>; 3] = [
         bin_cmp_case(
             [20_u128, 3, 4, 5],
-            [20_u128, 4, 3, 6],
+            right_col([20_u128, 4, 3, 6]),
             [1_u128, 0, 1, 0],
             None,
         ),
         bin_cmp_case(
             [0_u128, 5, 2, 7],
-            [1_u128, 4, 3, 6],
+            right_col([1_u128, 4, 3, 6]),
             [0_u128, 1, 0, 1],
             None,
         ),
         bin_cmp_case(
             [2_u128, 5, 1, 7],
-            [1_u128, 6, 1, 2],
-            [1_u128, 0, 1, 1],
+            right_lit(2_u128),
+            [1_u128, 1, 0, 1],
             Some([1_u128, 0, 1, 0]),
         ),
     ];
@@ -630,19 +652,19 @@ fn gadget_bin_cmp_soundness_uint128() {
     let cases: [BinCmpCase<u128>; 3] = [
         bin_cmp_case(
             [1_u128, 2, 3, 4],
-            [0_u128, 3, 3, 5],
+            right_col([0_u128, 3, 3, 5]),
             [1_u128, 1, 1, 0],
             None,
         ),
         bin_cmp_case(
             [4_u128, 2, 1, 0],
-            [4_u128, 1, 2, 0],
+            right_col([4_u128, 1, 2, 0]),
             [0_u128, 1, 0, 1],
             None,
         ),
         bin_cmp_case(
             [2_u128, 5, 1, 7],
-            [1_u128, 6, 1, 2],
+            right_lit(2_u128),
             [0_u128, 0, 1, 1],
             Some([1_u128, 0, 1, 0]),
         ),
@@ -655,20 +677,20 @@ fn gadget_bin_cmp_completeness_int128() {
     let cases: [BinCmpCase<i128>; 3] = [
         bin_cmp_case(
             [20_i128, -3, -4, -5],
-            [20_i128, 2, 3, 4],
+            right_col([20_i128, 2, 3, 4]),
             [1_i128, 0, 0, 0],
             None,
         ),
         bin_cmp_case(
             [0_i128, 5, -2, -7],
-            [-1_i128, 4, -1, -6],
+            right_col([-1_i128, 4, -1, -6]),
             [1_i128, 1, 0, 0],
             None,
         ),
         bin_cmp_case(
             [2_i128, 5, 1, 7],
-            [1_i128, 6, 1, 2],
-            [1_i128, 0, 1, 1],
+            right_lit(2_i128),
+            [1_i128, 1, 0, 1],
             Some([1_i128, 0, 1, 0]),
         ),
     ];
@@ -680,19 +702,19 @@ fn gadget_bin_cmp_soundness_int128() {
     let cases: [BinCmpCase<i128>; 3] = [
         bin_cmp_case(
             [1_i128, 2, 3, 4],
-            [0_i128, 3, 3, 5],
+            right_col([0_i128, 3, 3, 5]),
             [1_i128, 1, 1, 0],
             None,
         ),
         bin_cmp_case(
             [4_i128, 2, 1, 0],
-            [4_i128, 1, 2, 0],
+            right_col([4_i128, 1, 2, 0]),
             [0_i128, 1, 0, 1],
             None,
         ),
         bin_cmp_case(
             [2_i128, 5, 1, 7],
-            [1_i128, 6, 1, 2],
+            right_lit(2_i128),
             [0_i128, 0, 1, 1],
             Some([1_i128, 0, 1, 0]),
         ),

@@ -19,6 +19,14 @@ impl<B: SnarkBackend> TTProof<B> {
     pub fn new(snark_proof: SNARKProof<B>) -> Self {
         Self { snark_proof }
     }
+
+    pub fn into_inner(self) -> SNARKProof<B> {
+        self.snark_proof
+    }
+
+    pub fn as_inner(&self) -> &SNARKProof<B> {
+        &self.snark_proof
+    }
 }
 
 pub struct TTPk<B: SnarkBackend> {
