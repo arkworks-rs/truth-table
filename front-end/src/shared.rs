@@ -41,8 +41,8 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
 
     pub fn with_defaults(session_ctx: SessionContext) -> Self {
         Self::new(
-            Analyzer::new(),
-            Optimizer::new(),
+            Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
+            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
             CtxOracles::default(),
             session_ctx,
             ConfigOptions::new(),
@@ -81,19 +81,11 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     pub async fn analyze_and_optimize_lp(&self, lp: LogicalPlan) -> LogicalPlan {
         let analyzed_lp = self
             .analyzer()
-            .execute_and_check(
-                lp,
-                self.config_options(),
-                |_plan_after_rule, _rule| {},
-            )
+            .execute_and_check(lp, self.config_options(), |_plan_after_rule, _rule| {})
             .unwrap();
 
         self.optimizer()
-            .optimize(
-                analyzed_lp.clone(),
-                self.optimizer_ctx(),
-                self.observer(),
-            )
+            .optimize(analyzed_lp.clone(), self.optimizer_ctx(), self.observer())
             .unwrap()
     }
 }

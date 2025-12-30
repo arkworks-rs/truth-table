@@ -20,7 +20,7 @@ use datafusion::{
     },
 };
 
-pub(crate) fn logical_plan_analyzer_rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
     vec![
         Arc::new(ApplyFunctionRewrites::default()),
         Arc::new(InlineTableScan::new()),

@@ -11,6 +11,7 @@ use crate::irs::{
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
+    pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
 }
 
@@ -114,12 +115,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let scope_payload = virtualized_ir.payload_for_node(&scope_id);
 
         // Helper: try to pull the requested column (and activator) from a tracked table oracle.
-        let try_build_subtable =
-            |table: &arithmetic::table_oracle::TrackedTableOracle<B>, column_name: &str| {
-                let schema = table.schema_ref()?;
-                let col_idx = schema.index_of(column_name).ok()?;
-                Some(table.tracked_subtable_by_indices(&[col_idx]))
-            };
+        let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+                                  column_name: &str| {
+            let schema = table.schema_ref()?;
+            let col_idx = schema.index_of(column_name).ok()?;
+            Some(table.tracked_subtable_by_indices(&[col_idx]))
+        };
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
@@ -148,7 +149,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     fn from_expr(
         _expr: datafusion_expr::Expr,
-        self_ref: std::sync::Weak<Node<B>>,
+        _self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
         scope: std::sync::Arc<Node<B>>,
     ) -> Self
@@ -159,7 +160,11 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Column(col) => col,
             _ => panic!("Expected Column expression"),
         };
-        Self { column, scope }
+        Self {
+            column,
+            scope,
+            parent,
+        }
     }
 
     fn expr(&self) -> datafusion_expr::Expr {
@@ -170,7 +175,14 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        todo!()
+        self.parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .map(|arc_node| match arc_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.clone(),
+                Node::Gadget(_) => panic!("Column parent cannot be a gadget node"),
+            })
+            .expect("Column node must have a parent")
     }
 
     fn scope(&self) -> std::sync::Arc<Node<B>>

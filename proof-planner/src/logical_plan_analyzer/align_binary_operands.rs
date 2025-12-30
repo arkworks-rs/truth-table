@@ -4,7 +4,10 @@ use super::common::cast_expression_to_type;
 use datafusion::{
     arrow::datatypes::DataType, config::ConfigOptions, optimizer::analyzer::AnalyzerRule,
 };
-use datafusion_common::{DFSchema, Result, tree_node::{Transformed, TreeNode}};
+use datafusion_common::{
+    tree_node::{Transformed, TreeNode},
+    DFSchema, Result,
+};
 use datafusion_expr::{
     expr::{BinaryExpr, Exists, InSubquery},
     logical_plan::{LogicalPlan, Subquery},
@@ -200,7 +203,7 @@ mod tests {
         Expr, LogicalPlan, Operator,
     };
 
-    use crate::logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
+    use crate::logical_plan_analyzer::{analyze_logical_plan, rules};
 
     fn projection_expr(plan: &LogicalPlan) -> &Expr {
         match plan {
@@ -223,7 +226,7 @@ mod tests {
             )])?
             .build()?;
 
-        let analyzed = analyze_logical_plan(plan, logical_plan_analyzer_rules());
+        let analyzed = analyze_logical_plan(plan, rules());
         let expr = projection_expr(&analyzed);
         let Expr::BinaryExpr(binary) = expr else {
             panic!("expected binary expr, found {expr:?}");
@@ -253,7 +256,7 @@ mod tests {
             )])?
             .build()?;
 
-        let analyzed = analyze_logical_plan(plan, logical_plan_analyzer_rules());
+        let analyzed = analyze_logical_plan(plan, rules());
         let expr = projection_expr(&analyzed);
         let Expr::BinaryExpr(binary) = expr else {
             panic!("expected binary expr");

@@ -106,7 +106,7 @@ mod tests {
     };
     use datafusion_functions_aggregate::expr_fn::{avg, count, sum};
 
-    use crate::logical_plan_analyzer::{analyze_logical_plan, logical_plan_analyzer_rules};
+    use crate::logical_plan_analyzer::{analyze_logical_plan, rules};
 
     fn expect_aggregate(plan: &LogicalPlan) -> &datafusion_expr::logical_plan::Aggregate {
         match plan {
@@ -122,7 +122,7 @@ mod tests {
             .aggregate(Vec::<Expr>::new(), vec![sum(col("a"))])?
             .build()?;
 
-        let analyzed = analyze_logical_plan(plan, logical_plan_analyzer_rules());
+        let analyzed = analyze_logical_plan(plan, rules());
         let agg = expect_aggregate(&analyzed);
 
         let target_type = agg.schema.field(0).data_type().clone();
@@ -150,7 +150,7 @@ mod tests {
             .aggregate(Vec::<Expr>::new(), vec![avg(col("a"))])?
             .build()?;
 
-        let analyzed = analyze_logical_plan(plan, logical_plan_analyzer_rules());
+        let analyzed = analyze_logical_plan(plan, rules());
         let agg = expect_aggregate(&analyzed);
         let target_type = agg.schema.field(0).data_type().clone();
 
@@ -179,7 +179,7 @@ mod tests {
             .aggregate(Vec::<Expr>::new(), vec![count(col("a"))])?
             .build()?;
 
-        let analyzed = analyze_logical_plan(plan, logical_plan_analyzer_rules());
+        let analyzed = analyze_logical_plan(plan, rules());
         let agg = expect_aggregate(&analyzed);
 
         let Expr::AggregateFunction(aggregate_expr) =

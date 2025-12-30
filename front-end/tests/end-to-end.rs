@@ -28,14 +28,11 @@ async fn end_to_end() {
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(Int64Array::from(vec![1, 2, 3, 4])),
-            Arc::new(Int64Array::from(vec![
-                Some(10),
-                Some(20),
-                Some(30),
-                Some(40),
-            ])),
-            Arc::new(BooleanArray::from(vec![true, true, true, true])),
+            Arc::new(Int64Array::from((0..32).collect::<Vec<i64>>())),
+            Arc::new(Int64Array::from(
+                (0..32).map(|x| x * 10).collect::<Vec<i64>>(),
+            )),
+            Arc::new(BooleanArray::from(vec![true; 32])),
         ],
     )
     .unwrap();
@@ -44,6 +41,7 @@ async fn end_to_end() {
     let queries = [
         "SELECT id, value FROM dummy",
         "SELECT id FROM dummy WHERE id = 1",
+        "SELECT id FROM dummy WHERE value >= 15",
     ];
 
     for query in queries {
@@ -57,7 +55,7 @@ async fn end_to_end() {
             .expect("table registration should succeed");
 
         // Use a small log size to keep key generation fast in tests.
-        let (arg_prover, arg_verifier) = ark_piop::test_utils::prelude_with_vars::<Backend>(4)
+        let (arg_prover, arg_verifier) = ark_piop::test_utils::prelude_with_vars::<Backend>(16)
             .expect("prover prelude should succeed");
         let prover_shared_config: TTSharedConfig<Backend> =
             TTSharedConfig::with_defaults(prover_ctx);
