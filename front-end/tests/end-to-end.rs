@@ -17,8 +17,8 @@ use front_end::{
 };
 type Backend = ark_piop::DefaultSnarkBackend;
 use datafusion::datasource::TableProvider;
-#[tokio::test]
-async fn end_to_end() {
+
+async fn run_query(query: &str) {
     // Build a tiny in-memory table with deterministic data.
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
@@ -38,43 +38,54 @@ async fn end_to_end() {
     .unwrap();
     let mem_table = Arc::new(MemTable::try_new(schema, vec![vec![batch]]).unwrap());
 
-    let queries = [
-        "SELECT id, value FROM dummy",
-        "SELECT id FROM dummy WHERE id = 1",
-        "SELECT id FROM dummy WHERE value >= 15",
-    ];
+    let prover_ctx = SessionContext::new();
+    prover_ctx
+        .register_table("dummy", mem_table.clone())
+        .expect("table registration should succeed");
+    let verifier_ctx = SessionContext::new();
+    verifier_ctx
+        .register_table("dummy", mem_table.clone())
+        .expect("table registration should succeed");
 
-    for query in queries {
-        let prover_ctx = SessionContext::new();
-        prover_ctx
-            .register_table("dummy", mem_table.clone())
-            .expect("table registration should succeed");
-        let verifier_ctx = SessionContext::new();
-        verifier_ctx
-            .register_table("dummy", mem_table.clone())
-            .expect("table registration should succeed");
+    // Use a small log size to keep key generation fast in tests.
+    let (arg_prover, arg_verifier) = ark_piop::test_utils::prelude_with_vars::<Backend>(16)
+        .expect("prover prelude should succeed");
+    let prover_shared_config: TTSharedConfig<Backend> = TTSharedConfig::with_defaults(prover_ctx);
+    let verifier_shared_config: TTSharedConfig<Backend> =
+        TTSharedConfig::with_defaults(verifier_ctx);
+    let prover_config = TTProverConfig::default();
+    let prover = TTProver::new(prover_config, prover_shared_config, arg_prover);
+    let verifier_config = TTVerifierConfig::default();
+    let verifier = TTVerifier::new(verifier_config, verifier_shared_config, arg_verifier);
 
-        // Use a small log size to keep key generation fast in tests.
-        let (arg_prover, arg_verifier) = ark_piop::test_utils::prelude_with_vars::<Backend>(16)
-            .expect("prover prelude should succeed");
-        let prover_shared_config: TTSharedConfig<Backend> =
-            TTSharedConfig::with_defaults(prover_ctx);
-        let verifier_shared_config: TTSharedConfig<Backend> =
-            TTSharedConfig::with_defaults(verifier_ctx);
-        let prover_config = TTProverConfig::default();
-        let prover = TTProver::new(prover_config, prover_shared_config, arg_prover);
-        let verifier_config = TTVerifierConfig::default();
-        let verifier = TTVerifier::new(verifier_config, verifier_shared_config, arg_verifier);
+    let (output_table, proof) = prover.prove(query).await.expect("prove should succeed");
+    assert!(
+        !output_table.schema().fields().is_empty(),
+        "output schema should not be empty"
+    );
 
-        let (output_table, proof) = prover.prove(query).await.expect("prove should succeed");
-        assert!(
-            !output_table.schema().fields().is_empty(),
-            "output schema should not be empty"
-        );
+    verifier
+        .verify(query, proof)
+        .await
+        .expect("verifier should verify proof");
+}
 
-        verifier
-            .verify(query, proof)
-            .await
-            .expect("verifier should verify proof");
-    }
+#[tokio::test]
+async fn end_to_end_projection() {
+    run_query("SELECT id, value FROM dummy").await;
+}
+
+#[tokio::test]
+async fn end_to_end_filter_eq() {
+    run_query("SELECT id FROM dummy WHERE id = 1").await;
+}
+
+#[tokio::test]
+async fn end_to_end_filter_geq() {
+    run_query("SELECT id FROM dummy WHERE value >= 15").await;
+}
+
+#[tokio::test]
+async fn end_to_end_filter_le_complex_projection() {
+    run_query("SELECT 4*((id*3)+(value*10)-1) FROM dummy WHERE value <= 15").await;
 }
