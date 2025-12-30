@@ -13,9 +13,13 @@ use truthtable_core::{
         tree::Tree,
     },
     prover::{
-        irs::MaterializedIr,
+        irs::{
+            GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr,
+            VirtualizedIr as ProverVirtualizedIr,
+        },
         passes::{
             arithmetization::ArithmetizationPass, materialization::MaterializationPass,
+            gadget_initialization::GadgetInitializationPass, proving::ProvingPass,
             tracking::TrackingPass, virtualization::VirtualizationPass,
         },
     },
@@ -91,7 +95,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let materialized_ir = self.perform_primary_passes(tree).await;
         let output_memtable = self.extract_output_memtable(&materialized_ir).await?;
-        self.perform_secondary_passes(materialized_ir).await;
+        self.perform_secondary_passes(materialized_ir).await?;
         let mut arg_prover = self.arg_prover().clone();
         let arg_proof = arg_prover.build_proof().unwrap();
         let tt_proof = TTProof::new(arg_proof);
@@ -104,7 +108,7 @@ impl<B: SnarkBackend> TTProver<B> {
             initial_ir.apply_local_pass_parallel(&self.prover_config().planning_pass());
         planned_ir.apply_local_pass_parallel(&self.prover_config().materialization_pass())
     }
-    async fn perform_secondary_passes(&self, materialized_ir: MaterializedIr<B>) {
+    async fn perform_secondary_passes(&self, materialized_ir: MaterializedIr<B>) -> TTResult<()> {
         let arithmetized_ir =
             materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
         let tracked_ir = arithmetized_ir.apply_local_pass_sequential(
@@ -113,7 +117,23 @@ impl<B: SnarkBackend> TTProver<B> {
                 .tracking_pass(self.arg_prover().clone()),
         );
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
-        tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+        let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+        let gadget_ir_view = ProverVirtualizedIr::new(
+            virtualized_ir.tree().clone(),
+            virtualized_ir.payloads().clone(),
+        );
+        let gadget_initialization_pass =
+            GadgetInitializationPass::<B>::new(gadget_ir_view);
+        let gadget_ready_ir =
+            virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+        let proving_ir_view = ProverGadgetReadyIr::new(
+            gadget_ready_ir.tree().clone(),
+            gadget_ready_ir.payloads().clone(),
+        );
+        let proving_pass = ProvingPass::<B>::new(self.arg_prover().clone(), proving_ir_view);
+        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+        proving_pass.take_result()?;
+        Ok(())
     }
     async fn extract_output_memtable(
         &self,

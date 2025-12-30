@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use datafusion::datasource::TableProvider;
+use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::{
     arrow::{
-        array::Int64Array,
+        array::{BooleanArray, Int64Array},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
@@ -16,13 +16,14 @@ use front_end::{
     verifier::{TTVerifier, TTVerifierConfig},
 };
 type Backend = ark_piop::DefaultSnarkBackend;
-
+use datafusion::datasource::TableProvider;
 #[tokio::test]
 async fn end_to_end() {
     // Build a tiny in-memory table with deterministic data.
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("value", DataType::Int64, true),
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
     ]));
     let batch = RecordBatch::try_new(
         schema.clone(),
@@ -34,6 +35,7 @@ async fn end_to_end() {
                 Some(30),
                 Some(40),
             ])),
+            Arc::new(BooleanArray::from(vec![true, true, true, true])),
         ],
     )
     .unwrap();
