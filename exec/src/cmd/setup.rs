@@ -28,13 +28,12 @@ pub struct Setup {
 impl Runnable for Setup {
     async fn run(self) -> Result<()> {
         let runner = SetupBuilder::new()
-            .with_size_label(self.size.clone())
-            .with_pk_path(self.pk_path.clone())
-            .with_vk_path(self.vk_path.clone())
+            .with_size_label(self.size)
+            .with_pk_path(self.pk_path)
+            .with_vk_path(self.vk_path)
             .build()?;
 
         runner.run()?;
-
         Ok(())
     }
 }

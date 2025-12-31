@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use clap::Args;
 
 use super::{Runnable, common::ParquetArg};
-use crate::commit::CommitBuilder;
+// use crate::commit::CommitBuilder;
 
 #[derive(Args, Debug)]
 pub struct Commit {
@@ -33,14 +33,14 @@ impl Runnable for Commit {
             ));
         }
         let parquet_path = self.parquet.parquet[0].clone();
-        let runner = CommitBuilder::new()
-            .with_parquet_path(parquet_path)
-            .with_pk_path(self.pk_path.clone())
-            .with_output_path(self.output_path.clone())
-            .build()?;
+        // let runner = CommitBuilder::new()
+        //     .with_parquet_path(parquet_path)
+        //     .with_pk_path(self.pk_path.clone())
+        //     .with_output_path(self.output_path.clone())
+        //     .build()?;
 
-        let output = runner.run().await?;
-        println!("oracle written to {}", output.display());
+        // let output = runner.run().await?;
+        // println!("oracle written to {}", output.display());
         Ok(())
     }
 }

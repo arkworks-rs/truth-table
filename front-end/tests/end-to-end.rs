@@ -89,3 +89,8 @@ async fn end_to_end_filter_geq() {
 async fn end_to_end_filter_le_complex_projection() {
     run_query("SELECT 4*((id*3)+(value*10)-1) FROM dummy WHERE value <= 15").await;
 }
+#[tokio::test]
+async fn end_to_end_filter_le_complex_projection_complex_predicate() {
+    run_query("SELECT 4*((id*3)+(value*10)-1) FROM dummy WHERE (value*id)-4 <= (value*20)+id")
+        .await;
+}

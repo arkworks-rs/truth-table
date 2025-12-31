@@ -5,22 +5,14 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    setup::KeyGenerator,
-};
+use ark_piop::{DefaultSnarkBackend, setup::KeyGenerator};
 use ark_serialize::CanonicalSerialize;
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
-
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
 
 pub const DEFAULT_TEST_LOG_SIZE: usize = 16;
 pub const DEFAULT_BENCH_LOG_SIZE: usize = 20;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
-const DEFAULT_PK_FILE: &str = "tt_proving_key";
-const DEFAULT_VK_FILE: &str = "tt_verifying_key";
+const DEFAULT_PK_FILE: &str = "tt_pk";
+const DEFAULT_VK_FILE: &str = "tt_vk";
 
 pub struct SetupBuilder {
     size_label: Option<String>,
@@ -103,15 +95,25 @@ pub struct SetupRunner {
 }
 
 impl SetupRunner {
+    pub fn pk_path(&self) -> &Path {
+        &self.pk_path
+    }
+
+    pub fn vk_path(&self) -> &Path {
+        &self.vk_path
+    }
+
     pub fn run(&self) -> Result<()> {
-        let keygen = KeyGenerator::<B>::new().with_num_mv_vars(self.log_size);
+        let keygen = KeyGenerator::<DefaultSnarkBackend>::new().with_num_mv_vars(self.log_size);
 
         let (pk, vk) = keygen
             .gen_keys()
             .map_err(|e| anyhow!("failed to generate keys: {e}"))?;
 
         write_key(&pk, &self.pk_path)?;
+        log_written_file(&self.pk_path);
         write_key(&vk, &self.vk_path)?;
+        log_written_file(&self.vk_path);
 
         Ok(())
     }
@@ -158,4 +160,13 @@ fn write_key<T: CanonicalSerialize>(value: &T, path: &Path) -> Result<()> {
     file.flush()
         .with_context(|| format!("failed to flush {}", path.display()))?;
     Ok(())
+}
+
+fn log_written_file(path: &Path) {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown");
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    println!("file {file_name} was written in path {}", parent.display());
 }
