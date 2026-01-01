@@ -35,7 +35,6 @@ pub struct ProverIrStages<B: SnarkBackend> {
     pub tracked: TrackedIr<B>,
     pub virtualized: ProverVirtualizedIr<B>,
     pub gadget_ready: ProverGadgetReadyIr<B>,
-    pub arg_prover: ArgProver<B>,
 }
 
 pub struct TTProverConfig<B: SnarkBackend> {
@@ -98,15 +97,17 @@ impl<B: SnarkBackend> TTProver<B> {
     }
 
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
-        let stages = self.build_ir_stages(query).await?;
+        let (stages, mut arg_prover) = self.build_ir_stages(query).await?;
         let output_memtable = self.extract_output_memtable(&stages.materialized).await?;
-        let mut arg_prover = stages.arg_prover.clone();
         let arg_proof = arg_prover.build_proof().unwrap();
         let tt_proof = TTProof::new(arg_proof);
         Ok((output_memtable, tt_proof))
     }
 
-    pub async fn build_ir_stages(&self, query: &str) -> TTResult<ProverIrStages<B>> {
+    pub async fn build_ir_stages(
+        &self,
+        query: &str,
+    ) -> TTResult<(ProverIrStages<B>, ArgProver<B>)> {
         let initial_lp = self.shared_config().query_to_lp(query).await;
         let analyzed_and_optimized_lp = self
             .shared_config()
@@ -146,16 +147,18 @@ impl<B: SnarkBackend> TTProver<B> {
         let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
         proving_pass.take_result()?;
 
-        Ok(ProverIrStages {
-            initial: initial_ir,
-            planned: planned_ir,
-            materialized: materialized_ir,
-            arithmetized: arithmetized_ir,
-            tracked: tracked_ir,
-            virtualized: virtualized_ir,
-            gadget_ready: gadget_ready_ir,
+        Ok((
+            ProverIrStages {
+                initial: initial_ir,
+                planned: planned_ir,
+                materialized: materialized_ir,
+                arithmetized: arithmetized_ir,
+                tracked: tracked_ir,
+                virtualized: virtualized_ir,
+                gadget_ready: gadget_ready_ir,
+            },
             arg_prover,
-        })
+        ))
     }
 
     async fn extract_output_memtable(

@@ -161,11 +161,10 @@ async fn commit_parquet_with_pk(
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
     let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
-    let stages = prover.build_ir_stages(&query).await?;
+    let (stages, mut arg_prover) = prover.build_ir_stages(&query).await?;
     let table_scan_table =
         table_scan_payload(&stages.tracked).context("table scan result not found in tracked IR")?;
 
-    let mut arg_prover = stages.arg_prover.clone();
     let proof = arg_prover.build_proof().context("build proof")?;
     verifier.set_proof(proof);
 

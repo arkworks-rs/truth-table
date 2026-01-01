@@ -27,7 +27,6 @@ pub struct VerifierIrStages<B: SnarkBackend> {
     pub tracked: VerifierTrackedIr<B>,
     pub virtualized: VerifierVirtualizedIr<B>,
     pub gadget_ready: VerifierGadgetReadyIr<B>,
-    pub arg_verifier: ArgVerifier<B>,
 }
 
 pub struct TTVerifierConfig<B: SnarkBackend> {
@@ -86,8 +85,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     pub async fn verify(&self, query: &str, proof: TTProof<B>) -> TTResult<()> {
-        let stages = self.build_ir_stages(query, proof).await?;
-        stages.arg_verifier.verify()?;
+        let (_stages, mut arg_verifier) = self.build_ir_stages(query, proof).await?;
+        arg_verifier.verify()?;
         Ok(())
     }
 
@@ -95,7 +94,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self,
         query: &str,
         proof: TTProof<B>,
-    ) -> TTResult<VerifierIrStages<B>> {
+    ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
         let initial_lp = self.shared_config().query_to_lp(query).await;
         let analyzed_and_optimized_lp = self
             .shared_config()
@@ -130,13 +129,15 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
         verify_pass.take_result()?;
 
-        Ok(VerifierIrStages {
-            initial: initial_ir,
-            planned: planned_ir,
-            tracked: tracked_ir,
-            virtualized: virtualized_ir,
-            gadget_ready: gadget_ready_ir,
+        Ok((
+            VerifierIrStages {
+                initial: initial_ir,
+                planned: planned_ir,
+                tracked: tracked_ir,
+                virtualized: virtualized_ir,
+                gadget_ready: gadget_ready_ir,
+            },
             arg_verifier,
-        })
+        ))
     }
 }
