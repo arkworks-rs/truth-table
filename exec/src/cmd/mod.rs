@@ -9,7 +9,7 @@ pub mod verify;
 use anyhow::Result;
 use std::time::Instant;
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 pub trait Runnable: Sized {
     async fn run(self) -> Result<()>;
 

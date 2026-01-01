@@ -8,6 +8,7 @@ pub struct ParquetArg {
         long = "parquet-path",
         value_name = "FILE",
         value_hint = clap::ValueHint::FilePath,
+        required = true,
         num_args = 1..,
         action = clap::ArgAction::Append
     )]
@@ -21,6 +22,7 @@ pub struct OracleArg {
         long,
         value_name = "FILE",
         value_hint = clap::ValueHint::FilePath,
+        required = true,
         num_args = 1..,
         action = clap::ArgAction::Append
     )]

@@ -9,6 +9,7 @@ truthtable-core = { path = "../truthtable-core" }
 proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
 tpch-data = { path = "../tpch-data" }
+front-end = { path = "../front-end" }
 
 # arkworks dependencies
 ark-piop = { workspace = true, features = ["test-utils"] }

@@ -33,7 +33,7 @@ pub struct Verify {
     pub timed: bool,
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Runnable for Verify {
     async fn run(self) -> Result<()> {
         // let runner = VerifyBuilder::new()

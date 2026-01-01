@@ -6,31 +6,29 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::{ctx::CtxOracles, table_oracle::ArithTableOracle};
-use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    prover::ArgProver,
-    setup::structs::SNARKPk,
-};
+use arithmetic::table_oracle::ArithTableOracle;
+use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use indexmap::IndexMap;
-use proof_planner::create_prover_proof_tree_with_ctx;
-use tracing::instrument;
-use truthtable_core::prover::trees::{
-    arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-    piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
+use datafusion::{
+    config::ConfigOptions,
+    optimizer::{Analyzer, Optimizer, OptimizerContext},
+    prelude::{ParquetReadOptions, SessionContext},
 };
+use front_end::{
+    prover::{TTProver, TTProverConfig},
+    shared::TTSharedConfig,
+    structs::{Artifact, TTPk, TTProof},
+};
+use indexmap::IndexMap;
+use tracing::instrument;
+use truthtable_core::ctx_oracles::CtxOracles;
 
 use crate::{
     runtime,
-    structs::{Artifact, TTPk},
+    setup::{DEFAULT_LOG_SIZE, default_pk_filename},
 };
 
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
+type B = DefaultSnarkBackend;
 
 pub struct ProveBuilder {
     query: Option<String>,
@@ -131,8 +129,8 @@ pub struct ProveRunner {
 }
 
 pub struct PreparedProverArtifacts {
-    arith_tree: ProverArithmetizedTree<B>,
-    snark_pk: SNARKPk<B>,
+    prover: TTProver<B>,
+    query: String,
 }
 
 impl ProveRunner {
@@ -146,10 +144,8 @@ impl ProveRunner {
     pub async fn run_with_build_timing(&self) -> Result<(PathBuf, Duration)> {
         let artifacts = self.prepare_prover_artifacts().await?;
         let start = Instant::now();
-        let proof = build_proof_from_artifacts(artifacts);
+        let proof = artifacts.build_proof().await?;
         let elapsed = start.elapsed();
-        let proof = proof
-            .with_context(|| format!("build_proof_from_artifacts failed after {:.2?}", elapsed))?;
         write_proof(&proof, &self.output_path)?;
         Ok((self.output_path.clone(), elapsed))
     }
@@ -184,9 +180,20 @@ pub async fn prepare_prover_artifacts(
     pk_path: Option<&Path>,
 ) -> Result<PreparedProverArtifacts> {
     let ctx = SessionContext::new();
-    let mut table_oracles = IndexMap::new();
+    for parquet_path in parquet_paths {
+        if !parquet_path.exists() {
+            return Err(anyhow!(
+                "parquet file not found: {} (try tpch-data/test-data/<table>.parquet)",
+                parquet_path.display()
+            ));
+        }
+        if !parquet_path.is_file() {
+            return Err(anyhow!(
+                "parquet path is not a file: {}",
+                parquet_path.display()
+            ));
+        }
 
-    for (parquet_path, oracle_path) in parquet_paths.iter().zip(oracle_paths.iter()) {
         let table_name = parquet_path
             .file_stem()
             .ok_or_else(|| anyhow!("parquet path must have a file name"))?
@@ -202,45 +209,16 @@ pub async fn prepare_prover_artifacts(
         )
         .await
         .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
-
-        let oracle = load_oracle(oracle_path)?;
-        let schema = oracle
-            .schema()
-            .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
-
-        table_oracles.insert(schema, oracle.clone());
     }
 
-    let shared_ctx = CtxOracles::new(table_oracles);
+    let ctx_oracles = ctx_oracles_from_paths(oracle_paths)?;
+    let shared_config = build_shared_config(ctx, ctx_oracles);
+    let arg_prover = load_arg_prover(pk_path, oracle_paths)?;
+    let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
 
-    let proof_tree =
-        create_prover_proof_tree_with_ctx::<B>(&ctx, query, shared_ctx).await;
-
-    println!("{}", proof_tree.display_graphviz());
-
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
-        .await
-        .context("failed to build hint tree")?;
-
-    println!("{}", hint_tree.display_graphviz());
-    let arith_tree = ProverArithmetizedTree::<B>::from_hint_tree(hint_tree)
-        .context("failed to arithmetize")?;
-
-    let pk_path = match pk_path {
-        Some(path) => path.to_path_buf(),
-        None => {
-            let oracle_path = oracle_paths
-                .first()
-                .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
-            resolve_pk_path(oracle_path)?
-        }
-    };
-    let tt_pk = TTPk::<B>::load(&pk_path)
-        .with_context(|| format!("read proving key {}", pk_path.display()))?;
-    let snark_pk = tt_pk.into_inner();
     Ok(PreparedProverArtifacts {
-        arith_tree,
-        snark_pk,
+        prover,
+        query: query.to_string(),
     })
 }
 
@@ -261,32 +239,77 @@ pub fn prepare_prover_artifacts_blocking(
 
 impl PreparedProverArtifacts {
     #[instrument(level = "debug", skip_all)]
-    fn into_parts(
-        self,
-    ) -> (
-        ProverArithmetizedTree<B>,
-        SNARKPk<B>,
-    ) {
-        (self.arith_tree, self.snark_pk)
+    async fn build_proof(self) -> Result<TTProof<B>> {
+        let (_, proof) = self.prover.prove(&self.query).await?;
+        Ok(proof)
     }
 }
 
 #[instrument(level = "debug", skip_all)]
 pub fn build_proof_from_artifacts(
     artifacts: PreparedProverArtifacts,
-) -> Result<ark_piop::prover::structs::proof::Proof<B>> {
-    let (arith_tree, snark_pk) = artifacts.into_parts();
-    let mut prover = Prover::<B>::new_from_pk(snark_pk);
-    let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
-        .context("failed to build tracked tree")?;
-    let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-    piop_tree.prove(&mut prover).context("prove piop tree")?;
+) -> Result<TTProof<B>> {
+    runtime::block_on(artifacts.build_proof())
+}
 
-    prover.build_proof().context("build proof")
+#[instrument(level = "debug", skip_all)]
+fn ctx_oracles_from_paths(oracle_paths: &[PathBuf]) -> Result<CtxOracles<B>> {
+    let mut table_oracles = IndexMap::new();
+    for oracle_path in oracle_paths {
+        let oracle = load_oracle(oracle_path)?;
+        let schema = oracle
+            .schema()
+            .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
+        table_oracles.insert(schema, oracle.clone());
+    }
+
+    Ok(CtxOracles::new(table_oracles))
+}
+
+fn build_shared_config(
+    session_ctx: SessionContext,
+    ctx_oracles: CtxOracles<B>,
+) -> TTSharedConfig<B> {
+    TTSharedConfig::new(
+        Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
+        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
+        ctx_oracles,
+        session_ctx,
+        ConfigOptions::new(),
+        OptimizerContext::new(),
+        |_plan_after_rule, _rule| {},
+    )
+}
+
+#[instrument(level = "debug", skip_all)]
+fn load_arg_prover(pk_path: Option<&Path>, oracle_paths: &[PathBuf]) -> Result<ArgProver<B>> {
+    let pk_path = match pk_path {
+        Some(path) => path.to_path_buf(),
+        None => {
+            let oracle_path = oracle_paths
+                .first()
+                .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
+            resolve_pk_path(oracle_path)?
+        }
+    };
+
+    let tt_pk = TTPk::<B>::load(&pk_path)
+        .with_context(|| format!("read proving key {}", pk_path.display()))?;
+    Ok(ArgProver::new_from_pk(tt_pk.into_inner()))
 }
 
 #[instrument(level = "debug", skip_all)]
 fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
+    if !path.exists() {
+        return Err(anyhow!(
+            "oracle file not found: {} (run `tt commit` to generate it)",
+            path.display()
+        ));
+    }
+    if !path.is_file() {
+        return Err(anyhow!("oracle path is not a file: {}", path.display()));
+    }
+
     let file = File::open(path)
         .with_context(|| format!("failed to open oracle file {}", path.display()))?;
     let mut reader = BufReader::new(file);
@@ -296,9 +319,7 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
 
 #[instrument(level = "debug", skip_all)]
 fn resolve_pk_path(oracle_path: &Path) -> Result<PathBuf> {
-    const DEFAULT_PK_PREFIX: &str = "tt_proving_key";
-    let file_name = format!("{DEFAULT_PK_PREFIX}_16.pk");
-
+    let file_name = default_pk_filename(DEFAULT_LOG_SIZE);
     let mut candidates = Vec::new();
     if let Some(parent) = oracle_path.parent() {
         candidates.push(parent.join(&file_name));
@@ -344,11 +365,9 @@ fn resolve_output_path(requested: Option<PathBuf>) -> Result<PathBuf> {
             .join(DEFAULT_PROOF_FILE)),
     }
 }
+
 #[instrument(level = "debug", skip_all)]
-fn write_proof(
-    proof: &ark_piop::prover::structs::proof::Proof<B>,
-    path: &Path,
-) -> Result<()> {
+fn write_proof(proof: &TTProof<B>, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent()
         && !parent.exists()
     {
@@ -360,6 +379,7 @@ fn write_proof(
         .with_context(|| format!("failed to create proof file {}", path.display()))?;
     let mut writer = BufWriter::new(file);
     proof
+        .as_inner()
         .serialize_uncompressed(&mut writer)
         .context("failed to serialize proof")?;
     writer

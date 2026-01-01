@@ -24,7 +24,7 @@ pub struct Setup {
     pub timed: bool,
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Runnable for Setup {
     async fn run(self) -> Result<()> {
         let runner = SetupBuilder::new()

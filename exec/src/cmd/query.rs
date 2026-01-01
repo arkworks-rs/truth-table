@@ -29,7 +29,7 @@ pub struct Query {
     pub timed: bool,
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Runnable for Query {
     async fn run(self) -> Result<()> {
         let sql = self.query.query.clone();

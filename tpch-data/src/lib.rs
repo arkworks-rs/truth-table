@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
     array::{BooleanBuilder, RecordBatch},
     compute::concat as arrow_concat,
@@ -43,7 +44,7 @@ fn write_parquet<P: AsRef<Path>>(
 
     // Build output schema = original fields + activator: Boolean
     let mut fields: Vec<Field> = orig_schema.fields().iter().map(|f| (**f).clone()).collect();
-    fields.push(Field::new("activator", DataType::Boolean, false));
+    fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
     let out_schema = Arc::new(Schema::new(fields));
 
     let file = File::create(path_ref).expect("create parquet file");

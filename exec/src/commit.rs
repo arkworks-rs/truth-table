@@ -6,29 +6,24 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    prover::ArgProver,
-    setup::structs::SNARKVk,
-    verifier::Verifier,
+    DefaultSnarkBackend, prover::ArgProver, setup::structs::SNARKVk, verifier::ArgVerifier,
 };
 use ark_serialize::CanonicalSerialize;
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use proof_planner::create_prover_proof_tree;
+use front_end::{
+    prover::{TTProver, TTProverConfig},
+    shared::TTSharedConfig,
+};
 use truthtable_core::{
-    proof_nodes::{OUTPUT_PLAN_KEY, id::NodeId},
-    prover::trees::{
-        arithmetized_tree::ProverArithmetizedTree, hint_tree::ProverHintTree,
-        piop_tree::ProverPIOPTree, tracked_tree::ProverTrackedTree,
-    },
+    irs::{nodes::IsNode, payloads::PayloadStructure},
+    prover::irs::TrackedIr,
 };
 
-use crate::structs::{Artifact, TTPk};
+use front_end::structs::{Artifact, TTPk};
 
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
+type B = DefaultSnarkBackend;
 
 pub struct CommitBuilder {
     parquet_path: Option<PathBuf>,
@@ -159,43 +154,23 @@ async fn commit_parquet_with_pk(
     .await
     .context("failed to register parquet")?;
 
-    let query = format!("SELECT * FROM {table_name}");
+    let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ACTIVATOR_COL_NAME);
 
-    let proof_tree = create_prover_proof_tree::<B>(&ctx, &query).await;
-    let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
-        .await
-        .context("failed to build hint tree")?;
-    let arith_tree = ProverArithmetizedTree::<B>::from_hint_tree(hint_tree)
-        .context("failed to arithmetize")?;
-
-    let (mut prover, mut verifier) = load_prover_verifier(pk_path)
+    let (arg_prover, mut verifier) = load_prover_verifier(pk_path)
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;
-    let tracked_tree = ProverTrackedTree::from_arithmetized_tree(arith_tree, &mut prover)
-        .context("failed to build tracked tree")?;
-    let mut piop_tree = ProverPIOPTree::from_tracked_plan(tracked_tree, &mut prover);
-    piop_tree.prove(&mut prover).context("prove piop tree")?;
 
-    let proof = prover.build_proof().context("build proof")?;
+    let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
+    let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
+    let stages = prover.build_ir_stages(&query).await?;
+    let table_scan_table =
+        table_scan_payload(&stages.tracked).context("table scan result not found in tracked IR")?;
+
+    let mut arg_prover = stages.arg_prover.clone();
+    let proof = arg_prover.build_proof().context("build proof")?;
     verifier.set_proof(proof);
 
-    let (_, tables_by_node) = piop_tree.into_parts();
-
-    let mut tracked_table_oracle: Option<TrackedTableOracle<B>> = None;
-    for (node_id, tables) in &tables_by_node {
-        if let NodeId::LP(plan) = node_id
-            && matches!(plan, datafusion::logical_expr::LogicalPlan::TableScan(_))
-            && let Some(table) = tables.get(OUTPUT_PLAN_KEY)
-        {
-            tracked_table_oracle = Some(TrackedTableOracle::from_tracked_table(
-                table.clone(),
-                &mut verifier,
-            )?);
-            break;
-        }
-    }
-
     let tracked_table_oracle =
-        tracked_table_oracle.context("table scan result not found in proof tree")?;
+        TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)?;
     let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_table_oracle);
 
     write_oracle(&serializable, output_path)?;
@@ -204,22 +179,16 @@ async fn commit_parquet_with_pk(
 }
 
 #[allow(clippy::type_complexity)]
-fn load_prover_verifier(
-    pk_path: &Path,
-) -> Result<(Prover<B>, Verifier<B>)> {
-    let tt_pk = TTPk::<B>::load(pk_path)
-        .with_context(|| format!("load {}", pk_path.display()))?;
+fn load_prover_verifier(pk_path: &Path) -> Result<(ArgProver<B>, ArgVerifier<B>)> {
+    let tt_pk = TTPk::<B>::load(pk_path).with_context(|| format!("load {}", pk_path.display()))?;
     let snark_pk = tt_pk.into_inner();
     let vk: SNARKVk<B> = snark_pk.vk.clone();
-    let prover = Prover::<B>::new_from_pk(snark_pk);
-    let verifier = Verifier::<B>::new_from_vk(vk);
+    let prover = ArgProver::new_from_pk(snark_pk);
+    let verifier = ArgVerifier::new_from_vk(vk);
     Ok((prover, verifier))
 }
 
-fn write_oracle(
-    serializable: &ArithTableOracle<B>,
-    output_path: &Path,
-) -> Result<()> {
+fn write_oracle(serializable: &ArithTableOracle<B>, output_path: &Path) -> Result<()> {
     if let Some(parent) = output_path.parent()
         && !parent.exists()
     {
@@ -237,4 +206,27 @@ fn write_oracle(
         .flush()
         .with_context(|| format!("failed to flush {}", output_path.display()))?;
     Ok(())
+}
+
+fn table_scan_payload(tracked_ir: &TrackedIr<B>) -> Result<TrackedTable<B>> {
+    for (node_id, node) in tracked_ir.tree().arena() {
+        if node.name() != "TableScan" {
+            continue;
+        }
+
+        let payload = tracked_ir
+            .payloads()
+            .get(node_id)
+            .and_then(|payload| payload.clone())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table),
+                _ => None,
+            });
+
+        if let Some(table) = payload {
+            return Ok(table);
+        }
+    }
+
+    Err(anyhow!("table scan payload not found"))
 }

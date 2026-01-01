@@ -41,7 +41,7 @@ fn default_output_dir(is_bench: bool) -> PathBuf {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl Runnable for DataGen {
     async fn run(self) -> Result<()> {
         let scale = if self.test {
