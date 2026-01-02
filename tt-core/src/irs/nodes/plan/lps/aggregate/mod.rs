@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::FieldRef;
 use datafusion_expr::{Aggregate, LogicalPlan};
+use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -68,7 +71,29 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
         };
 
         let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
-        crate::irs::nodes::hints::HintDF::new_materialized(output)
+
+        let schema_fields = self.aggregate.schema.fields();
+        let aggr_count = self.aggregate.aggr_expr.len();
+        let aggr_start = schema_fields.len().saturating_sub(aggr_count);
+        let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
+            .iter()
+            .map(|field| field.name().to_string())
+            .collect();
+
+        let should_materialize: IndexMap<FieldRef, bool> = output
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    field.name() == ACTIVATOR_COL_NAME
+                        || aggregate_field_names.contains(field.name()),
+                )
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(output, should_materialize)
     }
 }
 
