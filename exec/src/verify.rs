@@ -5,26 +5,24 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::{ctx::CtxOracles, table_oracle::ArithTableOracle};
-use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    verifier::Verifier,
-};
+use arithmetic::table_oracle::ArithTableOracle;
+use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use indexmap::IndexMap;
-use proof_planner::create_verifier_proof_tree_with_ctx;
-use tt_core::verifier::trees::{
-    piop_tree::VerifierPIOPTree, tracked_tree::VerifierTrackedTree,
+use datafusion::{
+    config::ConfigOptions,
+    optimizer::{Analyzer, Optimizer, OptimizerContext},
+    prelude::{ParquetReadOptions, SessionContext},
 };
+use front_end::{
+    shared::TTSharedConfig,
+    structs::{Artifact, TTProof, TTVk},
+    verifier::{TTVerifier, TTVerifierConfig},
+};
+use indexmap::IndexMap;
+use tt_core::ctx_oracles::CtxOracles;
 
-use crate::structs::{Artifact, TTVk};
-
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
-type Proof = ark_piop::prover::structs::proof::Proof<B>;
+type B = DefaultSnarkBackend;
+type Proof = ark_piop::prover::structs::proof::SNARKProof<B>;
 
 pub struct VerifyBuilder {
     query: Option<String>,
@@ -130,6 +128,18 @@ impl VerifyRunner {
     pub async fn run(&self) -> Result<()> {
         let ctx = SessionContext::new();
         for parquet_path in &self.parquet_paths {
+            if !parquet_path.exists() {
+                return Err(anyhow!(
+                    "parquet file not found: {} (try tpch-data/test-data/<table>.parquet)",
+                    parquet_path.display()
+                ));
+            }
+            if !parquet_path.is_file() {
+                return Err(anyhow!(
+                    "parquet path is not a file: {}",
+                    parquet_path.display()
+                ));
+            }
             let table_name = parquet_path
                 .file_stem()
                 .ok_or_else(|| anyhow!("parquet path must have a file name"))?
@@ -147,43 +157,27 @@ impl VerifyRunner {
             .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
         }
 
+        let proof = load_proof(&self.proof_path)?;
+        let tt_vk = TTVk::<B>::load(&self.vk_path)
+            .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
+        let arg_verifier = ArgVerifier::new_from_vk(tt_vk.into_inner());
+
         let oracles: Vec<_> = self
             .oracle_paths
             .iter()
             .map(|path| load_oracle(path))
             .collect::<Result<Vec<_>>>()?;
-        let shared_ctx = shared_ctx_from_oracles(&oracles)?;
+        let ctx_oracles = ctx_oracles_from_oracles(&oracles)?;
+        let shared_config = build_shared_config(ctx, ctx_oracles);
 
-        let verifier_proof_tree =
-            create_verifier_proof_tree_with_ctx::<B>(&ctx, &self.query, shared_ctx)
-                .await;
+        let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
+        verifier
+            .verify(&self.query, TTProof::new(proof))
+            .await
+            .map_err(|err| anyhow!(err))?;
 
-        let proof = load_proof(&self.proof_path)?;
-        let tt_vk = TTVk::<B>::load(&self.vk_path)
-            .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
-        let snark_vk = tt_vk.into_inner();
-        let mut verifier = Verifier::<B>::new_from_vk(snark_vk);
-        verifier.set_proof(proof);
-
-        let verifier_tracked_tree =
-            VerifierTrackedTree::from_proof_tree(verifier_proof_tree, &mut verifier);
-
-        let mut verifier_piop_tree =
-            VerifierPIOPTree::from_tracked_tree(verifier_tracked_tree, &mut verifier);
-        verifier_piop_tree
-            .verify(&mut verifier)
-            .context("verify piop tree")?;
-
-        match verifier.verify() {
-            Ok(()) => {
-                println!("\x1b[32mproof verified successfully\x1b[0m");
-                Ok(())
-            }
-            Err(err) => {
-                eprintln!("\x1b[31mproof verification failed: {err}\x1b[0m");
-                Err(anyhow!(err))
-            }
-        }
+        println!("proof verified successfully");
+        Ok(())
     }
 }
 
@@ -202,9 +196,7 @@ fn load_proof(path: &Path) -> Result<Proof> {
     Proof::deserialize_uncompressed(&mut reader).context("failed to deserialize proof")
 }
 
-fn shared_ctx_from_oracles(
-    oracles: &[ArithTableOracle<B>],
-) -> Result<CtxOracles<B>> {
+fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracles<B>> {
     let mut table_oracles = IndexMap::new();
     for oracle in oracles {
         let schema = oracle
@@ -213,4 +205,19 @@ fn shared_ctx_from_oracles(
         table_oracles.insert(schema, oracle.clone());
     }
     Ok(CtxOracles::new(table_oracles))
+}
+
+fn build_shared_config(
+    session_ctx: SessionContext,
+    ctx_oracles: CtxOracles<B>,
+) -> TTSharedConfig<B> {
+    TTSharedConfig::new(
+        Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
+        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
+        ctx_oracles,
+        session_ctx,
+        ConfigOptions::new(),
+        OptimizerContext::new(),
+        |_plan_after_rule, _rule| {},
+    )
 }

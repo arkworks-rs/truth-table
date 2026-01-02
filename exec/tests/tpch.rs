@@ -1,158 +1,87 @@
 #![cfg(feature = "test-utils")]
 
-use ark_piop::pcs::{kzg10::KZG10, pst13::PST13};
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
-use datafusion::prelude::ParquetReadOptions;
-use proof_planner::{create_prover_proof_tree, new_session_context_with_custom_analyzer};
+use anyhow::Result;
+use ark_piop::DefaultSnarkBackend;
+use exec::prove::ProveBuilder;
+use exec::setup::DEFAULT_TEST_LOG_SIZE;
+use exec::test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parquet_path};
+use front_end::prover::ProverIrStages;
 use tpch_data::query_spec;
-use tt_core::test_display::{
-    display_prover_arithmetized_tree, display_prover_hint_tree, display_prover_piop_tree,
-    display_prover_tracked_tree,
-};
 
-type F = Fr;
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
+type B = DefaultSnarkBackend;
+
+async fn build_prover_stages(query: &str, table_names: &[&str]) -> Result<ProverIrStages<B>> {
+    let parquet_paths = table_names
+        .iter()
+        .map(|name| resolve_parquet_path(name))
+        .collect::<Result<Vec<_>>>()?;
+    let (pk_path, _vk_path) = resolve_key_paths(DEFAULT_TEST_LOG_SIZE)?;
+    let mut oracle_paths = Vec::with_capacity(parquet_paths.len());
+    for parquet_path in &parquet_paths {
+        let oracle_path = resolve_oracle_path(parquet_path, &pk_path).await?;
+        oracle_paths.push(oracle_path);
+    }
+
+    let runner = ProveBuilder::new()
+        .with_query(query.to_string())
+        .with_parquet_paths(parquet_paths)
+        .with_oracle_paths(oracle_paths)
+        .with_pk_path(pk_path)
+        .build()?;
+
+    let prover = runner.build_tt_prover().await?;
+    let (stages, _arg_prover) = prover.build_ir_stages(query).await?;
+    Ok(stages)
+}
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_proof_tree() {
-    let _spec = query_spec(5);
-
-    let ctx = new_session_context_with_custom_analyzer();
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-    ctx.register_parquet(
-        "lineitem",
-        lineitem_path
-            .to_str()
-            .expect("lineitem path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register lineitem table");
-    let customer_path = tpch_data::test_data_path("customer.parquet");
-    ctx.register_parquet(
-        "customer",
-        customer_path
-            .to_str()
-            .expect("customer path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register customer table");
-    let nation_path = tpch_data::test_data_path("nation.parquet");
-    ctx.register_parquet(
-        "nation",
-        nation_path.to_str().expect("nation path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register nation table");
-    let supplier_path = tpch_data::test_data_path("supplier.parquet");
-    ctx.register_parquet(
-        "supplier",
-        supplier_path
-            .to_str()
-            .expect("supplier path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register supplier table");
-    let region_path = tpch_data::test_data_path("region.parquet");
-    ctx.register_parquet(
-        "region",
-        region_path.to_str().expect("region path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register region table");
-    let orders_path = tpch_data::test_data_path("orders.parquet");
-    ctx.register_parquet(
-        "orders",
-        orders_path.to_str().expect("orders path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register orders table");
+    let spec = query_spec(5);
+    let stages = build_prover_stages(spec.sql, spec.tables)
+        .await
+        .expect("build prover stages");
+    println!("{}", stages.initial.display_graphviz(true));
 }
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_hint_tree() {
     let spec = query_spec(1);
-    let ctx = new_session_context_with_custom_analyzer();
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-    ctx.register_parquet(
-        "lineitem",
-        lineitem_path
-            .to_str()
-            .expect("lineitem path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
-    display_prover_hint_tree(&ctx, proof_tree).await;
+    let stages = build_prover_stages(spec.sql, spec.tables)
+        .await
+        .expect("build prover stages");
+    println!("{}", stages.planned.display_graphviz(true));
 }
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_arithmetized_tree() {
     let spec = query_spec(1);
-
-    let ctx = new_session_context_with_custom_analyzer();
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-    ctx.register_parquet(
-        "lineitem",
-        lineitem_path
-            .to_str()
-            .expect("lineitem path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
-    display_prover_arithmetized_tree(&ctx, proof_tree).await;
+    let stages = build_prover_stages(spec.sql, spec.tables)
+        .await
+        .expect("build prover stages");
+    println!("{}", stages.arithmetized.display_graphviz(true));
 }
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_tracked_tree() {
     let spec = query_spec(1);
-
-    let ctx = new_session_context_with_custom_analyzer();
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-    ctx.register_parquet(
-        "lineitem",
-        lineitem_path
-            .to_str()
-            .expect("lineitem path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
-    display_prover_tracked_tree(&ctx, proof_tree).await;
+    let stages = build_prover_stages(spec.sql, spec.tables)
+        .await
+        .expect("build prover stages");
+    println!("{}", stages.tracked.display_graphviz(true));
 }
 
 #[tokio::test]
 #[ignore = "Visualization-focused test"]
 async fn tpch_q1_piop_tree() {
     let spec = query_spec(1);
-
-    let ctx = new_session_context_with_custom_analyzer();
-    let lineitem_path = tpch_data::test_data_path("lineitem.parquet");
-    ctx.register_parquet(
-        "lineitem",
-        lineitem_path
-            .to_str()
-            .expect("lineitem path to be valid UTF-8"),
-        ParquetReadOptions::default(),
-    )
-    .await
-    .expect("register lineitem table");
-    let proof_tree = create_prover_proof_tree::<B>(&ctx, spec.sql).await;
-    display_prover_piop_tree(&ctx, proof_tree).await;
+    let stages = build_prover_stages(spec.sql, spec.tables)
+        .await
+        .expect("build prover stages");
+    println!("{}", stages.gadget_ready.display_graphviz(true));
 }
 
 #[tokio::test]

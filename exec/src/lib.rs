@@ -5,5 +5,5 @@ pub mod prove;
 pub(crate) mod runtime;
 pub mod setup;
 // pub mod structs;
-// pub mod test_utils;
-// pub mod verify;
+pub mod test_utils;
+pub mod verify;
