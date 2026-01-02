@@ -18,7 +18,7 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{binary_expr, cast, column, literal},
-            lps::{filter, projection, table_scan},
+            lps::{aggregate, filter, projection, table_scan},
         },
     },
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -163,6 +163,10 @@ impl<B: SnarkBackend> Node<B> {
             }),
             LogicalPlan::Filter(_) => Arc::new_cyclic(|weak_self| {
                 let node = filter::FilterNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+            LogicalPlan::Aggregate(_) => Arc::new_cyclic(|weak_self| {
+                let node = aggregate::ProverAggregateNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             _ => todo!(),
