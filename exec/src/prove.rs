@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::instrument;
-use truthtable_core::ctx_oracles::CtxOracles;
+use tt_core::ctx_oracles::CtxOracles;
 
 type B = DefaultSnarkBackend;
 

@@ -10,7 +10,7 @@ use ark_piop::{
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use tracing::instrument;
-use truthtable_core::errors::TTResult;
+use tt_core::errors::TTResult;
 
 pub struct TTProof<B: SnarkBackend> {
     snark_proof: SNARKProof<B>,

@@ -15,7 +15,7 @@ use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use indexmap::IndexMap;
 use proof_planner::create_verifier_proof_tree_with_ctx;
-use truthtable_core::verifier::trees::{
+use tt_core::verifier::trees::{
     piop_tree::VerifierPIOPTree, tracked_tree::VerifierTrackedTree,
 };
 

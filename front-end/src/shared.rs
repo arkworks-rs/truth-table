@@ -5,7 +5,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_expr::LogicalPlan;
-use truthtable_core::ctx_oracles::CtxOracles;
+use tt_core::ctx_oracles::CtxOracles;
 
 pub struct TTSharedConfig<B: SnarkBackend> {
     analyzer: Analyzer,

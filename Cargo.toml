@@ -7,7 +7,7 @@ members = [
     # "ra-toolbox",
     "tpch-data",
     "exec",
-    "truthtable-core",
+    "tt-core",
     "proof-planner",
     "front-end",
 ]

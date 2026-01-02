@@ -1,7 +1,7 @@
 
 
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "c_custkey"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "c_custkey"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: TableScan(
@@ -601,7 +601,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -750,9 +750,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_custkey"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_custkey"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: TableScan(
@@ -1352,7 +1352,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -1501,9 +1501,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderkey"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderkey"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: Join(
@@ -2890,7 +2890,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -3179,9 +3179,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_orderkey"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_orderkey"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: Join(
@@ -4568,7 +4568,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -4857,9 +4857,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "c_mktsegment"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "c_mktsegment"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: Join(
@@ -6246,7 +6246,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -6535,9 +6535,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderdate"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderdate"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: Join(
@@ -7924,7 +7924,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -8213,9 +8213,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_shipdate"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_shipdate"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Join(
         Join {
             left: Join(
@@ -9602,7 +9602,7 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = Some(
     Schema {
         fields: [
             Field {
@@ -9891,9 +9891,9 @@
         metadata: {},
     },
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_orderkey"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:375:17] 0 = 0
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_orderkey"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Filter(
         Filter {
             predicate: BinaryExpr(
@@ -11364,10 +11364,10 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderdate"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_orderdate"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Filter(
         Filter {
             predicate: BinaryExpr(
@@ -12838,10 +12838,10 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_shippriority"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "o_shippriority"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Filter(
         Filter {
             predicate: BinaryExpr(
@@ -14312,10 +14312,10 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_extendedprice"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_extendedprice"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Filter(
         Filter {
             predicate: BinaryExpr(
@@ -15786,10 +15786,10 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
-[truthtable-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_discount"
-[truthtable-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:370:9] &column_expr.name() = "l_discount"
+[tt-core/src/proof_nodes/exprs/column.rs:371:9] &ctx_lp_node.node_id() = LP(
     Filter(
         Filter {
             predicate: BinaryExpr(
@@ -17260,5 +17260,5 @@
         },
     ),
 )
-[truthtable-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
-[truthtable-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1
+[tt-core/src/proof_nodes/exprs/column.rs:373:13] table.schema() = None
+[tt-core/src/proof_nodes/exprs/column.rs:381:13] 1 = 1

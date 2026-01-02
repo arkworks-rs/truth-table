@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # local dependencies
-truthtable-core = { path = "../truthtable-core" }
+tt-core = { path = "../tt-core" }
 proof-planner = { path = "../proof-planner" }
 arithmetic = { path = "../arithmetic" }
 tpch-data = { path = "../tpch-data" }
@@ -50,7 +50,7 @@ parallel = [
     "ark-serialize/parallel",
     "ark-piop/parallel",
     "arithmetic/parallel",
-    "truthtable-core/parallel",
+    "tt-core/parallel",
 ]
-honest-prover = ["ark-piop/honest-prover", "truthtable-core/honest-prover"]
-test-utils = ["truthtable-core/test-utils"]
+honest-prover = ["ark-piop/honest-prover", "tt-core/honest-prover"]
+test-utils = ["tt-core/test-utils"]

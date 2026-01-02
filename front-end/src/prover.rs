@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ark_piop::{prover::ArgProver, SnarkBackend};
 use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
-use truthtable_core::{
+use tt_core::{
     errors::TTResult,
     irs::{
         nodes::Node,

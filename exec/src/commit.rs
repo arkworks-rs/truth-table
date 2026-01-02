@@ -16,7 +16,7 @@ use front_end::{
     prover::{TTProver, TTProverConfig},
     shared::TTSharedConfig,
 };
-use truthtable_core::{
+use tt_core::{
     irs::{nodes::IsNode, payloads::PayloadStructure},
     prover::irs::TrackedIr,
 };

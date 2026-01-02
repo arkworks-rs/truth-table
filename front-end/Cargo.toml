@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 
 # local dependencies
-truthtable-core = { path = "../truthtable-core" }
+tt-core = { path = "../tt-core" }
 arithmetic = { path = "../arithmetic" }
 tpch-data = { path = "../tpch-data" }
 proof-planner = { path = "../proof-planner" }

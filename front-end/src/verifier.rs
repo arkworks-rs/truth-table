@@ -1,5 +1,5 @@
 use ark_piop::{verifier::ArgVerifier, SnarkBackend};
-use truthtable_core::{
+use tt_core::{
     errors::TTResult,
     irs::{
         shared_ir::{EmptyIr, PlannedIr},
