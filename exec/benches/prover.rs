@@ -4,7 +4,7 @@
 // use divan::black_box;
 // use exec::{
 //     prove::{
-//         PreparedProverArtifacts, build_proof_from_artifacts, prepare_prover_artifacts_blocking,
+//         PreparedProverArtifacts, build_proof_from_artifacts, build_tt_prover_blocking,
 //     },
 //     test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
 // };
@@ -86,7 +86,7 @@
 // }
 
 // fn prepare_iteration_state(inputs: ProverBenchInputs) -> ProverBenchIteration {
-//     let artifacts = prepare_prover_artifacts_blocking(
+//     let artifacts = build_tt_prover_blocking(
 //         inputs.spec.query,
 //         &inputs.parquet_paths,
 //         &inputs.oracle_paths,

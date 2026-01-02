@@ -1,10 +1,3 @@
-use std::{
-    fs::{self, File},
-    io::{BufReader, BufWriter, Write},
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
-
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
@@ -14,27 +7,37 @@ use datafusion::{
     optimizer::{Analyzer, Optimizer, OptimizerContext},
     prelude::{ParquetReadOptions, SessionContext},
 };
+use front_end::structs::Artifact;
 use front_end::{
     prover::{TTProver, TTProverConfig},
     shared::TTSharedConfig,
-    structs::{Artifact, TTPk, TTProof},
+    structs::{TTPk, TTProof},
 };
 use indexmap::IndexMap;
+use std::{
+    fs::{self, File},
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 use tracing::instrument;
 use truthtable_core::ctx_oracles::CtxOracles;
 
-use crate::{
-    runtime,
-    setup::{DEFAULT_LOG_SIZE, default_pk_filename},
-};
+use crate::setup::{DEFAULT_LOG_SIZE, default_pk_filename};
 
 type B = DefaultSnarkBackend;
 
+/// Builder ProveRunner instances.
 pub struct ProveBuilder {
+    /// SQL query string to prove.
     query: Option<String>,
+    /// Paths to Parquet files for input tables in the query.
     parquet_paths: Option<Vec<PathBuf>>,
+    /// Paths to table oracle files corresponding to the Parquet files.
     oracle_paths: Option<Vec<PathBuf>>,
+    /// Path to the serialized proving key (TTProvingKey).
     pk_path: Option<PathBuf>,
+    /// Output path for the generated proof.
     output_path: Option<PathBuf>,
 }
 
@@ -109,76 +112,67 @@ impl ProveBuilder {
         }
 
         let output_path = resolve_output_path(self.output_path)?;
-
+        let pk_path = match self.pk_path {
+            Some(path) => path,
+            None => {
+                let oracle_path = oracle_paths
+                    .first()
+                    .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
+                resolve_pk_path(oracle_path)?
+            }
+        };
         Ok(ProveRunner {
             query,
             parquet_paths,
             oracle_paths,
-            pk_path: self.pk_path,
+            pk_path,
             output_path,
         })
     }
 }
 
+/// Runner for generating proofs from SQL queries and input data.
 pub struct ProveRunner {
+    /// SQL query string to prove.
     query: String,
+    /// Paths to Parquet files for input tables in the query.
     parquet_paths: Vec<PathBuf>,
+    /// Paths to table oracle files corresponding to the Parquet files.
     oracle_paths: Vec<PathBuf>,
-    pk_path: Option<PathBuf>,
+    /// Path to the serialized proving key (TTProvingKey).
+    pk_path: PathBuf,
+    /// Output path for the generated proof.
     output_path: PathBuf,
-}
-
-pub struct PreparedProverArtifacts {
-    prover: TTProver<B>,
-    query: String,
 }
 
 impl ProveRunner {
     #[instrument(level = "debug", skip_all)]
     pub async fn run(&self) -> Result<PathBuf> {
-        let (path, _) = self.run_with_build_timing().await?;
-        Ok(path)
+        let prover: TTProver<B> =
+            build_tt_prover(&self.parquet_paths, &self.oracle_paths, &self.pk_path).await?;
+        let (_, proof) = prover.prove(&self.query).await?;
+        write_proof(&proof, &self.output_path)?;
+        Ok(self.output_path.clone())
     }
 
     #[instrument(level = "debug", skip_all)]
     pub async fn run_with_build_timing(&self) -> Result<(PathBuf, Duration)> {
-        let artifacts = self.prepare_prover_artifacts().await?;
+        let prover: TTProver<B> =
+            build_tt_prover(&self.parquet_paths, &self.oracle_paths, &self.pk_path).await?;
         let start = Instant::now();
-        let proof = artifacts.build_proof().await?;
+        let (_, proof) = prover.prove(&self.query).await?;
         let elapsed = start.elapsed();
         write_proof(&proof, &self.output_path)?;
         Ok((self.output_path.clone(), elapsed))
     }
-
-    #[instrument(level = "debug", skip_all)]
-    async fn prepare_prover_artifacts(&self) -> Result<PreparedProverArtifacts> {
-        prepare_prover_artifacts(
-            &self.query,
-            &self.parquet_paths,
-            &self.oracle_paths,
-            self.pk_path.as_deref(),
-        )
-        .await
-    }
-
-    #[instrument(level = "debug", skip_all)]
-    pub fn run_blocking(&self) -> Result<PathBuf> {
-        runtime::block_on(self.run())
-    }
-
-    #[instrument(level = "debug", skip_all)]
-    pub fn prepare_prover_artifacts_blocking(&self) -> Result<PreparedProverArtifacts> {
-        runtime::block_on(self.prepare_prover_artifacts())
-    }
 }
 
 #[instrument(level = "debug", skip_all)]
-pub async fn prepare_prover_artifacts(
-    query: &str,
+pub async fn build_tt_prover(
     parquet_paths: &[PathBuf],
     oracle_paths: &[PathBuf],
-    pk_path: Option<&Path>,
-) -> Result<PreparedProverArtifacts> {
+    pk_path: &Path,
+) -> Result<TTProver<B>> {
     let ctx = SessionContext::new();
     for parquet_path in parquet_paths {
         if !parquet_path.exists() {
@@ -213,43 +207,10 @@ pub async fn prepare_prover_artifacts(
 
     let ctx_oracles = ctx_oracles_from_paths(oracle_paths)?;
     let shared_config = build_shared_config(ctx, ctx_oracles);
-    let arg_prover = load_arg_prover(pk_path, oracle_paths)?;
+    let arg_prover = load_arg_prover(pk_path)?;
     let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
 
-    Ok(PreparedProverArtifacts {
-        prover,
-        query: query.to_string(),
-    })
-}
-
-#[instrument(level = "debug", skip_all)]
-pub fn prepare_prover_artifacts_blocking(
-    query: &str,
-    parquet_paths: &[PathBuf],
-    oracle_paths: &[PathBuf],
-    pk_path: Option<&Path>,
-) -> Result<PreparedProverArtifacts> {
-    runtime::block_on(prepare_prover_artifacts(
-        query,
-        parquet_paths,
-        oracle_paths,
-        pk_path,
-    ))
-}
-
-impl PreparedProverArtifacts {
-    #[instrument(level = "debug", skip_all)]
-    async fn build_proof(self) -> Result<TTProof<B>> {
-        let (_, proof) = self.prover.prove(&self.query).await?;
-        Ok(proof)
-    }
-}
-
-#[instrument(level = "debug", skip_all)]
-pub fn build_proof_from_artifacts(
-    artifacts: PreparedProverArtifacts,
-) -> Result<TTProof<B>> {
-    runtime::block_on(artifacts.build_proof())
+    Ok(prover)
 }
 
 #[instrument(level = "debug", skip_all)]
@@ -282,18 +243,8 @@ fn build_shared_config(
 }
 
 #[instrument(level = "debug", skip_all)]
-fn load_arg_prover(pk_path: Option<&Path>, oracle_paths: &[PathBuf]) -> Result<ArgProver<B>> {
-    let pk_path = match pk_path {
-        Some(path) => path.to_path_buf(),
-        None => {
-            let oracle_path = oracle_paths
-                .first()
-                .ok_or_else(|| anyhow!("at least one oracle path is required for prove"))?;
-            resolve_pk_path(oracle_path)?
-        }
-    };
-
-    let tt_pk = TTPk::<B>::load(&pk_path)
+fn load_arg_prover(pk_path: &Path) -> Result<ArgProver<B>> {
+    let tt_pk = TTPk::<B>::load(pk_path)
         .with_context(|| format!("read proving key {}", pk_path.display()))?;
     Ok(ArgProver::new_from_pk(tt_pk.into_inner()))
 }
