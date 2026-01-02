@@ -17,7 +17,7 @@ use crate::{
         cost::ProvingCost,
         hints::HintDF,
         plan::{
-            exprs::{binary_expr, column, literal},
+            exprs::{binary_expr, cast, column, literal},
             lps::{filter, projection, table_scan},
         },
     },
@@ -173,7 +173,6 @@ impl<B: SnarkBackend> Node<B> {
         parent: Option<Weak<Node<B>>>,
         scope: Arc<Node<B>>,
     ) -> Arc<Self> {
-        dbg!(&expr);
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node = column::ProverNode::from_expr(
@@ -203,7 +202,15 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
-
+            Expr::Cast(_) => Arc::new_cyclic(|weak_self| {
+                let node = cast::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
             _ => todo!(),
         }
     }
