@@ -1,3 +1,4 @@
+use crate::setup::{DEFAULT_LOG_SIZE, default_pk_filename};
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
@@ -22,8 +23,6 @@ use std::{
 };
 use tracing::instrument;
 use truthtable_core::ctx_oracles::CtxOracles;
-
-use crate::setup::{DEFAULT_LOG_SIZE, default_pk_filename};
 
 type B = DefaultSnarkBackend;
 
@@ -148,124 +147,135 @@ pub struct ProveRunner {
 impl ProveRunner {
     #[instrument(level = "debug", skip_all)]
     pub async fn run(&self) -> Result<PathBuf> {
-        let prover: TTProver<B> =
-            build_tt_prover(&self.parquet_paths, &self.oracle_paths, &self.pk_path).await?;
+        let prover: TTProver<B> = self.build_tt_prover().await?;
         let (_, proof) = prover.prove(&self.query).await?;
-        write_proof(&proof, &self.output_path)?;
+        self.write_proof(&proof)?;
         Ok(self.output_path.clone())
     }
 
     #[instrument(level = "debug", skip_all)]
     pub async fn run_with_build_timing(&self) -> Result<(PathBuf, Duration)> {
-        let prover: TTProver<B> =
-            build_tt_prover(&self.parquet_paths, &self.oracle_paths, &self.pk_path).await?;
+        let prover: TTProver<B> = self.build_tt_prover().await?;
         let start = Instant::now();
         let (_, proof) = prover.prove(&self.query).await?;
         let elapsed = start.elapsed();
-        write_proof(&proof, &self.output_path)?;
+        self.write_proof(&proof)?;
         Ok((self.output_path.clone(), elapsed))
     }
-}
+    #[instrument(level = "debug", skip_all)]
+    pub async fn build_tt_prover(&self) -> Result<TTProver<B>> {
+        let ctx = SessionContext::new();
+        for parquet_path in &self.parquet_paths {
+            if !parquet_path.exists() {
+                return Err(anyhow!(
+                    "parquet file not found: {} (try tpch-data/test-data/<table>.parquet)",
+                    parquet_path.display()
+                ));
+            }
+            if !parquet_path.is_file() {
+                return Err(anyhow!(
+                    "parquet path is not a file: {}",
+                    parquet_path.display()
+                ));
+            }
 
-#[instrument(level = "debug", skip_all)]
-pub async fn build_tt_prover(
-    parquet_paths: &[PathBuf],
-    oracle_paths: &[PathBuf],
-    pk_path: &Path,
-) -> Result<TTProver<B>> {
-    let ctx = SessionContext::new();
-    for parquet_path in parquet_paths {
-        if !parquet_path.exists() {
+            let table_name = parquet_path
+                .file_stem()
+                .ok_or_else(|| anyhow!("parquet path must have a file name"))?
+                .to_string_lossy()
+                .to_string();
+
+            ctx.register_parquet(
+                &table_name,
+                parquet_path
+                    .to_str()
+                    .context("parquet path must be valid UTF-8")?,
+                ParquetReadOptions::default(),
+            )
+            .await
+            .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
+        }
+
+        let shared_config = self.build_shared_config(ctx)?;
+        let arg_prover = self.load_arg_prover()?;
+        let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
+
+        Ok(prover)
+    }
+    #[instrument(level = "debug", skip_all)]
+    fn load_arg_prover(&self) -> Result<ArgProver<B>> {
+        let tt_pk = TTPk::<B>::load(&self.pk_path)
+            .with_context(|| format!("read proving key {}", self.pk_path.display()))?;
+        Ok(ArgProver::new_from_pk(tt_pk.into_inner()))
+    }
+    #[instrument(level = "debug", skip_all)]
+    fn ctx_oracles_from_paths(&self) -> Result<CtxOracles<B>> {
+        let mut table_oracles = IndexMap::new();
+        for oracle_path in &self.oracle_paths {
+            let oracle = self.load_oracle(oracle_path)?;
+            let schema = oracle
+                .schema()
+                .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
+            table_oracles.insert(schema, oracle.clone());
+        }
+
+        Ok(CtxOracles::new(table_oracles))
+    }
+
+    fn build_shared_config(&self, session_ctx: SessionContext) -> Result<TTSharedConfig<B>> {
+        let ctx_oracles = self.ctx_oracles_from_paths()?;
+        Ok(TTSharedConfig::new(
+            Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
+            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
+            ctx_oracles,
+            session_ctx,
+            ConfigOptions::new(),
+            OptimizerContext::new(),
+            |_plan_after_rule, _rule| {},
+        ))
+    }
+
+    #[instrument(level = "debug", skip_all)]
+    fn load_oracle(&self, path: &Path) -> Result<ArithTableOracle<B>> {
+        if !path.exists() {
             return Err(anyhow!(
-                "parquet file not found: {} (try tpch-data/test-data/<table>.parquet)",
-                parquet_path.display()
+                "oracle file not found: {} (run `tt commit` to generate it)",
+                path.display()
             ));
         }
-        if !parquet_path.is_file() {
-            return Err(anyhow!(
-                "parquet path is not a file: {}",
-                parquet_path.display()
-            ));
+        if !path.is_file() {
+            return Err(anyhow!("oracle path is not a file: {}", path.display()));
         }
 
-        let table_name = parquet_path
-            .file_stem()
-            .ok_or_else(|| anyhow!("parquet path must have a file name"))?
-            .to_string_lossy()
-            .to_string();
-
-        ctx.register_parquet(
-            &table_name,
-            parquet_path
-                .to_str()
-                .context("parquet path must be valid UTF-8")?,
-            ParquetReadOptions::default(),
-        )
-        .await
-        .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
+        let file = File::open(path)
+            .with_context(|| format!("failed to open oracle file {}", path.display()))?;
+        let mut reader = BufReader::new(file);
+        ArithTableOracle::<B>::deserialize_uncompressed_unchecked(&mut reader)
+            .context("failed to deserialize oracle")
     }
 
-    let ctx_oracles = ctx_oracles_from_paths(oracle_paths)?;
-    let shared_config = build_shared_config(ctx, ctx_oracles);
-    let arg_prover = load_arg_prover(pk_path)?;
-    let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
+    #[instrument(level = "debug", skip_all)]
+    fn write_proof(&self, proof: &TTProof<B>) -> Result<()> {
+        if let Some(parent) = self.output_path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory {}", parent.display()))?;
+        }
 
-    Ok(prover)
-}
-
-#[instrument(level = "debug", skip_all)]
-fn ctx_oracles_from_paths(oracle_paths: &[PathBuf]) -> Result<CtxOracles<B>> {
-    let mut table_oracles = IndexMap::new();
-    for oracle_path in oracle_paths {
-        let oracle = load_oracle(oracle_path)?;
-        let schema = oracle
-            .schema()
-            .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
-        table_oracles.insert(schema, oracle.clone());
+        let file = File::create(&self.output_path).with_context(|| {
+            format!("failed to create proof file {}", self.output_path.display())
+        })?;
+        let mut writer = BufWriter::new(file);
+        proof
+            .as_inner()
+            .serialize_uncompressed(&mut writer)
+            .context("failed to serialize proof")?;
+        writer
+            .flush()
+            .with_context(|| format!("failed to flush {}", self.output_path.display()))?;
+        Ok(())
     }
-
-    Ok(CtxOracles::new(table_oracles))
-}
-
-fn build_shared_config(
-    session_ctx: SessionContext,
-    ctx_oracles: CtxOracles<B>,
-) -> TTSharedConfig<B> {
-    TTSharedConfig::new(
-        Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
-        ctx_oracles,
-        session_ctx,
-        ConfigOptions::new(),
-        OptimizerContext::new(),
-        |_plan_after_rule, _rule| {},
-    )
-}
-
-#[instrument(level = "debug", skip_all)]
-fn load_arg_prover(pk_path: &Path) -> Result<ArgProver<B>> {
-    let tt_pk = TTPk::<B>::load(pk_path)
-        .with_context(|| format!("read proving key {}", pk_path.display()))?;
-    Ok(ArgProver::new_from_pk(tt_pk.into_inner()))
-}
-
-#[instrument(level = "debug", skip_all)]
-fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
-    if !path.exists() {
-        return Err(anyhow!(
-            "oracle file not found: {} (run `tt commit` to generate it)",
-            path.display()
-        ));
-    }
-    if !path.is_file() {
-        return Err(anyhow!("oracle path is not a file: {}", path.display()));
-    }
-
-    let file = File::open(path)
-        .with_context(|| format!("failed to open oracle file {}", path.display()))?;
-    let mut reader = BufReader::new(file);
-    ArithTableOracle::<B>::deserialize_uncompressed_unchecked(&mut reader)
-        .context("failed to deserialize oracle")
 }
 
 #[instrument(level = "debug", skip_all)]
@@ -315,26 +325,4 @@ fn resolve_output_path(requested: Option<PathBuf>) -> Result<PathBuf> {
             .context("failed to resolve current working directory")?
             .join(DEFAULT_PROOF_FILE)),
     }
-}
-
-#[instrument(level = "debug", skip_all)]
-fn write_proof(proof: &TTProof<B>, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent()
-        && !parent.exists()
-    {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-
-    let file = File::create(path)
-        .with_context(|| format!("failed to create proof file {}", path.display()))?;
-    let mut writer = BufWriter::new(file);
-    proof
-        .as_inner()
-        .serialize_uncompressed(&mut writer)
-        .context("failed to serialize proof")?;
-    writer
-        .flush()
-        .with_context(|| format!("failed to flush {}", path.display()))?;
-    Ok(())
 }
