@@ -2,9 +2,9 @@
 mod test;
 
 use crate::{
-    inclusion_check::{
-        HintedInclusionCheckPIOP, HintedInclusionCheckProverInput,
-        HintedInclusionCheckVerifierInput,
+    lookup::{
+        HintedLookupPIOP, HintedLookupProverInput,
+        HintedLookupVerifierInput,
     },
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
     sort_based_multi_col_nodup::{
@@ -111,13 +111,13 @@ impl<B: SnarkBackend> PIOP<B> for MultiColSuppCheckPIOP<B> {
             .supp_tracked_table
             .fold_all_data_columns(&table_folding_challs);
 
-        let multicol_inclusion_check_prover_input = HintedInclusionCheckProverInput {
+        let multicol_lookup_prover_input = HintedLookupProverInput {
             included_cols: vec![orig_table_folded_col.clone()],
             super_col: supp_table_folded_col.clone(),
             super_col_multiplicities: vec![prover_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<B>::prove(prover, multicol_inclusion_check_prover_input)?;
+        HintedLookupPIOP::<B>::prove(prover, multicol_lookup_prover_input)?;
 
         let supp_no_dups_checker = TrackedCol::new(
             prover_input.multiplicity.clone(),
@@ -180,13 +180,13 @@ impl<B: SnarkBackend> PIOP<B> for MultiColSuppCheckPIOP<B> {
             .supp_tracked_table_oracle
             .fold_all_data_oracles(&table_folding_challs);
 
-        let multicol_inclusion_check_verifier_input = HintedInclusionCheckVerifierInput {
+        let multicol_lookup_verifier_input = HintedLookupVerifierInput {
             included_tracked_col_oracles: vec![orig_table_folded_col.clone()],
             super_tracked_col_oracle: supp_table_folded_col.clone(),
             super_col_multiplicities: vec![verifier_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<B>::verify(verifier, multicol_inclusion_check_verifier_input)?;
+        HintedLookupPIOP::<B>::verify(verifier, multicol_lookup_verifier_input)?;
 
         let supp_no_dups_checker = TrackedColOracle::new(
             verifier_input.multiplicity.clone(),

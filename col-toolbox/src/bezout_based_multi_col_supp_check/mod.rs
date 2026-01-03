@@ -5,7 +5,7 @@ use crate::{
     bezout_based_multi_col_nodup::{
         BezoutBasedMultiNoDup, BezoutBasedMultiNoDupProverInput, BezoutBasedMultiNoDupVerifierInput,
     },
-    inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
+    lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use arithmetic::{
@@ -92,13 +92,13 @@ impl<B: SnarkBackend> PIOP<B> for BezoutMultiColSuppCheckPIOP<B> {
             .supp_tracked_table
             .fold_all_data_columns(&table_folding_challs);
 
-        let multicol_inclusion_check_prover_input = InclusionCheckProverInput {
+        let multicol_lookup_prover_input = LookupProverInput {
             included_cols: vec![orig_table_folded_col.clone()],
             super_col: supp_table_folded_col.clone(),
         };
 
         let inclusion_piop_prover_output =
-            InclusionCheckPIOP::<B>::prove(prover, multicol_inclusion_check_prover_input)?;
+            LookupPIOP::<B>::prove(prover, multicol_lookup_prover_input)?;
 
         let supp_no_dups_checker = TrackedCol::new(
             inclusion_piop_prover_output.super_col_ms[0].clone(),
@@ -141,16 +141,16 @@ impl<B: SnarkBackend> PIOP<B> for BezoutMultiColSuppCheckPIOP<B> {
             .supp_tracked_table_oracle
             .fold_all_data_oracles(&table_folding_challs);
 
-        let multicol_inclusion_check_verifier_input = InclusionCheckVerifierInput {
+        let multicol_lookup_verifier_input = LookupVerifierInput {
             included_tracked_col_oracles: vec![orig_table_folded_col.clone()],
             super_tracked_col_oracle: supp_table_folded_col.clone(),
         };
 
-        let inclusion_check_piop_verifier_output =
-            InclusionCheckPIOP::<B>::verify(verifier, multicol_inclusion_check_verifier_input)?;
+        let lookup_piop_verifier_output =
+            LookupPIOP::<B>::verify(verifier, multicol_lookup_verifier_input)?;
 
         let supp_no_dups_checker = TrackedColOracle::new(
-            inclusion_check_piop_verifier_output.super_col_m_comms[0].clone(),
+            lookup_piop_verifier_output.super_col_m_comms[0].clone(),
             verifier_input
                 .supp_tracked_table_oracle
                 .activator_tracked_poly(),
@@ -170,7 +170,7 @@ impl<B: SnarkBackend> PIOP<B> for BezoutMultiColSuppCheckPIOP<B> {
         let multi_col_supp_check_verifier_output = BezoutMultiColSuppCheckVerifierOutput {
             orig_folded_tracked_col_oracle: orig_table_folded_col,
             supp_folded_tracked_col_oracle: supp_table_folded_col,
-            multiplicity: inclusion_check_piop_verifier_output.super_col_m_comms[0].clone(),
+            multiplicity: lookup_piop_verifier_output.super_col_m_comms[0].clone(),
         };
         Ok(multi_col_supp_check_verifier_output)
     }

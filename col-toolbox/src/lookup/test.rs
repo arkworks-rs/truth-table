@@ -11,11 +11,11 @@ use ark_piop::{
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 
-use super::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput};
+use super::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 
 #[test]
-fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+fn lookup_with_non_activator_is_complete() -> SnarkResult<()> {
+    lookup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 2], Fr),
         None,
@@ -24,7 +24,7 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+    lookup_test_helper::<DefaultSnarkBackend>(
         3,
         to_field_vec!([20, 7, 18, 20, 18, 2, 12, 3], Fr),
         None,
@@ -33,7 +33,7 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+    lookup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([20, 7, 18, 20], Fr),
         None,
@@ -46,8 +46,8 @@ fn inclusion_check_with_non_activator_is_complete() -> SnarkResult<()> {
 }
 
 #[test]
-fn inclusion_check_is_complete() -> SnarkResult<()> {
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+fn lookup_is_complete() -> SnarkResult<()> {
+    lookup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 2], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -56,7 +56,7 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+    lookup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 200], Fr),
         Some(to_field_vec!([0, 0, 1, 0], Fr)),
@@ -65,7 +65,7 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
         Some(to_field_vec!([0, 1, 0, 1], Fr)),
     )?;
 
-    inclusion_check_test_helper::<DefaultSnarkBackend>(
+    lookup_test_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([7, 7, 7, 200], Fr),
         Some(to_field_vec!([0, 1, 1, 0], Fr)),
@@ -78,8 +78,8 @@ fn inclusion_check_is_complete() -> SnarkResult<()> {
 }
 
 #[test]
-fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
-    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
+fn lookup_with_non_activator_is_sound() -> SnarkResult<()> {
+    lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 8, 2], Fr),
         None,
@@ -88,7 +88,7 @@ fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
+    lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 10, 2], Fr),
         None,
@@ -101,8 +101,8 @@ fn inclusion_check_with_non_activator_is_sound() -> SnarkResult<()> {
 }
 
 #[test]
-fn inclusion_check_is_sound() -> SnarkResult<()> {
-    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
+fn lookup_is_sound() -> SnarkResult<()> {
+    lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 9], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -111,7 +111,7 @@ fn inclusion_check_is_sound() -> SnarkResult<()> {
         None,
     )?;
 
-    inclusion_check_test_soundness_helper::<DefaultSnarkBackend>(
+    lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
         to_field_vec!([25, 7, 7, 9], Fr),
         Some(to_field_vec!([0, 1, 1, 1], Fr)),
@@ -123,7 +123,7 @@ fn inclusion_check_is_sound() -> SnarkResult<()> {
     Ok(())
 }
 
-fn inclusion_check_test_soundness_helper<B: SnarkBackend>(
+fn lookup_test_soundness_helper<B: SnarkBackend>(
     included_nv: usize,
     included_col_values: Vec<B::F>,
     included_col_activator_values: Option<Vec<B::F>>,
@@ -131,7 +131,7 @@ fn inclusion_check_test_soundness_helper<B: SnarkBackend>(
     super_col_values: Vec<B::F>,
     super_col_activator_values: Option<Vec<B::F>>,
 ) -> SnarkResult<()> {
-    let err = inclusion_check_test_helper::<B>(
+    let err = lookup_test_helper::<B>(
         included_nv,
         included_col_values,
         included_col_activator_values,
@@ -166,7 +166,7 @@ fn inclusion_check_test_soundness_helper<B: SnarkBackend>(
     Ok(())
 }
 
-fn inclusion_check_test_helper<B: SnarkBackend>(
+fn lookup_test_helper<B: SnarkBackend>(
     included_nv: usize,
     included_col_values: Vec<B::F>,
     included_col_activator_values: Option<Vec<B::F>>,
@@ -207,12 +207,12 @@ fn inclusion_check_test_helper<B: SnarkBackend>(
         None,
     );
 
-    let inclusion_check_prover_input = InclusionCheckProverInput {
+    let lookup_prover_input = LookupProverInput {
         included_cols: vec![included_col.clone()],
         super_col: super_col.clone(),
     };
 
-    InclusionCheckPIOP::<B>::prove(&mut prover, inclusion_check_prover_input)?;
+    LookupPIOP::<B>::prove(&mut prover, lookup_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -239,12 +239,12 @@ fn inclusion_check_test_helper<B: SnarkBackend>(
         super_col.field_ref(),
     );
 
-    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+    let lookup_verifier_input = LookupVerifierInput {
         included_tracked_col_oracles: vec![included_tracked_col_oracle],
         super_tracked_col_oracle,
     };
 
-    InclusionCheckPIOP::<B>::verify(&mut verifier, inclusion_check_verifier_input)?;
+    LookupPIOP::<B>::verify(&mut verifier, lookup_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

@@ -9,7 +9,7 @@ pub mod binary_check;
 pub mod contig_lex_sort_check;
 pub mod defragger;
 pub mod fold_check;
-pub mod inclusion_check;
+pub mod lookup;
 pub mod local_single_col_sort_check;
 pub mod keyed_sumcheck;
 pub mod no_dup_check;

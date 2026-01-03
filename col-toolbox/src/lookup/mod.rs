@@ -25,19 +25,17 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 use utils::calc_inclusion_multiplicity;
 
-use crate::keyed_sumcheck::{
-    KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
-};
+use crate::keyed_sumcheck::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput};
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct HintedInclusionCheckProverInput<B: SnarkBackend> {
+pub struct HintedLookupProverInput<B: SnarkBackend> {
     pub included_cols: Vec<TrackedCol<B>>,
     pub super_col: TrackedCol<B>,
     pub super_col_multiplicities: Vec<TrackedPoly<B>>,
 }
 
-impl<B: SnarkBackend> DeepClone<B> for HintedInclusionCheckProverInput<B> {
+impl<B: SnarkBackend> DeepClone<B> for HintedLookupProverInput<B> {
     fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             included_cols: self
@@ -55,22 +53,22 @@ impl<B: SnarkBackend> DeepClone<B> for HintedInclusionCheckProverInput<B> {
     }
 }
 
-pub struct HintedInclusionCheckVerifierInput<B: SnarkBackend> {
+pub struct HintedLookupVerifierInput<B: SnarkBackend> {
     pub included_tracked_col_oracles: Vec<TrackedColOracle<B>>,
     pub super_tracked_col_oracle: TrackedColOracle<B>,
     pub super_col_multiplicities: Vec<TrackedOracle<B>>,
 }
 
-pub struct HintedInclusionCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
+pub struct HintedLookupPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct InclusionCheckProverInput<B: SnarkBackend> {
+pub struct LookupProverInput<B: SnarkBackend> {
     pub included_cols: Vec<TrackedCol<B>>,
     pub super_col: TrackedCol<B>,
 }
 
-impl<B: SnarkBackend> DeepClone<B> for InclusionCheckProverInput<B> {
+impl<B: SnarkBackend> DeepClone<B> for LookupProverInput<B> {
     fn deep_clone(&self, prover: ArgProver<B>) -> Self {
         Self {
             included_cols: self
@@ -83,24 +81,24 @@ impl<B: SnarkBackend> DeepClone<B> for InclusionCheckProverInput<B> {
     }
 }
 
-pub struct InclusionCheckProverOutput<B: SnarkBackend> {
+pub struct LookupProverOutput<B: SnarkBackend> {
     pub super_col_ms: Vec<TrackedPoly<B>>,
 }
 
-pub struct InclusionCheckVerifierInput<B: SnarkBackend> {
+pub struct LookupVerifierInput<B: SnarkBackend> {
     pub included_tracked_col_oracles: Vec<TrackedColOracle<B>>,
     pub super_tracked_col_oracle: TrackedColOracle<B>,
 }
 
-pub struct InclusionCheckVerifierOutput<B: SnarkBackend> {
+pub struct LookupVerifierOutput<B: SnarkBackend> {
     pub super_col_m_comms: Vec<TrackedOracle<B>>,
 }
 
-pub struct InclusionCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
+pub struct LookupPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
-impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
-    type ProverInput = HintedInclusionCheckProverInput<B>;
-    type VerifierInput = HintedInclusionCheckVerifierInput<B>;
+impl<B: SnarkBackend> PIOP<B> for HintedLookupPIOP<B> {
+    type ProverInput = HintedLookupProverInput<B>;
+    type VerifierInput = HintedLookupVerifierInput<B>;
     type ProverOutput = ();
     type VerifierOutput = ();
 
@@ -197,14 +195,14 @@ impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
     }
 }
 
-impl<B: SnarkBackend> PIOP<B> for InclusionCheckPIOP<B> {
-    type ProverInput = InclusionCheckProverInput<B>;
+impl<B: SnarkBackend> PIOP<B> for LookupPIOP<B> {
+    type ProverInput = LookupProverInput<B>;
 
-    type ProverOutput = InclusionCheckProverOutput<B>;
+    type ProverOutput = LookupProverOutput<B>;
 
-    type VerifierOutput = InclusionCheckVerifierOutput<B>;
+    type VerifierOutput = LookupVerifierOutput<B>;
 
-    type VerifierInput = InclusionCheckVerifierInput<B>;
+    type VerifierInput = LookupVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
@@ -241,13 +239,13 @@ impl<B: SnarkBackend> PIOP<B> for InclusionCheckPIOP<B> {
             .map(|mle| prover.track_and_commit_mat_mv_poly(mle))
             .collect::<SnarkResult<Vec<_>>>()?;
 
-        let hinted_inclusion_check_prover_input = HintedInclusionCheckProverInput {
+        let hinted_lookup_prover_input = HintedLookupProverInput {
             included_cols: input.included_cols,
             super_col: input.super_col,
             super_col_multiplicities: super_col_ms.clone(),
         };
-        HintedInclusionCheckPIOP::<B>::prove(prover, hinted_inclusion_check_prover_input)?;
-        Ok(InclusionCheckProverOutput { super_col_ms })
+        HintedLookupPIOP::<B>::prove(prover, hinted_lookup_prover_input)?;
+        Ok(LookupProverOutput { super_col_ms })
     }
 
     fn verify_inner(
@@ -263,12 +261,12 @@ impl<B: SnarkBackend> PIOP<B> for InclusionCheckPIOP<B> {
             })
             .collect::<SnarkResult<Vec<_>>>()?;
 
-        let hinted_inclusion_check_verifier_input = HintedInclusionCheckVerifierInput {
+        let hinted_lookup_verifier_input = HintedLookupVerifierInput {
             included_tracked_col_oracles: input.included_tracked_col_oracles,
             super_tracked_col_oracle: input.super_tracked_col_oracle,
             super_col_multiplicities: super_col_m_comms.clone(),
         };
-        HintedInclusionCheckPIOP::<B>::verify(verifier, hinted_inclusion_check_verifier_input)?;
-        Ok(InclusionCheckVerifierOutput { super_col_m_comms })
+        HintedLookupPIOP::<B>::verify(verifier, hinted_lookup_verifier_input)?;
+        Ok(LookupVerifierOutput { super_col_m_comms })
     }
 }

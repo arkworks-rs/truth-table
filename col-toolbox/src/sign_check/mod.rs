@@ -11,7 +11,7 @@ mod test;
 
 mod utils;
 use crate::{
-    inclusion_check::{InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput},
+    lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
@@ -185,7 +185,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                let inclusion_check_prover_input = InclusionCheckProverInput {
+                let lookup_prover_input = LookupProverInput {
                     included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(8).unwrap()),
@@ -193,10 +193,10 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
             }
             DataType::Int8 => {
-                let inclusion_check_prover_input = InclusionCheckProverInput {
+                let lookup_prover_input = LookupProverInput {
                     included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(7).unwrap()),
@@ -204,10 +204,10 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
             }
             DataType::UInt16 => {
-                let inclusion_check_prover_input = InclusionCheckProverInput {
+                let lookup_prover_input = LookupProverInput {
                     included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -215,10 +215,10 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
             }
             DataType::Int16 => {
-                let inclusion_check_prover_input = InclusionCheckProverInput {
+                let lookup_prover_input = LookupProverInput {
                     included_cols: vec![col.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
@@ -226,12 +226,12 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -239,12 +239,12 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
-                let top_inclusion_check_input = InclusionCheckProverInput {
+                let top_lookup_input = LookupProverInput {
                     included_cols: vec![chunk3.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
@@ -252,9 +252,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
+                LookupPIOP::<B>::prove(prover, top_lookup_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -262,13 +262,13 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -276,13 +276,13 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
 
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
-                let top_inclusion_check_input = InclusionCheckProverInput {
+                let top_lookup_input = LookupProverInput {
                     included_cols: vec![chunk3.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
@@ -290,9 +290,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
+                LookupPIOP::<B>::prove(prover, top_lookup_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -300,13 +300,13 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
             DataType::Decimal128(..) => {
                 let chunks = Self::prove_non_neg_int128(prover, col)?;
                 let (top, rest) = chunks.split_first().expect("chunks non-empty");
-                let top_inclusion_check_input = InclusionCheckProverInput {
+                let top_lookup_input = LookupProverInput {
                     included_cols: vec![top.clone()],
                     super_col: TrackedCol::new(
                         prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(15).unwrap()),
@@ -314,9 +314,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::prove(prover, top_inclusion_check_input)?;
+                LookupPIOP::<B>::prove(prover, top_lookup_input)?;
                 for segment in rest {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment.clone()],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -324,14 +324,14 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
 
             DataType::Utf8View => {
                 let segments = Self::prove_non_neg_uint256(prover, col)?;
                 for segment in segments {
-                    let inclusion_check_prover_input = InclusionCheckProverInput {
+                    let lookup_prover_input = LookupProverInput {
                         included_cols: vec![segment],
                         super_col: TrackedCol::new(
                             prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(16).unwrap()),
@@ -339,7 +339,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::prove(prover, inclusion_check_prover_input)?;
+                    LookupPIOP::<B>::prove(prover, lookup_prover_input)?;
                 }
             }
 
@@ -356,7 +356,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
         let data_type = field_ref.data_type();
         match *data_type {
             DataType::UInt8 => {
-                let inclusion_check_prover_input = InclusionCheckVerifierInput {
+                let lookup_prover_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(8, move |x| {
@@ -366,11 +366,11 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::verify(verifier, lookup_prover_input)?;
             }
 
             DataType::Int8 => {
-                let inclusion_check_prover_input = InclusionCheckVerifierInput {
+                let lookup_prover_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(7, move |x| {
@@ -380,11 +380,11 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::verify(verifier, lookup_prover_input)?;
             }
 
             DataType::UInt16 => {
-                let inclusion_check_prover_input = InclusionCheckVerifierInput {
+                let lookup_prover_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -394,10 +394,10 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::verify(verifier, lookup_prover_input)?;
             }
             DataType::Int16 => {
-                let inclusion_check_prover_input = InclusionCheckVerifierInput {
+                let lookup_prover_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![tracked_col_oracle.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
@@ -407,13 +407,13 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_prover_input)?;
+                LookupPIOP::<B>::verify(verifier, lookup_prover_input)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint32(verifier, tracked_col_oracle)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    let lookup_verifier_input = LookupVerifierInput {
                         included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -423,14 +423,14 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
+                    LookupPIOP::<B>::verify(verifier, lookup_verifier_input)?;
                 }
             }
 
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int32(verifier, tracked_col_oracle)?;
-                let top_inclusion_check_input = InclusionCheckVerifierInput {
+                let top_lookup_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![chunk3.clone()],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
@@ -440,9 +440,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, top_inclusion_check_input)?;
+                LookupPIOP::<B>::verify(verifier, top_lookup_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    let lookup_verifier_input = LookupVerifierInput {
                         included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -452,7 +452,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
+                    LookupPIOP::<B>::verify(verifier, lookup_verifier_input)?;
                 }
             }
 
@@ -460,7 +460,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_uint64(verifier, tracked_col_oracle)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    let lookup_verifier_input = LookupVerifierInput {
                         included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -470,14 +470,14 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
+                    LookupPIOP::<B>::verify(verifier, lookup_verifier_input)?;
                 }
             }
 
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) =
                     Self::verify_non_neg_int64(verifier, tracked_col_oracle)?;
-                let top_inclusion_check_input = InclusionCheckVerifierInput {
+                let top_lookup_input = LookupVerifierInput {
                     included_tracked_col_oracles: vec![chunk3],
                     super_tracked_col_oracle: TrackedColOracle::new(
                         verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
@@ -487,9 +487,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                         None,
                     ),
                 };
-                InclusionCheckPIOP::<B>::verify(verifier, top_inclusion_check_input)?;
+                LookupPIOP::<B>::verify(verifier, top_lookup_input)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    let lookup_verifier_input = LookupVerifierInput {
                         included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -499,15 +499,15 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
+                    LookupPIOP::<B>::verify(verifier, lookup_verifier_input)?;
                 }
             }
 
             DataType::Decimal128(..) => {
                 let (top, rest) = Self::verify_non_neg_int128(verifier, tracked_col_oracle)?;
-                InclusionCheckPIOP::<B>::verify(
+                LookupPIOP::<B>::verify(
                     verifier,
-                    InclusionCheckVerifierInput {
+                    LookupVerifierInput {
                         included_tracked_col_oracles: vec![top],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(15, move |x| {
@@ -519,9 +519,9 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                     },
                 )?;
                 for segment in rest {
-                    InclusionCheckPIOP::<B>::verify(
+                    LookupPIOP::<B>::verify(
                         verifier,
-                        InclusionCheckVerifierInput {
+                        LookupVerifierInput {
                             included_tracked_col_oracles: vec![segment],
                             super_tracked_col_oracle: TrackedColOracle::new(
                                 verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -538,7 +538,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
             DataType::Utf8View => {
                 let segments = Self::verify_non_neg_uint256(verifier, tracked_col_oracle)?;
                 for segment in segments {
-                    let inclusion_check_verifier_input = InclusionCheckVerifierInput {
+                    let lookup_verifier_input = LookupVerifierInput {
                         included_tracked_col_oracles: vec![segment],
                         super_tracked_col_oracle: TrackedColOracle::new(
                             verifier.track_oracle(Oracle::new_multivariate(16, move |x| {
@@ -548,7 +548,7 @@ impl<B: SnarkBackend> SignCheckPIOP<B> {
                             None,
                         ),
                     };
-                    InclusionCheckPIOP::<B>::verify(verifier, inclusion_check_verifier_input)?;
+                    LookupPIOP::<B>::verify(verifier, lookup_verifier_input)?;
                 }
             }
 

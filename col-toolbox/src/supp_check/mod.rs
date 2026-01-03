@@ -9,9 +9,9 @@ mod test;
 
 use super::no_dup_check::NoDupPIOP;
 use crate::{
-    inclusion_check::{
-        HintedInclusionCheckPIOP, HintedInclusionCheckProverInput,
-        HintedInclusionCheckVerifierInput, utils::calc_inclusion_multiplicity,
+    lookup::{
+        HintedLookupPIOP, HintedLookupProverInput,
+        HintedLookupVerifierInput, utils::calc_inclusion_multiplicity,
     },
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
@@ -142,13 +142,13 @@ impl<B: SnarkBackend> PIOP<B> for HintedSuppCheckPIOP<B> {
         prover: &mut ArgProver<B>,
         prover_input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let hinted_inclusion_check_prover_input = HintedInclusionCheckProverInput {
+        let hinted_lookup_prover_input = HintedLookupProverInput {
             included_cols: vec![prover_input.col.clone()],
             super_col: prover_input.supp.clone(),
             super_col_multiplicities: vec![prover_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<B>::prove(prover, hinted_inclusion_check_prover_input)?;
+        HintedLookupPIOP::<B>::prove(prover, hinted_lookup_prover_input)?;
 
         let supp_no_dups_checker = TrackedCol::new(
             prover_input.multiplicity.clone(),
@@ -170,13 +170,13 @@ impl<B: SnarkBackend> PIOP<B> for HintedSuppCheckPIOP<B> {
         verifier: &mut ArgVerifier<B>,
         verifier_input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let hinted_inclusion_check_verifier_input = HintedInclusionCheckVerifierInput {
+        let hinted_lookup_verifier_input = HintedLookupVerifierInput {
             included_tracked_col_oracles: vec![verifier_input.col.clone()],
             super_tracked_col_oracle: verifier_input.supp.clone(),
             super_col_multiplicities: vec![verifier_input.multiplicity.clone()],
         };
 
-        HintedInclusionCheckPIOP::<B>::verify(verifier, hinted_inclusion_check_verifier_input)?;
+        HintedLookupPIOP::<B>::verify(verifier, hinted_lookup_verifier_input)?;
 
         let supp_no_dups_checker = TrackedColOracle::new(
             verifier_input.multiplicity.clone(),

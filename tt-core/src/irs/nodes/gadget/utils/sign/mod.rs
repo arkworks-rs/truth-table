@@ -21,8 +21,8 @@ use ark_poly::{
     DenseMVPolynomial, Polynomial,
     multivariate::{SparsePolynomial, SparseTerm, Term},
 };
-use col_toolbox::inclusion_check::{
-    InclusionCheckPIOP, InclusionCheckProverInput, InclusionCheckVerifierInput,
+use col_toolbox::lookup::{
+    LookupPIOP, LookupProverInput, LookupVerifierInput,
 };
 use datafusion::arrow::datatypes::DataType;
 use either::Either;
@@ -341,11 +341,11 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<()> {
         let range_poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv));
         let super_col = TrackedCol::new(range_poly, None, None);
-        let input = InclusionCheckProverInput {
+        let input = LookupProverInput {
             included_cols: vec![col.clone()],
             super_col,
         };
-        InclusionCheckPIOP::<B>::prove(prover, input)?;
+        LookupPIOP::<B>::prove(prover, input)?;
         Ok(())
     }
 
@@ -378,11 +378,11 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<()> {
         let range_oracle = verifier.track_oracle(Self::range_oracle(nv));
         let super_col = TrackedColOracle::new(range_oracle, None, None);
-        let input = InclusionCheckVerifierInput {
+        let input = LookupVerifierInput {
             included_tracked_col_oracles: vec![col.clone()],
             super_tracked_col_oracle: super_col,
         };
-        InclusionCheckPIOP::<B>::verify(verifier, input)?;
+        LookupPIOP::<B>::verify(verifier, input)?;
         Ok(())
     }
 
