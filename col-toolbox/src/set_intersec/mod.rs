@@ -22,8 +22,8 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 
 use crate::{
-    multiplicity_check::{
-        MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
+    keyed_sumcheck::{
+        KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
     },
     no_dup_check::{self, NoDupPIOP},
 };
@@ -179,14 +179,14 @@ impl<B: SnarkBackend> PIOP<B> for SetInterUnionCheckPIOP<B> {
             ))),
         };
 
-        let multiplicity_check_prover_input = MultiplicityCheckProverInput {
+        let keyed_sumcheck_prover_input = KeyedSumcheckProverInput {
             fxs: vec![input.col_left.clone(), input.col_right.clone()],
             gxs: vec![input.col_union.clone()],
             mfxs: vec![None, None],
             mgxs: vec![mgx],
         };
 
-        MultiplicityCheck::prove(prover, multiplicity_check_prover_input)?;
+        KeyedSumcheck::prove(prover, keyed_sumcheck_prover_input)?;
 
         let diff_poly = &input.col_union.data_tracked_poly() - &input.col_inter.data_tracked_poly();
         let zero_poly = match input.col_inter.activator_tracked_poly() {
@@ -217,14 +217,14 @@ impl<B: SnarkBackend> PIOP<B> for SetInterUnionCheckPIOP<B> {
             ))),
         };
 
-        let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
+        let keyed_sumcheck_verifier_input = KeyedSumcheckVerifierInput {
             fxs: vec![input.col_left.clone(), input.col_right.clone()],
             gxs: vec![input.col_union.clone()],
             mfxs: vec![None, None],
             mgxs: vec![mgx.clone()],
         };
 
-        MultiplicityCheck::verify(verifier, multiplicity_check_verifier_input)?;
+        KeyedSumcheck::verify(verifier, keyed_sumcheck_verifier_input)?;
 
         let diff_poly =
             &input.col_union.data_tracked_oracle() - &input.col_inter.data_tracked_oracle();

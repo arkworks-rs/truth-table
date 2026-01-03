@@ -28,32 +28,32 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 use std::ops::Neg;
-pub struct MultiplicityCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
+pub struct KeyedSumcheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
 #[derivative(Debug(bound = ""))]
-pub struct MultiplicityCheckProverInput<B: SnarkBackend> {
+pub struct KeyedSumcheckProverInput<B: SnarkBackend> {
     pub fxs: Vec<TrackedCol<B>>,
     pub gxs: Vec<TrackedCol<B>>,
     pub mfxs: Vec<Option<TrackedPoly<B>>>,
     pub mgxs: Vec<Option<TrackedPoly<B>>>,
 }
 
-pub struct MultiplicityCheckVerifierInput<B: SnarkBackend> {
+pub struct KeyedSumcheckVerifierInput<B: SnarkBackend> {
     pub fxs: Vec<TrackedColOracle<B>>,
     pub gxs: Vec<TrackedColOracle<B>>,
     pub mfxs: Vec<Option<TrackedOracle<B>>>,
     pub mgxs: Vec<Option<TrackedOracle<B>>>,
 }
 
-impl<B: SnarkBackend> PIOP<B> for MultiplicityCheck<B> {
-    type ProverInput = MultiplicityCheckProverInput<B>;
+impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
+    type ProverInput = KeyedSumcheckProverInput<B>;
 
     type ProverOutput = ();
 
     type VerifierOutput = ();
 
-    type VerifierInput = MultiplicityCheckVerifierInput<B>;
+    type VerifierInput = KeyedSumcheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
@@ -167,7 +167,7 @@ impl<B: SnarkBackend> PIOP<B> for MultiplicityCheck<B> {
     }
 }
 
-impl<B: SnarkBackend> MultiplicityCheck<B> {
+impl<B: SnarkBackend> KeyedSumcheck<B> {
     fn prove_generate_subclaims(
         tracker: &mut ArgProver<B>,
         col: TrackedCol<B>,

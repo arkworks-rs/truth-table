@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::FieldRef;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Aggregate, LogicalPlan};
 use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    payloads::PayloadStructure,
     tree::Tree,
 };
 
@@ -44,9 +45,61 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_polys();
+        let mut existing_names: HashSet<String> = merged_polys
+            .keys()
+            .map(|field| field.name().to_string())
+            .collect();
+
+        for (field, poly) in input_table.tracked_polys_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            if existing_names.contains(field.name()) {
+                continue;
+            }
+            merged_polys.insert(field.clone(), poly.clone());
+            existing_names.insert(field.name().to_string());
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), input_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Aggregate log sizes should match input");
+                current
+            }
+        };
+
+        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 
@@ -100,9 +153,61 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_oracles = current_table.tracked_oracles();
+        let mut existing_names: HashSet<String> = merged_oracles
+            .keys()
+            .map(|field| field.name().to_string())
+            .collect();
+
+        for (field, oracle) in input_table.tracked_oracles_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            if existing_names.contains(field.name()) {
+                continue;
+            }
+            merged_oracles.insert(field.clone(), oracle.clone());
+            existing_names.insert(field.name().to_string());
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), input_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Aggregate log sizes should match input");
+                current
+            }
+        };
+
+        let updated_table = TrackedTableOracle::new(schema, merged_oracles, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 

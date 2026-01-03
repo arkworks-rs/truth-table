@@ -1,4 +1,4 @@
-use super::{MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput};
+use super::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput};
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
     DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult,
@@ -12,7 +12,7 @@ use std::str::FromStr;
 // multiplicative columns are None, meaning that everything is activated and the
 // multiplicities are all one
 #[test]
-fn multiplicity_check_with_activator_and_mul_none_is_complete() -> SnarkResult<()> {
+fn keyed_sumcheck_with_activator_and_mul_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], Fr)],
@@ -63,7 +63,7 @@ fn multiplicity_check_with_activator_and_mul_none_is_complete() -> SnarkResult<(
 // multiplicative columns are None, meaning that everything is activated and the
 // multiplicities are all one
 #[test]
-fn multiplicity_check_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
+fn keyed_sumcheck_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([4, 1, 1, 20, 18, 2, 12, 3], Fr)],
@@ -114,7 +114,7 @@ fn multiplicity_check_with_activator_and_mul_none_is_sound() -> SnarkResult<()> 
 // Test cases for multiplicity check completeness, where the active
 // columns are None, meaning that everything is activated
 #[test]
-fn multiplicity_check_with_activator_none_is_complete() -> SnarkResult<()> {
+fn keyed_sumcheck_with_activator_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -214,7 +214,7 @@ fn multiplicity_check_with_activator_none_is_complete() -> SnarkResult<()> {
 // Test cases for multiplicity check soundness, where the active
 // columns are None, meaning that everything is activated
 #[test]
-fn multiplicity_check_with_activator_none_is_sound() -> SnarkResult<()> {
+fn keyed_sumcheck_with_activator_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -244,7 +244,7 @@ fn multiplicity_check_with_activator_none_is_sound() -> SnarkResult<()> {
 // Test cases for multiplicity check, where the Multiplicity
 // columns are None, meaning that everything has a multiplcity of one
 #[test]
-fn multiplicity_check_with_mul_none_is_complete() -> SnarkResult<()> {
+fn keyed_sumcheck_with_mul_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -311,7 +311,7 @@ fn multiplicity_check_with_mul_none_is_complete() -> SnarkResult<()> {
 // Test cases for multiplicity check soundness, where the Multiplicity
 // columns are None, meaning that everything has a multiplcity of one
 #[test]
-fn multiplicity_check_with_mul_none_is_sound() -> SnarkResult<()> {
+fn keyed_sumcheck_with_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -329,7 +329,7 @@ fn multiplicity_check_with_mul_none_is_sound() -> SnarkResult<()> {
 // Test cases for multiplicity check,in the general form where both the
 // activator and multiplicities are non-None
 #[test]
-fn multiplicity_check_is_complete() -> SnarkResult<()> {
+fn keyed_sumcheck_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], Fr)],
@@ -399,7 +399,7 @@ fn multiplicity_check_is_complete() -> SnarkResult<()> {
 // Test cases for multiplicity check,in the general form where both the
 // activator and multiplicities are non-None
 #[test]
-fn multiplicity_check_is_sound() -> SnarkResult<()> {
+fn keyed_sumcheck_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
         vec![to_field_vec!([3, 7, 12, 20, 1, 3, 1, 2], Fr)],
@@ -641,13 +641,13 @@ fn multiplicity_test_helper<B: SnarkBackend>(
         .zip(g_activator_tr.iter())
         .map(|(tr, activator)| TrackedCol::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
-    let multiplicity_check_prover_input = MultiplicityCheckProverInput {
+    let keyed_sumcheck_prover_input = KeyedSumcheckProverInput {
         fxs: f_cols,
         gxs: g_cols,
         mfxs: f_mul_tr.clone(),
         mgxs: g_mul_tr.clone(),
     };
-    MultiplicityCheck::<B>::prove(&mut prover, multiplicity_check_prover_input)?;
+    KeyedSumcheck::<B>::prove(&mut prover, keyed_sumcheck_prover_input)?;
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
     //////////////////////////////////////////////////////////////////////
@@ -700,14 +700,14 @@ fn multiplicity_test_helper<B: SnarkBackend>(
         .map(|(tr, activator)| TrackedColOracle::new(tr.clone(), activator.clone(), None))
         .collect::<Vec<_>>();
 
-    let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
+    let keyed_sumcheck_verifier_input = KeyedSumcheckVerifierInput {
         fxs: f_tracked_col_oracles,
         gxs: g_tracked_col_oracles,
         mfxs: f_mul_tr_comms.clone(),
         mgxs: g_mul_tr_comms.clone(),
     };
 
-    MultiplicityCheck::<B>::verify(&mut verifier, multiplicity_check_verifier_input)?;
+    KeyedSumcheck::<B>::verify(&mut verifier, keyed_sumcheck_verifier_input)?;
     verifier.verify()?;
     Ok(())
 }

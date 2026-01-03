@@ -1,6 +1,6 @@
 //! A PIOP for checing if a column is included in another column
 /// More precisely, it checks if the activated elements of a column is included
-/// in another column. Internally, this PIOP invokes the `MultiplicityCheck`
+/// in another column. Internally, this PIOP invokes the `KeyedSumcheck`
 /// with the multiplicity polynomial of all 1 for the 'included_col' and a
 /// computed advice multiplicity for 'super_col'#[cfg(test)]
 #[cfg(test)]
@@ -25,8 +25,8 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 use utils::calc_inclusion_multiplicity;
 
-use crate::multiplicity_check::{
-    MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
+use crate::keyed_sumcheck::{
+    KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
 };
 
 #[derive(Derivative)]
@@ -145,7 +145,7 @@ impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
             })
             .collect::<Vec<_>>();
 
-        let multiplicity_check_prover_input = MultiplicityCheckProverInput {
+        let keyed_sumcheck_prover_input = KeyedSumcheckProverInput {
             fxs: input.included_cols.clone(),
             gxs: vec![input.super_col.clone()],
             mfxs: included_col_ms,
@@ -157,7 +157,7 @@ impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
                 .collect(),
         };
 
-        MultiplicityCheck::<B>::prove(prover, multiplicity_check_prover_input)?;
+        KeyedSumcheck::<B>::prove(prover, keyed_sumcheck_prover_input)?;
 
         Ok(())
     }
@@ -181,7 +181,7 @@ impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
             })
             .collect::<Vec<_>>();
 
-        let multiplicity_check_verifier_input = MultiplicityCheckVerifierInput {
+        let keyed_sumcheck_verifier_input = KeyedSumcheckVerifierInput {
             fxs: input.included_tracked_col_oracles.clone(),
             gxs: vec![input.super_tracked_col_oracle.clone()],
             mfxs: included_col_ms,
@@ -192,7 +192,7 @@ impl<B: SnarkBackend> PIOP<B> for HintedInclusionCheckPIOP<B> {
                 .map(Some)
                 .collect(),
         };
-        MultiplicityCheck::<B>::verify(verifier, multiplicity_check_verifier_input)?;
+        KeyedSumcheck::<B>::verify(verifier, keyed_sumcheck_verifier_input)?;
         Ok(())
     }
 }

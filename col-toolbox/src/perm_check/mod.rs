@@ -16,8 +16,8 @@ use ark_piop::{
 use derivative::Derivative;
 use std::marker::PhantomData;
 
-use crate::multiplicity_check::{
-    MultiplicityCheck, MultiplicityCheckProverInput, MultiplicityCheckVerifierInput,
+use crate::keyed_sumcheck::{
+    KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
 };
 
 // Convinces the verifier that
@@ -80,14 +80,14 @@ impl<B: SnarkBackend> PIOP<B> for PermPIOP<B> {
         prover: &mut ArgProver<B>,
         input: Self::ProverInput,
     ) -> SnarkResult<Self::ProverOutput> {
-        let multiplicity_check_prover_input = MultiplicityCheckProverInput {
+        let keyed_sumcheck_prover_input = KeyedSumcheckProverInput {
             fxs: vec![input.left_col],
             gxs: vec![input.right_col],
             mfxs: vec![None],
             mgxs: vec![None],
         };
 
-        MultiplicityCheck::<B>::prove(prover, multiplicity_check_prover_input)?;
+        KeyedSumcheck::<B>::prove(prover, keyed_sumcheck_prover_input)?;
         Ok(())
     }
 
@@ -95,14 +95,14 @@ impl<B: SnarkBackend> PIOP<B> for PermPIOP<B> {
         verifier: &mut ArgVerifier<B>,
         input: Self::VerifierInput,
     ) -> SnarkResult<Self::VerifierOutput> {
-        let multiplicity_check_vierifier_input = MultiplicityCheckVerifierInput {
+        let keyed_sumcheck_vierifier_input = KeyedSumcheckVerifierInput {
             fxs: vec![input.left_tracked_col_oracle],
             gxs: vec![input.right_tracked_col_oracle],
             mfxs: vec![None],
             mgxs: vec![None],
         };
 
-        MultiplicityCheck::<B>::verify(verifier, multiplicity_check_vierifier_input)?;
+        KeyedSumcheck::<B>::verify(verifier, keyed_sumcheck_vierifier_input)?;
         Ok(())
     }
 }
