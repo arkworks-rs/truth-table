@@ -3,18 +3,18 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
+use crate::irs::nodes::gadget::utils::nodup;
 use crate::irs::nodes::{
     IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::eq,
 };
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
-pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
-pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
-pub const FILTER_PREDICATE_LABEL: &str = "__filter_predicate__";
+pub const INPUT_ACTIVATOR_LABEL: &str = "__groups__";
+pub const FILTER_PREDICATE_LABEL: &str = "__aggr-expr__";
 
 pub struct GadgetNode<B: SnarkBackend> {
-    col_eq: Arc<Node<B>>,
+    nodup: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -31,7 +31,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.col_eq.clone()]
+        vec![self.nodup.clone()]
     }
 }
 
@@ -98,9 +98,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::EqNode::new())));
+        let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new())));
         Self {
-            col_eq: col_eq_gadget,
+            nodup: nodup_gadget,
         }
     }
 }

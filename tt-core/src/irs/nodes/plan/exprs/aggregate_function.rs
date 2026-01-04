@@ -1,82 +1,158 @@
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
-use datafusion_expr::expr::AggregateFunction;
+use datafusion_common::Statistics;
+use datafusion_expr::{Expr, expr::AggregateFunction};
 
+use crate::irs::{
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
+    payloads::PayloadStructure,
+};
+pub const INPUT_ACTIVATOR_LABEL: &str = "__groups__";
+pub const FILTER_PREDICATE_LABEL: &str = "__aggr-expr__";
 #[derive(Clone)]
-pub struct ProverAggregateFunctionExprNode<B>
-where
-    B: SnarkBackend,
-{
-    aggregate_function: AggregateFunction,
-    phantom: PhantomData<(B)>,
+pub struct ProverNode<B: SnarkBackend> {
+    pub aggregate_function: AggregateFunction,
+    pub scope: Arc<Node<B>>,
+    pub parent: Option<std::sync::Weak<Node<B>>>,
 }
-// impl<B> ProverPlanNode<B>
-//     for ProverAggregateFunctionExprNode<B>
-// where
-//     F: PrimeField,
-//     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-//     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-// {
-//     fn gadget_tree(&self) -> crate::prover::trees::gadget_tree::GadgetTree<B> {
-//         todo!()
-//     }
 
-//     fn node_id(&self) -> crate::tree::NodeId {
-//         NodeId::Expr(Expr::AggregateFunction(self.aggregate_function.clone()))
-//     }
+impl<B: SnarkBackend> ProverNode<B> {
+    fn output_column_name(&self) -> String {
+        Expr::AggregateFunction(self.aggregate_function.clone())
+            .schema_name()
+            .to_string()
+    }
+}
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
-//         vec![]
-//     }
+impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+    fn name(&self) -> String {
+        "AggregateFunction".to_string()
+    }
 
-//     fn output(&self, _proof_tree: &ProverProofTree<B>) -> HintDF {
-//         todo!()
-//     }
-//     fn ctx_lp_node(
-//         &self,
-//         proof_tree: &ProverProofTree<B>,
-//     ) -> Arc<dyn ProverPlanNode<B>> {
-//         todo!()
-//     }
+    fn cost(
+        &self,
+        _statistics: Statistics,
+        _schema: arrow_schema::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
 
-//     fn arithmetic_post_process(&self) {
-//         todo!()
-//     }
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        vec![]
+    }
+}
 
-//     fn add_virtual_witness(&self, prover: &mut ark_piop::prover::ArgProver<B>) {
-//         todo!()
-//     }
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let scope_id = self.scope.id();
+        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
+        let column_name = self.output_column_name();
 
-//     fn cost(
-//         &self,
-//         statistics: datafusion_common::Statistics,
-//         schema: datafusion::arrow::datatypes::SchemaRef,
-//     ) -> crate::nodes::cost::ProvingCost {
-//         todo!()
-//     }
-// }
+        let try_build_subtable =
+            |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
+                let schema = table.schema_ref()?;
+                let col_idx = schema.index_of(column_name).ok()?;
+                Some(table.tracked_subtable_by_indices(&[col_idx]))
+            };
 
-// impl<B> ProverExprNode<B>
-//     for ProverAggregateFunctionExprNode<B>
-// where
-//     F: PrimeField,
-//     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Send + Sync,
-//     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Send + Sync,
-// {
-//     fn from_expr(
-//         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: CtxOracles<B>,
-//         expr: Expr,
-//         parent: NodeId,
-//     ) -> Self {
-//         let aggregate_function = match expr {
-//             Expr::AggregateFunction(f) => f,
-//             _ => panic!("Expected AggregateFunction expression"),
-//         };
-//         Self {
-//             aggregate_function,
-//             phantom: PhantomData,
-//         }
-//     }
-// }
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+            && let Some(subtable) = try_build_subtable(table, &column_name)
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
+        }
+
+        panic!(
+            "AggregateFunction node could not find its column '{}' in scope node {:?}",
+            column_name, scope_id
+        );
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+    fn gadget(&self) -> Option<Node<B>> {
+        None
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+    fn from_expr(
+        expr: Expr,
+        _self_ref: std::sync::Weak<Node<B>>,
+        parent: Option<std::sync::Weak<Node<B>>>,
+        scope: Arc<Node<B>>,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let aggregate_function = match expr {
+            Expr::AggregateFunction(func) => func,
+            _ => panic!("Expected AggregateFunction expression"),
+        };
+        Self {
+            aggregate_function,
+            scope,
+            parent,
+        }
+    }
+
+    fn expr(&self) -> Expr {
+        Expr::AggregateFunction(self.aggregate_function.clone())
+    }
+
+    fn parent(&self) -> crate::irs::nodes::PlanNode<B>
+    where
+        Self: Sized,
+    {
+        self.parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .map(|arc_node| match arc_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.clone(),
+                Node::Gadget(_) => panic!("AggregateFunction parent cannot be a gadget node"),
+            })
+            .expect("AggregateFunction node must have a parent")
+    }
+
+    fn scope(&self) -> Arc<Node<B>>
+    where
+        Self: Sized,
+    {
+        self.scope.clone()
+    }
+}
