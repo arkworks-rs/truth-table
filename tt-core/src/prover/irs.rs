@@ -34,7 +34,7 @@ mod test {
     use crate::irs::shared_ir::{EmptyIr, PlannedIr};
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
-    use crate::irs::shared_passes::PlanningPass;
+    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
@@ -104,7 +104,7 @@ mod test {
     async fn builds_planned_ir_from_logical_plan() {
         let ctx = SessionContext::new();
         register_dummy_table(&ctx);
-        let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+        let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
 
         for query in queries() {
             let df = ctx.sql(query).await.unwrap();
@@ -127,7 +127,7 @@ mod test {
         for query in queries() {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
 
             let df = ctx.sql(query).await.unwrap();
@@ -148,7 +148,7 @@ mod test {
         for query in queries() {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
 
@@ -173,7 +173,7 @@ mod test {
             let (arg_prover, _) = test_prelude().unwrap();
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
             let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
@@ -198,7 +198,7 @@ mod test {
             let (arg_prover, _) = test_prelude().unwrap();
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
             let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
@@ -225,7 +225,7 @@ mod test {
             let (arg_prover, _) = test_prelude().unwrap();
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
             let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
@@ -262,7 +262,7 @@ mod test {
             let (mut arg_prover, _) = test_prelude().unwrap();
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
-            let planning_pass = PlanningPass::<DefaultSnarkBackend>::new();
+            let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
             let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover.clone());

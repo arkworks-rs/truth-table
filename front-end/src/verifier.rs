@@ -3,7 +3,7 @@ use tt_core::{
     errors::TTResult,
     irs::{
         shared_ir::{EmptyIr, PlannedIr},
-        shared_passes::PlanningPass,
+        shared_passes::{GadgetPlanningPass, OutputPlanningPass},
         tree::Tree,
     },
     verifier::{
@@ -39,8 +39,11 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         }
     }
 
-    pub fn planning_pass(&self) -> PlanningPass<B> {
-        PlanningPass::new()
+    pub fn planning_pass(&self) -> OutputPlanningPass<B> {
+        OutputPlanningPass::new()
+    }
+    pub fn gadget_planning_pass(&self) -> GadgetPlanningPass<B> {
+        GadgetPlanningPass::new()
     }
 
     pub fn tracking_pass(&self, arg_verifier: ArgVerifier<B>) -> VerifierTrackingPass<B> {
@@ -103,8 +106,15 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        let planned_ir =
+        let mut planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
+        let gadget_planned_ir =
+            initial_ir.apply_local_pass_sequential(&self.verifier_config().gadget_planning_pass());
+        for (id, payload) in gadget_planned_ir.payloads().iter() {
+            if planned_ir.payload_for_node(id).is_none() {
+                planned_ir.set_payload_for_node(*id, payload.clone());
+            }
+        }
 
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());

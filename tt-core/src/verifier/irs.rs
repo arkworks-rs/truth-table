@@ -25,7 +25,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 mod test {
     use super::*;
     use crate::irs::shared_ir::EmptyIr;
-    use crate::irs::shared_passes::PlanningPass;
+    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::irs::{payloads::HintDFPayload, tree::Tree};
     use crate::prover::passes::{
         arithmetization::ArithmetizationPass, gadget_initialization::GadgetInitializationPass,
@@ -142,7 +142,7 @@ mod test {
         let ctx = SessionContext::new();
         register_dummy_table(&ctx);
 
-        let planning_pass = PlanningPass::<Backend>::new();
+        let planning_pass = OutputPlanningPass::<Backend>::new();
         let materialization_pass = MaterializationPass::<Backend>::new();
         let arithmetization_pass = ArithmetizationPass::<Backend>::new();
         let prover_tracking_pass = ProverTrackingPass::<Backend>::new(arg_prover.clone());
@@ -188,7 +188,7 @@ mod test {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
 
-            let planning_pass = PlanningPass::<Backend>::new();
+            let planning_pass = OutputPlanningPass::<Backend>::new();
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -215,7 +215,7 @@ mod test {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
 
-            let planning_pass = PlanningPass::<Backend>::new();
+            let planning_pass = OutputPlanningPass::<Backend>::new();
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -246,7 +246,7 @@ mod test {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
 
-            let planning_pass = PlanningPass::<Backend>::new();
+            let planning_pass = OutputPlanningPass::<Backend>::new();
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -285,7 +285,7 @@ mod test {
             let ctx = SessionContext::new();
             register_dummy_table(&ctx);
 
-            let planning_pass = PlanningPass::<Backend>::new();
+            let planning_pass = OutputPlanningPass::<Backend>::new();
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();

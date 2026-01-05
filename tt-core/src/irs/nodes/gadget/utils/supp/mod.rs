@@ -26,18 +26,27 @@ mod tests;
 pub const SUPPORT_LABEL: &str = "__support__";
 pub const SUPER_LABEL: &str = "__super__";
 
-pub enum Mode {
-    BezoutBased,
-    SortBased,
+enum Gadgets<B: SnarkBackend> {
+    BezoutGadgets(BezoutGadgets<B>),
+    SortGadgets(SortGadgets<B>),
+}
+struct BezoutGadgets<B: SnarkBackend> {
+    lookup: Arc<Node<B>>,
+    nodup: Arc<Node<B>>,
+}
+struct SortGadgets<B: SnarkBackend> {
+    phantom: std::marker::PhantomData<B>,
 }
 pub struct GadgetNode<B: SnarkBackend> {
-    mode: Mode,
-    phantom: std::marker::PhantomData<B>,
+    gadgets: Gadgets<B>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Supp".to_string()
+        match &self.gadgets {
+            Gadgets::BezoutGadgets(_) => "Supp(Bezout-Based)".to_string(),
+            Gadgets::SortGadgets(_) => "Supp(Sort-Based)".to_string(),
+        }
     }
 
     fn cost(
@@ -49,7 +58,10 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        Vec::new()
+        match &self.gadgets {
+            Gadgets::BezoutGadgets(gadgets) => vec![gadgets.lookup.clone(), gadgets.nodup.clone()],
+            Gadgets::SortGadgets(_) => vec![],
+        }
     }
 }
 
@@ -149,9 +161,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
+        let lookup = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::lookup::GadgetNode::new(),
+        )));
+        let nodup = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
+        )));
         Self {
-            mode: Mode::BezoutBased,
-            phantom: std::marker::PhantomData,
+            gadgets: Gadgets::BezoutGadgets(BezoutGadgets { lookup, nodup }),
         }
     }
 

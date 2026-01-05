@@ -30,6 +30,9 @@ impl<B> LocalPass<B, ArithPayload<B::F>, TrackedPayload<B>> for TrackingPass<B>
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PostOrder
+    }
     fn transform(
         &self,
         _node: &Node<B>,

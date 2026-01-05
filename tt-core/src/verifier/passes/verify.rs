@@ -4,12 +4,13 @@ use crate::{
         nodes::{Node, NodeId},
         payloads::EmptyPayload,
     },
-    verifier::{
-        irs::GadgetReadyIr,
-        payloads::GadgetReadyPayload,
-    },
+    verifier::{irs::GadgetReadyIr, payloads::GadgetReadyPayload},
 };
-use ark_piop::{SnarkBackend, errors::{SnarkError, SnarkResult}, verifier::ArgVerifier};
+use ark_piop::{
+    SnarkBackend,
+    errors::{SnarkError, SnarkResult},
+    verifier::ArgVerifier,
+};
 use std::cell::RefCell;
 
 /// A verify pass that runs the verifier gadget in each plan node.
@@ -42,6 +43,9 @@ impl<B> LocalPass<B, GadgetReadyPayload<B>, EmptyPayload> for VerifyPass<B>
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PostOrder
+    }
     fn transform(
         &self,
         node: &Node<B>,

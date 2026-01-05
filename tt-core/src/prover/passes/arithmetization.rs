@@ -54,6 +54,10 @@ where
             }
         }
     }
+
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PostOrder
+    }
 }
 
 fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> ArithTable<F> {

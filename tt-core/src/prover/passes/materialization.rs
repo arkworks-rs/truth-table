@@ -41,6 +41,9 @@ impl<B> LocalPass<B, HintDFPayload, MaterializedPayload> for MaterializationPass
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PostOrder
+    }
     fn transform(
         &self,
         _node: &Node<B>,

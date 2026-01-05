@@ -220,9 +220,7 @@ where
 {
     fn transform(&self, node: &Node<B>, id: NodeId, payload: Option<&PIn>) -> Option<POut>;
 
-    fn order(&self) -> PassOrder {
-        PassOrder::PostOrder
-    }
+    fn order(&self) -> PassOrder;
 
     /// Optional fallback payload to use when the input payload is missing. By default,
     /// no fallback is provided and nodes without an input payload are skipped.

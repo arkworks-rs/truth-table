@@ -8,24 +8,27 @@ use ark_piop::SnarkBackend;
 /// A planning pass that initializes the IR with hint DataFrames.
 ///
 /// This pass converts an IR with empty payloads into an IR with Hint DataFrames.
-pub struct PlanningPass<B>(std::marker::PhantomData<B>);
+pub struct GadgetPlanningPass<B>(std::marker::PhantomData<B>);
 
-impl<B> PlanningPass<B> {
+impl<B> GadgetPlanningPass<B> {
     pub fn new() -> Self {
         Self(std::marker::PhantomData)
     }
 }
 
-impl<B> Default for PlanningPass<B> {
+impl<B> Default for GadgetPlanningPass<B> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<B> LocalPass<B, EmptyPayload, HintDFPayload> for PlanningPass<B>
+impl<B> LocalPass<B, EmptyPayload, HintDFPayload> for GadgetPlanningPass<B>
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PreOrder
+    }
     fn transform(
         &self,
         node: &Node<B>,
@@ -33,10 +36,8 @@ where
         _payload: Option<&EmptyPayload>,
     ) -> Option<HintDFPayload> {
         match node {
-            Node::Plan(plan_node) => {
-                Some(PayloadStructure::PlanPayload(plan_node.output().clone()))
-            }
             Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.hints())),
+            _ => None,
         }
     }
 }

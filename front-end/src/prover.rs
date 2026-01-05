@@ -10,7 +10,7 @@ use tt_core::{
         nodes::Node,
         payloads::PayloadStructure,
         shared_ir::{EmptyIr, PlannedIr},
-        shared_passes::PlanningPass,
+        shared_passes::{GadgetPlanningPass, OutputPlanningPass},
         tree::Tree,
     },
     prover::{
@@ -30,7 +30,8 @@ use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct ProverIrStages<B: SnarkBackend> {
     pub initial: EmptyIr<B>,
-    pub planned: PlannedIr<B>,
+    pub output_planned: PlannedIr<B>,
+    pub gadget_planned: PlannedIr<B>,
     pub materialized: MaterializedIr<B>,
     pub arithmetized: ArithmetizedIr<B>,
     pub tracked: TrackedIr<B>,
@@ -47,8 +48,11 @@ impl<B: SnarkBackend> TTProverConfig<B> {
             phantom: std::marker::PhantomData,
         }
     }
-    pub fn planning_pass(&self) -> PlanningPass<B> {
-        PlanningPass::new()
+    pub fn output_planning_pass(&self) -> OutputPlanningPass<B> {
+        OutputPlanningPass::new()
+    }
+    pub fn gadget_planning_pass(&self) -> GadgetPlanningPass<B> {
+        GadgetPlanningPass::new()
     }
     pub fn materialization_pass(&self) -> MaterializationPass<B> {
         MaterializationPass::new()
@@ -118,11 +122,20 @@ impl<B: SnarkBackend> TTProver<B> {
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
-        let planned_ir =
-            initial_ir.apply_local_pass_parallel(&self.prover_config().planning_pass());
-        debug!("planned ir:\n{}", planned_ir.display_graphviz(true));
-        let materialized_ir =
-            planned_ir.apply_local_pass_parallel(&self.prover_config().materialization_pass());
+        let output_planned_ir =
+            initial_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
+        debug!(
+            "output planned ir:\n{}",
+            output_planned_ir.display_graphviz(true)
+        );
+        let gadget_planned_ir = output_planned_ir
+            .apply_local_pass_sequential(&self.prover_config().gadget_planning_pass());
+        debug!(
+            "gadget planned ir:\n{}",
+            gadget_planned_ir.display_graphviz(true)
+        );
+        let materialized_ir = gadget_planned_ir
+            .apply_local_pass_parallel(&self.prover_config().materialization_pass());
         debug!(
             "materialized ir:\n{}",
             materialized_ir.display_graphviz(true)
@@ -164,7 +177,8 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok((
             ProverIrStages {
                 initial: initial_ir,
-                planned: planned_ir,
+                output_planned: output_planned_ir,
+                gadget_planned: gadget_planned_ir,
                 materialized: materialized_ir,
                 arithmetized: arithmetized_ir,
                 tracked: tracked_ir,

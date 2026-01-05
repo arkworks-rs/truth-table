@@ -4,12 +4,13 @@ use crate::{
         nodes::{Node, NodeId},
         payloads::EmptyPayload,
     },
-    prover::{
-        irs::GadgetReadyIr,
-        payloads::GadgetReadyPayload,
-    },
+    prover::{irs::GadgetReadyIr, payloads::GadgetReadyPayload},
 };
-use ark_piop::{SnarkBackend, errors::{SnarkError, SnarkResult}, prover::ArgProver};
+use ark_piop::{
+    SnarkBackend,
+    errors::{SnarkError, SnarkResult},
+    prover::ArgProver,
+};
 use std::cell::RefCell;
 
 /// A proving pass that run the prover gadget in each plan node
@@ -42,6 +43,9 @@ impl<B> LocalPass<B, GadgetReadyPayload<B>, EmptyPayload> for ProvingPass<B>
 where
     B: SnarkBackend,
 {
+    fn order(&self) -> crate::irs::ir::PassOrder {
+        crate::irs::ir::PassOrder::PostOrder
+    }
     fn transform(
         &self,
         node: &Node<B>,
