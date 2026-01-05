@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::{Aggregate, LogicalPlan};
+use datafusion_expr::{Aggregate, Expr, LogicalPlan};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -22,6 +22,10 @@ where
     aggregate: Aggregate,
     // The prover plan child node for the aggregate input.
     input: Arc<Node<B>>,
+    // Aggregate expression child nodes (one per aggregate expression).
+    aggr_exprs: Vec<Arc<Node<B>>>,
+    // The aggregate gadget node.
+    gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
@@ -38,7 +42,10 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.input.clone()]
+        let mut children = vec![self.input.clone()];
+        children.extend(self.aggr_exprs.iter().cloned());
+        children.push(self.gadget.clone());
+        children
     }
 }
 
@@ -105,16 +112,71 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let current_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let schema = match current_table.schema_ref() {
+            Some(schema) => schema,
+            None => return Ok(()),
+        };
+
+        let mut group_indices = Vec::with_capacity(self.aggregate.group_expr.len());
+        for expr in &self.aggregate.group_expr {
+            let Expr::Column(col) = expr else {
+                panic!("Aggregate group expressions must be column references");
+            };
+            let idx = schema
+                .index_of(&col.name)
+                .expect("Aggregate group column missing from payload schema");
+            group_indices.push(idx);
+        }
+        let groups_table = current_table.tracked_subtable_by_indices(&group_indices);
+
+        debug_assert_eq!(
+            self.aggregate.aggr_expr.len(),
+            self.aggr_exprs.len(),
+            "Aggregate aggr expr list must align with expr nodes"
+        );
+
+        for (expr, expr_node) in self.aggregate.aggr_expr.iter().zip(self.aggr_exprs.iter()) {
+            let column_name = expr.schema_name().to_string();
+            let col_idx = schema
+                .index_of(&column_name)
+                .expect("Aggregate result column missing from payload schema");
+            let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
+
+            let mut gadget_payload = match virtualized_ir.payload_for_node(&expr_node.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+            gadget_payload.insert(
+                crate::irs::nodes::plan::exprs::aggregate_function::INPUT_GROUPS_LABEL.to_string(),
+                groups_table.clone(),
+            );
+            gadget_payload.insert(
+                crate::irs::nodes::plan::exprs::aggregate_function::INPUT_AGGR_EXPR_LABEL
+                    .to_string(),
+                aggr_table,
+            );
+
+            virtualized_ir.set_payload_for_node(
+                expr_node.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        None
+        Some(self.gadget.as_ref().clone())
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
@@ -213,9 +275,64 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let current_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let schema = match current_table.schema_ref() {
+            Some(schema) => schema,
+            None => return Ok(()),
+        };
+
+        let mut group_indices = Vec::with_capacity(self.aggregate.group_expr.len());
+        for expr in &self.aggregate.group_expr {
+            let Expr::Column(col) = expr else {
+                panic!("Aggregate group expressions must be column references");
+            };
+            let idx = schema
+                .index_of(&col.name)
+                .expect("Aggregate group column missing from payload schema");
+            group_indices.push(idx);
+        }
+        let groups_table = current_table.tracked_subtable_by_indices(&group_indices);
+
+        debug_assert_eq!(
+            self.aggregate.aggr_expr.len(),
+            self.aggr_exprs.len(),
+            "Aggregate aggr expr list must align with expr nodes"
+        );
+
+        for (expr, expr_node) in self.aggregate.aggr_expr.iter().zip(self.aggr_exprs.iter()) {
+            let column_name = expr.schema_name().to_string();
+            let col_idx = schema
+                .index_of(&column_name)
+                .expect("Aggregate result column missing from payload schema");
+            let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
+
+            let mut gadget_payload = match virtualized_ir.payload_for_node(&expr_node.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+            gadget_payload.insert(
+                crate::irs::nodes::plan::exprs::aggregate_function::INPUT_GROUPS_LABEL.to_string(),
+                groups_table.clone(),
+            );
+            gadget_payload.insert(
+                crate::irs::nodes::plan::exprs::aggregate_function::INPUT_AGGR_EXPR_LABEL
+                    .to_string(),
+                aggr_table,
+            );
+
+            virtualized_ir.set_payload_for_node(
+                expr_node.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -234,7 +351,26 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
             .root()
             .clone();
 
-        Self { aggregate, input }
+        let aggr_exprs = aggregate
+            .aggr_expr
+            .iter()
+            .map(|expr| {
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), input.clone())
+                    .root()
+                    .clone()
+            })
+            .collect();
+
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::lps::aggregate::GadgetNode::new(),
+        )));
+
+        Self {
+            aggregate,
+            input,
+            aggr_exprs,
+            gadget,
+        }
     }
 
     fn lp(&self) -> LogicalPlan {

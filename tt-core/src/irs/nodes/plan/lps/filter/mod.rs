@@ -23,8 +23,6 @@ use crate::{
 };
 
 mod hints;
-#[cfg(test)]
-mod tests;
 
 /// The implementation of a filter node in the prover proof tree.
 pub struct FilterNode<B>

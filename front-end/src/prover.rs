@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ark_piop::{prover::ArgProver, SnarkBackend};
 use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
+use tracing::debug;
 use tt_core::{
     errors::TTResult,
     irs::{
@@ -18,9 +19,9 @@ use tt_core::{
             VirtualizedIr as ProverVirtualizedIr,
         },
         passes::{
-            arithmetization::ArithmetizationPass, materialization::MaterializationPass,
-            gadget_initialization::GadgetInitializationPass, proving::ProvingPass,
-            tracking::TrackingPass, virtualization::VirtualizationPass,
+            arithmetization::ArithmetizationPass, gadget_initialization::GadgetInitializationPass,
+            materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
+            virtualization::VirtualizationPass,
         },
     },
 };
@@ -116,29 +117,42 @@ impl<B: SnarkBackend> TTProver<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        let planned_ir = initial_ir.apply_local_pass_parallel(&self.prover_config().planning_pass());
-        let materialized_ir = planned_ir
-            .apply_local_pass_parallel(&self.prover_config().materialization_pass());
-        let arithmetized_ir = materialized_ir
-            .apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
+        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        let planned_ir =
+            initial_ir.apply_local_pass_parallel(&self.prover_config().planning_pass());
+        debug!("planned ir:\n{}", planned_ir.display_graphviz(true));
+        let materialized_ir =
+            planned_ir.apply_local_pass_parallel(&self.prover_config().materialization_pass());
+        debug!(
+            "materialized ir:\n{}",
+            materialized_ir.display_graphviz(true)
+        );
+        let arithmetized_ir =
+            materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
+        debug!(
+            "arithmetized ir:\n{}",
+            arithmetized_ir.display_graphviz(true)
+        );
 
         let arg_prover = self.arg_prover().clone();
-        let tracked_ir = arithmetized_ir.apply_local_pass_sequential(
-            &self
-                .prover_config()
-                .tracking_pass(arg_prover.clone()),
-        );
+        let tracked_ir = arithmetized_ir
+            .apply_local_pass_sequential(&self.prover_config().tracking_pass(arg_prover.clone()));
+        debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
+        debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
         let gadget_ir_view = ProverVirtualizedIr::new(
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
-        let gadget_initialization_pass =
-            GadgetInitializationPass::<B>::new(gadget_ir_view);
+        let gadget_initialization_pass = GadgetInitializationPass::<B>::new(gadget_ir_view);
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+        debug!(
+            "gadget ready ir:\n{}",
+            gadget_ready_ir.display_graphviz(true)
+        );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),

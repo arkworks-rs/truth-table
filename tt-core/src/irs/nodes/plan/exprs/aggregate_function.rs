@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
+use arithmetic::ACTIVATOR_EXPR;
 use ark_piop::SnarkBackend;
-use datafusion_common::Statistics;
+use datafusion_common::{Column, Statistics};
 use datafusion_expr::{Expr, expr::AggregateFunction};
 
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
 };
-pub const INPUT_ACTIVATOR_LABEL: &str = "__groups__";
-pub const FILTER_PREDICATE_LABEL: &str = "__aggr-expr__";
+pub const INPUT_GROUPS_LABEL: &str = "__groups__";
+pub const INPUT_AGGR_EXPR_LABEL: &str = "__aggr-expr__";
 #[derive(Clone)]
 pub struct ProverNode<B: SnarkBackend> {
     pub aggregate_function: AggregateFunction,
@@ -49,8 +50,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let scope_id = self.scope.id();
-        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
+        let parent_node = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .expect("AggregateFunction node must have a parent");
+        let parent_id = parent_node.id();
+        let parent_payload = virtualized_ir.payload_for_node(&parent_id);
         let column_name = self.output_column_name();
 
         let try_build_subtable =
@@ -60,7 +66,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                 Some(table.tracked_subtable_by_indices(&[col_idx]))
             };
 
-        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+        if let Some(PayloadStructure::PlanPayload(table)) = parent_payload
             && let Some(subtable) = try_build_subtable(table, &column_name)
         {
             virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
@@ -68,8 +74,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         }
 
         panic!(
-            "AggregateFunction node could not find its column '{}' in scope node {:?}",
-            column_name, scope_id
+            "AggregateFunction node could not find its column '{}' in parent node {:?}",
+            column_name, parent_id
         );
     }
 
@@ -88,7 +94,18 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        let parent_hint_df = self.parent().output();
+        let column_name = self.output_column_name();
+        let projected = parent_hint_df
+            .data_frame()
+            .clone()
+            .select(vec![
+                Expr::Column(Column::from_name(column_name)),
+                ACTIVATOR_EXPR.clone(),
+            ])
+            .expect("aggregate function projection should succeed");
+
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 
@@ -98,7 +115,33 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let parent_node = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .expect("AggregateFunction node must have a parent");
+        let parent_id = parent_node.id();
+        let parent_payload = virtualized_ir.payload_for_node(&parent_id);
+        let column_name = self.output_column_name();
+
+        let try_build_subtable =
+            |table: &arithmetic::table_oracle::TrackedTableOracle<B>, column_name: &str| {
+                let schema = table.schema_ref()?;
+                let col_idx = schema.index_of(column_name).ok()?;
+                Some(table.tracked_subtable_by_indices(&[col_idx]))
+            };
+
+        if let Some(PayloadStructure::PlanPayload(table)) = parent_payload
+            && let Some(subtable) = try_build_subtable(table, &column_name)
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
+        }
+
+        panic!(
+            "AggregateFunction node could not find its column '{}' in parent node {:?}",
+            column_name, parent_id
+        );
     }
 
     fn initialize_gadgets(
