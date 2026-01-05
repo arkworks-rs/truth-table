@@ -62,6 +62,23 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         }
 
         let mut dot = String::from("digraph ir {\n  node [shape=box];\n");
+        dot.push_str("  subgraph cluster_legend {\n");
+        dot.push_str("    rank=\"sink\";\n");
+        dot.push_str("    label=\"Legend\";\n");
+        dot.push_str("    labelloc=\"b\";\n");
+        dot.push_str("    style=\"rounded\";\n");
+        dot.push_str("    color=\"gray\";\n");
+        dot.push_str("    fontcolor=\"gray\";\n");
+        dot.push_str(
+            "    legend_plan_lp [label=<Plan (LP)<BR/><FONT COLOR=\"red\">PlanPayload(example)</FONT>>, color=\"blue\"];\n",
+        );
+        dot.push_str(
+            "    legend_plan_expr [label=<Plan (Expr)<BR/><FONT COLOR=\"red\">PlanPayload(example)</FONT>>, color=\"green\"];\n",
+        );
+        dot.push_str(
+            "    legend_gadget [label=<Gadget<BR/><FONT COLOR=\"red\">GadgetPayload{key: example}</FONT>>, color=\"purple\"];\n",
+        );
+        dot.push_str("  }\n");
 
         for (id, node) in self.tree.arena().iter() {
             let name = node.name();

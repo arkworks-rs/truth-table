@@ -4,8 +4,11 @@ use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_piop::{piop::PIOP, prover::ArgProver, verifier::ArgVerifier, SnarkBackend};
-use col_toolbox::supp_check::{SuppCheckPIOP, SuppCheckProverInput, SuppCheckVerifierInput};
+use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
+use col_toolbox::bezout_based_multi_col_supp_check::{
+    BezoutMultiColSuppCheckPIOP, BezoutMultiColSuppCheckProverInput,
+    BezoutMultiColSuppCheckVerifierInput,
+};
 use indexmap::IndexMap;
 
 use crate::{
@@ -17,13 +20,18 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-pub const COL_LABEL: &str = "col";
-pub const SUPP_LABEL: &str = "supp";
-
 #[cfg(test)]
 mod tests;
 
+pub const SUPPORT_LABEL: &str = "__support__";
+pub const SUPER_LABEL: &str = "__super__";
+
+pub enum Mode {
+    BezoutBased,
+    SortBased,
+}
 pub struct GadgetNode<B: SnarkBackend> {
+    mode: Mode,
     phantom: std::marker::PhantomData<B>,
 }
 
@@ -93,17 +101,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let (Some(col_table), Some(supp_table)) = (
-            payload.get(COL_LABEL).cloned(),
-            payload.get(SUPP_LABEL).cloned(),
-        ) else {
-            panic!("Expected col and supp inputs for Supp gadget");
+        let Some(supp_table) = payload.get(SUPPORT_LABEL).cloned() else {
+            panic!("Expected support table for Supp gadget");
+        };
+        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
+            panic!("Expected super table for Supp gadget");
         };
 
-        let col = Self::single_col_from_table(&col_table);
-        let supp = Self::single_col_from_table(&supp_table);
-        let input = SuppCheckProverInput { col, supp };
-        SuppCheckPIOP::<B>::prove(prover, input)?;
+        let input = BezoutMultiColSuppCheckProverInput {
+            orig_tracked_table: super_table,
+            supp_tracked_table: supp_table,
+        };
+        BezoutMultiColSuppCheckPIOP::<B>::prove(prover, input)?;
         Ok(())
     }
 
@@ -118,17 +127,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let (Some(col_table), Some(supp_table)) = (
-            payload.get(COL_LABEL).cloned(),
-            payload.get(SUPP_LABEL).cloned(),
-        ) else {
-            panic!("Expected col and supp inputs for Supp gadget");
+        let Some(supp_table) = payload.get(SUPPORT_LABEL).cloned() else {
+            panic!("Expected support table for Supp gadget");
+        };
+        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
+            panic!("Expected super table for Supp gadget");
         };
 
-        let col = Self::single_col_from_table_oracle(&col_table);
-        let supp = Self::single_col_from_table_oracle(&supp_table);
-        let input = SuppCheckVerifierInput { col, supp };
-        SuppCheckPIOP::<B>::verify(verifier, input)?;
+        let input = BezoutMultiColSuppCheckVerifierInput {
+            orig_tracked_table_oracle: super_table,
+            supp_tracked_table_oracle: supp_table,
+        };
+        BezoutMultiColSuppCheckPIOP::<B>::verify(verifier, input)?;
         Ok(())
     }
 
@@ -140,6 +150,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self {
+            mode: Mode::BezoutBased,
             phantom: std::marker::PhantomData,
         }
     }

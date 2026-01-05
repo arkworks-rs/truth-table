@@ -1,22 +1,19 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::eq,
-};
+use crate::irs::nodes::gadget::utils::supp;
+use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
-pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
-pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
-pub const FILTER_PREDICATE_LABEL: &str = "__filter_predicate__";
+pub const INPUT_LABEL: &str = "__input__";
+pub const OUTPUT_LABEL: &str = "__output__";
 
 pub struct GadgetNode<B: SnarkBackend> {
-    phantom: std::marker::PhantomData<B>,
+    supp_gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -33,7 +30,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        vec![self.supp_gadget.clone()]
     }
 }
 
@@ -51,6 +48,31 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let gadget_payload = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => panic!("Expected gadget payload for aggregate node"),
+        };
+
+        let (input_table, output_table) = match (
+            gadget_payload.get(INPUT_LABEL),
+            gadget_payload.get(OUTPUT_LABEL),
+        ) {
+            (Some(input), Some(output)) => (input.clone(), output.clone()),
+            _ => panic!("Expected aggregate input and output tables"),
+        };
+
+        let mut supp_payload = match virtualized_ir.payload_for_node(&self.supp_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), input_table);
+        supp_payload.insert(supp::SUPPORT_LABEL.to_string(), output_table);
+
+        virtualized_ir.set_payload_for_node(
+            self.supp_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(supp_payload)),
+        );
         Ok(())
     }
 }
@@ -69,7 +91,32 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let gadget_payload = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => panic!("Expected gadget payload for aggregate node"),
+        };
+
+        let (input_table, output_table) = match (
+            gadget_payload.get(INPUT_LABEL),
+            gadget_payload.get(OUTPUT_LABEL),
+        ) {
+            (Some(input), Some(output)) => (input.clone(), output.clone()),
+            _ => panic!("Expected aggregate input and output tables"),
+        };
+
+        let mut supp_payload = match virtualized_ir.payload_for_node(&self.supp_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), input_table);
+        supp_payload.insert(supp::SUPPORT_LABEL.to_string(), output_table);
+
+        virtualized_ir.set_payload_for_node(
+            self.supp_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(supp_payload)),
+        );
+        Ok(())
     }
 }
 
@@ -100,8 +147,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        Self {
-            phantom: std::marker::PhantomData,
-        }
+        let supp_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::supp::GadgetNode::new(),
+        )));
+        Self { supp_gadget }
     }
 }
