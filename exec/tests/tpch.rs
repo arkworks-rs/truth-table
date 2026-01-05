@@ -51,7 +51,7 @@ async fn tpch_q1_hint_tree() {
     let stages = build_prover_stages(spec.sql, spec.tables)
         .await
         .expect("build prover stages");
-    println!("{}", stages.planned.display_graphviz(true));
+    println!("{}", stages.output_planned.display_graphviz(true));
 }
 
 #[tokio::test]

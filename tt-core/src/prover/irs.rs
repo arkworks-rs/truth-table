@@ -31,7 +31,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::irs::shared_ir::{EmptyIr, PlannedIr};
+    use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
     use crate::irs::shared_passes::OutputPlanningPass;
@@ -112,7 +112,7 @@ mod test {
 
             let tree = Tree::from_logical_plan(&lp);
             let initial_ir = EmptyIr::<DefaultSnarkBackend>::new_empty(tree);
-            let planned_ir: PlannedIr<DefaultSnarkBackend> =
+            let planned_ir: OutputPlannedIr<DefaultSnarkBackend> =
                 initial_ir.apply_local_pass_sequential(&planning_pass);
 
             println!("Planned Query: {query}");

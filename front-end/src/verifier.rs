@@ -2,7 +2,7 @@ use ark_piop::{verifier::ArgVerifier, SnarkBackend};
 use tt_core::{
     errors::TTResult,
     irs::{
-        shared_ir::{EmptyIr, PlannedIr},
+        shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
         shared_passes::{GadgetPlanningPass, OutputPlanningPass},
         tree::Tree,
     },
@@ -23,7 +23,8 @@ use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct VerifierIrStages<B: SnarkBackend> {
     pub initial: EmptyIr<B>,
-    pub planned: PlannedIr<B>,
+    pub output_planned: OutputPlannedIr<B>,
+    pub gadget_planned: GadgetPlannedIr<B>,
     pub tracked: VerifierTrackedIr<B>,
     pub virtualized: VerifierVirtualizedIr<B>,
     pub gadget_ready: VerifierGadgetReadyIr<B>,
@@ -106,21 +107,16 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        let mut planned_ir =
+        let mut output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
-        let gadget_planned_ir =
-            initial_ir.apply_local_pass_sequential(&self.verifier_config().gadget_planning_pass());
-        for (id, payload) in gadget_planned_ir.payloads().iter() {
-            if planned_ir.payload_for_node(id).is_none() {
-                planned_ir.set_payload_for_node(*id, payload.clone());
-            }
-        }
+        let gadget_planned_ir = output_planned_ir
+            .apply_local_pass_sequential(&self.verifier_config().gadget_planning_pass());
 
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());
 
         let verifier_tracking_pass = self.verifier_config().tracking_pass(arg_verifier.clone());
-        let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
+        let tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
         let gadget_ir_view = VerifierVirtualizedIr::new(
@@ -142,7 +138,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok((
             VerifierIrStages {
                 initial: initial_ir,
-                planned: planned_ir,
+                output_planned: output_planned_ir,
+                gadget_planned: gadget_planned_ir,
                 tracked: tracked_ir,
                 virtualized: virtualized_ir,
                 gadget_ready: gadget_ready_ir,

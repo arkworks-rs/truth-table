@@ -12,7 +12,7 @@ pub type EmptyIr<B> = Ir<B, EmptyPayload>;
 ///
 /// This IR represents the stage where the proof tree nodes contain hint dataframes (or logical
 /// plans) that will be executed in later stages.
-pub type PlannedIr<B> = Ir<B, HintDFPayload>;
-
+pub type OutputPlannedIr<B> = Ir<B, HintDFPayload>;
+pub type GadgetPlannedIr<B> = Ir<B, HintDFPayload>;
 /// Backwards-compatible alias for the empty IR.
 pub type InitialIr<B> = EmptyIr<B>;

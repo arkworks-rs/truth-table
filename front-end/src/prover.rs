@@ -9,7 +9,7 @@ use tt_core::{
     irs::{
         nodes::Node,
         payloads::PayloadStructure,
-        shared_ir::{EmptyIr, PlannedIr},
+        shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
         shared_passes::{GadgetPlanningPass, OutputPlanningPass},
         tree::Tree,
     },
@@ -30,8 +30,8 @@ use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct ProverIrStages<B: SnarkBackend> {
     pub initial: EmptyIr<B>,
-    pub output_planned: PlannedIr<B>,
-    pub gadget_planned: PlannedIr<B>,
+    pub output_planned: OutputPlannedIr<B>,
+    pub gadget_planned: GadgetPlannedIr<B>,
     pub materialized: MaterializedIr<B>,
     pub arithmetized: ArithmetizedIr<B>,
     pub tracked: TrackedIr<B>,
