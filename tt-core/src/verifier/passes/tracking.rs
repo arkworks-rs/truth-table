@@ -50,8 +50,17 @@ where
                 track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
-                //TODO: Handle gadget payloads if needed
-                None
+                let mut out = IndexMap::new();
+                for (key, hint_df) in map.iter() {
+                    if let Some(table) = track_hint_df(hint_df, &self.verifier) {
+                        out.insert(key.clone(), table);
+                    }
+                }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(TrackedPayload::GadgetPayload(out))
+                }
             }
         }
     }

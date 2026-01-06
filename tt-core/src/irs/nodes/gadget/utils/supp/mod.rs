@@ -243,8 +243,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         };
 
         let input = BezoutMultiColSuppCheckProverInput {
-            orig_tracked_table: super_table,
-            supp_tracked_table: supp_table,
+            orig_tracked_table: supp_table,
+            supp_tracked_table: super_table,
         };
         BezoutMultiColSuppCheckPIOP::<B>::prove(prover, input)?;
         Ok(())
@@ -269,8 +269,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         };
 
         let input = BezoutMultiColSuppCheckVerifierInput {
-            orig_tracked_table_oracle: super_table,
-            supp_tracked_table_oracle: supp_table,
+            orig_tracked_table_oracle: supp_table,
+            supp_tracked_table_oracle: super_table,
         };
         BezoutMultiColSuppCheckPIOP::<B>::verify(verifier, input)?;
         Ok(())

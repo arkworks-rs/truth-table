@@ -5,7 +5,10 @@ use arithmetic::{
     table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
-use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
+use col_toolbox::lookup::{
+    HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput, LookupPIOP,
+    LookupProverInput, LookupVerifierInput,
+};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::Result as DataFusionResult;
@@ -150,12 +153,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
 
-        let input = HintedLookupProverInput {
+        // let input = HintedLookupProverInput {
+        //     included_cols,
+        //     super_col,
+        //     super_col_multiplicities,
+        // };
+        // HintedLookupPIOP::<B>::prove(prover, input)?;
+        let input = LookupProverInput {
             included_cols,
             super_col,
-            super_col_multiplicities,
         };
-        HintedLookupPIOP::<B>::prove(prover, input)?;
+        LookupPIOP::<B>::prove(prover, input)?;
         Ok(())
     }
 
@@ -183,12 +191,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let super_col_multiplicities =
             Self::multiplicities_from_table_oracle(&multiplicities_table, included_cols.len());
 
-        let input = HintedLookupVerifierInput {
+        // let input = HintedLookupVerifierInput {
+        //     included_tracked_col_oracles: included_cols,
+        //     super_tracked_col_oracle: super_col,
+        //     super_col_multiplicities,
+        // };
+        // HintedLookupPIOP::<B>::verify(verifier, input)?;
+        let input = LookupVerifierInput {
             included_tracked_col_oracles: included_cols,
             super_tracked_col_oracle: super_col,
-            super_col_multiplicities,
         };
-        HintedLookupPIOP::<B>::verify(verifier, input)?;
+        LookupPIOP::<B>::verify(verifier, input)?;
         Ok(())
     }
 

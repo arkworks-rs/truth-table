@@ -48,12 +48,16 @@ where
                 for (k, arith_table) in map {
                     out.insert(k.clone(), arith_to_tracked(arith_table, &self.prover));
                 }
-                Some(TrackedPayload::GadgetPayload(out))
+
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(TrackedPayload::GadgetPayload(out))
+                }
             }
         }
     }
 }
-
 fn arith_to_tracked<B: SnarkBackend>(
     arith_table: &arithmetic::table::ArithTable<B::F>,
     prover: &RefCell<ArgProver<B>>,
