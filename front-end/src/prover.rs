@@ -51,8 +51,8 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn output_planning_pass(&self) -> OutputPlanningPass<B> {
         OutputPlanningPass::new()
     }
-    pub fn gadget_planning_pass(&self) -> GadgetPlanningPass<B> {
-        GadgetPlanningPass::new()
+    pub fn gadget_planning_pass(&self, planned_ir: &OutputPlannedIr<B>) -> GadgetPlanningPass<B> {
+        GadgetPlanningPass::new(planned_ir)
     }
     pub fn materialization_pass(&self) -> MaterializationPass<B> {
         MaterializationPass::new()
@@ -128,8 +128,11 @@ impl<B: SnarkBackend> TTProver<B> {
             "output planned ir:\n{}",
             output_planned_ir.display_graphviz(true)
         );
-        let gadget_planned_ir = output_planned_ir
-            .apply_local_pass_sequential(&self.prover_config().gadget_planning_pass());
+        let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
+            &self
+                .prover_config()
+                .gadget_planning_pass(&output_planned_ir),
+        );
         debug!(
             "gadget planned ir:\n{}",
             gadget_planned_ir.display_graphviz(true)

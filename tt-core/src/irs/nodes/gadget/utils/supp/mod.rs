@@ -23,7 +23,7 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-pub const SUPPORT_LABEL: &str = "__support__";
+pub const ORIG_LABEL: &str = "__orig__";
 pub const SUPER_LABEL: &str = "__super__";
 
 enum Gadgets<B: SnarkBackend> {
@@ -55,6 +55,61 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let supp_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let support_hint = match supp_payload.get(ORIG_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let super_hint = supp_payload.get(SUPER_LABEL).cloned();
+
+        if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
+            let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+            nodup_payload.insert(
+                crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+                support_hint.clone(),
+            );
+
+            planned_ir.set_payload_for_node(
+                gadgets.nodup.id(),
+                Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
+
+            if let Some(super_hint) = super_hint {
+                let mut lookup_payload = match planned_ir.payload_for_node(&gadgets.lookup.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+
+                lookup_payload.insert(
+                    crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
+                    support_hint.clone(),
+                );
+                lookup_payload.insert(
+                    crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
+                    super_hint,
+                );
+
+                planned_ir.set_payload_for_node(
+                    gadgets.lookup.id(),
+                    Some(PayloadStructure::GadgetPayload(lookup_payload)),
+                );
+            }
+        }
+        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -113,7 +168,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let Some(supp_table) = payload.get(SUPPORT_LABEL).cloned() else {
+        let Some(supp_table) = payload.get(ORIG_LABEL).cloned() else {
             panic!("Expected support table for Supp gadget");
         };
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
@@ -139,7 +194,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let Some(supp_table) = payload.get(SUPPORT_LABEL).cloned() else {
+        let Some(supp_table) = payload.get(ORIG_LABEL).cloned() else {
             panic!("Expected support table for Supp gadget");
         };
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {

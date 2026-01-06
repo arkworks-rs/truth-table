@@ -24,14 +24,14 @@ impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
         match self {
             PayloadStructure::PlanPayload(inner) => write!(f, "PlanPayload({})", inner),
             PayloadStructure::GadgetPayload(entries) => {
-                write!(f, "GadgetPayload{{")?;
-                for (idx, (key, value)) in entries.iter().enumerate() {
-                    if idx > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", key, value)?;
+                if entries.is_empty() {
+                    return write!(f, "GadgetPayload{{}}");
                 }
-                write!(f, "}}")
+                write!(f, "GadgetPayload")?;
+                for (key, value) in entries.iter() {
+                    write!(f, "\n{}: {}", key, value)?;
+                }
+                Ok(())
             }
         }
     }

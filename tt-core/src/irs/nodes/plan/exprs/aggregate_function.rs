@@ -1,12 +1,15 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use arithmetic::ACTIVATOR_EXPR;
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
-use datafusion_expr::{Expr, expr::AggregateFunction};
+use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
+use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
+    nodes::{
+        IsExprNode, IsNode, IsPlanNode, Node, NodeId, PlanNode, ProverNodeOps, VerifierNodeOps,
+    },
     payloads::PayloadStructure,
 };
 pub const INPUT_GROUPS_LABEL: &str = "__groups__";
@@ -37,6 +40,90 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        fn dedup_exprs(exprs: Vec<Expr>) -> Vec<Expr> {
+            let mut seen = HashSet::new();
+            let mut unique = Vec::with_capacity(exprs.len());
+            for expr in exprs {
+                let name = expr.schema_name().to_string();
+                if seen.insert(name) {
+                    unique.push(expr);
+                }
+            }
+            unique
+        }
+
+        let parent_node = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .expect("AggregateFunction node must have a parent");
+        let plan_node = match parent_node.as_ref() {
+            Node::Plan(plan_node) => plan_node.clone(),
+            Node::Gadget(_) => return Ok(()),
+        };
+        let aggregate = match plan_node {
+            PlanNode::LpBased(lp_node) => match lp_node.lp() {
+                LogicalPlan::Aggregate(aggregate) => aggregate,
+                _ => return Ok(()),
+            },
+            PlanNode::ExprBased(_) => return Ok(()),
+        };
+
+        let input_node = match parent_node.children().first() {
+            Some(node) => node.clone(),
+            None => return Ok(()),
+        };
+        let input_hint_df = match planned_ir.payload_for_node(&input_node.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&parent_node.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut input_exprs = aggregate.group_expr.clone();
+        input_exprs.extend(self.aggregate_function.params.args.clone());
+        input_exprs.push(ACTIVATOR_EXPR.clone());
+        let input_projected = input_hint_df
+            .data_frame()
+            .clone()
+            .select(dedup_exprs(input_exprs))
+            .expect("aggregate function input projection should succeed");
+
+        let mut output_exprs = aggregate.group_expr.clone();
+        output_exprs.push(Expr::Column(Column::from_name(self.output_column_name())));
+        output_exprs.push(ACTIVATOR_EXPR.clone());
+        let output_projected = output_hint_df
+            .data_frame()
+            .clone()
+            .select(dedup_exprs(output_exprs))
+            .expect("aggregate function output projection should succeed");
+
+        let input_hint_df = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
+        let output_hint_df = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_LABEL.to_string(),
+            input_hint_df,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_LABEL.to_string(),
+            output_hint_df,
+        );
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -124,12 +211,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let parent_payload = virtualized_ir.payload_for_node(&parent_id);
         let column_name = self.output_column_name();
 
-        let try_build_subtable =
-            |table: &arithmetic::table_oracle::TrackedTableOracle<B>, column_name: &str| {
-                let schema = table.schema_ref()?;
-                let col_idx = schema.index_of(column_name).ok()?;
-                Some(table.tracked_subtable_by_indices(&[col_idx]))
-            };
+        let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+                                  column_name: &str| {
+            let schema = table.schema_ref()?;
+            let col_idx = schema.index_of(column_name).ok()?;
+            Some(table.tracked_subtable_by_indices(&[col_idx]))
+        };
 
         if let Some(PayloadStructure::PlanPayload(table)) = parent_payload
             && let Some(subtable) = try_build_subtable(table, &column_name)

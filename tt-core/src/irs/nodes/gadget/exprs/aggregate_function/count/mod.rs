@@ -10,8 +10,6 @@ use crate::irs::nodes::{
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
-pub const INPUT_ACTIVATOR_LABEL: &str = "__groups__";
-pub const FILTER_PREDICATE_LABEL: &str = "__aggr-expr__";
 
 pub struct GadgetNode<B: SnarkBackend> {
     nodup: Arc<Node<B>>,
@@ -27,6 +25,14 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         _statistics: datafusion_common::Statistics,
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         todo!()
     }
 

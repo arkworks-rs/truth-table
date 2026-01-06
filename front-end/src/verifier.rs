@@ -43,8 +43,8 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
     pub fn planning_pass(&self) -> OutputPlanningPass<B> {
         OutputPlanningPass::new()
     }
-    pub fn gadget_planning_pass(&self) -> GadgetPlanningPass<B> {
-        GadgetPlanningPass::new()
+    pub fn gadget_planning_pass(&self, planned_ir: &OutputPlannedIr<B>) -> GadgetPlanningPass<B> {
+        GadgetPlanningPass::new(planned_ir)
     }
 
     pub fn tracking_pass(&self, arg_verifier: ArgVerifier<B>) -> VerifierTrackingPass<B> {
@@ -109,8 +109,11 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         let mut output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
-        let gadget_planned_ir = output_planned_ir
-            .apply_local_pass_sequential(&self.verifier_config().gadget_planning_pass());
+        let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
+            &self
+                .verifier_config()
+                .gadget_planning_pass(&output_planned_ir),
+        );
 
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());

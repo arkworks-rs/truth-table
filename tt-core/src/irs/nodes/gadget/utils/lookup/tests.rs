@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arithmetic::ACTIVATOR_FIELD;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_ff::PrimeField;
 use ark_ff::Zero;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::errors::{SnarkError, SnarkResult};
 use ark_piop::test_utils::test_prelude;
 use ark_piop::{DefaultSnarkBackend, SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
+use datafusion::arrow::array::{ArrayRef, BooleanArray, Int32Array, Int64Array, StringArray};
+use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use super::{GadgetNode, INCLUDED_LABEL, SUPER_LABEL, SUPER_MULTIPLICITIES_LABEL};
@@ -282,6 +286,188 @@ fn run_lookup_roundtrip(
 
     verifier.verify()?;
     Ok(())
+}
+
+fn build_df(
+    ctx: &SessionContext,
+    fields: Vec<Field>,
+    columns: Vec<ArrayRef>,
+) -> datafusion_common::Result<datafusion::prelude::DataFrame> {
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), columns)?;
+    ctx.read_batch(batch)
+}
+
+async fn assert_multiplicity_once_per_active_key(
+    a_df: datafusion::prelude::DataFrame,
+    b_df: datafusion::prelude::DataFrame,
+    expected_activator: Vec<bool>,
+    expected_multiplicity: Vec<i64>,
+) {
+    let out = super::multiplicity_once_per_active_key(a_df, b_df).unwrap();
+    let batches = out.collect().await.unwrap();
+    let combined = concat_batches(&batches[0].schema(), &batches).unwrap();
+
+    assert_eq!(combined.num_rows(), expected_multiplicity.len());
+    let activator = combined
+        .column(0)
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .unwrap();
+    let multiplicity = combined
+        .column(1)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+
+    let activator_vals = (0..activator.len())
+        .map(|idx| activator.value(idx))
+        .collect::<Vec<_>>();
+    let multiplicity_vals = (0..multiplicity.len())
+        .map(|idx| multiplicity.value(idx))
+        .collect::<Vec<_>>();
+
+    assert_eq!(activator_vals, expected_activator);
+    assert_eq!(multiplicity_vals, expected_multiplicity);
+    assert_eq!(combined.schema().fields()[0].name(), ACTIVATOR_COL_NAME);
+    assert_eq!(combined.schema().fields()[1].name(), "multiplicity");
+}
+
+#[tokio::test]
+async fn multiplicity_once_per_active_key_single_column() {
+    let ctx = SessionContext::new();
+    let a_df = build_df(
+        &ctx,
+        vec![
+            Field::new("x", DataType::Int32, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(Int32Array::from(vec![1, 1, 2, 2])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![true, true, false, true])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+    let b_df = build_df(
+        &ctx,
+        vec![
+            Field::new("x", DataType::Int32, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(Int32Array::from(vec![1, 1, 1, 2])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![true, true, false, true])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    assert_multiplicity_once_per_active_key(
+        a_df,
+        b_df,
+        vec![true, true, false, true],
+        vec![2, 0, 0, 1],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn multiplicity_once_per_active_key_multi_column() {
+    let ctx = SessionContext::new();
+    let a_df = build_df(
+        &ctx,
+        vec![
+            Field::new("u", DataType::Utf8, false),
+            Field::new("d", DataType::Utf8, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "u1", "u1", "u1", "u2", "u3", "u3", "u4", "u5",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "d1", "d1", "d2", "d1", "d3", "d3", "d4", "d5",
+            ])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![
+                true, true, true, false, true, true, true, true,
+            ])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    let b_df = build_df(
+        &ctx,
+        vec![
+            Field::new("u", DataType::Utf8, false),
+            Field::new("d", DataType::Utf8, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "u1", "u1", "u1", "u3", "u3", "u3", "u5", "u9",
+            ])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                "d1", "d1", "d2", "d3", "d3", "d3", "d5", "d9",
+            ])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![
+                true, true, true, false, true, true, true, true,
+            ])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    assert_multiplicity_once_per_active_key(
+        a_df,
+        b_df,
+        vec![true, true, true, false, true, true, true, true],
+        vec![2, 0, 1, 0, 2, 0, 0, 1],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn multiplicity_once_per_active_key_ignores_inactive_b() {
+    let ctx = SessionContext::new();
+    let a_df = build_df(
+        &ctx,
+        vec![
+            Field::new("k", DataType::Utf8, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "X", "X", "Y", "Y", "Z", "Z", "W", "X",
+            ])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![
+                true, true, true, false, true, true, true, false,
+            ])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    let b_df = build_df(
+        &ctx,
+        vec![
+            Field::new("k", DataType::Utf8, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                "X", "X", "X", "Y", "Z", "Z", "Z", "Q",
+            ])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![
+                true, false, true, false, true, true, false, true,
+            ])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    assert_multiplicity_once_per_active_key(
+        a_df,
+        b_df,
+        vec![true, true, true, false, true, true, true, false],
+        vec![2, 0, 0, 0, 2, 0, 0, 0],
+    )
+    .await;
 }
 
 #[test]

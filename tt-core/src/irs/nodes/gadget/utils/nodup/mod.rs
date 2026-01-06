@@ -17,7 +17,7 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-pub const INCLUDED_LABEL: &str = "_col_";
+pub const INPUT_LABEL: &str = "_input_";
 
 #[cfg(test)]
 mod tests;
@@ -37,6 +37,14 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -92,7 +100,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for NoDup gadget node");
         };
 
-        let Some(input_table) = payload.get(INCLUDED_LABEL).cloned() else {
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
 
@@ -113,7 +121,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for NoDup gadget node");
         };
 
-        let Some(input_table) = payload.get(INCLUDED_LABEL).cloned() else {
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
 

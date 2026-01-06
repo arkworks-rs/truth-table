@@ -40,6 +40,14 @@ impl<B: SnarkBackend> IsNode<B> for BinEqNode<B> {
         todo!()
     }
 
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.eq.clone(), self.neq.clone()]
     }

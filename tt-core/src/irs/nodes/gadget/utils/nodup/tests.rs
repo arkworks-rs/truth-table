@@ -10,7 +10,7 @@ use ark_piop::{DefaultSnarkBackend, SnarkBackend, prover::ArgProver, verifier::A
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use indexmap::IndexMap;
 
-use super::{GadgetNode, INCLUDED_LABEL};
+use super::{GadgetNode, INPUT_LABEL};
 use crate::irs::nodes::Node;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
@@ -116,7 +116,7 @@ fn run_nodup_roundtrip(
     let root = Arc::new(Node::Gadget(gadget_node));
     let tree = Tree::new_from_root(root.clone());
 
-    let gadget_payload = IndexMap::from([(INCLUDED_LABEL.to_string(), input_table.clone())]);
+    let gadget_payload = IndexMap::from([(INPUT_LABEL.to_string(), input_table.clone())]);
     let mut prover_payloads = tree
         .arena()
         .keys()
@@ -149,7 +149,7 @@ fn run_nodup_roundtrip(
     verifier.set_proof(proof);
 
     let input_oracle = tracked_table_to_oracle(&input_table, &mut verifier);
-    let gadget_payload = IndexMap::from([(INCLUDED_LABEL.to_string(), input_oracle)]);
+    let gadget_payload = IndexMap::from([(INPUT_LABEL.to_string(), input_oracle)]);
     let mut verifier_payloads = tree
         .arena()
         .keys()

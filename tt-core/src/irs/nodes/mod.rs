@@ -88,6 +88,12 @@ where
     }
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
+    /// Optional hook for pre-order gadget planning.
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()>;
     /// Returns this node's children.
     fn children(&self) -> Vec<Arc<Node<B>>>;
     /// Optional human-readable labels for each child edge.
@@ -252,6 +258,16 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.cost(statistics, schema),
         }
     }
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => plan_node.initialize_gadget_plans(id, planned_ir),
+            Node::Gadget(gadget_node) => gadget_node.initialize_gadget_plans(id, planned_ir),
+        }
+    }
 
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -370,6 +386,17 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => lp_node.initialize_gadget_plans(id, planned_ir),
+            PlanNode::ExprBased(expr_node) => expr_node.initialize_gadget_plans(id, planned_ir),
+        }
+    }
+
     /// Returns the gadget associated with this plan node, if any.
     fn gadget(&self) -> Option<Node<B>> {
         match &self {
@@ -398,6 +425,14 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         PlanNode::cost(self, statistics, schema)
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        PlanNode::initialize_gadget_plans(self, id, planned_ir)
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {

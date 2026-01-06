@@ -1,6 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
@@ -39,6 +41,60 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut projection_exprs = self.aggregate.group_expr.clone();
+        projection_exprs.push(ACTIVATOR_EXPR.clone());
+
+        let input_projected = input_hint_df
+            .data_frame()
+            .clone()
+            .select(projection_exprs.clone())
+            .expect("aggregate input group projection should succeed");
+        let output_projected = output_hint_df
+            .data_frame()
+            .clone()
+            .select(projection_exprs)
+            .expect("aggregate output group projection should succeed");
+
+        let input_groups_hint =
+            crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
+        let output_groups_hint =
+            crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::lps::aggregate::INPUT_LABEL.to_string(),
+            input_groups_hint,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::lps::aggregate::OUTPUT_LABEL.to_string(),
+            output_groups_hint,
+        );
+
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {

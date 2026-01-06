@@ -95,6 +95,14 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
         todo!()
     }
 
+    fn initialize_gadget_plans(
+        &self,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut children = vec![self.left.clone(), self.right.clone()];
         if let Some(gadget) = &self.gadget {

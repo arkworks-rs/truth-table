@@ -39,6 +39,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         todo!()
     }
 
+    fn initialize_gadget_plans(
+        &self,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut out = Vec::with_capacity(1 + self.exprs.len());
         out.push(self.input.clone());

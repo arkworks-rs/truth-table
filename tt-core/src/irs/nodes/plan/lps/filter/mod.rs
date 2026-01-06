@@ -52,6 +52,14 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
         todo!()
     }
 
+    fn initialize_gadget_plans(
+        &self,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![
             self.input.clone(),
