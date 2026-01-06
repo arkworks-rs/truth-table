@@ -373,8 +373,8 @@ impl<B: SnarkBackend> TrackedTable<B> {
             return "TrackedTable<empty>".to_string();
         }
 
-        let mut headers = Vec::with_capacity(self.tracked_polys.len());
-        let mut columns: Vec<Vec<String>> = Vec::with_capacity(self.tracked_polys.len());
+        let mut headers = Vec::with_capacity(self.tracked_polys.len() + 1);
+        let mut columns: Vec<Vec<String>> = Vec::with_capacity(self.tracked_polys.len() + 1);
 
         for (field, poly) in self.tracked_polys.iter() {
             let header = {
@@ -395,6 +395,9 @@ impl<B: SnarkBackend> TrackedTable<B> {
         }
 
         let num_rows = columns.first().map(|c| c.len()).unwrap_or(0);
+        let row_numbers = (0..num_rows).map(|idx| idx.to_string()).collect::<Vec<_>>();
+        headers.insert(0, "row# (display)".to_string());
+        columns.insert(0, row_numbers);
         let widths: Vec<usize> = headers
             .iter()
             .enumerate()

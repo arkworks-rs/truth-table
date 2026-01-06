@@ -218,8 +218,8 @@ impl<B: SnarkBackend> TrackedCol<B> {
             })
             .unwrap_or_else(|| "-".to_string());
 
-        let mut headers = Vec::with_capacity(2);
-        let mut columns: Vec<Vec<String>> = Vec::with_capacity(2);
+        let mut headers = Vec::with_capacity(3);
+        let mut columns: Vec<Vec<String>> = Vec::with_capacity(3);
 
         headers.push(base_name.clone());
         columns.push(
@@ -245,6 +245,11 @@ impl<B: SnarkBackend> TrackedCol<B> {
             return "TrackedCol<empty>".to_string();
         }
 
+        let num_rows = columns.first().map(|col| col.len()).unwrap_or(0);
+        let row_numbers = (0..num_rows).map(|idx| idx.to_string()).collect::<Vec<_>>();
+        headers.insert(0, "row# (display)".to_string());
+        columns.insert(0, row_numbers);
+
         let widths: Vec<usize> = headers
             .iter()
             .enumerate()
@@ -257,7 +262,6 @@ impl<B: SnarkBackend> TrackedCol<B> {
             })
             .collect();
 
-        let num_rows = columns.first().map(|col| col.len()).unwrap_or(0);
         let mut out = String::new();
         out.push_str(&border_line(&widths));
         out.push_str(&row_line(&headers, &widths));

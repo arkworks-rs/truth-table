@@ -53,8 +53,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             _ => IndexMap::new(),
         };
 
-        supp_payload.insert(supp::SUPER_LABEL.to_string(), input_hint);
-        supp_payload.insert(supp::ORIG_LABEL.to_string(), output_hint);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_hint);
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_hint);
 
         planned_ir.set_payload_for_node(
             self.supp_gadget.id(),
@@ -100,8 +100,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             _ => IndexMap::new(),
         };
 
-        supp_payload.insert(supp::SUPER_LABEL.to_string(), input_table);
-        supp_payload.insert(supp::ORIG_LABEL.to_string(), output_table);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
 
         virtualized_ir.set_payload_for_node(
             self.supp_gadget.id(),
@@ -143,8 +143,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             _ => IndexMap::new(),
         };
 
-        supp_payload.insert(supp::SUPER_LABEL.to_string(), input_table);
-        supp_payload.insert(supp::ORIG_LABEL.to_string(), output_table);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
 
         virtualized_ir.set_payload_for_node(
             self.supp_gadget.id(),

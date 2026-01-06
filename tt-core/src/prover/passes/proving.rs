@@ -1,7 +1,7 @@
 use crate::{
     irs::{
         ir::LocalPass,
-        nodes::{Node, NodeId},
+        nodes::{IsNode, Node, NodeId},
         payloads::EmptyPayload,
     },
     prover::{irs::GadgetReadyIr, payloads::GadgetReadyPayload},
@@ -49,7 +49,7 @@ where
     fn transform(
         &self,
         node: &Node<B>,
-        _id: NodeId,
+        id: NodeId,
         _payload: Option<&GadgetReadyPayload<B>>,
     ) -> Option<EmptyPayload> {
         if self.error.borrow().is_some() {
@@ -57,15 +57,25 @@ where
         }
         match node {
             Node::Gadget(gadget_node) => {
+                tracing::debug!(
+                    gadget = %gadget_node.name(),
+                    node_id = id,
+                    "starting to prove gadget"
+                );
                 let result = {
                     let mut arg_prover = self.arg_prover.borrow_mut();
                     let mut gadget_ready_ir = self.gadget_ready_ir.borrow_mut();
-                    gadget_node.prove(&mut arg_prover, &mut gadget_ready_ir, _id)
+                    gadget_node.prove(&mut arg_prover, &mut gadget_ready_ir, id)
                 };
                 if let Err(err) = result {
                     *self.error.borrow_mut() = Some(err);
                     None
                 } else {
+                    tracing::info!(
+                        gadget = %gadget_node.name(),
+                        node_id = id,
+                        "gadget was proved"
+                    );
                     Some(EmptyPayload)
                 }
             }
