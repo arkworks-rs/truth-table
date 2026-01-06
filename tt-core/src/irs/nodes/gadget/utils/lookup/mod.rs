@@ -148,11 +148,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             panic!("Expected included, super, and super multiplicities inputs for Lookup gadget");
         };
+        println!("{}", multiplicities_table.pretty_string());
         let included_cols = Self::tracked_cols_from_table(&included_table);
         let super_col = Self::single_col_from_table(&super_table);
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
-
         // let input = HintedLookupProverInput {
         //     included_cols,
         //     super_col,
