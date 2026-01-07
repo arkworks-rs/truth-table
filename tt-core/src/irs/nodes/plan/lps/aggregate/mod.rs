@@ -57,19 +57,31 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
             _ => return Ok(()),
         };
 
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            input_hint_df.data_frame().clone(),
+        )
+        .expect("aggregate input row-id sort should succeed");
+        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            output_hint_df.data_frame().clone(),
+        )
+        .expect("aggregate output row-id sort should succeed");
+
         let mut projection_exprs = self.aggregate.group_expr.clone();
         projection_exprs.push(ACTIVATOR_EXPR.clone());
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut projection_exprs);
 
-        let input_projected = input_hint_df
-            .data_frame()
-            .clone()
+        let input_projected = input_df
             .select(projection_exprs.clone())
             .expect("aggregate input group projection should succeed");
-        let output_projected = output_hint_df
-            .data_frame()
-            .clone()
+        let output_projected = output_df
             .select(projection_exprs)
             .expect("aggregate output group projection should succeed");
+
+        let input_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(input_projected)
+            .expect("aggregate input group sort should succeed");
+        let output_projected =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
+                .expect("aggregate output group sort should succeed");
 
         let input_groups_hint =
             crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
@@ -212,6 +224,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
         };
 
         let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
+        let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)
+            .expect("aggregate output sort should succeed");
 
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();

@@ -57,7 +57,7 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
         _id: NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -364,6 +364,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
         };
 
         let output_df = hints::build_output_dataframe(input_hint_df.data_frame(), &self.filter);
+        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
+            .expect("filter output sort should succeed");
 
         // Only materialize the activator column; keep all other columns virtual.
         let should_materialize: IndexMap<FieldRef, bool> = output_df

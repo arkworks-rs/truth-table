@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::ScalarValue;
@@ -69,7 +69,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             tracker,
         );
 
-        // Columns: literal value and activator.
+        // Columns: literal value, optional row_id, and activator.
         let literal_field = FieldRef::new(Field::new(
             self.literal.to_string(),
             self.literal.data_type(),
@@ -78,15 +78,24 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         let activator_field =
             FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
 
-        let mut columns = IndexMap::from([
-            (literal_field.clone(), literal_poly),
-            (activator_field.clone(), activator_poly.clone()),
-        ]);
+        let mut columns = IndexMap::new();
+        columns.insert(literal_field.clone(), literal_poly);
+        if let Some((row_id_field, row_id_poly)) = scope_table
+            .tracked_polys()
+            .iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            columns.insert(row_id_field, row_id_poly);
+        }
+        columns.insert(activator_field.clone(), activator_poly.clone());
 
-        let schema = Schema::new(vec![
-            literal_field.as_ref().clone(),
-            activator_field.as_ref().clone(),
-        ]);
+        let schema = Schema::new(
+            columns
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        );
 
         let updated_table = arithmetic::table::TrackedTable::new(Some(schema), columns, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
@@ -114,12 +123,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
 
-        let projected = scope_hint_df
-            .data_frame()
-            .clone()
-            .select(vec![lit(self.literal.clone()), ACTIVATOR_EXPR.clone()])
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            scope_hint_df.data_frame().clone(),
+        )
+        .expect("literal row-id sort should succeed");
+
+        let mut exprs = vec![lit(self.literal.clone()), ACTIVATOR_EXPR.clone()];
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let projected = input_df
+            .select(exprs)
             .expect("literal projection should succeed");
 
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("literal output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
@@ -167,7 +183,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             log_size,
         );
 
-        // Columns: literal value and activator.
+        // Columns: literal value, optional row_id, and activator.
         let literal_field = FieldRef::new(Field::new(
             self.literal.to_string(),
             self.literal.data_type(),
@@ -176,15 +192,24 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let activator_field =
             FieldRef::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
 
-        let columns = IndexMap::from([
-            (literal_field.clone(), literal_oracle),
-            (activator_field.clone(), activator_oracle.clone()),
-        ]);
+        let mut columns = IndexMap::new();
+        columns.insert(literal_field.clone(), literal_oracle);
+        if let Some((row_id_field, row_id_oracle)) = scope_table
+            .tracked_oracles()
+            .iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+            .map(|(field, oracle)| (field.clone(), oracle.clone()))
+        {
+            columns.insert(row_id_field, row_id_oracle);
+        }
+        columns.insert(activator_field.clone(), activator_oracle.clone());
 
-        let schema = Schema::new(vec![
-            literal_field.as_ref().clone(),
-            activator_field.as_ref().clone(),
-        ]);
+        let schema = Schema::new(
+            columns
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        );
 
         let updated_table =
             arithmetic::table_oracle::TrackedTableOracle::new(Some(schema), columns, log_size);

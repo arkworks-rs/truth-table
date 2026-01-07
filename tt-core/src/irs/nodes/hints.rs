@@ -1,7 +1,9 @@
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
-use datafusion_expr::LogicalPlan;
+use datafusion_common::Result as DataFusionResult;
+use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
+use arithmetic::ROW_ID_COL_NAME;
 
 #[derive(Clone, Debug)]
 pub struct HintDF {
@@ -93,5 +95,45 @@ impl HintDF {
         //     .expect("failed to build projection for materialized columns")
         //     .build()
         //     .ok()
+    }
+}
+
+pub fn sort_by_row_id_if_present(df: DataFrame) -> DataFusionResult<DataFrame> {
+    let has_row_id = df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    if has_row_id {
+        df.sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])
+    } else {
+        Ok(df)
+    }
+}
+
+pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
+    let has_row_id = df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    if !has_row_id {
+        return;
+    }
+    let already_present = exprs.iter().any(|expr| match expr {
+        Expr::Column(col) => col.name == ROW_ID_COL_NAME,
+        _ => false,
+    });
+    if already_present {
+        return;
+    }
+    let insert_pos = exprs.iter().position(|expr| match expr {
+        Expr::Column(col) => col.name == arithmetic::ACTIVATOR_COL_NAME,
+        _ => false,
+    });
+    if let Some(pos) = insert_pos {
+        exprs.insert(pos, arithmetic::ROW_ID_EXPR.clone());
+    } else {
+        exprs.push(arithmetic::ROW_ID_EXPR.clone());
     }
 }

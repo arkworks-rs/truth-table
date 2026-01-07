@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
+    is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{
@@ -78,7 +78,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .schema()
             .fields()
             .iter()
-            .map(|field| (field.clone(), field.name() != ACTIVATOR_COL_NAME))
+            .map(|field| (field.clone(), !is_system_column(field.name())))
             .collect();
         let multiplicities_hint =
             crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
@@ -153,17 +153,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let super_col = Self::single_col_from_table(&super_table);
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
-        // let input = HintedLookupProverInput {
-        //     included_cols,
-        //     super_col,
-        //     super_col_multiplicities,
-        // };
-        // HintedLookupPIOP::<B>::prove(prover, input)?;
-        let input = LookupProverInput {
+        let input = HintedLookupProverInput {
             included_cols,
             super_col,
+            super_col_multiplicities,
         };
-        LookupPIOP::<B>::prove(prover, input)?;
+        HintedLookupPIOP::<B>::prove(prover, input)?;
+
         Ok(())
     }
 
@@ -191,17 +187,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let super_col_multiplicities =
             Self::multiplicities_from_table_oracle(&multiplicities_table, included_cols.len());
 
-        // let input = HintedLookupVerifierInput {
-        //     included_tracked_col_oracles: included_cols,
-        //     super_tracked_col_oracle: super_col,
-        //     super_col_multiplicities,
-        // };
-        // HintedLookupPIOP::<B>::verify(verifier, input)?;
-        let input = LookupVerifierInput {
+        let input = HintedLookupVerifierInput {
             included_tracked_col_oracles: included_cols,
             super_tracked_col_oracle: super_col,
+            super_col_multiplicities,
         };
-        LookupPIOP::<B>::verify(verifier, input)?;
+        HintedLookupPIOP::<B>::verify(verifier, input)?;
         Ok(())
     }
 
@@ -286,48 +277,87 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
+/// Compute a per-row multiplicity table for lookup constraints.
+///
+/// For each row in `a`:
+/// - If `a.__activator__` is false, the multiplicity is 0.
+/// - If `a.__activator__` is true, count how many rows in `b` are active and
+///   share the same data-key (all non-system columns).
+/// - If the same active key appears multiple times in `a`, only the first
+///   occurrence gets the count; later duplicates get 0.
+///
+/// The output keeps the same row order as `a` (using `__row_id__` when present),
+/// and returns a two-column table: (`__activator__`, `multiplicity`).
 fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionResult<DataFrame> {
+    // 1) Identify data-key columns (exclude system columns like activator/row_id).
     let schema = a.schema();
     let data_cols: Vec<String> = schema
         .fields()
         .iter()
-        .filter(|f| f.name() != ACTIVATOR_COL_NAME)
+        .filter(|f| !is_system_column(f.name()))
         .map(|f| f.name().clone())
         .collect();
 
-    let row_id_expr = row_number()
-        .partition_by(Vec::new())
-        .build()?
-        .alias("__row_id__");
-    let a_with_row_id = a.select(
-        data_cols
-            .iter()
-            .map(|c| col(c))
-            .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
-            .chain(std::iter::once(row_id_expr))
-            .collect(),
-    )?;
+    // 2) Ensure we have a stable row identifier to preserve `a`'s order.
+    //    If `__row_id__` exists, use it. Otherwise generate a synthetic one.
+    let has_row_id = schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    let row_id_col = if has_row_id {
+        ROW_ID_COL_NAME
+    } else {
+        "__row_id__"
+    };
+    let a_with_row_id = if has_row_id {
+        // Keep data columns + activator + row_id.
+        a.select(
+            data_cols
+                .iter()
+                .map(|c| col(c))
+                .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
+                .chain(std::iter::once(col(ROW_ID_COL_NAME)))
+                .collect(),
+        )?
+    } else {
+        // Attach a synthetic row id to preserve a deterministic order.
+        let row_id_expr = row_number()
+            .partition_by(Vec::new())
+            .build()?
+            .alias(row_id_col);
+        a.select(
+            data_cols
+                .iter()
+                .map(|c| col(c))
+                .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
+                .chain(std::iter::once(row_id_expr))
+                .collect(),
+        )?
+    };
 
+    // 3) Mark the first active occurrence per key in `a`.
+    //    This drives the "only first active row gets multiplicity" rule.
     let a_active = a_with_row_id
         .clone()
         .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?;
     let rn_active_expr = row_number()
         .partition_by(data_cols.iter().map(|c| col(c)).collect())
-        .order_by(vec![col("__row_id__").sort(true, true)])
+        .order_by(vec![col(row_id_col).sort(true, true)])
         .build()?
         .alias("__rn_active__");
     let a_active = a_active.select(
         data_cols
             .iter()
             .map(|c| col(c))
-            .chain(std::iter::once(col("__row_id__")))
+            .chain(std::iter::once(col(row_id_col)))
             .chain(std::iter::once(rn_active_expr))
             .collect(),
     )?;
     let a_active = a_active
-        .select(vec![col("__row_id__"), col("__rn_active__")])?
-        .with_column_renamed("__row_id__", "__row_id_rhs__")?;
+        .select(vec![col(row_id_col), col("__rn_active__")])?
+        .with_column_renamed(row_id_col, "__row_id_rhs__")?;
 
+    // 4) Count active rows per key in `b`.
     let b_counts = b.filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?.aggregate(
         data_cols.iter().map(|c| col(c)).collect(),
         vec![count(lit(1_i64)).alias("mult")],
@@ -342,13 +372,15 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         renamed_b_counts = renamed_b_counts.with_column_renamed(original, renamed)?;
     }
 
+    // 5) Join `a` with the "first active row" marker and with `b`'s counts.
+    //    The row-id join is used to align markers with `a`'s original rows.
     let left_cols: Vec<&str> = data_cols.iter().map(|c| c.as_str()).collect();
     let right_cols: Vec<&str> = b_group_cols.iter().map(|c| c.as_str()).collect();
     let joined = a_with_row_id
         .join(
             a_active,
             JoinType::Left,
-            &["__row_id__"],
+            &[row_id_col],
             &["__row_id_rhs__"],
             None,
         )?
@@ -360,12 +392,17 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
             None,
         )?;
 
+    // 6) Compute multiplicity:
+    //    - inactive rows in `a` -> 0
+    //    - first active row for a key -> count from `b` (or 0 if missing)
+    //    - later active duplicates -> 0
     let mult_or_zero = when(col("mult").is_null(), lit(0_i64)).otherwise(col("mult"))?;
     let multiplicity_expr = when(col(ACTIVATOR_COL_NAME).eq(lit(false)), lit(0_i64))
         .when(col("__rn_active__").eq(lit(1_i64)), mult_or_zero)
         .otherwise(lit(0_i64))?
         .alias("multiplicity");
 
-    let ordered = joined.sort(vec![col("__row_id__").sort(true, true)])?;
+    // 7) Restore deterministic ordering by row_id and project final columns.
+    let ordered = joined.sort(vec![col(row_id_col).sort(true, true)])?;
     ordered.select(vec![col(ACTIVATOR_COL_NAME), multiplicity_expr])
 }

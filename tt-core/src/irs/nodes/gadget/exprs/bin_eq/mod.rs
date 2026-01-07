@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -45,7 +45,7 @@ impl<B: SnarkBackend> IsNode<B> for BinEqNode<B> {
         _id: crate::irs::nodes::NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -106,7 +106,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
         let build_table_with_activator = |table: &TrackedTable<B>, activator: &TrackedPoly<B>| {
             let mut polys = IndexMap::new();
             for (field, poly) in table.tracked_polys_iter() {
-                if field.name() == ACTIVATOR_COL_NAME {
+                if is_system_column(field.name()) {
                     continue;
                 }
                 polys.insert(field.clone(), poly.clone());
@@ -221,7 +221,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
              activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
                 let mut oracles = IndexMap::new();
                 for (field, oracle) in table.tracked_oracles_iter() {
-                    if field.name() == ACTIVATOR_COL_NAME {
+                    if is_system_column(field.name()) {
                         continue;
                     }
                     oracles.insert(field.clone(), oracle.clone());

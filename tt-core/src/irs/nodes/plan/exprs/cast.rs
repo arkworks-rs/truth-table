@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::encoding::encode_arrow_array_to_field;
 use arithmetic::table::TrackedTable;
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, Schema};
@@ -40,7 +40,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         _id: NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -103,17 +103,27 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                     tracker,
                 );
 
-                // Build a single-column table (plus activator) with the casted literal.
+                // Build a single-column table (plus row_id/activator) with the casted literal.
                 let data_type = scalar.data_type();
                 let field = Arc::new(Field::new("literal", data_type.clone(), scalar.is_null()));
 
                 let mut columns = IndexMap::from([(field.clone(), tracked_poly)]);
+                if let Some((row_id_field, row_id_poly)) = scope_table
+                    .tracked_polys()
+                    .iter()
+                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                    .map(|(field, poly)| (field.clone(), poly.clone()))
+                {
+                    columns.insert(row_id_field, row_id_poly);
+                }
                 columns.insert(ACTIVATOR_FIELD.clone(), activator_poly);
 
-                let schema = Some(Schema::new(vec![
-                    field.as_ref().clone(),
-                    ACTIVATOR_FIELD.as_ref().clone(),
-                ]));
+                let schema = Some(Schema::new(
+                    columns
+                        .keys()
+                        .map(|field| field.as_ref().clone())
+                        .collect::<Vec<_>>(),
+                ));
 
                 let table = TrackedTable::new(schema, columns, log_size);
                 virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(table)));
@@ -135,7 +145,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                 // Rebuild the schema/fields with the cast target type for data columns.
                 let mut columns = IndexMap::with_capacity(child_table.tracked_polys().len());
                 for (field, poly) in child_table.tracked_polys() {
-                    let new_field = if field.name() == ACTIVATOR_COL_NAME {
+                    let new_field = if field.name() == ACTIVATOR_COL_NAME
+                        || field.name() == ROW_ID_COL_NAME
+                    {
                         field.clone()
                     } else {
                         let base = field.as_ref();
@@ -155,7 +167,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                         .iter()
                         .map(|field| {
                             let base = field.as_ref();
-                            if base.name() == ACTIVATOR_COL_NAME {
+                            if base.name() == ACTIVATOR_COL_NAME || base.name() == ROW_ID_COL_NAME {
                                 base.clone()
                             } else {
                                 let mut updated = Field::new(
@@ -208,15 +220,22 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
         };
 
-        let projected = scope_hint_df
-            .data_frame()
-            .clone()
-            .select(vec![
-                datafusion_expr::Expr::Cast(self.cast.clone()),
-                ACTIVATOR_EXPR.clone(),
-            ])
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            scope_hint_df.data_frame().clone(),
+        )
+        .expect("cast row-id sort should succeed");
+
+        let mut exprs = vec![
+            datafusion_expr::Expr::Cast(self.cast.clone()),
+            ACTIVATOR_EXPR.clone(),
+        ];
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let projected = input_df
+            .select(exprs)
             .expect("cast projection should succeed");
 
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("cast output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
@@ -275,17 +294,27 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
                     log_size,
                 );
 
-                // Build a single-column oracle table (plus activator) with the casted literal.
+                // Build a single-column oracle table (plus row_id/activator) with the casted literal.
                 let data_type = scalar.data_type();
                 let field = Arc::new(Field::new("literal", data_type.clone(), scalar.is_null()));
 
                 let mut columns = IndexMap::from([(field.clone(), tracked_oracle)]);
+                if let Some((row_id_field, row_id_oracle)) = scope_table
+                    .tracked_oracles()
+                    .iter()
+                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                    .map(|(field, oracle)| (field.clone(), oracle.clone()))
+                {
+                    columns.insert(row_id_field, row_id_oracle);
+                }
                 columns.insert(ACTIVATOR_FIELD.clone(), activator_oracle);
 
-                let schema = Some(Schema::new(vec![
-                    field.as_ref().clone(),
-                    ACTIVATOR_FIELD.as_ref().clone(),
-                ]));
+                let schema = Some(Schema::new(
+                    columns
+                        .keys()
+                        .map(|field| field.as_ref().clone())
+                        .collect::<Vec<_>>(),
+                ));
 
                 let table =
                     arithmetic::table_oracle::TrackedTableOracle::new(schema, columns, log_size);
@@ -308,7 +337,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
                 // Rebuild the schema/fields with the cast target type for data columns.
                 let mut columns = IndexMap::with_capacity(child_table.tracked_oracles().len());
                 for (field, oracle) in child_table.tracked_oracles() {
-                    let new_field = if field.name() == ACTIVATOR_COL_NAME {
+                    let new_field = if field.name() == ACTIVATOR_COL_NAME
+                        || field.name() == ROW_ID_COL_NAME
+                    {
                         field.clone()
                     } else {
                         let base = field.as_ref();
@@ -328,7 +359,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
                         .iter()
                         .map(|field| {
                             let base = field.as_ref();
-                            if base.name() == ACTIVATOR_COL_NAME {
+                            if base.name() == ACTIVATOR_COL_NAME || base.name() == ROW_ID_COL_NAME {
                                 base.clone()
                             } else {
                                 let mut updated = Field::new(

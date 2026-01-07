@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
+use arithmetic::{ACTIVATOR_COL_NAME, is_system_column, table::TrackedTable};
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
@@ -37,7 +37,7 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
         _id: crate::irs::nodes::NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -80,13 +80,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
         // (the first non-activator column) to build the left input.
         let input_act_poly = input_act
             .tracked_polys_iter()
-            .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
+            .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()));
         let predicate_poly = predicate
             .tracked_polys_iter()
-            .find_map(|(field, poly)| (field.name() != ACTIVATOR_COL_NAME).then(|| poly.clone()));
+            .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()));
         let left_field = input_act
             .tracked_polys_iter()
-            .find_map(|(field, _)| (field.name() != ACTIVATOR_COL_NAME).then(|| field.clone()));
+            .find_map(|(field, _)| (!is_system_column(field.name())).then(|| field.clone()));
 
         let (Some(input_act_poly), Some(predicate_poly), Some(field_ref)) =
             (input_act_poly, predicate_poly, left_field)
@@ -152,17 +152,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         // (the first non-activator column) to build the left input.
         let input_act_oracle = input_act
             .tracked_oracles_iter()
-            .find_map(|(field, oracle)| {
-                (field.name() != ACTIVATOR_COL_NAME).then(|| oracle.clone())
-            });
+            .find_map(|(field, oracle)| (!is_system_column(field.name())).then(|| oracle.clone()));
         let predicate_oracle = predicate
             .tracked_oracles_iter()
-            .find_map(|(field, oracle)| {
-                (field.name() != ACTIVATOR_COL_NAME).then(|| oracle.clone())
-            });
+            .find_map(|(field, oracle)| (!is_system_column(field.name())).then(|| oracle.clone()));
         let left_field = input_act
             .tracked_oracles_iter()
-            .find_map(|(field, _)| (field.name() != ACTIVATOR_COL_NAME).then(|| field.clone()));
+            .find_map(|(field, _)| (!is_system_column(field.name())).then(|| field.clone()));
 
         let (Some(input_act_oracle), Some(predicate_oracle), Some(field_ref)) =
             (input_act_oracle, predicate_oracle, left_field)

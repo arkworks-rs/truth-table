@@ -93,7 +93,7 @@ fn output_field_from_expr(expr_node: &Arc<Node<Backend>>) -> FieldRef {
             .schema()
             .fields()
             .iter()
-            .find(|field| field.name() != ACTIVATOR_COL_NAME)
+            .find(|field| !arithmetic::is_system_column(field.name()))
             .cloned()
             .expect("BinaryExpr output should include a data column"),
         _ => panic!("Expected plan node for binary expression root"),

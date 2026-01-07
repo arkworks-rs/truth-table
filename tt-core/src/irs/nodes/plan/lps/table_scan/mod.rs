@@ -68,7 +68,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
             ctx.state(),
             datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone()),
         );
-
+        let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
+            .expect("table scan row-id sort should succeed");
         crate::irs::nodes::hints::HintDF::new_materialized(df)
     }
 }

@@ -1,4 +1,4 @@
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_expr::{
@@ -66,8 +66,17 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     // row_number() OVER (PARTITION BY group_exprs ORDER BY nothing)
     // and then:
     //   new_activator = (orig_activator && row_number == 1)
-    let window_expr = row_number()
-        .partition_by(aggregate.group_expr.clone())
+    let mut row_number_builder = row_number().partition_by(aggregate.group_expr.clone());
+    if input
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        row_number_builder =
+            row_number_builder.order_by(vec![col(ROW_ID_COL_NAME).sort(true, true)]);
+    }
+    let window_expr = row_number_builder
         .build()
         .expect("partitioned row_number window should build")
         .alias("__row_number__");
@@ -92,6 +101,14 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         .iter()
         .map(|expr| expr.clone().sort(true, true))
         .collect();
+    if input
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        sort_exprs.push(col(ROW_ID_COL_NAME).sort(true, true));
+    }
     sort_exprs.push(col("__row_number__").sort(true, true));
     let sorted = with_new_activator.sort(sort_exprs).unwrap();
     let mut drop_columns: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();

@@ -1,4 +1,4 @@
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::prelude::DataFrame;
 use datafusion_expr::{Sort, col, expr::Sort as SortExpr};
 
@@ -10,6 +10,14 @@ pub(super) fn build_output_dataframe(input: &DataFrame, sort: &Sort) -> DataFram
     let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 1);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
     sort_exprs.extend(sort.expr.clone());
+    if input
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        sort_exprs.push(col(ROW_ID_COL_NAME).sort(true, true));
+    }
 
     input
         .clone()

@@ -176,7 +176,9 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.tracked_polys
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
+            .filter_map(|(idx, (field, _))| {
+                (!crate::is_system_column(field.name())).then_some(idx)
+            })
             .collect()
     }
 
@@ -322,14 +324,12 @@ impl<B: SnarkBackend> TrackedTable<B> {
             sub_polys.insert(field_ref.clone(), tracked_poly.clone());
         }
 
-        if let Some((field_ref, activator_poly)) = self
-            .tracked_polys
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-        {
-            sub_polys
-                .entry(field_ref.clone())
-                .or_insert_with(|| activator_poly.clone());
+        for (field_ref, tracked_poly) in self.tracked_polys.iter() {
+            if crate::is_system_column(field_ref.name()) {
+                sub_polys
+                    .entry(field_ref.clone())
+                    .or_insert_with(|| tracked_poly.clone());
+            }
         }
 
         let sub_schema = self.schema.as_ref().map(|schema| {
@@ -354,9 +354,12 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.tracked_polys.len()
     }
 
-    // Number of data columns excluding possibly activator (if any)
+    // Number of data columns excluding system columns (activator/row_id).
     pub fn num_data_tracked_cols(&self) -> usize {
-        self.tracked_polys.len() - (self.activator_tracked_poly().is_some() as usize)
+        self.tracked_polys
+            .keys()
+            .filter(|field| !crate::is_system_column(field.name()))
+            .count()
     }
 
     /// Returns the tracked polynomial of the activator column, if any

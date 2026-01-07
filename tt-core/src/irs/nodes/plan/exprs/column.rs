@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::ACTIVATOR_EXPR;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR};
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, Statistics};
 
@@ -97,15 +97,23 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Column scope cannot be a gadget node"),
         };
 
-        let projected = scope_hint_df
-            .data_frame()
-            .clone()
-            .select(vec![
-                datafusion_expr::Expr::Column(self.column.clone()),
-                ACTIVATOR_EXPR.clone(),
-            ])
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            scope_hint_df.data_frame().clone(),
+        )
+        .expect("column row-id sort should succeed");
+
+        let mut exprs = vec![datafusion_expr::Expr::Column(self.column.clone())];
+        if self.column.name() != ACTIVATOR_COL_NAME {
+            exprs.push(ACTIVATOR_EXPR.clone());
+        }
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
             .expect("column projection should succeed");
 
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("column output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }

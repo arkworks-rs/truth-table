@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -180,7 +180,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
         let data_field = left_input
             .tracked_polys()
             .keys()
-            .find(|field| field.name() != ACTIVATOR_COL_NAME)
+            .find(|field| !is_system_column(field.name()))
             .cloned()
             .expect("BinCmp left input should include a data column");
         let metadata = left_input
@@ -300,7 +300,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
         let data_field = left_input
             .tracked_oracles()
             .keys()
-            .find(|field| field.name() != ACTIVATOR_COL_NAME)
+            .find(|field| !is_system_column(field.name()))
             .cloned()
             .expect("BinCmp left input should include a data column");
         let metadata = left_input

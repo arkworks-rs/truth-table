@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column,
+};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
@@ -100,7 +102,7 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
         _id: NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -185,12 +187,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
                 .schema()
                 .fields()
                 .iter()
-                .find(|field| field.name() != ACTIVATOR_COL_NAME)
+                .find(|field| !is_system_column(field.name()))
                 .cloned()
                 .expect("BinaryExpr output should include a data column");
             merged_polys.insert(output_field, output_poly);
         }
 
+        if let Some((row_id_field, row_id_poly)) = left_table
+            .tracked_polys_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_polys
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_poly.clone());
+        }
         if let Some(activator) = output_activator {
             merged_polys.insert(ACTIVATOR_FIELD.clone(), activator);
         }
@@ -341,10 +351,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
                 .schema()
                 .fields()
                 .iter()
-                .find(|field| field.name() != ACTIVATOR_COL_NAME)
+                .find(|field| !is_system_column(field.name()))
                 .cloned()
                 .expect("BinaryExpr output should include a data column");
             merged_oracles.insert(output_field, output_oracle);
+        }
+        if let Some((row_id_field, row_id_oracle)) = left_table
+            .tracked_oracles_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_oracles
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_oracle.clone());
         }
         if let Some(activator) = output_activator {
             merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
@@ -435,13 +453,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
-        let projected = scope_hint_df
-            .data_frame()
-            .clone()
-            .select(vec![
-                Expr::BinaryExpr(self.binary_expression.clone()),
-                ACTIVATOR_EXPR.clone(),
-            ])
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            scope_hint_df.data_frame().clone(),
+        )
+        .expect("binary expr row-id sort should succeed");
+
+        let mut exprs = vec![
+            Expr::BinaryExpr(self.binary_expression.clone()),
+            ACTIVATOR_EXPR.clone(),
+        ];
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
             .expect("binary expression projection should succeed");
 
         // Activator is always virtual; the expression column follows this node's
@@ -451,7 +475,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             .fields()
             .iter()
             .map(|field| {
-                let mat = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+                let mat = if field.name() == arithmetic::ACTIVATOR_COL_NAME
+                    || field.name() == ROW_ID_COL_NAME
+                {
                     false
                 } else {
                     self.should_materialize()
@@ -460,6 +486,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             })
             .collect();
 
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("binary expr output sort should succeed");
         crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }

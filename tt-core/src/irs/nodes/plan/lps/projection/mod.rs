@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{LogicalPlan, Projection};
@@ -64,6 +64,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         // Collect the tracked tables produced by each projection expression.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
+        let mut row_id: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
         let mut log_size: Option<usize> = None;
 
         for expr_node in &self.exprs {
@@ -86,6 +87,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                     .expect("expression table should carry an activator polynomial");
                 activator = Some((activator_field, activator_poly));
             }
+            if row_id.is_none() {
+                let row_id_field = expr_table
+                    .tracked_polys()
+                    .keys()
+                    .find(|field| field.name() == ROW_ID_COL_NAME)
+                    .cloned();
+                if let Some(field) = row_id_field {
+                    let row_id_poly = expr_table
+                        .tracked_polys()
+                        .get(&field)
+                        .expect("row id field should be in tracked polys")
+                        .clone();
+                    row_id = Some((field, row_id_poly));
+                }
+            }
 
             let expr_log_size = expr_table.log_size();
             if let Some(ls) = log_size {
@@ -104,7 +120,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             }
         }
 
-        // Append the shared activator column at the end to mirror the DF schema order.
+        // Append system columns in a stable order: row_id then activator.
+        if let Some((field, poly)) = row_id {
+            output_cols.insert(field, poly);
+        }
         if let Some((field, poly)) = activator {
             output_cols.insert(field, poly);
         } else {
@@ -149,6 +168,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
         };
 
         let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("projection output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }

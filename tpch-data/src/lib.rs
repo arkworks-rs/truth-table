@@ -6,7 +6,7 @@ use std::{
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
-    array::{BooleanBuilder, RecordBatch},
+    array::{BooleanBuilder, Int64Builder, RecordBatch},
     compute::concat as arrow_concat,
     datatypes::{DataType, Field, Schema},
 };
@@ -14,6 +14,8 @@ use duckdb::Connection;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tpchgen::generators::*;
 use tpchgen_arrow::*;
+
+const ROW_ID_COL_NAME: &str = "__row_id__";
 
 /// Check if n is a power of two
 fn is_power_of_two(n: usize) -> bool {
@@ -29,9 +31,9 @@ fn next_power_of_two(n: usize) -> usize {
     }
 }
 
-/// Write Parquet after augmenting with an `activator` Boolean column and
-/// padding rows by duplicating the last row until the total row count is a
-/// power of two (appended rows have activator=false).
+/// Write Parquet after augmenting with a stable `row_id` column and an
+/// `activator` Boolean column, then pad by duplicating the last row until the
+/// total row count is a power of two (appended rows have activator=false).
 fn write_parquet<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -42,8 +44,9 @@ fn write_parquet<P: AsRef<Path>>(
         create_dir_all(parent).expect("create output dir");
     }
 
-    // Build output schema = original fields + activator: Boolean
+    // Build output schema = original fields + row_id: Int64 + activator: Boolean
     let mut fields: Vec<Field> = orig_schema.fields().iter().map(|f| (**f).clone()).collect();
+    fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, false));
     fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
     let out_schema = Arc::new(Schema::new(fields));
 
@@ -51,6 +54,7 @@ fn write_parquet<P: AsRef<Path>>(
     let mut writer = ArrowWriter::try_new(file, Arc::clone(&out_schema), None).expect("new writer");
 
     let mut total_rows: usize = 0;
+    let mut next_row_id: i64 = 0;
     let mut last_nonempty_batch: Option<RecordBatch> = None;
 
     // Stream original batches, tagging activator=true and writing out directly
@@ -62,6 +66,14 @@ fn write_parquet<P: AsRef<Path>>(
         total_rows += n;
         last_nonempty_batch = Some(batch.clone());
 
+        // row_id increments across batches to preserve a stable order
+        let mut row_id_builder = Int64Builder::new();
+        for offset in 0..n {
+            row_id_builder.append_value(next_row_id + offset as i64);
+        }
+        next_row_id += n as i64;
+        let row_id = Arc::new(row_id_builder.finish());
+
         // activator=true for existing rows
         let mut act_builder = BooleanBuilder::new();
         for _ in 0..n {
@@ -71,6 +83,7 @@ fn write_parquet<P: AsRef<Path>>(
 
         // Rebuild the batch with the new schema + extra activator column
         let mut cols = batch.columns().to_vec();
+        cols.push(row_id);
         cols.push(activator);
         let out_batch = RecordBatch::try_new(Arc::clone(&out_schema), cols)
             .expect("rebuild batch with activator");
@@ -91,7 +104,7 @@ fn write_parquet<P: AsRef<Path>>(
         let last_idx = last_batch.num_rows() - 1;
 
         // Build per-column arrays by repeating the last row value `pad` times
-        let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 1);
+        let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 2);
         for col in last_batch.columns() {
             let one = col.slice(last_idx, 1);
             // Create a slice of &dyn Array repeated `pad` times
@@ -100,6 +113,14 @@ fn write_parquet<P: AsRef<Path>>(
             let repeated_arr = arrow_concat(&repeated).expect("concat repeated scalars");
             pad_cols.push(repeated_arr);
         }
+
+        let mut row_id_builder = Int64Builder::new();
+        for offset in 0..pad {
+            row_id_builder.append_value(next_row_id + offset as i64);
+        }
+        next_row_id += pad as i64;
+        let pad_row_id = Arc::new(row_id_builder.finish());
+        pad_cols.push(pad_row_id);
 
         // activator=false for appended rows
         let mut act_builder = BooleanBuilder::new();
@@ -120,8 +141,9 @@ fn write_parquet<P: AsRef<Path>>(
 /// Generate TPC-H Parquet files at the given scale factor in the specified
 /// output directory (if it doesn't exist, it will be created).
 // Note that the tables are further preprocessed as follows:
-// - All tables have an additional boolean ACTIVATOR_COL_NAME column, which is
-//   set true for the existing rows
+// - All tables have an additional __row_id__ Int64 column with stable row
+//   indices, plus the boolean ACTIVATOR_COL_NAME column set true for existing
+//   rows
 // - The tables are padded by duplicating the last row until the total row count
 //   is a power of two; the appended rows have activator=false
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {

@@ -158,7 +158,9 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         self.tracked_oracles
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| (field.name() != ACTIVATOR_COL_NAME).then_some(idx))
+            .filter_map(|(idx, (field, _))| {
+                (!crate::is_system_column(field.name())).then_some(idx)
+            })
             .collect()
     }
 
@@ -282,14 +284,12 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
             sub_oracles.insert(field_ref.clone(), tracked_oracle.clone());
         }
 
-        if let Some((field_ref, activator_oracle)) = self
-            .tracked_oracles
-            .iter()
-            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-        {
-            sub_oracles
-                .entry(field_ref.clone())
-                .or_insert_with(|| activator_oracle.clone());
+        for (field_ref, tracked_oracle) in self.tracked_oracles.iter() {
+            if crate::is_system_column(field_ref.name()) {
+                sub_oracles
+                    .entry(field_ref.clone())
+                    .or_insert_with(|| tracked_oracle.clone());
+            }
         }
 
         let sub_schema = self.schema.as_ref().map(|schema| {
@@ -316,7 +316,10 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     }
     /// Returns the number of columns in the table excluding activator (if any)
     pub fn num_data_tracked_col_oracles(&self) -> usize {
-        self.tracked_oracles.len() - (self.activator_tracked_poly().is_some() as usize)
+        self.tracked_oracles
+            .keys()
+            .filter(|field| !crate::is_system_column(field.name()))
+            .count()
     }
 
     /// Returns the tracked oracle of the activator column, if any

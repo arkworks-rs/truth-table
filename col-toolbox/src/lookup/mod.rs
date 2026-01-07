@@ -238,9 +238,6 @@ impl<B: SnarkBackend> PIOP<B> for LookupPIOP<B> {
             .iter()
             .map(|mle| prover.track_and_commit_mat_mv_poly(mle))
             .collect::<SnarkResult<Vec<_>>>()?;
-        for poly in super_col_ms.iter() {
-            dbg!(poly.evaluations());
-        }
         let hinted_lookup_prover_input = HintedLookupProverInput {
             included_cols: input.included_cols,
             super_col: input.super_col,

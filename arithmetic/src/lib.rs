@@ -5,7 +5,6 @@
 //! objects used in proof-systems , like polynomials.
 
 ///////// Modules /////////
-pub mod activator;
 pub mod col;
 pub mod col_oracle;
 pub mod encoding;
@@ -13,4 +12,7 @@ pub mod errors;
 pub mod table;
 pub mod table_oracle;
 
-pub use activator::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD};
+pub use col::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, ROW_ID_EXPR,
+    ROW_ID_FIELD, is_system_column,
+};

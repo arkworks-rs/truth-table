@@ -1,17 +1,34 @@
+use std::sync::Arc;
 use std::{collections::HashSet, fmt};
 
-use ark_ff::PrimeField;
 
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, ArgProver},
 };
 use datafusion::arrow::datatypes::FieldRef;
+use datafusion::arrow::datatypes::{DataType, Field};
+use datafusion::common::Column;
+use datafusion_expr::Expr;
 use derivative::Derivative;
+use once_cell::sync::Lazy;
+
+pub const ACTIVATOR_COL_NAME: &str = "__activator__";
+pub const ROW_ID_COL_NAME: &str = "__row_id__";
+pub static ACTIVATOR_FIELD: Lazy<FieldRef> =
+    Lazy::new(|| Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)));
+pub static ROW_ID_FIELD: Lazy<FieldRef> =
+    Lazy::new(|| Arc::new(Field::new(ROW_ID_COL_NAME, DataType::Int64, false)));
+pub static ACTIVATOR_EXPR: Lazy<Expr> =
+    Lazy::new(|| Expr::Column(Column::from_name(ACTIVATOR_COL_NAME)));
+pub static ROW_ID_EXPR: Lazy<Expr> = Lazy::new(|| Expr::Column(Column::from_name(ROW_ID_COL_NAME)));
+
+pub fn is_system_column(name: &str) -> bool {
+    name == ACTIVATOR_COL_NAME || name == ROW_ID_COL_NAME
+}
+
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of tracked arithmetized column in dbSNARK

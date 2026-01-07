@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle,
-    table::TrackedTable, table_oracle::TrackedTableOracle,
+    is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::bezout_based_multi_col_supp_check::{
@@ -324,7 +324,7 @@ fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
         if let Some(field) = schema
             .fields()
             .iter()
-            .find(|f| f.name() != ACTIVATOR_COL_NAME)
+            .find(|f| !is_system_column(f.name()))
         {
             return Arc::new(Field::new(
                 label,
