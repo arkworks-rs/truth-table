@@ -35,8 +35,7 @@ mod test {
     };
     use crate::verifier::passes::{
         gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
-        tracking::TrackingPass as VerifierTrackingPass,
-        verify::VerifyPass,
+        tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
         virtualization::VirtualizationPass as VerifierVirtualizationPass,
     };
     use arithmetic::ACTIVATOR_FIELD;
@@ -314,9 +313,7 @@ mod test {
             );
             let verify_pass = VerifyPass::<Backend>::new(arg_verifier.clone(), verify_ir_view);
             let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
-            arg_verifier
-                .verify()
-                .expect("verifier should verify proof");
+            arg_verifier.verify().expect("verifier should verify proof");
             println!("Planned Query: {query}");
             println!("{}", gadget_ready_ir.display_graphviz(true));
         }

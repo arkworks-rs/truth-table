@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
@@ -21,9 +21,7 @@ use ark_poly::{
     DenseMVPolynomial, Polynomial,
     multivariate::{SparsePolynomial, SparseTerm, Term},
 };
-use col_toolbox::lookup::{
-    LookupPIOP, LookupProverInput, LookupVerifierInput,
-};
+use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::DataType;
 use either::Either;
 use indexmap::IndexMap;
@@ -397,7 +395,7 @@ impl<B: SnarkBackend> SignNode<B> {
     fn prove_sign_inner(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
-        sign: Sign,
+        _sign: Sign,
     ) -> SnarkResult<()> {
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();
@@ -470,7 +468,7 @@ impl<B: SnarkBackend> SignNode<B> {
     fn verify_sign_inner(
         verifier: &mut ArgVerifier<B>,
         col: &TrackedColOracle<B>,
-        sign: Sign,
+        _sign: Sign,
     ) -> SnarkResult<()> {
         let field_ref = col.field_ref().expect("Expected field ref for Sign gadget");
         let data_type = field_ref.data_type();

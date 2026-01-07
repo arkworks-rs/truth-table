@@ -1,20 +1,10 @@
 mod gadget;
 mod output;
-use std::sync::Arc;
 
-use ark_ff::PrimeField;
-use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-    prover::ArgProver,
-};
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion_common::Statistics;
-use datafusion_expr::{LogicalPlan, Sort};
+use ark_piop::SnarkBackend;
+use datafusion_expr::Sort;
 
 use crate::irs::nodes::Node;
-
 
 pub struct ProverSortNode<B>
 where

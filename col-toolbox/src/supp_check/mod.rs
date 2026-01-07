@@ -10,8 +10,8 @@ mod test;
 use super::no_dup_check::NoDupPIOP;
 use crate::{
     lookup::{
-        HintedLookupPIOP, HintedLookupProverInput,
-        HintedLookupVerifierInput, utils::calc_inclusion_multiplicity,
+        HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput,
+        utils::calc_inclusion_multiplicity,
     },
     no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},

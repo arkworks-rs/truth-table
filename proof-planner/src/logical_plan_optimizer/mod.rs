@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
-use datafusion::{
-    logical_expr::LogicalPlan,
-    optimizer::{
-        eliminate_cross_join::EliminateCrossJoin,
-        extract_equijoin_predicate::ExtractEquijoinPredicate, Optimizer, OptimizerContext,
-        OptimizerRule,
-    },
+use datafusion::optimizer::{
+    eliminate_cross_join::EliminateCrossJoin, extract_equijoin_predicate::ExtractEquijoinPredicate,
+    OptimizerRule,
 };
 
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {

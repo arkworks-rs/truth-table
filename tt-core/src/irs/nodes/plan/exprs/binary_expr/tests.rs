@@ -1,6 +1,7 @@
 use super::*;
 use std::sync::Arc;
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
@@ -18,17 +19,13 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, col};
 use indexmap::IndexMap;
-
 type Backend = DefaultSnarkBackend;
 const LOG_SIZE: usize = 2;
 const INPUT_A: [u64; 4] = [1, 2, 3, 4];
 const INPUT_B: [u64; 4] = [10, 20, 30, 40];
 const INPUT_ACT: [u64; 4] = [1, 1, 1, 1];
 
-fn tracked_poly_from_evals(
-    prover: &mut ArgProver<Backend>,
-    evals: &[u64],
-) -> TrackedPoly<Backend> {
+fn tracked_poly_from_evals(prover: &mut ArgProver<Backend>, evals: &[u64]) -> TrackedPoly<Backend> {
     let evals = evals
         .iter()
         .map(|value| <Backend as SnarkBackend>::F::from(*value))
@@ -55,13 +52,22 @@ fn build_projection_tree(
         schema,
         vec![
             Arc::new(Int32Array::from(
-                INPUT_A.iter().map(|value| *value as i32).collect::<Vec<_>>(),
+                INPUT_A
+                    .iter()
+                    .map(|value| *value as i32)
+                    .collect::<Vec<_>>(),
             )) as ArrayRef,
             Arc::new(Int32Array::from(
-                INPUT_B.iter().map(|value| *value as i32).collect::<Vec<_>>(),
+                INPUT_B
+                    .iter()
+                    .map(|value| *value as i32)
+                    .collect::<Vec<_>>(),
             )) as ArrayRef,
             Arc::new(BooleanArray::from(
-                INPUT_ACT.iter().map(|value| *value == 1).collect::<Vec<_>>(),
+                INPUT_ACT
+                    .iter()
+                    .map(|value| *value == 1)
+                    .collect::<Vec<_>>(),
             )) as ArrayRef,
         ],
     )
@@ -173,9 +179,8 @@ fn end_to_end_binary_expr(expr: Expr, output_evals: &[u64]) -> SnarkResult<()> {
     );
 
     let tracked_ir = crate::prover::irs::TrackedIr::new(tree.clone(), payloads);
-    let virtualization_pass = crate::prover::passes::virtualization::VirtualizationPass::<
-        Backend,
-    >::new(&tracked_ir);
+    let virtualization_pass =
+        crate::prover::passes::virtualization::VirtualizationPass::<Backend>::new(&tracked_ir);
     let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
     let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(
         virtualized_ir.tree().clone(),
@@ -233,9 +238,8 @@ fn end_to_end_binary_expr(expr: Expr, output_evals: &[u64]) -> SnarkResult<()> {
     );
 
     let tracked_ir = crate::verifier::irs::TrackedIr::new(tree, verifier_payloads);
-    let virtualization_pass = crate::verifier::passes::virtualization::VirtualizationPass::<
-        Backend,
-    >::new(&tracked_ir);
+    let virtualization_pass =
+        crate::verifier::passes::virtualization::VirtualizationPass::<Backend>::new(&tracked_ir);
     let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
     let gadget_ir_view = crate::verifier::irs::VirtualizedIr::new(
         virtualized_ir.tree().clone(),

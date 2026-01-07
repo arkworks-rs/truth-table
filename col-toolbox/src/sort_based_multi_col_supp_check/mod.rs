@@ -2,10 +2,7 @@
 mod test;
 
 use crate::{
-    lookup::{
-        HintedLookupPIOP, HintedLookupProverInput,
-        HintedLookupVerifierInput,
-    },
+    lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
     sort_based_multi_col_nodup::{
         SortBasedMultiNoDup, SortBasedMultiNoDupProverInput, SortBasedMultiNoDupVerifierInput,

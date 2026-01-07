@@ -25,6 +25,7 @@
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
+use ark_ff::UniformRand;
 use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
@@ -34,7 +35,6 @@ use ark_piop::{
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{ArgVerifier, errors::VerifierError},
 };
-use ark_ff::UniformRand;
 use ark_std::rand::RngCore;
 pub use bezout::bez_polys;
 use derivative::Derivative;
@@ -138,7 +138,6 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
             .collect();
 
         let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
-        let f_eval = f_poly.evaluations()[poly_size - 2];
         let f_p_tr = prover.track_and_commit_mat_mv_poly(&f_poly)?;
         ///////////////////// Compute the derivative product polynomial z'(r)
         ///////////////////// /////////////////////
@@ -148,7 +147,6 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
             &f_poly.evaluations(),
             dedup_mle.num_vars(),
         )?;
-        let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
         let f_prime_p_tr = prover.track_and_commit_mat_mv_poly(&f_prime_poly)?;
 
         ///////////////////// Compute z(x) and z'(x) = d/dx z(x) /////////////////////
@@ -160,15 +158,17 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
         let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
         ///////////////////// Commit to the Bezout polynomials /////////////////////
         let t_p_tr = prover.track_and_commit_mat_uv_poly(t_p)?;
-        let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
 
         let s_p_tr = prover.track_and_commit_mat_uv_poly(s_p)?;
-        let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
 
         ///////////////////// Sanity check for the Bezout identity /////////////////////
 
         #[cfg(feature = "honest-prover")]
         {
+            let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
+            let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
+            let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
+            let f_eval = f_poly.evaluations()[poly_size - 2];
             if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
                 use ark_piop::prover;
 

@@ -6,7 +6,6 @@
 #[cfg(test)]
 mod test;
 use ark_ff::One;
-use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
     errors::SnarkResult,
@@ -48,6 +47,7 @@ impl<B: SnarkBackend> PIOP<B> for BinaryCheckPIOP<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+        use ark_std::Zero;
         for elem in input.predicate.evaluations().iter() {
             if !elem.is_zero() && !elem.is_one() {
                 return Err(ark_piop::errors::SnarkError::ProverError(

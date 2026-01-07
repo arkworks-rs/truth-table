@@ -23,8 +23,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -123,10 +123,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            scope_hint_df.data_frame().clone(),
-        )
-        .expect("literal row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("literal row-id sort should succeed");
 
         let mut exprs = vec![lit(self.literal.clone()), ACTIVATOR_EXPR.clone()];
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);

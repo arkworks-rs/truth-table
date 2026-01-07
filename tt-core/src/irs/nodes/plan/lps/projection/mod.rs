@@ -1,7 +1,4 @@
-use std::{
-    hash::Hash,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
@@ -33,8 +30,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: datafusion_common::Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }

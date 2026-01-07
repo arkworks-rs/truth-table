@@ -2,6 +2,6 @@ pub mod eq;
 pub mod keyed_sumcheck;
 pub mod lookup;
 pub mod neq;
-pub mod sign;
 pub mod nodup;
+pub mod sign;
 pub mod supp;

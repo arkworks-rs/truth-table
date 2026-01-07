@@ -82,7 +82,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     // Build projection of columns marked for materialization
     let projection: Vec<Expr> = hint_df
         .field_materialization_iter()
-        .filter(|&(_field, should_mat)| (*should_mat))
+        .filter(|&(_field, should_mat)| *should_mat)
         .map(|(field, _should_mat)| col(field.name()))
         .collect();
 

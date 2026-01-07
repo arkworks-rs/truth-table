@@ -1,8 +1,6 @@
 use super::KeyedSumcheckProverInput;
 #[cfg(feature = "honest-prover")]
 use crate::keyed_sumcheck::KeyedSumcheck;
-use ark_ff::One;
-use ark_ff::Zero;
 #[cfg(feature = "honest-prover")]
 use ark_piop::errors::SnarkResult;
 use ark_piop::{SnarkBackend, piop::DeepClone, prover::ArgProver};
@@ -47,6 +45,8 @@ where
     ) -> SnarkResult<()> {
         // Check that we do actually have some polynomial on the left hand side
 
+        use ark_ff::One;
+        use ark_ff::Zero;
         use ark_piop::errors::InputShapeError::EmptyInput;
         use std::collections::BTreeMap;
         if input.fxs.is_empty() {

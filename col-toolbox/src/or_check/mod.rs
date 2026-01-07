@@ -20,7 +20,6 @@ use crate::{
     binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
     no_zeros_check::{NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput},
 };
-use ark_ff::Zero;
 pub struct OrCheckPIOP<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]
@@ -59,6 +58,7 @@ impl<B: SnarkBackend> PIOP<B> for OrCheckPIOP<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+        use ark_ff::Zero;
         let mut sum_poly = input.in_activator_tracked_polys[0].clone();
         for in_poly in &input.in_activator_tracked_polys {
             sum_poly += in_poly;

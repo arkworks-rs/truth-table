@@ -35,7 +35,7 @@ where
         &self,
         node: &Node<B>,
         id: NodeId,
-        payload: Option<&VirtualizedPayload<B>>
+        payload: Option<&VirtualizedPayload<B>>,
     ) -> Option<GadgetReadyPayload<B>> {
         let mut ir = self.virtualized_ir.borrow_mut();
         // Seed payload if missing.

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle,
-    is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle, is_system_column,
+    table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::bezout_based_multi_col_supp_check::{
@@ -321,11 +321,7 @@ fn folding_challenges<F: ark_ff::PrimeField>(count: usize) -> Vec<F> {
 
 fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
     if let Some(schema) = schema {
-        if let Some(field) = schema
-            .fields()
-            .iter()
-            .find(|f| !is_system_column(f.name()))
-        {
+        if let Some(field) = schema.fields().iter().find(|f| !is_system_column(f.name())) {
             return Arc::new(Field::new(
                 label,
                 field.data_type().clone(),

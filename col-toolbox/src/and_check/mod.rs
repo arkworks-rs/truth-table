@@ -2,7 +2,6 @@
 
 #[cfg(test)]
 mod test;
-use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
     errors::SnarkResult,
@@ -50,6 +49,7 @@ impl<B: SnarkBackend> PIOP<B> for AndCheckPIOP<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+        use ark_std::Zero;
         let mut prod_poly = input.in_activator_tracked_polys[0].clone();
         for in_poly in &input.in_activator_tracked_polys {
             prod_poly *= in_poly;

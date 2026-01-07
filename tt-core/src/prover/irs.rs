@@ -32,9 +32,9 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 mod test {
     use super::*;
     use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
+    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
-    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;

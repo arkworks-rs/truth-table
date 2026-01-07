@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, is_system_column, table::TrackedTable};
+use arithmetic::{is_system_column, table::TrackedTable};
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 

@@ -1,11 +1,4 @@
-use std::sync::Arc;
-
-use ark_ff::PrimeField;
-use ark_piop::{
-    SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-};
+use ark_piop::SnarkBackend;
 use datafusion_expr::Join;
 
 use crate::irs::nodes::Node;

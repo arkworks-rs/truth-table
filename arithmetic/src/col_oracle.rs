@@ -1,11 +1,5 @@
-use ark_ff::PrimeField;
-
+use ark_piop::verifier::{structs::oracle::TrackedOracle, ArgVerifier};
 use ark_piop::SnarkBackend;
-use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
-    verifier::{structs::oracle::TrackedOracle, ArgVerifier},
-};
 use datafusion::arrow::datatypes::FieldRef;
 use derivative::Derivative;
 #[derive(Derivative)]

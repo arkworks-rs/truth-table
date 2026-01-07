@@ -5,9 +5,8 @@ use ark_ff::PrimeField;
 use crate::{col::TrackedCol, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
-    pcs::PCS,
     piop::DeepClone,
     prover::{structs::polynomial::TrackedPoly, ArgProver},
 };
@@ -176,9 +175,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
         self.tracked_polys
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| {
-                (!crate::is_system_column(field.name())).then_some(idx)
-            })
+            .filter_map(|(idx, (field, _))| (!crate::is_system_column(field.name())).then_some(idx))
             .collect()
     }
 

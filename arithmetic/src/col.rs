@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::{collections::HashSet, fmt};
 
-
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use ark_piop::{

@@ -1,9 +1,6 @@
 use std::{io::Cursor, path::Path};
 
-use ark_ff::PrimeField;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    pcs::PCS,
     prover::structs::proof::SNARKProof,
     setup::structs::{SNARKPk, SNARKVk},
     SnarkBackend,

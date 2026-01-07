@@ -70,7 +70,7 @@ where
     }
 
     /// Display the tree in Graphviz DOT format.
-    pub fn display_graphviz(&self, inner: bool) -> String {
+    pub fn display_graphviz(&self, _inner: bool) -> String {
         todo!()
     }
 

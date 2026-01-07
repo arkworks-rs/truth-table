@@ -8,10 +8,9 @@ mod test;
 pub(crate) mod utils;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
-use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},

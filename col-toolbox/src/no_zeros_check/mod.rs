@@ -7,7 +7,6 @@
 mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
-use ark_ff::Zero;
 use ark_ff::batch_inversion;
 use ark_piop::{
     SnarkBackend,
@@ -47,6 +46,7 @@ impl<B: SnarkBackend> PIOP<B> for NoZerosCheck<B> {
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
         for element in input.col.effective_iter() {
+            use ark_ff::Zero;
             if element == B::F::zero() {
                 return Err(ark_piop::errors::SnarkError::ProverError(
                     ark_piop::prover::errors::ProverError::HonestProverError(

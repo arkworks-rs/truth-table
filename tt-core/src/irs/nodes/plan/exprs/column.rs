@@ -22,8 +22,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -97,10 +97,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Column scope cannot be a gadget node"),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            scope_hint_df.data_frame().clone(),
-        )
-        .expect("column row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("column row-id sort should succeed");
 
         let mut exprs = vec![datafusion_expr::Expr::Column(self.column.clone())];
         if self.column.name() != ACTIVATOR_COL_NAME {

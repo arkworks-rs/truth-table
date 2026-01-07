@@ -4,7 +4,7 @@ use ark_piop::SnarkBackend;
 
 pub const NAME: &str = "TableScan_lp_Gadget";
 #[derive(Clone)]
-pub struct Prover<B>(PhantomData<(B)>);
+pub struct Prover<B>(PhantomData<B>);
 
 impl<B> Prover<B>
 where

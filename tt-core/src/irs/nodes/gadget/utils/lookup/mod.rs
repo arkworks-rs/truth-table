@@ -5,9 +5,7 @@ use arithmetic::{
     is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
-use col_toolbox::lookup::{
-    HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput, 
-};
+use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::Result as DataFusionResult;

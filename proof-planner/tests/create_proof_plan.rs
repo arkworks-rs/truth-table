@@ -1,4 +1,7 @@
-use ark_piop::{DefaultSnarkBackend, pcs::{kzg10::KZG10, pst13::PST13}};
+use ark_piop::{
+    pcs::{kzg10::KZG10, pst13::PST13},
+    DefaultSnarkBackend,
+};
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 type MvPCS = PST13<Bls12_381>;

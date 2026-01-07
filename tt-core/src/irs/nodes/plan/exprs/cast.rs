@@ -29,8 +29,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn cost(
         &self,
-        statistics: Statistics,
-        schema: arrow_schema::SchemaRef,
+        _statistics: Statistics,
+        _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
     }
@@ -145,19 +145,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                 // Rebuild the schema/fields with the cast target type for data columns.
                 let mut columns = IndexMap::with_capacity(child_table.tracked_polys().len());
                 for (field, poly) in child_table.tracked_polys() {
-                    let new_field = if field.name() == ACTIVATOR_COL_NAME
-                        || field.name() == ROW_ID_COL_NAME
-                    {
-                        field.clone()
-                    } else {
-                        let base = field.as_ref();
-                        let mut updated =
-                            Field::new(base.name(), target_type.clone(), base.is_nullable());
-                        if !base.metadata().is_empty() {
-                            updated = updated.with_metadata(base.metadata().clone());
-                        }
-                        Arc::new(updated)
-                    };
+                    let new_field =
+                        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                            field.clone()
+                        } else {
+                            let base = field.as_ref();
+                            let mut updated =
+                                Field::new(base.name(), target_type.clone(), base.is_nullable());
+                            if !base.metadata().is_empty() {
+                                updated = updated.with_metadata(base.metadata().clone());
+                            }
+                            Arc::new(updated)
+                        };
                     columns.insert(new_field, poly.clone());
                 }
 
@@ -220,10 +219,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            scope_hint_df.data_frame().clone(),
-        )
-        .expect("cast row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("cast row-id sort should succeed");
 
         let mut exprs = vec![
             datafusion_expr::Expr::Cast(self.cast.clone()),
@@ -337,19 +335,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
                 // Rebuild the schema/fields with the cast target type for data columns.
                 let mut columns = IndexMap::with_capacity(child_table.tracked_oracles().len());
                 for (field, oracle) in child_table.tracked_oracles() {
-                    let new_field = if field.name() == ACTIVATOR_COL_NAME
-                        || field.name() == ROW_ID_COL_NAME
-                    {
-                        field.clone()
-                    } else {
-                        let base = field.as_ref();
-                        let mut updated =
-                            Field::new(base.name(), target_type.clone(), base.is_nullable());
-                        if !base.metadata().is_empty() {
-                            updated = updated.with_metadata(base.metadata().clone());
-                        }
-                        Arc::new(updated)
-                    };
+                    let new_field =
+                        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                            field.clone()
+                        } else {
+                            let base = field.as_ref();
+                            let mut updated =
+                                Field::new(base.name(), target_type.clone(), base.is_nullable());
+                            if !base.metadata().is_empty() {
+                                updated = updated.with_metadata(base.metadata().clone());
+                            }
+                            Arc::new(updated)
+                        };
                     columns.insert(new_field, oracle.clone());
                 }
 

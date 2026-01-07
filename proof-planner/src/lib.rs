@@ -23,7 +23,7 @@ impl<B: SnarkBackend> ProofPlanner<B> {
         }
     }
     #[instrument(level = "debug", skip_all)]
-    pub async fn plan(df_session_ctx: &SessionContext, logical_plan: LogicalPlan) -> InitialIr<B>
+    pub async fn plan(_df_session_ctx: &SessionContext, _logical_plan: LogicalPlan) -> InitialIr<B>
     where
         B: SnarkBackend,
     {

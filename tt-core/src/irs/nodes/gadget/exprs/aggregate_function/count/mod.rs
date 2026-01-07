@@ -4,12 +4,9 @@ use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::utils::nodup;
-use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::eq,
-};
+use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-
 
 pub struct GadgetNode<B: SnarkBackend> {
     nodup: Arc<Node<B>>,
@@ -52,8 +49,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         todo!()
     }
@@ -70,8 +67,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         todo!()
     }

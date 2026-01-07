@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
+use arithmetic::{ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -17,9 +17,7 @@ use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::{
     GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr,
 };
-use crate::verifier::irs::{
-    GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
-};
+use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
 #[cfg(test)]
 mod tests;

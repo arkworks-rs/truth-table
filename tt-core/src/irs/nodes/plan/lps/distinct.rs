@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ark_piop::SnarkBackend;
 use datafusion_expr::Distinct;
 

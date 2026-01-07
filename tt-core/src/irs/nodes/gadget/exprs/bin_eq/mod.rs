@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
+use arithmetic::{ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -57,7 +57,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

@@ -1,8 +1,8 @@
-use crate::{col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
-use ark_ff::PrimeField;
+use crate::{
+    col_oracle::TrackedColOracle, table::TrackedTable, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD,
+};
 use ark_piop::SnarkBackend;
 use ark_piop::{
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
     errors::SnarkResult,
     pcs::PCS,
     verifier::{errors::VerifierError, structs::oracle::TrackedOracle, ArgVerifier},
@@ -158,9 +158,7 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         self.tracked_oracles
             .iter()
             .enumerate()
-            .filter_map(|(idx, (field, _))| {
-                (!crate::is_system_column(field.name())).then_some(idx)
-            })
+            .filter_map(|(idx, (field, _))| (!crate::is_system_column(field.name())).then_some(idx))
             .collect()
     }
 

@@ -140,7 +140,6 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
             .collect();
 
         let f_poly = compute_product_poly(&chall_minus_ci_evals, dedup_mle.num_vars())?;
-        let f_eval = f_poly.evaluations()[poly_size - 2];
         let f_p_tr = prover.track_and_commit_mat_mv_poly(&f_poly)?;
         ///////////////////// Compute the derivative product polynomial z'(r)
         ///////////////////// /////////////////////
@@ -150,7 +149,6 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
             &f_poly.evaluations(),
             dedup_mle.num_vars(),
         )?;
-        let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
         let f_prime_p_tr = prover.track_and_commit_mat_mv_poly(&f_prime_poly)?;
 
         ///////////////////// Compute z(x) and z'(x) = d/dx z(x) /////////////////////
@@ -162,15 +160,17 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
         let (t_p, s_p) = bez_polys(&z_p, &z_p_prime);
         ///////////////////// Commit to the Bezout polynomials /////////////////////
         let t_p_tr = prover.track_and_commit_mat_uv_poly(t_p)?;
-        let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
 
         let s_p_tr = prover.track_and_commit_mat_uv_poly(s_p)?;
-        let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
 
         ///////////////////// Sanity check for the Bezout identity /////////////////////
 
         #[cfg(feature = "honest-prover")]
         {
+            let f_eval = f_poly.evaluations()[poly_size - 2];
+            let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
+            let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
+            let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
             if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
                 use ark_piop::prover;
 

@@ -89,7 +89,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     pub async fn verify(&self, query: &str, proof: TTProof<B>) -> TTResult<()> {
-        let (_stages, mut arg_verifier) = self.build_ir_stages(query, proof).await?;
+        let (_stages, arg_verifier) = self.build_ir_stages(query, proof).await?;
         arg_verifier.verify()?;
         Ok(())
     }
@@ -107,7 +107,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        let mut output_planned_ir =
+        let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self

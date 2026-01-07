@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column,
-};
+use arithmetic::{ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
 use indexmap::IndexMap;
 
@@ -453,10 +451,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            scope_hint_df.data_frame().clone(),
-        )
-        .expect("binary expr row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("binary expr row-id sort should succeed");
 
         let mut exprs = vec![
             Expr::BinaryExpr(self.binary_expression.clone()),

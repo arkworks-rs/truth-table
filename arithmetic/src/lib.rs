@@ -13,6 +13,6 @@ pub mod table;
 pub mod table_oracle;
 
 pub use col::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, ROW_ID_EXPR,
-    ROW_ID_FIELD, is_system_column,
+    is_system_column, ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME,
+    ROW_ID_EXPR, ROW_ID_FIELD,
 };

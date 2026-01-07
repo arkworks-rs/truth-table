@@ -254,9 +254,8 @@ impl<B: SnarkBackend> PIOP<B> for PrescribedPermutationPIOP<B> {
         );
         let index_tracked_poly = prover.track_mat_mv_poly(index_mle);
         let folding_challenge = prover.get_and_append_challenge(b"folding_challenge")?;
-        let folded_left =
-            &input.left_tracked_poly
-                + &(input.permutation_tracked_poly.clone() * folding_challenge);
+        let folded_left = &input.left_tracked_poly
+            + &(input.permutation_tracked_poly.clone() * folding_challenge);
         let folded_right =
             &input.right_tracked_poly + &(index_tracked_poly.clone() * folding_challenge);
         let permutation_check_prover_input = PermPIOPProverInput {
@@ -278,9 +277,8 @@ impl<B: SnarkBackend> PIOP<B> for PrescribedPermutationPIOP<B> {
         });
         let index_tracked_oracle = verifier.track_oracle(index_oracle);
         let folding_challenge = verifier.get_and_append_challenge(b"folding_challenge")?;
-        let folded_left =
-            &input.left_tracked_oracle
-                + &(input.permutation_tracked_oracle.clone() * folding_challenge);
+        let folded_left = &input.left_tracked_oracle
+            + &(input.permutation_tracked_oracle.clone() * folding_challenge);
         let folded_right =
             &input.right_tracked_oracle + &(index_tracked_oracle.clone() * folding_challenge);
         let permutation_check_verifier_input = PermPIOPVerifierInput {

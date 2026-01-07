@@ -5,10 +5,9 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
+    arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
     pcs::PCS,
     piop::{DeepClone, PIOP},
@@ -22,9 +21,7 @@ use derivative::Derivative;
 use std::marker::PhantomData;
 
 use crate::{
-    keyed_sumcheck::{
-        KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput,
-    },
+    keyed_sumcheck::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput},
     no_dup_check::{self, NoDupPIOP},
 };
 use ark_ff::One;

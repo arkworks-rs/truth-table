@@ -1,9 +1,9 @@
+use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
 use datafusion_common::Result as DataFusionResult;
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
-use arithmetic::ROW_ID_COL_NAME;
 
 #[derive(Clone, Debug)]
 pub struct HintDF {

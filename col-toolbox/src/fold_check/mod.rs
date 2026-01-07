@@ -8,7 +8,6 @@
 mod test;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::Zero;
 use ark_piop::{
     SnarkBackend,
     errors::SnarkResult,
@@ -61,21 +60,22 @@ impl<B: SnarkBackend> PIOP<B> for FoldCheckPIOP<B> {
     type VerifierOutput = ();
 
     #[cfg(feature = "honest-prover")]
-        fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-            use ark_piop::{
-                errors::SnarkError,
-                prover::errors::{HonestProverError, ProverError},
-            };
+    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
+        use ark_ff::Zero;
+        use ark_piop::{
+            errors::SnarkError,
+            prover::errors::{HonestProverError, ProverError},
+        };
 
-            let mut acc_poly = input.folded_col.activated_data_tracked_poly().clone();
-            for (poly, chall) in input
-                .in_cols
-                .iter()
-                .map(|col| col.activated_data_tracked_poly())
-                .zip(input.challs.iter())
-            {
-                acc_poly = &acc_poly - &(poly.clone() * *chall);
-            }
+        let mut acc_poly = input.folded_col.activated_data_tracked_poly().clone();
+        for (poly, chall) in input
+            .in_cols
+            .iter()
+            .map(|col| col.activated_data_tracked_poly())
+            .zip(input.challs.iter())
+        {
+            acc_poly = &acc_poly - &(poly.clone() * *chall);
+        }
         for &eval in acc_poly.evaluations().iter() {
             if !eval.is_zero() {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -92,11 +92,8 @@ impl<B: SnarkBackend> PIOP<B> for FoldCheckPIOP<B> {
     ) -> SnarkResult<Self::VerifierOutput> {
         let mut zero_comm = input.folded_cm.activated_data_tracked_oracle();
         for (poly_comm, chall) in input.in_cms.iter().zip(input.challs.iter()) {
-            zero_comm = &zero_comm
-                - &(poly_comm
-                    .activated_data_tracked_oracle()
-                    .clone()
-                    * (*chall));
+            zero_comm =
+                &zero_comm - &(poly_comm.activated_data_tracked_oracle().clone() * (*chall));
         }
         verifier.add_zerocheck_claim(zero_comm.id());
         Ok(())

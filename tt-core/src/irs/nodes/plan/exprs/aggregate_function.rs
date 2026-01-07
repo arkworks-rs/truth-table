@@ -89,10 +89,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
             _ => return Ok(()),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            input_hint_df.data_frame().clone(),
-        )
-        .expect("aggregate function input row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
+                .expect("aggregate function input row-id sort should succeed");
 
         let mut input_exprs = aggregate.group_expr.clone();
         input_exprs.extend(self.aggregate_function.params.args.clone());
@@ -116,8 +115,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         let output_projected = output_df
             .select(dedup_exprs(output_exprs))
             .expect("aggregate function output projection should succeed");
-        let output_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
-            .expect("aggregate function output sort should succeed");
+        let output_projected =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
+                .expect("aggregate function output sort should succeed");
 
         let input_hint_df = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
         let output_hint_df = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);

@@ -57,10 +57,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
             _ => return Ok(()),
         };
 
-        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            input_hint_df.data_frame().clone(),
-        )
-        .expect("aggregate input row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
+                .expect("aggregate input row-id sort should succeed");
         let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
             output_hint_df.data_frame().clone(),
         )
@@ -83,10 +82,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
                 .expect("aggregate output group sort should succeed");
 
-        let input_groups_hint =
-            crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
-        let output_groups_hint =
-            crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
+        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
+        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),

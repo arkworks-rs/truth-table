@@ -42,4 +42,3 @@ pub(crate) fn analyze_logical_plan(
         .execute_and_check(plan, &cfg, |_plan_after_rule, _rule| {})
         .unwrap()
 }
-

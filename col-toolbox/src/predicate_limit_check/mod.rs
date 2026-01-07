@@ -233,8 +233,7 @@ impl<B: SnarkBackend> PIOP<B> for PredicateLimitCheck<B> {
         );
         let index_tracked_poly = prover.track_mat_mv_poly(index_mle);
         let diff_poly = index_tracked_poly.clone() - mask_size_f;
-        let positive_activator_poly =
-            (limit_mask_tracked.clone() * (-B::F::one())) + B::F::one();
+        let positive_activator_poly = (limit_mask_tracked.clone() * (-B::F::one())) + B::F::one();
         let none_positive_activator_poly = limit_mask_tracked;
         let predicate_field_ref: FieldRef =
             Arc::new(Field::new("predicate_limit_index", DataType::UInt64, false));
@@ -292,8 +291,7 @@ impl<B: SnarkBackend> PIOP<B> for PredicateLimitCheck<B> {
         });
         let index_tracked_oracle = verifier.track_oracle(index_oracle);
         let diff_oracle = index_tracked_oracle.clone() - mask_size_f;
-        let positive_activator_oracle =
-            (limit_mask_tracked.clone() * B::F::from(-1)) + B::F::one();
+        let positive_activator_oracle = (limit_mask_tracked.clone() * B::F::from(-1)) + B::F::one();
         let none_positive_activator_poly = limit_mask_tracked;
         let predicate_field_ref: FieldRef =
             Arc::new(Field::new("predicate_limit_index", DataType::UInt64, false));
