@@ -23,7 +23,7 @@ pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub args: Vec<Arc<Node<B>>>,
-    pub gadget: Arc<Node<B>>,
+    pub gadget: Option<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> ProverNode<B> {
@@ -32,14 +32,12 @@ impl<B: SnarkBackend> ProverNode<B> {
             .schema_name()
             .to_string()
     }
-    fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Arc<Node<B>> {
+    fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
         match aggregate_function.func.name() {
-            "count" => Arc::new(Node::<B>::Gadget(Arc::new(
-                aggregate_function::count::GadgetNode::new(),
-            ))),
-            "sum" => Arc::new(Node::<B>::Gadget(Arc::new(
+            "count" => None,
+            "sum" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 aggregate_function::sum::GadgetNode::new(),
-            ))),
+            )))),
             _ => panic!("Unsupported aggregate function gadget"),
         }
     }
@@ -146,7 +144,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
         let mut children = self.args.clone();
-        children.push(self.gadget.clone());
+        if let Some(gadget) = &self.gadget {
+            children.push(gadget.clone());
+        }
         children
     }
 }
@@ -228,49 +228,52 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             _ => panic!("AggregateFunction payload missing"),
         };
 
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-
-        for (idx, arg_node) in self.args.iter().enumerate() {
-            let arg_payload = virtualized_ir
-                .payload_for_node(&arg_node.id())
-                .unwrap_or_else(|| {
-                    panic!("AggregateFunction arg payload missing for arg {}", idx)
-                });
-            let arg_table = match arg_payload {
-                PayloadStructure::PlanPayload(table) => table.clone(),
-                _ => panic!(
-                    "AggregateFunction arg payload must be PlanPayload for arg {}",
-                    idx
-                ),
+        if let Some(gadget) = &self.gadget {
+            let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
             };
+
+            for (idx, arg_node) in self.args.iter().enumerate() {
+                let arg_payload = virtualized_ir
+                    .payload_for_node(&arg_node.id())
+                    .unwrap_or_else(|| {
+                        panic!("AggregateFunction arg payload missing for arg {}", idx)
+                    });
+                let arg_table = match arg_payload {
+                    PayloadStructure::PlanPayload(table) => table.clone(),
+                    _ => panic!(
+                        "AggregateFunction arg payload must be PlanPayload for arg {}",
+                        idx
+                    ),
+                };
+                gadget_payload.insert(
+                    crate::irs::nodes::gadget::exprs::aggregate_function::input_label(idx),
+                    arg_table,
+                );
+            }
+
             gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::input_label(idx),
-                arg_table,
+                crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_LABEL.to_string(),
+                aggr_expr_table,
             );
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
+                orig_rlc,
+            );
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
+                super_rlc,
+            );
+
+            if !gadget_payload.is_empty() {
+                virtualized_ir.set_payload_for_node(
+                    gadget.id(),
+                    Some(PayloadStructure::GadgetPayload(gadget_payload)),
+                );
+            }
         }
 
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_LABEL.to_string(),
-            aggr_expr_table,
-        );
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
-            orig_rlc,
-        );
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
-            super_rlc,
-        );
-
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
-            );
-        }
         Ok(())
     }
 }
@@ -380,49 +383,50 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             }
             _ => panic!("AggregateFunction payload missing"),
         };
-
-        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-
-        for (idx, arg_node) in self.args.iter().enumerate() {
-            let arg_payload = virtualized_ir
-                .payload_for_node(&arg_node.id())
-                .unwrap_or_else(|| {
-                    panic!("AggregateFunction arg payload missing for arg {}", idx)
-                });
-            let arg_table = match arg_payload {
-                PayloadStructure::PlanPayload(table) => table.clone(),
-                _ => panic!(
-                    "AggregateFunction arg payload must be PlanPayload for arg {}",
-                    idx
-                ),
+        if let Some(gadget) = &self.gadget {
+            let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
             };
+
+            for (idx, arg_node) in self.args.iter().enumerate() {
+                let arg_payload = virtualized_ir
+                    .payload_for_node(&arg_node.id())
+                    .unwrap_or_else(|| {
+                        panic!("AggregateFunction arg payload missing for arg {}", idx)
+                    });
+                let arg_table = match arg_payload {
+                    PayloadStructure::PlanPayload(table) => table.clone(),
+                    _ => panic!(
+                        "AggregateFunction arg payload must be PlanPayload for arg {}",
+                        idx
+                    ),
+                };
+                gadget_payload.insert(
+                    crate::irs::nodes::gadget::exprs::aggregate_function::input_label(idx),
+                    arg_table,
+                );
+            }
+
             gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::input_label(idx),
-                arg_table,
+                crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_LABEL.to_string(),
+                aggr_expr_table,
             );
-        }
-
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_LABEL.to_string(),
-            aggr_expr_table,
-        );
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
-            orig_rlc,
-        );
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
-            super_rlc,
-        );
-
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
+                orig_rlc,
             );
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
+                super_rlc,
+            );
+
+            if !gadget_payload.is_empty() {
+                virtualized_ir.set_payload_for_node(
+                    gadget.id(),
+                    Some(PayloadStructure::GadgetPayload(gadget_payload)),
+                );
+            }
         }
         Ok(())
     }
