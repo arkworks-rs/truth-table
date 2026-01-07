@@ -190,9 +190,61 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let parent_node = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .expect("AggregateFunction node must have a parent");
+        let lookup_node = lookup_child_from_aggregate_parent(&parent_node);
+
+        let super_multiplicities = lookup_node.and_then(|lookup_node| {
+            virtualized_ir
+                .payload_for_node(&lookup_node.id())
+                .and_then(|payload| match payload {
+                    PayloadStructure::GadgetPayload(map) => map
+                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+                        .cloned(),
+                    _ => None,
+                })
+        });
+
+        let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                map.get(INPUT_AGGR_EXPR_LABEL).cloned()
+            }
+            _ => None,
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(super_multiplicities) = super_multiplicities {
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
+                    .to_string(),
+                super_multiplicities,
+            );
+        }
+        if let Some(aggr_expr_table) = aggr_expr_table {
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
+                    .to_string(),
+                aggr_expr_table,
+            );
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -263,11 +315,77 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let parent_node = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .expect("AggregateFunction node must have a parent");
+        let lookup_node = lookup_child_from_aggregate_parent(&parent_node);
+
+        let super_multiplicities = lookup_node.and_then(|lookup_node| {
+            virtualized_ir
+                .payload_for_node(&lookup_node.id())
+                .and_then(|payload| match payload {
+                    PayloadStructure::GadgetPayload(map) => map
+                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+                        .cloned(),
+                    _ => None,
+                })
+        });
+
+        let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                map.get(INPUT_AGGR_EXPR_LABEL).cloned()
+            }
+            _ => None,
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+
+        if let Some(super_multiplicities) = super_multiplicities {
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
+                    .to_string(),
+                super_multiplicities,
+            );
+        }
+        if let Some(aggr_expr_table) = aggr_expr_table {
+            gadget_payload.insert(
+                crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
+                    .to_string(),
+                aggr_expr_table,
+            );
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
+}
+
+fn lookup_child_from_aggregate_parent<B: SnarkBackend>(
+    parent_node: &Arc<Node<B>>,
+) -> Option<Arc<Node<B>>> {
+    let Node::Plan(plan_node) = parent_node.as_ref() else {
+        return None;
+    };
+    let aggregate_gadget = plan_node.gadget()?;
+    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    supp_node
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Lookup")
 }
 
 impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
