@@ -24,6 +24,8 @@ where
     aggregate: Aggregate,
     // The prover plan child node for the aggregate input.
     input: Arc<Node<B>>,
+    // Group-by expression child nodes (one per group expression).
+    group_exprs: Vec<Arc<Node<B>>>,
     // Aggregate expression child nodes (one per aggregate expression).
     aggr_exprs: Vec<Arc<Node<B>>>,
     // The aggregate gadget node.
@@ -108,7 +110,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         let mut children = vec![self.input.clone()];
+        // The order of children matters for tree traversal.
         children.push(self.gadget.clone());
+        children.extend(self.group_exprs.iter().cloned());
         children.extend(self.aggr_exprs.iter().cloned());
         children
     }
@@ -185,12 +189,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
             _ => return Ok(()),
         };
 
-        populate_aggregate_function_exprs(
-            &self.aggregate,
-            &self.aggr_exprs,
-            &current_table,
-            virtualized_ir,
-        )?;
+        // populate_aggregate_function_exprs(
+        //     &self.aggregate,
+        //     &self.aggr_exprs,
+        //     &current_table,
+        //     virtualized_ir,
+        // )?;
 
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
@@ -357,7 +361,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
                 };
 
                 gadget_payload.insert(
-                    crate::irs::nodes::plan::exprs::aggregate_function::INPUT_GROUPS_LABEL
+                    crate::irs::nodes::plan::exprs::aggregate_function::OUTPUT_AGGR_EXPR_LABEL
                         .to_string(),
                     groups_table.clone(),
                 );
@@ -484,6 +488,15 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
                     .clone()
             })
             .collect();
+        let group_exprs = aggregate
+            .group_expr
+            .iter()
+            .map(|expr| {
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), input.clone())
+                    .root()
+                    .clone()
+            })
+            .collect();
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::lps::aggregate::GadgetNode::new(),
@@ -492,6 +505,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
         Self {
             aggregate,
             input,
+            group_exprs,
             aggr_exprs,
             gadget,
         }
@@ -543,7 +557,7 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
         };
 
         gadget_payload.insert(
-            crate::irs::nodes::plan::exprs::aggregate_function::INPUT_GROUPS_LABEL.to_string(),
+            crate::irs::nodes::plan::exprs::aggregate_function::OUTPUT_AGGR_EXPR_LABEL.to_string(),
             groups_table.clone(),
         );
         gadget_payload.insert(

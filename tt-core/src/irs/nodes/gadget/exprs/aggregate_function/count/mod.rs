@@ -8,10 +8,7 @@ use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeO
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-pub const SUPER_MULTIPLICITIES_LABEL: &str = "__super_multiplicities__";
-pub const COUNT_AGGR_EXPR_LABEL: &str = "__count_aggr_expr__";
-pub const INPUT_RLC_LABEL: &str = "__input_rlc__";
-pub const OUTPUT_RLC_LABEL: &str = "__output_rlc__";
+
 pub struct GadgetNode<B: SnarkBackend> {
     eq: Arc<Node<B>>,
 }
@@ -56,29 +53,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            return Ok(());
-        };
-
-        let Some(super_multiplicities) = payload.get(SUPER_MULTIPLICITIES_LABEL).cloned() else {
-            return Ok(());
-        };
-        let Some(count_aggr_expr) = payload.get(COUNT_AGGR_EXPR_LABEL).cloned() else {
-            return Ok(());
-        };
-
-        let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        eq_payload.insert(eq::LEFT_LABEL.to_string(), super_multiplicities);
-        eq_payload.insert(eq::RIGHT_LABEL.to_string(), count_aggr_expr);
-        virtualized_ir.set_payload_for_node(
-            self.eq.id(),
-            Some(PayloadStructure::GadgetPayload(eq_payload)),
-        );
         Ok(())
     }
 }
@@ -97,29 +71,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            return Ok(());
-        };
-
-        let Some(super_multiplicities) = payload.get(SUPER_MULTIPLICITIES_LABEL).cloned() else {
-            return Ok(());
-        };
-        let Some(count_aggr_expr) = payload.get(COUNT_AGGR_EXPR_LABEL).cloned() else {
-            return Ok(());
-        };
-
-        let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        eq_payload.insert(eq::LEFT_LABEL.to_string(), super_multiplicities);
-        eq_payload.insert(eq::RIGHT_LABEL.to_string(), count_aggr_expr);
-        virtualized_ir.set_payload_for_node(
-            self.eq.id(),
-            Some(PayloadStructure::GadgetPayload(eq_payload)),
-        );
         Ok(())
     }
 }

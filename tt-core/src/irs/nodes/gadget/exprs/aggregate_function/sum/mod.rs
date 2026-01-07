@@ -4,11 +4,14 @@ use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::utils::keyed_sumcheck;
+use crate::irs::nodes::gadget::exprs::aggregate_function::{
+    input_label, INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL,
+};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
+use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-pub const SUPER_MULTIPLICITIES_LABEL: &str = "__super_multiplicities__";
-pub const SUM_AGGR_EXPR_LABEL: &str = "__sum_aggr_expr__";
+
 pub struct GadgetNode<B: SnarkBackend> {
     keyed_sumcheck: Arc<Node<B>>,
 }
@@ -53,6 +56,47 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            panic!("Expected gadget payload for Sum Aggregate Function gadget");
+        };
+
+        let input_rlc = payload
+            .get(INPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing input rlc payload"));
+        let output_rlc = payload
+            .get(OUTPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output rlc payload"));
+        let output_table = payload
+            .get(OUTPUT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output payload"));
+        let input_0_label = input_label(0);
+        let input_0 = payload
+            .get(&input_0_label)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Sum Aggregate Function missing payload {}", input_0_label)
+            });
+
+        let mut keyed_sumcheck_payload =
+            match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+        keyed_sumcheck_payload.insert(keyed_sumcheck::FXS_LABEL.to_string(), input_rlc);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::MFXS_LABEL.to_string(), input_0);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::GXS_LABEL.to_string(), output_rlc);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::MGXS_LABEL.to_string(), output_table);
+
+        virtualized_ir.set_payload_for_node(
+            self.keyed_sumcheck.id(),
+            Some(PayloadStructure::GadgetPayload(keyed_sumcheck_payload)),
+        );
         Ok(())
     }
 }
@@ -71,7 +115,48 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            panic!("Expected gadget payload for Sum Aggregate Function gadget");
+        };
+
+        let input_rlc = payload
+            .get(INPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing input rlc payload"));
+        let output_rlc = payload
+            .get(OUTPUT_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output rlc payload"));
+        let output_table = payload
+            .get(OUTPUT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output payload"));
+        let input_0_label = input_label(0);
+        let input_0 = payload
+            .get(&input_0_label)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Sum Aggregate Function missing payload {}", input_0_label)
+            });
+
+        let mut keyed_sumcheck_payload =
+            match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+        keyed_sumcheck_payload.insert(keyed_sumcheck::FXS_LABEL.to_string(), input_rlc);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::MFXS_LABEL.to_string(), input_0);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::GXS_LABEL.to_string(), output_rlc);
+        keyed_sumcheck_payload.insert(keyed_sumcheck::MGXS_LABEL.to_string(), output_table);
+
+        virtualized_ir.set_payload_for_node(
+            self.keyed_sumcheck.id(),
+            Some(PayloadStructure::GadgetPayload(keyed_sumcheck_payload)),
+        );
+        Ok(())
     }
 }
 
