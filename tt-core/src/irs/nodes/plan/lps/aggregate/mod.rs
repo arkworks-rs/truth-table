@@ -108,8 +108,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         let mut children = vec![self.input.clone()];
-        children.extend(self.aggr_exprs.iter().cloned());
         children.push(self.gadget.clone());
+        children.extend(self.aggr_exprs.iter().cloned());
         children
     }
 }

@@ -5,7 +5,6 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::utils::keyed_sumcheck;
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
-use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 pub const SUPER_MULTIPLICITIES_LABEL: &str = "__super_multiplicities__";
@@ -54,7 +53,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 

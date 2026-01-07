@@ -13,8 +13,10 @@ use crate::irs::{
     },
     payloads::PayloadStructure,
 };
-pub const INPUT_GROUPS_LABEL: &str = "__groups__";
-pub const INPUT_AGGR_EXPR_LABEL: &str = "__aggr-expr__";
+pub const OUTPUT_GROUPS_LABEL: &str = "__output-groups__";
+pub const OUTPUT_AGGR_EXPR_LABEL: &str = "__output-aggr-expr__";
+pub const INPUT_AGGR_EXPR_LABEL: &str = "__input-aggr-expr__";
+pub const INPUT_GROUPS_LABEL: &str = "__input-groups__";
 #[derive(Clone)]
 pub struct ProverNode<B: SnarkBackend> {
     pub aggregate_function: AggregateFunction,
@@ -201,23 +203,51 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .as_ref()
             .and_then(|weak_ref| weak_ref.upgrade())
             .expect("AggregateFunction node must have a parent");
-        let lookup_node = lookup_child_from_aggregate_parent(&parent_node);
+        let lookup_node = lookup_child_from_aggregate_parent(&parent_node)
+            .expect("AggregateFunction expects a Lookup child under the Supp gadget");
+        let supp_node = supp_child_from_aggregate_parent(&parent_node)
+            .expect("AggregateFunction expects a Supp gadget child under the Aggregate gadget");
 
-        let super_multiplicities = lookup_node.and_then(|lookup_node| {
-            virtualized_ir
-                .payload_for_node(&lookup_node.id())
-                .and_then(|payload| match payload {
-                    PayloadStructure::GadgetPayload(map) => map
-                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                        .cloned(),
-                    _ => None,
-                })
-        });
+        let lookup_payload = virtualized_ir
+            .payload_for_node(&lookup_node.id())
+            .unwrap_or_else(|| panic!("Lookup gadget payload missing for AggregateFunction"));
+        let lookup_payload = match lookup_payload {
+            PayloadStructure::GadgetPayload(map) => map,
+            _ => panic!("Lookup payload must be a GadgetPayload for AggregateFunction"),
+        };
+        let super_multiplicities = lookup_payload
+            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction")
+            });
+
+        let supp_payload = virtualized_ir
+            .payload_for_node(&supp_node.id())
+            .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+        let supp_payload = match supp_payload {
+            PayloadStructure::GadgetPayload(map) => map,
+            _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+        };
+        let orig_rlc = supp_payload
+            .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction"));
+        let super_rlc = supp_payload
+            .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+            });
 
         let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            Some(PayloadStructure::GadgetPayload(map)) => map.get(INPUT_AGGR_EXPR_LABEL).cloned(),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
+                    panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
+                })
+            }
+            _ => panic!("AggregateFunction payload missing"),
         };
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
@@ -225,20 +255,24 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             _ => IndexMap::new(),
         };
 
-        if let Some(super_multiplicities) = super_multiplicities {
-            gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
-                    .to_string(),
-                super_multiplicities,
-            );
-        }
-        if let Some(aggr_expr_table) = aggr_expr_table {
-            gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
-                    .to_string(),
-                aggr_expr_table,
-            );
-        }
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
+                .to_string(),
+            super_multiplicities,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
+                .to_string(),
+            aggr_expr_table,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
+            orig_rlc,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
+            super_rlc,
+        );
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -324,23 +358,51 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .as_ref()
             .and_then(|weak_ref| weak_ref.upgrade())
             .expect("AggregateFunction node must have a parent");
-        let lookup_node = lookup_child_from_aggregate_parent(&parent_node);
+        let lookup_node = lookup_child_from_aggregate_parent(&parent_node)
+            .expect("AggregateFunction expects a Lookup child under the Supp gadget");
+        let supp_node = supp_child_from_aggregate_parent(&parent_node)
+            .expect("AggregateFunction expects a Supp gadget child under the Aggregate gadget");
 
-        let super_multiplicities = lookup_node.and_then(|lookup_node| {
-            virtualized_ir
-                .payload_for_node(&lookup_node.id())
-                .and_then(|payload| match payload {
-                    PayloadStructure::GadgetPayload(map) => map
-                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                        .cloned(),
-                    _ => None,
-                })
-        });
+        let lookup_payload = virtualized_ir
+            .payload_for_node(&lookup_node.id())
+            .unwrap_or_else(|| panic!("Lookup gadget payload missing for AggregateFunction"));
+        let lookup_payload = match lookup_payload {
+            PayloadStructure::GadgetPayload(map) => map,
+            _ => panic!("Lookup payload must be a GadgetPayload for AggregateFunction"),
+        };
+        let super_multiplicities = lookup_payload
+            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction")
+            });
+
+        let supp_payload = virtualized_ir
+            .payload_for_node(&supp_node.id())
+            .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+        let supp_payload = match supp_payload {
+            PayloadStructure::GadgetPayload(map) => map,
+            _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+        };
+        let orig_rlc = supp_payload
+            .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction"));
+        let super_rlc = supp_payload
+            .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+            });
 
         let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            Some(PayloadStructure::GadgetPayload(map)) => map.get(INPUT_AGGR_EXPR_LABEL).cloned(),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                map.get(INPUT_AGGR_EXPR_LABEL).cloned().unwrap_or_else(|| {
+                    panic!("AggregateFunction payload missing INPUT_AGGR_EXPR_LABEL")
+                })
+            }
+            _ => panic!("AggregateFunction payload missing"),
         };
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
@@ -348,20 +410,24 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             _ => IndexMap::new(),
         };
 
-        if let Some(super_multiplicities) = super_multiplicities {
-            gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
-                    .to_string(),
-                super_multiplicities,
-            );
-        }
-        if let Some(aggr_expr_table) = aggr_expr_table {
-            gadget_payload.insert(
-                crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
-                    .to_string(),
-                aggr_expr_table,
-            );
-        }
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::count::SUPER_MULTIPLICITIES_LABEL
+                .to_string(),
+            super_multiplicities,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::count::COUNT_AGGR_EXPR_LABEL
+                .to_string(),
+            aggr_expr_table,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL.to_string(),
+            orig_rlc,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL.to_string(),
+            super_rlc,
+        );
 
         if !gadget_payload.is_empty() {
             virtualized_ir.set_payload_for_node(
@@ -376,15 +442,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 fn lookup_child_from_aggregate_parent<B: SnarkBackend>(
     parent_node: &Arc<Node<B>>,
 ) -> Option<Arc<Node<B>>> {
-    let Node::Plan(plan_node) = parent_node.as_ref() else {
-        return None;
-    };
-    let aggregate_gadget = plan_node.gadget()?;
-    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let supp_node = supp_child_from_aggregate_parent(parent_node)?;
     supp_node
         .children()
         .into_iter()
         .find(|child| child.name() == "Lookup")
+}
+
+fn supp_child_from_aggregate_parent<B: SnarkBackend>(
+    parent_node: &Arc<Node<B>>,
+) -> Option<Arc<Node<B>>> {
+    let Node::Plan(plan_node) = parent_node.as_ref() else {
+        return None;
+    };
+    let aggregate_gadget = plan_node.gadget()?;
+    aggregate_gadget.children().into_iter().next()
 }
 
 impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {

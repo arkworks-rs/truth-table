@@ -19,7 +19,6 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-pub const INPUT_LABEL: &str = "__input__";
 pub const FXS_LABEL: &str = "__fxs__";
 pub const GXS_LABEL: &str = "__gxs__";
 pub const MFXS_LABEL: &str = "__mfxs__";
@@ -49,7 +48,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         _id: crate::irs::nodes::NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {

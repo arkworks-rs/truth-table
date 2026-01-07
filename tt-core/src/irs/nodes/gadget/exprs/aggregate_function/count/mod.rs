@@ -10,6 +10,8 @@ use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 pub const SUPER_MULTIPLICITIES_LABEL: &str = "__super_multiplicities__";
 pub const COUNT_AGGR_EXPR_LABEL: &str = "__count_aggr_expr__";
+pub const INPUT_RLC_LABEL: &str = "__input_rlc__";
+pub const OUTPUT_RLC_LABEL: &str = "__output_rlc__";
 pub struct GadgetNode<B: SnarkBackend> {
     eq: Arc<Node<B>>,
 }
