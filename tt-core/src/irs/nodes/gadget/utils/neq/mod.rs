@@ -17,9 +17,9 @@ use crate::{
 };
 pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
-pub struct NeqNode<B: SnarkBackend>(PhantomData<B>);
+pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
-impl<B: SnarkBackend> IsNode<B> for NeqNode<B> {
+impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
         "Neq".to_string()
     }
@@ -45,7 +45,7 @@ impl<B: SnarkBackend> IsNode<B> for NeqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for NeqNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -63,7 +63,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for NeqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for NeqNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -81,7 +81,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for NeqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsGadgetNode<B> for NeqNode<B> {
+impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
@@ -181,13 +181,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for NeqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for NeqNode<B> {
+impl<B: SnarkBackend> Default for GadgetNode<B> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<B: SnarkBackend> NeqNode<B> {
+impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self
     where
         Self: Sized,

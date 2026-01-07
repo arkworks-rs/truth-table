@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 use crate::irs::{
     nodes::{
         IsExprNode, IsNode, IsPlanNode, Node, NodeId, PlanNode, ProverNodeOps, VerifierNodeOps,
+        gadget::exprs::aggregate_function,
     },
     payloads::PayloadStructure,
 };
@@ -19,6 +20,7 @@ pub struct ProverNode<B: SnarkBackend> {
     pub aggregate_function: AggregateFunction,
     pub scope: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
+    pub gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> ProverNode<B> {
@@ -26,6 +28,14 @@ impl<B: SnarkBackend> ProverNode<B> {
         Expr::AggregateFunction(self.aggregate_function.clone())
             .schema_name()
             .to_string()
+    }
+    fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Arc<Node<B>> {
+        match aggregate_function.func.name() {
+            "count" => Arc::new(Node::<B>::Gadget(Arc::new(
+                aggregate_function::count::GadgetNode::new(),
+            ))),
+            _ => panic!("Unsupported aggregate function gadget"),
+        }
     }
 }
 
@@ -139,7 +149,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![]
+        vec![self.gadget.clone()]
     }
 }
 
@@ -274,10 +284,13 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             Expr::AggregateFunction(func) => func,
             _ => panic!("Expected AggregateFunction expression"),
         };
+        // Dispatch to the appropriate gadget node.
+        let gadget = Self::dispatch_gadget(&aggregate_function);
         Self {
             aggregate_function,
             scope,
             parent,
+            gadget,
         }
     }
 

@@ -15,9 +15,9 @@ use crate::{
 pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
 
-pub struct EqNode<B: SnarkBackend>(PhantomData<B>);
+pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
-impl<B: SnarkBackend> IsNode<B> for EqNode<B> {
+impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
         "Eq".to_string()
     }
@@ -43,7 +43,7 @@ impl<B: SnarkBackend> IsNode<B> for EqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for EqNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -61,7 +61,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for EqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for EqNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -79,7 +79,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for EqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsGadgetNode<B> for EqNode<B> {
+impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
@@ -171,13 +171,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for EqNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for EqNode<B> {
+impl<B: SnarkBackend> Default for GadgetNode<B> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<B: SnarkBackend> EqNode<B> {
+impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self(PhantomData)
     }

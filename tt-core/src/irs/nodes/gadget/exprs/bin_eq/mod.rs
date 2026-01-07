@@ -330,8 +330,8 @@ impl<B: SnarkBackend> BinEqNode<B> {
     where
         Self: Sized,
     {
-        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::EqNode::new())));
-        let col_neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(neq::NeqNode::new())));
+        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::GadgetNode::new())));
+        let col_neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(neq::GadgetNode::new())));
         Self {
             eq: col_eq_gadget,
             neq: col_neq_gadget,

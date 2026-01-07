@@ -309,7 +309,7 @@ impl<B: SnarkBackend> SignNode<B> {
             Sign::Positive | Sign::Negative => false,
         };
         let neq_zero_gadget = if !has_zero {
-            Some(Arc::new(Node::<B>::Gadget(Arc::new(neq::NeqNode::new()))))
+            Some(Arc::new(Node::<B>::Gadget(Arc::new(neq::GadgetNode::new()))))
         } else {
             None
         };

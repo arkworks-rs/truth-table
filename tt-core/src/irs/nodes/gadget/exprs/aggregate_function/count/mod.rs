@@ -3,18 +3,19 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::utils::nodup;
+use crate::irs::nodes::gadget::utils::{eq, nodup};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-
+const SUPER_MULTIPLICITIES_LABEL : &str = "__super_multiplicities__";
+const COUNT_AGGR_EXPR : &str = "__count_aggr_expr__";
 pub struct GadgetNode<B: SnarkBackend> {
-    nodup: Arc<Node<B>>,
+    eq: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Filter".to_string()
+        "Count Aggregate Function".to_string()
     }
 
     fn cost(
@@ -34,7 +35,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.nodup.clone()]
+        vec![self.eq.clone()]
     }
 }
 
@@ -107,9 +108,7 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new())));
-        Self {
-            nodup: nodup_gadget,
-        }
+        let eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::GadgetNode::new())));
+        Self { eq: eq_gadget }
     }
 }

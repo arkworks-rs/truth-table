@@ -226,7 +226,7 @@ impl<B: SnarkBackend> Default for FilterNode<B> {
 
 impl<B: SnarkBackend> FilterNode<B> {
     pub fn new() -> Self {
-        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::EqNode::new())));
+        let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::GadgetNode::new())));
         Self {
             col_eq: col_eq_gadget,
         }
