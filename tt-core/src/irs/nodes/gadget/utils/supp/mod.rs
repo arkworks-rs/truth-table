@@ -327,13 +327,14 @@ fn folding_challenges<F: ark_ff::PrimeField>(count: usize) -> Vec<F> {
 
 fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
     if let Some(schema) = schema
-        && let Some(field) = schema.fields().iter().find(|f| !is_system_column(f.name())) {
-            return Arc::new(Field::new(
-                label,
-                field.data_type().clone(),
-                field.is_nullable(),
-            ));
-        }
+        && let Some(field) = schema.fields().iter().find(|f| !is_system_column(f.name()))
+    {
+        return Arc::new(Field::new(
+            label,
+            field.data_type().clone(),
+            field.is_nullable(),
+        ));
+    }
     Arc::new(Field::new(label, DataType::UInt64, false))
 }
 
