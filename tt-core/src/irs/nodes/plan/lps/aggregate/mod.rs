@@ -4,7 +4,7 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
 use indexmap::IndexMap;
 
@@ -154,6 +154,39 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
             existing_names.insert(field.name().to_string());
         }
 
+        // COUNT outputs are sourced from lookup multiplicities; override those
+        // columns here instead of materializing separate aggregates.
+        let count_output_names = count_output_names(&self.aggregate.aggr_expr);
+        if !count_output_names.is_empty() {
+            let multiplicities_table =
+                lookup_super_multiplicities_table(&self.gadget, virtualized_ir)
+                    .expect("Lookup super multiplicities missing for count aggregate");
+            let data_indices = multiplicities_table.data_tracked_polys_indices();
+            if data_indices.len() != 1 {
+                panic!("Lookup multiplicities must have exactly one data column");
+            }
+            let multiplicity_col = multiplicities_table.tracked_col_by_ind(data_indices[0]);
+            let multiplicity_field = multiplicity_col
+                .field_ref()
+                .expect("Lookup multiplicity column should have field metadata");
+            let multiplicity_poly = multiplicity_col.data_tracked_poly();
+
+            for col_name in count_output_names {
+                let field_ref = merged_polys
+                    .keys()
+                    .find(|field| *field.name() == col_name)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        Arc::new(Field::new(
+                            col_name,
+                            multiplicity_field.data_type().clone(),
+                            multiplicity_field.is_nullable(),
+                        ))
+                    });
+                merged_polys.insert(field_ref, multiplicity_poly.clone());
+            }
+        }
+
         let metadata = current_table
             .schema_ref()
             .map(|s| s.metadata().clone())
@@ -231,9 +264,16 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
+        // COUNT outputs are supplied by lookup multiplicities, so they should
+        // remain virtual (do not materialize them here).
+        let count_output_names: std::collections::HashSet<String> =
+            count_output_names(&self.aggregate.aggr_expr)
+                .into_iter()
+                .collect();
         let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
             .iter()
             .map(|field| field.name().to_string())
+            .filter(|name| !count_output_names.contains(name))
             .collect();
 
         let should_materialize: IndexMap<FieldRef, bool> = output
@@ -287,6 +327,39 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
             }
             merged_oracles.insert(field.clone(), oracle.clone());
             existing_names.insert(field.name().to_string());
+        }
+
+        // COUNT outputs are sourced from lookup multiplicities; override those
+        // columns here instead of materializing separate aggregates.
+        let count_output_names = count_output_names(&self.aggregate.aggr_expr);
+        if !count_output_names.is_empty() {
+            let multiplicities_table =
+                lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir)
+                    .expect("Lookup super multiplicities missing for count aggregate");
+            let data_indices = multiplicities_table.data_tracked_oracles_indices();
+            if data_indices.len() != 1 {
+                panic!("Lookup multiplicities must have exactly one data column");
+            }
+            let multiplicity_col = multiplicities_table.tracked_col_oracle_by_ind(data_indices[0]);
+            let multiplicity_field = multiplicity_col
+                .field_ref()
+                .expect("Lookup multiplicity column should have field metadata");
+            let multiplicity_oracle = multiplicity_col.data_tracked_oracle();
+
+            for col_name in count_output_names {
+                let field_ref = merged_oracles
+                    .keys()
+                    .find(|field| *field.name() == col_name)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        Arc::new(Field::new(
+                            col_name,
+                            multiplicity_field.data_type().clone(),
+                            multiplicity_field.is_nullable(),
+                        ))
+                    });
+                merged_oracles.insert(field_ref, multiplicity_oracle.clone());
+            }
         }
 
         let metadata = current_table
@@ -627,4 +700,54 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
         Some(PayloadStructure::GadgetPayload(gadget_payload)),
     );
     Ok(())
+}
+
+fn count_output_names(aggr_exprs: &[Expr]) -> Vec<String> {
+    fn is_count_expr(expr: &Expr) -> bool {
+        match expr {
+            Expr::AggregateFunction(func) => func.func.name() == "count",
+            Expr::Alias(alias) => is_count_expr(&alias.expr),
+            _ => false,
+        }
+    }
+
+    aggr_exprs
+        .iter()
+        .filter(|expr| is_count_expr(expr))
+        .map(|expr| expr.schema_name().to_string())
+        .collect()
+}
+
+fn lookup_super_multiplicities_table<B: SnarkBackend>(
+    aggregate_gadget: &Arc<Node<B>>,
+    virtualized_ir: &crate::prover::irs::VirtualizedIr<B>,
+) -> Option<TrackedTable<B>> {
+    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let lookup_node = supp_node
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Lookup")?;
+    match virtualized_ir.payload_for_node(&lookup_node.id())? {
+        PayloadStructure::GadgetPayload(map) => map
+            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            .cloned(),
+        _ => None,
+    }
+}
+
+fn lookup_super_multiplicities_oracle<B: SnarkBackend>(
+    aggregate_gadget: &Arc<Node<B>>,
+    virtualized_ir: &crate::verifier::irs::VirtualizedIr<B>,
+) -> Option<TrackedTableOracle<B>> {
+    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let lookup_node = supp_node
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Lookup")?;
+    match virtualized_ir.payload_for_node(&lookup_node.id())? {
+        PayloadStructure::GadgetPayload(map) => map
+            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+            .cloned(),
+        _ => None,
+    }
 }
