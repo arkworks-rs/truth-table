@@ -34,6 +34,9 @@ impl<B: SnarkBackend> ProverNode<B> {
             "count" => Arc::new(Node::<B>::Gadget(Arc::new(
                 aggregate_function::count::GadgetNode::new(),
             ))),
+            "sum" => Arc::new(Node::<B>::Gadget(Arc::new(
+                aggregate_function::sum::GadgetNode::new(),
+            ))),
             _ => panic!("Unsupported aggregate function gadget"),
         }
     }
@@ -213,9 +216,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
 
         let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                map.get(INPUT_AGGR_EXPR_LABEL).cloned()
-            }
+            Some(PayloadStructure::GadgetPayload(map)) => map.get(INPUT_AGGR_EXPR_LABEL).cloned(),
             _ => None,
         };
 
@@ -338,9 +339,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 
         let aggr_expr_table = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                map.get(INPUT_AGGR_EXPR_LABEL).cloned()
-            }
+            Some(PayloadStructure::GadgetPayload(map)) => map.get(INPUT_AGGR_EXPR_LABEL).cloned(),
             _ => None,
         };
 
