@@ -69,7 +69,7 @@ impl<B: SnarkBackend> IsNode<B> for SignNode<B> {
         _id: crate::irs::nodes::NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -309,7 +309,9 @@ impl<B: SnarkBackend> SignNode<B> {
             Sign::Positive | Sign::Negative => false,
         };
         let neq_zero_gadget = if !has_zero {
-            Some(Arc::new(Node::<B>::Gadget(Arc::new(neq::GadgetNode::new()))))
+            Some(Arc::new(Node::<B>::Gadget(
+                Arc::new(neq::GadgetNode::new()),
+            )))
         } else {
             None
         };

@@ -39,6 +39,9 @@ impl<B: SnarkBackend> ProverNode<B> {
             "sum" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 aggregate_function::sum::GadgetNode::new(),
             )))),
+            "max" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                aggregate_function::max::GadgetNode::new(),
+            )))),
             _ => panic!("Unsupported aggregate function gadget"),
         }
     }
