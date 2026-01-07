@@ -42,6 +42,9 @@ impl<B: SnarkBackend> ProverNode<B> {
             "max" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 aggregate_function::max::GadgetNode::new(),
             )))),
+            "min" => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                aggregate_function::min::GadgetNode::new(),
+            )))),
             _ => panic!("Unsupported aggregate function gadget"),
         }
     }

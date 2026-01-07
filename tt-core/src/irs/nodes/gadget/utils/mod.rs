@@ -1,6 +1,7 @@
 pub mod eq;
 pub mod geq;
 pub mod keyed_sumcheck;
+pub mod leq;
 pub mod lookup;
 pub mod neq;
 pub mod nodup;
