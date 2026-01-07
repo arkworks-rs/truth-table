@@ -155,7 +155,7 @@ fn align_binary_expr(mut binary: BinaryExpr, schema: &DFSchema) -> Result<Transf
 fn align_operand(expr: &mut Box<Expr>, target_type: &DataType, schema: &DFSchema) -> Result<bool> {
     let new_expr = cast_expression_to_type((**expr).clone(), target_type, schema)?;
     if new_expr != **expr {
-        *expr = Box::new(new_expr);
+        **expr = new_expr;
         Ok(true)
     } else {
         Ok(false)

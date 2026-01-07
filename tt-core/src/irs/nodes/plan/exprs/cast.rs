@@ -88,7 +88,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
 
                 let constant_value = column_values
                     .pop()
-                    .unwrap_or_else(|| <B as SnarkBackend>::F::zero());
+                    .unwrap_or_else(<B as SnarkBackend>::F::zero);
 
                 // Reuse the scope activator tracker so the constant aligns with existing rows.
                 let activator_poly = scope_table
@@ -277,7 +277,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 
                 let constant_value = column_values
                     .pop()
-                    .unwrap_or_else(|| <B as SnarkBackend>::F::zero());
+                    .unwrap_or_else(<B as SnarkBackend>::F::zero);
 
                 // Reuse the scope activator tracker so the constant aligns with existing rows.
                 let activator_oracle = scope_table

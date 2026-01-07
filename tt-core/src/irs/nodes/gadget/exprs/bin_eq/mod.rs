@@ -319,6 +319,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for BinEqNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> BinEqNode<B> {
     pub fn new() -> Self
     where

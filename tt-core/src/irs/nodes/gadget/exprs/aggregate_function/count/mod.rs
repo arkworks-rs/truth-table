@@ -99,6 +99,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for GadgetNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(nodup::GadgetNode::new())));

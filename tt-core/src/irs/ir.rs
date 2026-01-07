@@ -139,7 +139,7 @@ where
                 .tree
                 .arena()
                 .iter()
-                .map(|(id, node)| (id.clone(), node.clone()))
+                .map(|(id, node)| (*id, node.clone()))
                 .collect(),
             PassOrder::PreOrder => {
                 fn walk<B: SnarkBackend>(
@@ -171,9 +171,9 @@ where
             let input_payload = self.payloads[&id]
                 .as_ref()
                 .cloned()
-                .or_else(|| pass.fallback_payload(&node, id.clone()));
-            let p_out = pass.transform(&node, id.clone(), input_payload.as_ref());
-            out.insert(id.clone(), p_out);
+                .or_else(|| pass.fallback_payload(&node, id));
+            let p_out = pass.transform(&node, id, input_payload.as_ref());
+            out.insert(id, p_out);
         }
         Ir {
             tree: self.tree.clone(),
@@ -196,8 +196,8 @@ where
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
-                let maybe = pass.transform(node, id.clone(), self.payloads[id].as_ref());
-                (id.clone(), maybe)
+                let maybe = pass.transform(node, *id, self.payloads[id].as_ref());
+                (*id, maybe)
             })
             .collect();
         let out: IndexMap<NodeId, Option<POut>> = out_vec.into_iter().collect();

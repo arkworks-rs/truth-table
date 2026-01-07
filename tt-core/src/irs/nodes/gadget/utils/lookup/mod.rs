@@ -198,6 +198,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for GadgetNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self {
@@ -311,7 +317,7 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         a.select(
             data_cols
                 .iter()
-                .map(|c| col(c))
+                .map(col)
                 .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
                 .chain(std::iter::once(col(ROW_ID_COL_NAME)))
                 .collect(),
@@ -325,7 +331,7 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         a.select(
             data_cols
                 .iter()
-                .map(|c| col(c))
+                .map(col)
                 .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
                 .chain(std::iter::once(row_id_expr))
                 .collect(),
@@ -338,14 +344,14 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         .clone()
         .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?;
     let rn_active_expr = row_number()
-        .partition_by(data_cols.iter().map(|c| col(c)).collect())
+        .partition_by(data_cols.iter().map(col).collect())
         .order_by(vec![col(row_id_col).sort(true, true)])
         .build()?
         .alias("__rn_active__");
     let a_active = a_active.select(
         data_cols
             .iter()
-            .map(|c| col(c))
+            .map(col)
             .chain(std::iter::once(col(row_id_col)))
             .chain(std::iter::once(rn_active_expr))
             .collect(),
@@ -356,7 +362,7 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
 
     // 4) Count active rows per key in `b`.
     let b_counts = b.filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?.aggregate(
-        data_cols.iter().map(|c| col(c)).collect(),
+        data_cols.iter().map(col).collect(),
         vec![count(lit(1_i64)).alias("mult")],
     )?;
     let b_group_cols: Vec<String> = data_cols

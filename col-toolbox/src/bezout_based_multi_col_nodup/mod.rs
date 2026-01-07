@@ -102,8 +102,7 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
         ///////////////////// Some useful variables /////////////////////
         // The number of variables in all the polynomials in this protocol
         let num_vars = defraged_in_col.data_tracked_poly().log_size();
-        // The size of all the polynomials in this protocol, i.e. 2^num_vars
-        let poly_size = 2_i32.pow(num_vars as u32) as usize;
+
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
         let f_query_point: Vec<B::F> = std::iter::once(B::F::zero())
             .chain((0..num_vars - 1).map(|_| B::F::one()))
@@ -167,6 +166,8 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
 
         #[cfg(feature = "honest-prover")]
         {
+            // The size of all the polynomials in this protocol, i.e. 2^num_vars
+            let poly_size = 2_i32.pow(num_vars as u32) as usize;
             let f_eval = f_poly.evaluations()[poly_size - 2];
             let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
             let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();

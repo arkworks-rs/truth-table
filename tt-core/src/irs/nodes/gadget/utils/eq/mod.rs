@@ -171,6 +171,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for EqNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for EqNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> EqNode<B> {
     pub fn new() -> Self {
         Self(PhantomData)

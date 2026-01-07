@@ -181,6 +181,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for NeqNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for NeqNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> NeqNode<B> {
     pub fn new() -> Self
     where

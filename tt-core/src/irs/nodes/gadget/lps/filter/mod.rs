@@ -218,6 +218,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for FilterNode<B> {
     }
 }
 
+impl<B: SnarkBackend> Default for FilterNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<B: SnarkBackend> FilterNode<B> {
     pub fn new() -> Self {
         let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::EqNode::new())));
