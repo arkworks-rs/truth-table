@@ -1,5 +1,9 @@
+use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::ROW_ID_COL_NAME;
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion_expr::{Expr, LogicalPlan};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -34,7 +38,7 @@ where
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Sort".to_string()
+        "Order By".to_string()
     }
 
     fn cost(
@@ -110,7 +114,44 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        // 1) Gather the input/output tables for this sort node.
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let output_table =
+            virtualized_ir
+                .payload_for_node(&_id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                });
+
+        // 2) Build a table that holds one column per sort expression plus a shared activator.
+        let sort_exprs_table = build_sort_exprs_table_prover(&self.sort_exprs, virtualized_ir);
+
+        // 3) Populate the gadget payload for the sort gadget node.
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(input) = input_table {
+            gadget_payload.insert(sort::INPUT_LABEL.to_string(), input);
+        }
+        if let Some(output) = output_table {
+            gadget_payload.insert(sort::OUTPUT_LABEL.to_string(), output);
+        }
+        if let Some(sort_exprs) = sort_exprs_table {
+            gadget_payload.insert(sort::INPUT_SORT_EXPRS.to_string(), sort_exprs);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -128,8 +169,232 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        // 1) Gather the input/output table oracles for this sort node.
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let output_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            });
+
+        // 2) Build a table oracle that holds one column per sort expression plus a shared activator.
+        let sort_exprs_table = build_sort_exprs_table_verifier(&self.sort_exprs, virtualized_ir);
+
+        // 3) Populate the gadget payload for the sort gadget node.
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(input) = input_table {
+            gadget_payload.insert(sort::INPUT_LABEL.to_string(), input);
+        }
+        if let Some(output) = output_table {
+            gadget_payload.insert(sort::OUTPUT_LABEL.to_string(), output);
+        }
+        if let Some(sort_exprs) = sort_exprs_table {
+            gadget_payload.insert(sort::INPUT_SORT_EXPRS.to_string(), sort_exprs);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
+        Ok(())
     }
+}
+
+fn build_sort_exprs_table_prover<B: SnarkBackend>(
+    sort_exprs: &[Arc<Node<B>>],
+    virtualized_ir: &ProverVirtualizedIr<B>,
+) -> Option<TrackedTable<B>> {
+    if sort_exprs.is_empty() {
+        return None;
+    }
+
+    let mut output_cols: IndexMap<FieldRef, ark_piop::prover::structs::polynomial::TrackedPoly<B>> =
+        IndexMap::new();
+    let mut activator: Option<(FieldRef, _)> = None;
+    let mut row_id: Option<(FieldRef, _)> = None;
+    let mut log_size: Option<usize> = None;
+    let mut metadata = None;
+
+    for expr_node in sort_exprs {
+        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Sort expression missing tracked table payload"),
+        };
+
+        log_size.get_or_insert(expr_table.log_size());
+        debug_assert_eq!(
+            *log_size.as_ref().unwrap(),
+            expr_table.log_size(),
+            "Sort expr tables should share log size"
+        );
+        metadata.get_or_insert_with(|| {
+            expr_table
+                .schema_ref()
+                .map(|schema| schema.metadata().clone())
+                .unwrap_or_default()
+        });
+
+        if activator.is_none() {
+            if let Some(activator_poly) = expr_table.activator_tracked_poly() {
+                let activator_field = expr_table
+                    .tracked_polys()
+                    .keys()
+                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                    .cloned()
+                    .expect("activator field missing from sort expr table");
+                activator = Some((activator_field, activator_poly));
+            }
+        }
+        if row_id.is_none() {
+            if let Some(row_id_field) = expr_table
+                .tracked_polys()
+                .keys()
+                .find(|field| field.name() == ROW_ID_COL_NAME)
+                .cloned()
+            {
+                let row_id_poly = expr_table
+                    .tracked_polys()
+                    .get(&row_id_field)
+                    .expect("row id field should be in tracked polys")
+                    .clone();
+                row_id = Some((row_id_field, row_id_poly));
+            }
+        }
+
+        let data_indices = expr_table.data_tracked_polys_indices();
+        if data_indices.len() != 1 {
+            panic!("Sort expression tables must have exactly one data column");
+        }
+        let expr_tracked = expr_table.tracked_polys();
+        let (field, poly) = expr_tracked
+            .get_index(data_indices[0])
+            .expect("sort expr column index out of bounds");
+        output_cols.insert(field.clone(), poly.clone());
+    }
+
+    if let Some((field, poly)) = activator {
+        output_cols.entry(field).or_insert(poly);
+    }
+    if let Some((field, poly)) = row_id {
+        output_cols.entry(field).or_insert(poly);
+    }
+
+    let fields: Vec<Field> = output_cols
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(
+        fields,
+        metadata.unwrap_or_default(),
+    ));
+    Some(TrackedTable::new(
+        schema,
+        output_cols,
+        log_size.unwrap_or_default(),
+    ))
+}
+
+fn build_sort_exprs_table_verifier<B: SnarkBackend>(
+    sort_exprs: &[Arc<Node<B>>],
+    virtualized_ir: &VerifierVirtualizedIr<B>,
+) -> Option<TrackedTableOracle<B>> {
+    if sort_exprs.is_empty() {
+        return None;
+    }
+
+    let mut output_cols: IndexMap<FieldRef, ark_piop::verifier::structs::oracle::TrackedOracle<B>> =
+        IndexMap::new();
+    let mut activator: Option<(FieldRef, _)> = None;
+    let mut row_id: Option<(FieldRef, _)> = None;
+    let mut log_size: Option<usize> = None;
+    let mut metadata = None;
+
+    for expr_node in sort_exprs {
+        let expr_table = match virtualized_ir.payload_for_node(&expr_node.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Sort expression missing tracked table payload"),
+        };
+
+        log_size.get_or_insert(expr_table.log_size());
+        debug_assert_eq!(
+            *log_size.as_ref().unwrap(),
+            expr_table.log_size(),
+            "Sort expr tables should share log size"
+        );
+        metadata.get_or_insert_with(|| {
+            expr_table
+                .schema_ref()
+                .map(|schema| schema.metadata().clone())
+                .unwrap_or_default()
+        });
+
+        if activator.is_none() {
+            if let Some(activator_oracle) = expr_table.activator_tracked_poly() {
+                let activator_field = expr_table
+                    .tracked_oracles()
+                    .keys()
+                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                    .cloned()
+                    .expect("activator field missing from sort expr table");
+                activator = Some((activator_field, activator_oracle));
+            }
+        }
+        if row_id.is_none() {
+            if let Some(row_id_field) = expr_table
+                .tracked_oracles()
+                .keys()
+                .find(|field| field.name() == ROW_ID_COL_NAME)
+                .cloned()
+            {
+                let row_id_oracle = expr_table
+                    .tracked_oracles()
+                    .get(&row_id_field)
+                    .expect("row id field should be in tracked oracles")
+                    .clone();
+                row_id = Some((row_id_field, row_id_oracle));
+            }
+        }
+
+        let data_indices = expr_table.data_tracked_oracles_indices();
+        if data_indices.len() != 1 {
+            panic!("Sort expression tables must have exactly one data column");
+        }
+        let expr_tracked = expr_table.tracked_oracles();
+        let (field, oracle) = expr_tracked
+            .get_index(data_indices[0])
+            .expect("sort expr column index out of bounds");
+        output_cols.insert(field.clone(), oracle.clone());
+    }
+
+    if let Some((field, oracle)) = activator {
+        output_cols.entry(field).or_insert(oracle);
+    }
+    if let Some((field, oracle)) = row_id {
+        output_cols.entry(field).or_insert(oracle);
+    }
+
+    let fields: Vec<Field> = output_cols
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(
+        fields,
+        metadata.unwrap_or_default(),
+    ));
+    Some(TrackedTableOracle::new(
+        schema,
+        output_cols,
+        log_size.unwrap_or_default(),
+    ))
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
@@ -144,6 +409,24 @@ impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
         };
 
         let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
+        let output_df = if output_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ROW_ID_COL_NAME)
+        {
+            let projected = output_df
+                .schema()
+                .fields()
+                .iter()
+                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+                .collect();
+            output_df
+                .select(projected)
+                .expect("sort output projection should succeed")
+        } else {
+            output_df
+        };
         HintDF::new_materialized(output_df)
     }
 }

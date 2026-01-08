@@ -204,14 +204,18 @@ mod tests {
     #[tokio::test]
     async fn sort_uses_row_id_to_break_ties() {
         let ctx = SessionContext::new();
-        // Input: val=[1,1,1], activator=[T,T,T], row_id=[2,0,1].
-        // All sort keys equal, so row_id should determine final order: 0,1,2.
+        // Input: val=[1,1,1], tag=[20,0,10], activator=[T,T,T], row_id=[2,0,1].
+        // All sort keys equal, so row_id should determine final order: row_id=[0,1,2].
         run_sort_test(
             &ctx,
             &[
                 (
                     Field::new("val", DataType::Int32, false),
                     Arc::new(Int32Array::from(vec![1, 1, 1])) as ArrayRef,
+                ),
+                (
+                    Field::new("tag", DataType::Int32, false),
+                    Arc::new(Int32Array::from(vec![20, 0, 10])) as ArrayRef,
                 ),
                 (
                     Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
@@ -227,6 +231,10 @@ mod tests {
                 (
                     Field::new("val", DataType::Int32, false),
                     Arc::new(Int32Array::from(vec![1, 1, 1])) as ArrayRef,
+                ),
+                (
+                    Field::new("tag", DataType::Int32, false),
+                    Arc::new(Int32Array::from(vec![0, 10, 20])) as ArrayRef,
                 ),
                 (
                     Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),

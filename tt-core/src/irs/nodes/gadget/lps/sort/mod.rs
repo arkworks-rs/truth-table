@@ -61,17 +61,24 @@ fn populate_output_expr(
     };
 
     let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-    let original_fields: Vec<String> = input_df
+    let sorted_field_names: std::collections::HashSet<String> = sorted_df
         .schema()
         .fields()
         .iter()
         .map(|field| field.name().to_string())
         .collect();
+    let original_fields: Vec<String> = input_df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .filter(|name| sorted_field_names.contains(name))
+        .collect();
     let sorted_df = sorted_df
         .select(original_fields.iter().map(|name| col(name)).collect())
         .expect("sort exprs projection should succeed");
 
-    let output_hint = crate::irs::nodes::hints::HintDF::new_virtual(sorted_df);
+    let output_hint = crate::irs::nodes::hints::HintDF::new_materialized(sorted_df);
     gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_hint.clone());
     output_hint
 }
@@ -108,7 +115,7 @@ fn populate_sort_gadget_table<B: SnarkBackend>(
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Sort".to_string()
+        "Order By".to_string()
     }
 
     fn cost(
@@ -158,7 +165,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 
