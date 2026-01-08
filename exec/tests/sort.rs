@@ -2,9 +2,7 @@ mod support;
 
 end_to_end_tests!(&["lineitem"] => [
     project_sort => r#"
-        SELECT l_suppkey
-        FROM lineitem
-        ORDER BY l_suppkey ASC;
+SELECT l_orderkey,l_partkey FROM lineitem order by l_suppkey, l_linenumber ASC
     "#,
     project_sort_1 => r#"
 SELECT 

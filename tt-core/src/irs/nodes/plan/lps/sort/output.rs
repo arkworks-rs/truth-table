@@ -2,13 +2,13 @@ use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::prelude::DataFrame;
 use datafusion_expr::{Sort, col, expr::Sort as SortExpr};
 
-/// Sorts only the activated rows to the front (according to `sort`) and leaves
-/// inactive rows afterward (in arbitrary order).
-pub(super) fn build_output_dataframe(input: &DataFrame, sort: &Sort) -> DataFrame {
-    // Prefix the provided sort with a descending activator key so active rows
-    // come first; remaining rows keep arbitrary order but stay after actives.
-    let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 1);
+/// Sorts by activator first (active rows first), then the provided sort
+/// expressions, and finally `__row_id__` when present for deterministic output.
+pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
+    // Prefix sort with activator so active rows come first.
+    let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 2);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
+    // Apply the sort expressions requested by the query.
     sort_exprs.extend(sort.expr.clone());
     if input
         .schema()
@@ -16,6 +16,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, sort: &Sort) -> DataFram
         .iter()
         .any(|field| field.name() == ROW_ID_COL_NAME)
     {
+        // Stabilize ordering for identical sort keys.
         sort_exprs.push(col(ROW_ID_COL_NAME).sort(true, true));
     }
 
@@ -27,10 +28,10 @@ pub(super) fn build_output_dataframe(input: &DataFrame, sort: &Sort) -> DataFram
 
 #[cfg(test)]
 mod tests {
-    use super::build_output_dataframe;
-    use arithmetic::ACTIVATOR_COL_NAME;
+    use super::sort_df;
+    use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
     use datafusion::arrow::{
-        array::{ArrayRef, BooleanArray, Int32Array},
+        array::{ArrayRef, BooleanArray, Int32Array, Int64Array},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
@@ -63,14 +64,14 @@ mod tests {
             .read_batch(input_batch)
             .expect("failed to read batch into DataFrame");
 
-        // Apply sorting with provided expressions (activator desc is injected inside build_output_dataframe).
+        // Apply sorting with provided expressions (activator-first is injected inside sort_df).
         let sort = Sort {
             expr: sort_exprs,
             input: Arc::new(LogicalPlan::from(input_df.logical_plan().clone())),
             fetch: None,
         };
 
-        let sorted_df = build_output_dataframe(&input_df, &sort);
+        let sorted_df = sort_df(&input_df, &sort);
         let batches = sorted_df.collect().await.unwrap();
 
         // Build expected batch for comparison (expected columns listed in final row order after sorting).
@@ -194,6 +195,46 @@ mod tests {
                 (
                     Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
                     Arc::new(BooleanArray::from(vec![true, true, true, false, false])) as ArrayRef,
+                ),
+            ],
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn sort_uses_row_id_to_break_ties() {
+        let ctx = SessionContext::new();
+        // Input: val=[1,1,1], activator=[T,T,T], row_id=[2,0,1].
+        // All sort keys equal, so row_id should determine final order: 0,1,2.
+        run_sort_test(
+            &ctx,
+            &[
+                (
+                    Field::new("val", DataType::Int32, false),
+                    Arc::new(Int32Array::from(vec![1, 1, 1])) as ArrayRef,
+                ),
+                (
+                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                    Arc::new(BooleanArray::from(vec![true, true, true])) as ArrayRef,
+                ),
+                (
+                    Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+                    Arc::new(Int64Array::from(vec![2, 0, 1])) as ArrayRef,
+                ),
+            ],
+            vec![col("val").sort(true, true)],
+            &[
+                (
+                    Field::new("val", DataType::Int32, false),
+                    Arc::new(Int32Array::from(vec![1, 1, 1])) as ArrayRef,
+                ),
+                (
+                    Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                    Arc::new(BooleanArray::from(vec![true, true, true])) as ArrayRef,
+                ),
+                (
+                    Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+                    Arc::new(Int64Array::from(vec![0, 1, 2])) as ArrayRef,
                 ),
             ],
         )

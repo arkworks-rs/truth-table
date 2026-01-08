@@ -1,5 +1,5 @@
 use ark_piop::SnarkBackend;
-use datafusion_expr::LogicalPlan;
+use datafusion_expr::{Expr, LogicalPlan};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use crate::{
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
-mod output;
+pub(crate) mod output;
 use datafusion::logical_expr::Sort;
 /// The implementation of a filter node in the prover proof tree.
 pub struct GadgetNode<B>
@@ -50,7 +50,40 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         _id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
+                .expect("sort input row-id sort should succeed");
+
+        let mut exprs: Vec<Expr> = self
+            .sort
+            .expr
+            .iter()
+            .map(|sort_expr| sort_expr.expr.clone())
+            .collect();
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let sort_exprs_df = input_df
+            .select(exprs)
+            .expect("sort expr projection should succeed");
+        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
+            .expect("sort expr output sort should succeed");
+        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(sort::INPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -110,7 +143,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        let output_df = output::build_output_dataframe(input_hint_df.data_frame(), &self.sort);
+        let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
         HintDF::new_materialized(output_df)
     }
 }
