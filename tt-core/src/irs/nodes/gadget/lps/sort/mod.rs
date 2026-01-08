@@ -37,22 +37,25 @@ fn populate_output_expr(
     let sort_input_df = if has_activator {
         input_df.clone()
     } else {
+        // Ensure the output carries an activator even if the input did not.
         input_df
             .clone()
             .with_column(ACTIVATOR_COL_NAME, lit(true))
             .expect("sort exprs should accept synthetic activator")
     };
 
-    let mut sort_exprs: Vec<SortExpr> = sort_input_df
-        .schema()
-        .fields()
-        .iter()
-        .filter(|field| !is_system_column(field.name()))
-        .map(|field| col(field.name()).sort(true, true))
-        .collect();
-    if sort_exprs.is_empty() {
-        sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-    }
+    // Sort by activator first (actives first), then by the sort-expr columns.
+    let mut sort_exprs: Vec<SortExpr> =
+        Vec::with_capacity(1 + sort_input_df.schema().fields().len());
+    sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
+    sort_exprs.extend(
+        sort_input_df
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| col(field.name()).sort(true, true)),
+    );
 
     let sort = Sort {
         expr: sort_exprs,
@@ -61,21 +64,20 @@ fn populate_output_expr(
     };
 
     let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-    let sorted_field_names: std::collections::HashSet<String> = sorted_df
+    // Project the data columns and activator (and row_id if present) into the output.
+    let projected = sorted_df
         .schema()
         .fields()
         .iter()
-        .map(|field| field.name().to_string())
-        .collect();
-    let original_fields: Vec<String> = input_df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| field.name().to_string())
-        .filter(|name| sorted_field_names.contains(name))
+        .filter(|field| {
+            field.name() == ACTIVATOR_COL_NAME
+                || field.name() == arithmetic::ROW_ID_COL_NAME
+                || !is_system_column(field.name())
+        })
+        .map(|field| col(field.name()))
         .collect();
     let sorted_df = sorted_df
-        .select(original_fields.iter().map(|name| col(name)).collect())
+        .select(projected)
         .expect("sort exprs projection should succeed");
 
     let output_hint = crate::irs::nodes::hints::HintDF::new_materialized(sorted_df);
