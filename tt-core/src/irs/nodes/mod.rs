@@ -5,20 +5,13 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use ark_piop::{SnarkBackend, errors::SnarkResult};
-use arrow_schema::SchemaRef;
-use datafusion_common::Statistics;
-use datafusion_expr::{Expr, LogicalPlan};
-use derivative::Derivative;
-use indexmap::IndexMap;
-
 use crate::{
     irs::nodes::{
         cost::ProvingCost,
         hints::HintDF,
         plan::{
             exprs::{aggregate_function, binary_expr, cast, column, literal},
-            lps::{aggregate, filter, projection, table_scan},
+            lps::{aggregate, filter, projection, sort, table_scan},
         },
     },
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -26,6 +19,12 @@ use crate::{
         GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
     },
 };
+use ark_piop::{SnarkBackend, errors::SnarkResult};
+use arrow_schema::SchemaRef;
+use datafusion_common::Statistics;
+use datafusion_expr::{Expr, LogicalPlan};
+use derivative::Derivative;
+use indexmap::IndexMap;
 pub mod cost;
 pub mod gadget;
 pub mod hints;
@@ -173,6 +172,10 @@ impl<B: SnarkBackend> Node<B> {
             }),
             LogicalPlan::Aggregate(_) => Arc::new_cyclic(|weak_self| {
                 let node = aggregate::ProverAggregateNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+            LogicalPlan::Sort(_) => Arc::new_cyclic(|weak_self| {
+                let node = sort::GadgetNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             _ => todo!(),

@@ -1,22 +1,13 @@
-use std::sync::Arc;
-
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
-use datafusion_expr::{Filter, LogicalPlan};
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
+use std::sync::Arc;
 
 use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            gadget::lps::{
-                filter::{
-                    self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
-                },
-                sort,
-            },
-            hints::HintDF,
+            gadget::lps::sort, hints::HintDF,
         },
         payloads::PayloadStructure,
         tree::Tree,
@@ -57,9 +48,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        todo!()
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
@@ -76,7 +67,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
@@ -114,7 +105,13 @@ impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
     }
 
     fn output(&self) -> HintDF {
-        todo!()
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
+        };
+
+        let output_df = output::build_output_dataframe(input_hint_df.data_frame(), &self.sort);
+        HintDF::new_materialized(output_df)
     }
 }
 
