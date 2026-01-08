@@ -1,94 +1,159 @@
-mod gadget;
-mod output;
+use std::sync::Arc;
 
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion_expr::Sort;
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion_expr::{Filter, LogicalPlan};
+use indexmap::IndexMap;
 
-use crate::irs::nodes::Node;
-
-pub struct ProverSortNode<B>
+use crate::{
+    irs::{
+        nodes::{
+            IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+            gadget::lps::{
+                filter::{
+                    self, FILTER_PREDICATE_LABEL, INPUT_ACTIVATOR_LABEL, OUTPUT_ACTIVATOR_LABEL,
+                },
+                sort,
+            },
+            hints::HintDF,
+        },
+        payloads::PayloadStructure,
+        tree::Tree,
+    },
+    prover::irs::VirtualizedIr as ProverVirtualizedIr,
+    verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
+};
+mod output;
+use datafusion::logical_expr::Sort;
+/// The implementation of a filter node in the prover proof tree.
+pub struct GadgetNode<B>
 where
     B: SnarkBackend,
 {
-    input: Node<B>,
+    // The sort information from DataFusion
     sort: Sort,
+    // The prover plan child node that is the input to this Sort
+    input: Arc<Node<B>>,
+    // The prover plan children nodes for the Sort expressions
+    sort_exprs: Vec<Arc<Node<B>>>,
+    // The gadget node for proving the sort operation
+    gadget: Arc<Node<B>>,
 }
 
-// impl<B> ProverPlanNode<B> for ProverSortNode<B>
-// where
-//     F: PrimeField,
-//     MvPCS: PCS<F, Poly = MLE<F>> + Send + Sync + 'static,
-//     UvPCS: PCS<F, Poly = LDE<F>> + Send + Sync + 'static,
-// {
-//     fn gadget_tree(&self) -> GadgetTree<B> {
-//         GadgetTree::new(Arc::new(gadget::Prover::new()))
-//     }
+impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
+    fn name(&self) -> String {
+        "Sort".to_string()
+    }
 
-//     fn node_id(&self) -> NodeId {
-//         NodeId::LP(LogicalPlan::Sort(self.sort.clone()))
-//     }
+    fn cost(
+        &self,
+        _statistics: datafusion_common::Statistics,
+        _schema: arrow_schema::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
 
-//     fn children(&self) -> Vec<Arc<dyn ProverPlanNode<B>>> {
-//         vec![self.input.clone()]
-//     }
+    fn initialize_gadget_plans(
+        &self,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 
-//     fn output(&self, proof_tree: &ProverProofTree<B>) -> HintDF {
-//         // Get the output of the child node as the input hint generation plan
-//         let input_hint_generation_plan = self.input.output(proof_tree);
-//         // Extract the data frame from the input hint generation plan
-//         let input = input_hint_generation_plan.data_frame();
-//         let output = output::build_output_dataframe(input, &self.sort);
-//         HintDF::new_virtual(output)
-//     }
+    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
+        let mut children = vec![self.input.clone()];
+        children.extend(self.sort_exprs.iter().cloned());
+        children.push(self.gadget.clone());
+        children
+    }
+}
 
-//     fn ctx_lp_node(
-//         &self,
-//         proof_tree: &ProverProofTree<B>,
-//     ) -> Arc<dyn ProverPlanNode<B>> {
-//         todo!()
-//     }
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
 
-//     fn arithmetic_post_process(&self) {
-//         todo!()
-//     }
+    /// The gadget for the filter node only takes in 1. the input activator column, 2. the output activator column and 3. the binary output of the predicate column.
+    /// Then the gadget proves to you that the output activator column is correctly computed from the input activator column and the predicate column.
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        virtualized_ir: &mut ProverVirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+}
 
-//     fn add_virtual_witness(&self, prover: &mut ArgProver<B>) {
-//         todo!()
-//     }
+impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+    fn add_virtual_witness(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
 
-//     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
-//         todo!()
-//     }
-// }
+    fn initialize_gadgets(
+        &self,
+        id: NodeId,
+        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+}
 
-// impl<B> ProverLpNode<B> for ProverSortNode<B>
-// where
-//     F: PrimeField,
-//     MvPCS: PCS<F, Poly = MLE<F>> + 'static + Sync + Send,
-//     UvPCS: PCS<F, Poly = LDE<F>> + 'static + Sync + Send,
-// {
-//     fn from_lp(
-//         ctx: &datafusion::prelude::SessionContext,
-//         prover_ctx: CtxOracles<B>,
-//         plan: LogicalPlan,
-//         _parent: NodeId,
-//     ) -> Self
-//     where
-//         Self: Sized,
-//     {
-//         let sort = match plan.clone() {
-//             LogicalPlan::Sort(s) => s,
-//             _ => panic!("Expected LogicalPlan::Sort"),
-//         };
-//         let node_id = NodeId::LP(plan.clone());
-//         let input = ProverProofTree::<B>::from_lp(
-//             ctx,
-//             prover_ctx.clone(),
-//             &sort.input,
-//             &Some(node_id.clone()),
-//         )
-//         .root()
-//         .clone();
-//         Self { input, sort }
-//     }
-// }
+impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
+    fn gadget(&self) -> Option<Node<B>> {
+        Some(self.gadget.as_ref().clone())
+    }
+
+    fn output(&self) -> HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> IsLpNode<B> for GadgetNode<B> {
+    fn from_lp(plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
+    where
+        Self: Sized,
+    {
+        let sort = match plan {
+            LogicalPlan::Sort(sort) => sort,
+            _ => panic!("Expected LogicalPlan::Sort"),
+        };
+
+        // Recurse into the input subtree and fetch the logical plan that feeds this
+        // sort.
+        let input = Tree::<B>::from_logical_plan(&sort.input).root().clone();
+
+        // Recurse into the input subtree and fetch the expr that feeds this
+        // sort.
+        let mut sort_exprs = vec![];
+        for expr in &sort.expr {
+            let expr_lp =
+                Tree::<B>::from_expr(&expr.expr.clone(), Some(self_ref.clone()), input.clone())
+                    .root()
+                    .clone();
+            sort_exprs.push(expr_lp);
+        }
+
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(sort::GadgetNode::new())));
+
+        Self {
+            sort,
+            input,
+            sort_exprs,
+            gadget,
+        }
+    }
+
+    fn lp(&self) -> LogicalPlan {
+        LogicalPlan::Sort(self.sort.clone())
+    }
+}

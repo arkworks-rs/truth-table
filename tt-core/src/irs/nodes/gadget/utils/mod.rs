@@ -7,4 +7,3 @@ pub mod neq;
 pub mod nodup;
 pub mod sign;
 pub mod supp;
-pub mod sort;
