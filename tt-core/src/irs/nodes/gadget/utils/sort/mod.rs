@@ -40,6 +40,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadgets: Vec<Arc<Node<B>>>,
+    neq_gadgets: Vec<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -81,6 +82,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         let mut children = vec![self.prescr_perm.clone(), self.bool_gadget.clone()];
         children.extend(self.sign_gadgets.iter().cloned());
+        children.extend(self.neq_gadgets.iter().cloned());
         children
     }
 }
@@ -337,6 +339,14 @@ impl<B: SnarkBackend> GadgetNode<B> {
             ))));
             sign_gadgets.push(sign_gadget);
         }
+
+        let mut neq_gadgets = Vec::new();
+        for _ in 0..asc.len() - 1 {
+            let no_zero_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::utils::neq::GadgetNode::new(),
+            )));
+            neq_gadgets.push(no_zero_gadget);
+        }
         Self {
             num_columns: asc.len(),
             prescr_perm,
@@ -344,6 +354,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             asc,
             strict,
             sign_gadgets,
+            neq_gadgets,
         }
     }
 }
