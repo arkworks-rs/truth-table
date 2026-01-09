@@ -14,7 +14,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use either::Either;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::utils::{prescr_perm, sign};
+use crate::irs::nodes::gadget::utils::{neq, prescr_perm, sign};
 use crate::{
     irs::{
         nodes::{
@@ -220,6 +220,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 &rotated_table,
                 virtualized_ir,
             )?;
+            populate_neq_payloads_prover(
+                &self.neq_gadgets,
+                &tie_table,
+                &input_table,
+                &rotated_table,
+                virtualized_ir,
+            )?;
         }
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
@@ -283,6 +290,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         ) {
             populate_sign_payloads_verifier(
                 &self.sign_gadgets,
+                &tie_table,
+                &input_table,
+                &rotated_table,
+                virtualized_ir,
+            )?;
+            populate_neq_payloads_verifier(
+                &self.neq_gadgets,
                 &tie_table,
                 &input_table,
                 &rotated_table,
@@ -470,6 +484,160 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         virtualized_ir.set_payload_for_node(
             sign_gadget.id(),
             Some(PayloadStructure::GadgetPayload(sign_payload)),
+        );
+    }
+    Ok(())
+}
+
+fn populate_neq_payloads_prover<B: SnarkBackend>(
+    neq_gadgets: &[Arc<Node<B>>],
+    tie_table: &TrackedTable<B>,
+    input_table: &TrackedTable<B>,
+    rotated_table: &TrackedTable<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+) -> ark_piop::errors::SnarkResult<()> {
+    let tie_indices = tie_table.data_tracked_polys_indices();
+    let input_indices = input_table.data_tracked_polys_indices();
+    let rotated_indices = rotated_table.data_tracked_polys_indices();
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort neq gadget expects one tie indicator per data column."
+    );
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort neq gadget expects matching input and rotated column counts."
+    );
+    debug_assert_eq!(
+        neq_gadgets.len(),
+        input_indices.len().saturating_sub(1),
+        "Sort gadget expects one neq gadget per adjacent data column."
+    );
+
+    for (((neq_gadget, tie_idx), tie_next_idx), (input_idx, rotated_idx)) in neq_gadgets
+        .iter()
+        .zip(tie_indices.iter().copied())
+        .zip(tie_indices.iter().copied().skip(1))
+        .zip(
+            input_indices
+                .iter()
+                .copied()
+                .zip(rotated_indices.iter().copied()),
+        )
+    {
+        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
+        let tie_next_col = tie_table.tracked_col_by_ind(tie_next_idx);
+        let one_poly = TrackedPoly::new(
+            Either::Right(B::F::one()),
+            tie_next_col.data_tracked_poly().log_size(),
+            tie_next_col.data_tracked_poly().tracker(),
+        );
+        let activator = &tie_col.data_tracked_poly()
+            * &(&one_poly - &tie_next_col.data_tracked_poly());
+
+        let input_col = input_table.tracked_col_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
+        let data_field = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort neq input");
+        let left_table = TrackedTable::single_column_with_activator(
+            data_field.clone(),
+            rotated_col.data_tracked_poly(),
+            Some(activator.clone()),
+        );
+        let right_table = TrackedTable::single_column_with_activator(
+            data_field,
+            input_col.data_tracked_poly(),
+            Some(activator),
+        );
+
+        let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
+        neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
+        virtualized_ir.set_payload_for_node(
+            neq_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(neq_payload)),
+        );
+    }
+    Ok(())
+}
+
+fn populate_neq_payloads_verifier<B: SnarkBackend>(
+    neq_gadgets: &[Arc<Node<B>>],
+    tie_table: &TrackedTableOracle<B>,
+    input_table: &TrackedTableOracle<B>,
+    rotated_table: &TrackedTableOracle<B>,
+    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+) -> ark_piop::errors::SnarkResult<()> {
+    let tie_indices = tie_table.data_tracked_oracles_indices();
+    let input_indices = input_table.data_tracked_oracles_indices();
+    let rotated_indices = rotated_table.data_tracked_oracles_indices();
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort neq gadget expects one tie indicator per data column."
+    );
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort neq gadget expects matching input and rotated column counts."
+    );
+    debug_assert_eq!(
+        neq_gadgets.len(),
+        input_indices.len().saturating_sub(1),
+        "Sort gadget expects one neq gadget per adjacent data column."
+    );
+
+    for (((neq_gadget, tie_idx), tie_next_idx), (input_idx, rotated_idx)) in neq_gadgets
+        .iter()
+        .zip(tie_indices.iter().copied())
+        .zip(tie_indices.iter().copied().skip(1))
+        .zip(
+            input_indices
+                .iter()
+                .copied()
+                .zip(rotated_indices.iter().copied()),
+        )
+    {
+        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
+        let tie_next_col = tie_table.tracked_col_oracle_by_ind(tie_next_idx);
+        let one_oracle = TrackedOracle::new(
+            Either::Right(B::F::one()),
+            tie_next_col.data_tracked_oracle().tracker(),
+            tie_next_col.data_tracked_oracle().log_size(),
+        );
+        let activator = &tie_col.data_tracked_oracle()
+            * &(&one_oracle - &tie_next_col.data_tracked_oracle());
+
+        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
+        let data_field = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort neq input");
+        let left_table = TrackedTableOracle::single_column_with_activator(
+            data_field.clone(),
+            rotated_col.data_tracked_oracle(),
+            Some(activator.clone()),
+        );
+        let right_table = TrackedTableOracle::single_column_with_activator(
+            data_field,
+            input_col.data_tracked_oracle(),
+            Some(activator),
+        );
+
+        let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        neq_payload.insert(neq::LEFT_LABEL.to_string(), left_table);
+        neq_payload.insert(neq::RIGHT_LABEL.to_string(), right_table);
+        virtualized_ir.set_payload_for_node(
+            neq_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(neq_payload)),
         );
     }
     Ok(())
