@@ -1,6 +1,9 @@
 use std::marker::PhantomData;
 
 use ark_piop::SnarkBackend;
+use col_toolbox::binary_check::{
+    BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput,
+};
 use indexmap::IndexMap;
 
 use crate::{
@@ -11,7 +14,7 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-
+use ark_piop::piop::PIOP;
 pub const TABLE_LABEL: &str = "__table__";
 
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
@@ -85,7 +88,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Bool gadget node");
+        };
+        let Some(table) = payload.get(TABLE_LABEL).cloned() else {
+            panic!("Expected table payload for Bool gadget");
+        };
+
+        for idx in table.data_tracked_polys_indices() {
+            let col = table.tracked_col_by_ind(idx);
+            // BinaryCheck only needs the predicate polynomial, so we pass the activated column.
+            let predicate = col.activated_data_tracked_poly();
+            let input = BinaryCheckProverInput { predicate };
+            BinaryCheckPIOP::<B>::prove(prover, input)?;
+        }
+        Ok(())
     }
 
     fn verify(
@@ -94,7 +112,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Bool gadget node");
+        };
+        let Some(table) = payload.get(TABLE_LABEL).cloned() else {
+            panic!("Expected table payload for Bool gadget");
+        };
+
+        for idx in table.data_tracked_oracles_indices() {
+            let col = table.tracked_col_oracle_by_ind(idx);
+            // BinaryCheck only needs the predicate oracle, so we pass the activated column.
+            let predicate_oracle = col.activated_data_tracked_oracle();
+            let input = BinaryCheckVerifierInput { predicate_oracle };
+            BinaryCheckPIOP::<B>::verify(verifier, input)?;
+        }
+        Ok(())
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {

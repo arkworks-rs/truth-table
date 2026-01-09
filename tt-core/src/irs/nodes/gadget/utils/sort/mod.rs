@@ -29,6 +29,7 @@ pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
 pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
+    bool_gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -68,7 +69,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.prescr_perm.clone()]
+        vec![self.prescr_perm.clone(), self.bool_gadget.clone()]
     }
 }
 
@@ -176,6 +177,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         ) {
             populate_prescr_perm_payloads_prover(&self.prescr_perm, &left, &right, virtualized_ir)?;
         }
+        if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
+            // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
+            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            bool_payload.insert(
+                crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
+                tie_table,
+            );
+            virtualized_ir.set_payload_for_node(
+                self.bool_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(bool_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -213,6 +229,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
+        if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
+            // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
+            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            bool_payload.insert(
+                crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
+                tie_table,
+            );
+            virtualized_ir.set_payload_for_node(
+                self.bool_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(bool_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -220,20 +251,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)
     }
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -246,6 +277,74 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
-        Self { prescr_perm }
+        let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
+        )));
+        Self {
+            prescr_perm,
+            bool_gadget,
+        }
     }
+}
+
+fn add_tie_monotonicity_zerochecks_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    gadget_ready_ir: &mut GadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<()> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+    else {
+        return Ok(());
+    };
+    let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
+        return Ok(());
+    };
+
+    let data_indices = tie_table.data_tracked_polys_indices();
+    if data_indices.len() < 2 {
+        return Ok(());
+    }
+
+    // Enforce ties_i * ties_{i-1} - ties_i = 0 for each prefix column i.
+    let mut prev = tie_table.tracked_col_by_ind(data_indices[0]);
+    for &idx in data_indices.iter().skip(1) {
+        let current = tie_table.tracked_col_by_ind(idx);
+        let current_poly = current.activated_data_tracked_poly();
+        let prev_poly = prev.activated_data_tracked_poly();
+        let zero_poly = &(&current_poly * &prev_poly) - &current_poly;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+        prev = current;
+    }
+    Ok(())
+}
+
+fn add_tie_monotonicity_zerochecks_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+    gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<()> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+    else {
+        return Ok(());
+    };
+    let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
+        return Ok(());
+    };
+
+    let data_indices = tie_table.data_tracked_oracles_indices();
+    if data_indices.len() < 2 {
+        return Ok(());
+    }
+
+    // Enforce ties_i * ties_{i-1} - ties_i = 0 for each prefix column i.
+    let mut prev = tie_table.tracked_col_oracle_by_ind(data_indices[0]);
+    for &idx in data_indices.iter().skip(1) {
+        let current = tie_table.tracked_col_oracle_by_ind(idx);
+        let current_oracle = current.activated_data_tracked_oracle();
+        let prev_oracle = prev.activated_data_tracked_oracle();
+        let zero_oracle = &(&current_oracle * &prev_oracle) - &current_oracle;
+        verifier.add_zerocheck_claim(zero_oracle.id());
+        prev = current;
+    }
+    Ok(())
 }
