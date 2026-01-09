@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ark_piop::SnarkBackend;
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use indexmap::IndexMap;
@@ -20,7 +22,7 @@ pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
 pub struct GadgetNode<B: SnarkBackend> {
-    phantom: std::marker::PhantomData<B>,
+    rotations: Vec<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -57,7 +59,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        let mut children = vec![];
+        children.extend(self.rotations.iter().cloned());
+        children
     }
 }
 
@@ -137,16 +141,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
-        Self {
-            phantom: std::marker::PhantomData,
+    pub fn new(num_data_columns: usize) -> Self {
+        let mut rotations = vec![];
+        for _ in 1..num_data_columns {
+            let rotation_node = Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
+            )));
+            rotations.push(rotation_node);
         }
+        Self { rotations }
     }
 }

@@ -221,9 +221,10 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let sort = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(),
-        )));
-        Self { sort }
+        // let sort = Arc::new(Node::<B>::Gadget(Arc::new(
+        //     crate::irs::nodes::gadget::utils::sort::GadgetNode::new(),
+        // )));
+        // Self { sort }
+        todo!()
     }
 }
