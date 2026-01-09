@@ -21,7 +21,8 @@ pub const OUTPUT_LABEL: &str = "__output__";
 pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
 pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
-    sort: Arc<Node<B>>,
+    sort: Sort,
+    sort_gadget: Arc<Node<B>>,
 }
 
 fn populate_output_expr(
@@ -154,7 +155,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.sort.clone()]
+        vec![self.sort_gadget.clone()]
     }
 }
 
@@ -218,17 +219,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
-        let sort = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(),
+    pub fn new(sort: Sort) -> Self {
+        let asc: Vec<bool> = sort.expr.iter().map(|expr| expr.asc).collect();
+        // DataFusion sort expressions do not encode strictness, so default to true.
+        let strict: Vec<bool> = vec![false; asc.len()];
+        let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(asc, strict),
         )));
-        Self { sort }
+        Self { sort, sort_gadget }
     }
 }

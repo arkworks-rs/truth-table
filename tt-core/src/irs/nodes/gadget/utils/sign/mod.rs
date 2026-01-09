@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
+    table_oracle::TrackedTableOracle, ACTIVATOR_FIELD,
 };
 use ark_ff::{One, PrimeField, Zero};
 use ark_piop::{
@@ -107,31 +107,33 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
             .cloned()
             .expect("Expected input for Sign gadget initialization");
 
-        debug_assert_eq!(
-            input.data_tracked_polys_indices().len(),
-            1,
-            "Sign gadget expects one tracked polynomial in its input"
+        let data_indices = input.data_tracked_polys_indices();
+        debug_assert!(
+            !data_indices.is_empty(),
+            "Sign gadget expects at least one data column in its input"
         );
-        let data_ind = input.data_tracked_polys_indices()[0];
-        let input_col = input.tracked_col_by_ind(data_ind);
-        let data_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sign gadget input");
-        let data_poly = input_col.data_tracked_poly();
-        let activator = input_col.activator_tracked_poly();
-        let zero_poly = TrackedPoly::new(
-            Either::Right(B::F::zero()),
-            data_poly.log_size(),
-            data_poly.tracker(),
-        );
-
-        let left_table = TrackedTable::single_column_with_activator(
-            data_field.clone(),
-            data_poly,
-            activator.clone(),
-        );
-        let right_table =
-            TrackedTable::single_column_with_activator(data_field, zero_poly, activator);
+        let mut left_cols = IndexMap::new();
+        let mut right_cols = IndexMap::new();
+        for data_ind in data_indices {
+            let input_col = input.tracked_col_by_ind(data_ind);
+            let data_field = input_col
+                .field_ref()
+                .expect("Expected field ref for Sign gadget input");
+            let data_poly = input_col.data_tracked_poly();
+            let zero_poly = TrackedPoly::new(
+                Either::Right(B::F::zero()),
+                data_poly.log_size(),
+                data_poly.tracker(),
+            );
+            left_cols.insert(data_field.clone(), data_poly);
+            right_cols.insert(data_field, zero_poly);
+        }
+        if let Some(activator) = input.activator_tracked_poly() {
+            left_cols.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+            right_cols.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+        let left_table = TrackedTable::new(None, left_cols, input.log_size());
+        let right_table = TrackedTable::new(None, right_cols, input.log_size());
 
         let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -174,31 +176,33 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
             .cloned()
             .expect("Expected input for Sign gadget initialization");
 
-        debug_assert_eq!(
-            input.data_tracked_oracles_indices().len(),
-            1,
-            "Sign gadget expects one tracked oracle in its input"
+        let data_indices = input.data_tracked_oracles_indices();
+        debug_assert!(
+            !data_indices.is_empty(),
+            "Sign gadget expects at least one data column in its input"
         );
-        let data_ind = input.data_tracked_oracles_indices()[0];
-        let input_col = input.tracked_col_oracle_by_ind(data_ind);
-        let data_field = input_col
-            .field_ref()
-            .expect("Expected field ref for Sign gadget input");
-        let data_oracle = input_col.data_tracked_oracle();
-        let activator = input_col.activator_tracked_oracle();
-        let zero_oracle = TrackedOracle::new(
-            Either::Right(B::F::zero()),
-            data_oracle.tracker(),
-            data_oracle.log_size(),
-        );
-
-        let left_table = TrackedTableOracle::single_column_with_activator(
-            data_field.clone(),
-            data_oracle,
-            activator.clone(),
-        );
-        let right_table =
-            TrackedTableOracle::single_column_with_activator(data_field, zero_oracle, activator);
+        let mut left_cols = IndexMap::new();
+        let mut right_cols = IndexMap::new();
+        for data_ind in data_indices {
+            let input_col = input.tracked_col_oracle_by_ind(data_ind);
+            let data_field = input_col
+                .field_ref()
+                .expect("Expected field ref for Sign gadget input");
+            let data_oracle = input_col.data_tracked_oracle();
+            let zero_oracle = TrackedOracle::new(
+                Either::Right(B::F::zero()),
+                data_oracle.tracker(),
+                data_oracle.log_size(),
+            );
+            left_cols.insert(data_field.clone(), data_oracle);
+            right_cols.insert(data_field, zero_oracle);
+        }
+        if let Some(activator) = input.activator_tracked_poly() {
+            left_cols.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+            right_cols.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+        let left_table = TrackedTableOracle::new(None, left_cols, input.log_size());
+        let right_table = TrackedTableOracle::new(None, right_cols, input.log_size());
 
         let mut neq_payload = match virtualized_ir.payload_for_node(&neq_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -230,32 +234,31 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         let Some(input) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input for Sign gadget");
         };
-        // The input should have exactly one data tracked polynomial.
-        debug_assert_eq!(
-            input.data_tracked_polys_indices().len(),
-            1,
-            "Sign gadget supports one tracked polynomial per input."
+        let data_inds = input.data_tracked_polys_indices();
+        debug_assert!(
+            !data_inds.is_empty(),
+            "Sign gadget supports at least one data column per input."
         );
-        // Extract the indices corresponding to the input data tracked polynomial.
-        let data_ind = input.data_tracked_polys_indices()[0];
-        // Fetch the tracked columns corresponding to those indices
-        let input_col = input.tracked_col_by_ind(data_ind);
-        match self.sign {
-            Sign::NonNegative => Self::prove_sign_inner(prover, &input_col, Sign::NonNegative),
-            Sign::NonPositive => {
-                let negated_col = Self::negated_col(&input_col);
-                Self::prove_sign_inner(prover, &negated_col, Sign::NonNegative)
-            }
-            Sign::Positive => {
-                Self::prove_sign_inner(prover, &input_col, Sign::Positive)?;
-                Ok(())
-            }
-            Sign::Negative => {
-                let negated_col = Self::negated_col(&input_col);
-                Self::prove_sign_inner(prover, &negated_col, Sign::Positive)?;
-                Ok(())
+        for data_ind in data_inds {
+            let input_col = input.tracked_col_by_ind(data_ind);
+            match self.sign {
+                Sign::NonNegative => {
+                    Self::prove_sign_inner(prover, &input_col, Sign::NonNegative)?;
+                }
+                Sign::NonPositive => {
+                    let negated_col = Self::negated_col(&input_col);
+                    Self::prove_sign_inner(prover, &negated_col, Sign::NonNegative)?;
+                }
+                Sign::Positive => {
+                    Self::prove_sign_inner(prover, &input_col, Sign::Positive)?;
+                }
+                Sign::Negative => {
+                    let negated_col = Self::negated_col(&input_col);
+                    Self::prove_sign_inner(prover, &negated_col, Sign::Positive)?;
+                }
             }
         }
+        Ok(())
     }
 
     fn verify(
@@ -273,28 +276,31 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         let Some(input) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input for Sign gadget");
         };
-        // The input should have exactly one data tracked oracle.
-        debug_assert_eq!(
-            input.data_tracked_oracles_indices().len(),
-            1,
-            "Sign gadget supports one tracked oracle per input."
+        let data_inds = input.data_tracked_oracles_indices();
+        debug_assert!(
+            !data_inds.is_empty(),
+            "Sign gadget supports at least one data column per input."
         );
-        // Extract the indices corresponding to the input data tracked oracle.
-        let data_ind = input.data_tracked_oracles_indices()[0];
-        // Fetch the tracked column oracle corresponding to that index.
-        let input_col = input.tracked_col_oracle_by_ind(data_ind);
-        match self.sign {
-            Sign::NonNegative => Self::verify_sign_inner(verifier, &input_col, Sign::NonNegative),
-            Sign::NonPositive => {
-                let negated_col = Self::negated_col_oracle(&input_col);
-                Self::verify_sign_inner(verifier, &negated_col, Sign::NonNegative)
-            }
-            Sign::Positive => Self::verify_sign_inner(verifier, &input_col, Sign::Positive),
-            Sign::Negative => {
-                let negated_col = Self::negated_col_oracle(&input_col);
-                Self::verify_sign_inner(verifier, &negated_col, Sign::Positive)
+        for data_ind in data_inds {
+            let input_col = input.tracked_col_oracle_by_ind(data_ind);
+            match self.sign {
+                Sign::NonNegative => {
+                    Self::verify_sign_inner(verifier, &input_col, Sign::NonNegative)?;
+                }
+                Sign::NonPositive => {
+                    let negated_col = Self::negated_col_oracle(&input_col);
+                    Self::verify_sign_inner(verifier, &negated_col, Sign::NonNegative)?;
+                }
+                Sign::Positive => {
+                    Self::verify_sign_inner(verifier, &input_col, Sign::Positive)?;
+                }
+                Sign::Negative => {
+                    let negated_col = Self::negated_col_oracle(&input_col);
+                    Self::verify_sign_inner(verifier, &negated_col, Sign::Positive)?;
+                }
             }
         }
+        Ok(())
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {

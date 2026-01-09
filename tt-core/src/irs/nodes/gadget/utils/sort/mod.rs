@@ -34,8 +34,12 @@ pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
 const FIRST_TIE_LABEL: &str = "tie_0";
 pub struct GadgetNode<B: SnarkBackend> {
+    num_columns: usize,
+    asc: Vec<bool>,
+    strict: Vec<bool>,
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
+    sign_gadgets: Vec<Arc<Node<B>>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -75,7 +79,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.prescr_perm.clone(), self.bool_gadget.clone()]
+        let mut children = vec![self.prescr_perm.clone(), self.bool_gadget.clone()];
+        children.extend(self.sign_gadgets.iter().cloned());
+        children
     }
 }
 
@@ -290,16 +296,28 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
+    pub fn new(asc: Vec<bool>, strict: Vec<bool>) -> Self {
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
+        assert_eq!(asc.len(), strict.len());
+        let mut sign_gadgets = Vec::new();
+        for i in 0..asc.len() {
+            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
+            )));
+            sign_gadgets.push(sign_gadget);
+        }
         Self {
+            num_columns: asc.len(),
             prescr_perm,
             bool_gadget,
+            asc,
+            strict,
+            sign_gadgets,
         }
     }
 }

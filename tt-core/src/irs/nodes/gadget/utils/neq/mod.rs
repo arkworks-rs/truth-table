@@ -99,31 +99,23 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected left and right inputs for neq gadget");
         };
 
-        // Each of the left and right inputs should have exactly one data tracked polynomial, Because we are checking the equality of two columns
+        let left_data_inds = left_input.data_tracked_polys_indices();
+        let right_data_inds = right_input.data_tracked_polys_indices();
         debug_assert_eq!(
-            left_input.data_tracked_polys_indices().len(),
-            1,
-            "Eq gadget supports one tracked polynomial per input."
+            left_data_inds.len(),
+            right_data_inds.len(),
+            "Neq gadget expects the same number of data columns on left and right."
         );
-        debug_assert_eq!(
-            right_input.data_tracked_polys_indices().len(),
-            1,
-            "Eq gadget supports one tracked polynomial per input."
-        );
-        // Extract the indices corresponding to the left and right data tracked polynomials
-        let left_data_ind = left_input.data_tracked_polys_indices()[0];
-        let right_data_ind = right_input.data_tracked_polys_indices()[0];
-        // Fetch the tracked columns corresponding to those indices
-        let left_col = left_input.tracked_col_by_ind(left_data_ind);
-        let right_col = right_input.tracked_col_by_ind(right_data_ind);
-        // Form the polynomial that should be zero if the two columns are equal
-        let non_zero_poly =
-            &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
-        // Invoke a NoZerosCheck on the resulting column
-        let nozercheck_piop_prover_input = NoZerosCheckProverInput {
-            col: TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None),
-        };
-        NoZerosCheck::prove(prover, nozercheck_piop_prover_input)?;
+        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
+            let left_col = left_input.tracked_col_by_ind(*left_data_ind);
+            let right_col = right_input.tracked_col_by_ind(*right_data_ind);
+            let non_zero_poly =
+                &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+            let nozercheck_piop_prover_input = NoZerosCheckProverInput {
+                col: TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None),
+            };
+            NoZerosCheck::prove(prover, nozercheck_piop_prover_input)?;
+        }
         Ok(())
     }
 
@@ -144,35 +136,27 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected left and right inputs for neq gadget");
         };
 
-        // Each of the left and right inputs should have exactly one data tracked oracle.
+        let left_data_inds = left_input.data_tracked_oracles_indices();
+        let right_data_inds = right_input.data_tracked_oracles_indices();
         debug_assert_eq!(
-            left_input.data_tracked_oracles_indices().len(),
-            1,
-            "Eq gadget supports one tracked oracle per input."
+            left_data_inds.len(),
+            right_data_inds.len(),
+            "Neq gadget expects the same number of data columns on left and right."
         );
-        debug_assert_eq!(
-            right_input.data_tracked_oracles_indices().len(),
-            1,
-            "Eq gadget supports one tracked oracle per input."
-        );
-        // Extract the indices corresponding to the left and right data tracked oracles.
-        let left_data_ind = left_input.data_tracked_oracles_indices()[0];
-        let right_data_ind = right_input.data_tracked_oracles_indices()[0];
-        // Fetch the tracked column oracles corresponding to those indices.
-        let left_col = left_input.tracked_col_oracle_by_ind(left_data_ind);
-        let right_col = right_input.tracked_col_oracle_by_ind(right_data_ind);
-        // Form the oracle that should be non-zero when the columns differ.
-        let non_zero_oracle =
-            &left_col.activated_data_tracked_oracle() - &right_col.activated_data_tracked_oracle();
-        // Invoke a NoZerosCheck on the resulting oracle.
-        let nozercheck_piop_verifier_input = NoZerosCheckVerifierInput {
-            tracked_col_oracle: TrackedColOracle::new(
-                non_zero_oracle,
-                left_col.activator_tracked_oracle(),
-                None,
-            ),
-        };
-        NoZerosCheck::verify(verifier, nozercheck_piop_verifier_input)?;
+        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
+            let left_col = left_input.tracked_col_oracle_by_ind(*left_data_ind);
+            let right_col = right_input.tracked_col_oracle_by_ind(*right_data_ind);
+            let non_zero_oracle = &left_col.activated_data_tracked_oracle()
+                - &right_col.activated_data_tracked_oracle();
+            let nozercheck_piop_verifier_input = NoZerosCheckVerifierInput {
+                tracked_col_oracle: TrackedColOracle::new(
+                    non_zero_oracle,
+                    left_col.activator_tracked_oracle(),
+                    None,
+                ),
+            };
+            NoZerosCheck::verify(verifier, nozercheck_piop_verifier_input)?;
+        }
         Ok(())
     }
 

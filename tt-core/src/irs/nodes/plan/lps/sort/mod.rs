@@ -481,7 +481,9 @@ impl<B: SnarkBackend> IsLpNode<B> for GadgetNode<B> {
             sort_exprs.push(expr_lp);
         }
 
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(sort::GadgetNode::new())));
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(sort::GadgetNode::new(
+            sort.clone(),
+        ))));
 
         Self {
             sort,
