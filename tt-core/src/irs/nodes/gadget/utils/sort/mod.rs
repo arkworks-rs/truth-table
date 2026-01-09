@@ -14,7 +14,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use either::Either;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::utils::prescr_perm;
+use crate::irs::nodes::gadget::utils::{prescr_perm, sign};
 use crate::{
     irs::{
         nodes::{
@@ -206,6 +206,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
+        if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
+            payload.get(TIE_INDICATOR_LABEL).cloned(),
+            payload.get(TABLE_LABEL).cloned(),
+            payload.get(ROTATED_INPUT_LABEL).cloned(),
+        ) {
+            populate_sign_payloads_prover(
+                &self.sign_gadgets,
+                &tie_table,
+                &input_table,
+                &rotated_table,
+                virtualized_ir,
+            )?;
+        }
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -261,6 +274,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
+        if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
+            payload.get(TIE_INDICATOR_LABEL).cloned(),
+            payload.get(TABLE_LABEL).cloned(),
+            payload.get(ROTATED_INPUT_LABEL).cloned(),
+        ) {
+            populate_sign_payloads_verifier(
+                &self.sign_gadgets,
+                &tie_table,
+                &input_table,
+                &rotated_table,
+                virtualized_ir,
+            )?;
+        }
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
@@ -305,9 +331,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
         )));
         assert_eq!(asc.len(), strict.len());
         let mut sign_gadgets = Vec::new();
-        for i in 0..asc.len() {
+        for _ in 0..asc.len() {
             let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
+                sign::SignNode::new(sign::Sign::NonNegative),
             )));
             sign_gadgets.push(sign_gadget);
         }
@@ -320,6 +346,122 @@ impl<B: SnarkBackend> GadgetNode<B> {
             sign_gadgets,
         }
     }
+}
+
+fn populate_sign_payloads_prover<B: SnarkBackend>(
+    sign_gadgets: &[Arc<Node<B>>],
+    tie_table: &TrackedTable<B>,
+    input_table: &TrackedTable<B>,
+    rotated_table: &TrackedTable<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+) -> ark_piop::errors::SnarkResult<()> {
+    let tie_indices = tie_table.data_tracked_polys_indices();
+    let input_indices = input_table.data_tracked_polys_indices();
+    let rotated_indices = rotated_table.data_tracked_polys_indices();
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort sign gadget expects one tie indicator per data column."
+    );
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort sign gadget expects matching input and rotated column counts."
+    );
+    debug_assert_eq!(
+        sign_gadgets.len(),
+        tie_indices.len(),
+        "Sort gadget expects one sign gadget per tie-indicator column."
+    );
+
+    for (((sign_gadget, tie_idx), input_idx), rotated_idx) in sign_gadgets
+        .iter()
+        .zip(tie_indices.iter().copied())
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
+    {
+        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
+        let input_col = input_table.tracked_col_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
+        let diff_poly = &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly();
+        let data_field = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort sign input");
+        let sign_input = TrackedTable::single_column_with_activator(
+            data_field,
+            diff_poly,
+            Some(tie_col.data_tracked_poly()),
+        );
+
+        let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sign_payload.insert(sign::INPUT_LABEL.to_string(), sign_input);
+        virtualized_ir.set_payload_for_node(
+            sign_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(sign_payload)),
+        );
+    }
+    Ok(())
+}
+
+fn populate_sign_payloads_verifier<B: SnarkBackend>(
+    sign_gadgets: &[Arc<Node<B>>],
+    tie_table: &TrackedTableOracle<B>,
+    input_table: &TrackedTableOracle<B>,
+    rotated_table: &TrackedTableOracle<B>,
+    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+) -> ark_piop::errors::SnarkResult<()> {
+    let tie_indices = tie_table.data_tracked_oracles_indices();
+    let input_indices = input_table.data_tracked_oracles_indices();
+    let rotated_indices = rotated_table.data_tracked_oracles_indices();
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort sign gadget expects one tie indicator per data column."
+    );
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort sign gadget expects matching input and rotated column counts."
+    );
+    debug_assert_eq!(
+        sign_gadgets.len(),
+        tie_indices.len(),
+        "Sort gadget expects one sign gadget per tie-indicator column."
+    );
+
+    for (((sign_gadget, tie_idx), input_idx), rotated_idx) in sign_gadgets
+        .iter()
+        .zip(tie_indices.iter().copied())
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
+    {
+        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
+        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
+        let diff_oracle = &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle();
+        let data_field = input_col
+            .field_ref()
+            .expect("Expected field ref for Sort sign input");
+        let sign_input = TrackedTableOracle::single_column_with_activator(
+            data_field,
+            diff_oracle,
+            Some(tie_col.data_tracked_oracle()),
+        );
+
+        let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sign_payload.insert(sign::INPUT_LABEL.to_string(), sign_input);
+        virtualized_ir.set_payload_for_node(
+            sign_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(sign_payload)),
+        );
+    }
+    Ok(())
 }
 
 fn add_tie_monotonicity_zerochecks_prover<B: SnarkBackend>(
