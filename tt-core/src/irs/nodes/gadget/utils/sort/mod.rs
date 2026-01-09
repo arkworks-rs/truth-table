@@ -300,7 +300,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
-        // add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)
+        add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)?;
         Ok(())
     }
 
@@ -311,7 +311,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
-        // add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)
+        add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
 
         Ok(())
     }
@@ -332,9 +332,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
         assert_eq!(asc.len(), strict.len());
         let mut sign_gadgets = Vec::new();
         for _ in 0..asc.len() {
-            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-                sign::SignNode::new(sign::Sign::NonNegative),
-            )));
+            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+                sign::Sign::NonNegative,
+            ))));
             sign_gadgets.push(sign_gadget);
         }
         Self {
@@ -563,18 +563,7 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
         return Ok(());
     };
 
-    println!("{}", tie_table.pretty_string());
-    let tie_polys = tie_table.tracked_polys();
-    let tie_indices: Vec<usize> = tie_table
-        .data_tracked_polys_indices()
-        .into_iter()
-        .filter(|idx| {
-            let (field, _) = tie_polys
-                .get_index(*idx)
-                .expect("tie indicator column index out of bounds");
-            field.name() != FIRST_TIE_LABEL
-        })
-        .collect();
+    let tie_indices = tie_table.data_tracked_polys_indices();
     let input_indices = input_table.data_tracked_polys_indices();
     let rotated_indices = rotated_table.data_tracked_polys_indices();
     debug_assert_eq!(
@@ -625,17 +614,7 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
         return Ok(());
     };
 
-    let tie_oracles = tie_table.tracked_oracles();
-    let tie_indices: Vec<usize> = tie_table
-        .data_tracked_oracles_indices()
-        .into_iter()
-        .filter(|idx| {
-            let (field, _) = tie_oracles
-                .get_index(*idx)
-                .expect("tie indicator column index out of bounds");
-            field.name() != FIRST_TIE_LABEL
-        })
-        .collect();
+    let tie_indices = tie_table.data_tracked_oracles_indices();
     let input_indices = input_table.data_tracked_oracles_indices();
     let rotated_indices = rotated_table.data_tracked_oracles_indices();
     debug_assert_eq!(
