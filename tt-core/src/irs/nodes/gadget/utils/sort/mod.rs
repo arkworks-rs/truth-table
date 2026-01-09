@@ -584,15 +584,17 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
     );
     debug_assert_eq!(
         tie_indices.len(),
-        input_indices.len().saturating_sub(1),
-        "Sort gadget expects tie-indicator columns starting from the second data column."
+        input_indices.len(),
+        "Sort gadget expects one tie indicator per data column."
     );
 
+    // Enforce tie_i * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
-        .zip(input_indices.iter().copied().skip(1))
-        .zip(rotated_indices.iter().copied().skip(1))
+        .skip(1)
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
     {
         let tie_col = tie_table.tracked_col_by_ind(tie_idx);
         let input_col = input_table.tracked_col_by_ind(input_idx);
@@ -643,15 +645,17 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     );
     debug_assert_eq!(
         tie_indices.len(),
-        input_indices.len().saturating_sub(1),
-        "Sort gadget expects tie-indicator columns starting from the second data column."
+        input_indices.len(),
+        "Sort gadget expects one tie indicator per data column."
     );
 
+    // Enforce tie_i * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
-        .zip(input_indices.iter().copied().skip(1))
-        .zip(rotated_indices.iter().copied().skip(1))
+        .skip(1)
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
     {
         let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
