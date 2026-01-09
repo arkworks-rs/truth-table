@@ -1,6 +1,6 @@
 use std::{any::TypeId, sync::Arc};
 
-use arithmetic::{ACTIVATOR_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion_expr::{LogicalPlan, Sort, col, expr::Sort as SortExpr, lit};
 
@@ -64,14 +64,14 @@ fn populate_output_expr(
     };
 
     let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-    // Project the data columns and activator (and row_id if present) into the output.
+    // Project the data columns and activator (and row_id for deterministic ordering).
     let projected = sorted_df
         .schema()
         .fields()
         .iter()
         .filter(|field| {
             field.name() == ACTIVATOR_COL_NAME
-                || field.name() == arithmetic::ROW_ID_COL_NAME
+                || field.name() == ROW_ID_COL_NAME
                 || !is_system_column(field.name())
         })
         .map(|field| col(field.name()))
@@ -81,7 +81,9 @@ fn populate_output_expr(
         .expect("sort exprs projection should succeed");
 
     let output_hint = crate::irs::nodes::hints::HintDF::new_materialized(sorted_df);
-    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_hint.clone());
+    // Strip row-id before storing to avoid turning it into a witness payload.
+    let sanitized_output = crate::irs::nodes::hints::strip_row_id_from_hint(&output_hint);
+    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), sanitized_output);
     output_hint
 }
 
@@ -143,6 +145,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         };
 
         let output_hint = populate_output_expr(&mut gadget_payload, &input_hint);
+        // Drop row-id from the input sort-exprs payload after it's been used for ordering.
+        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
+        gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
         populate_sort_gadget_table(planned_ir, &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())

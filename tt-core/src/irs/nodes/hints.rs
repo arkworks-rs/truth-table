@@ -137,3 +137,38 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
         exprs.push(arithmetic::ROW_ID_EXPR.clone());
     }
 }
+
+pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
+    let df = hint.data_frame().clone();
+    let has_row_id = df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    if !has_row_id {
+        return hint.clone();
+    }
+
+    // Row-id is only for deterministic ordering, so drop it before storing payloads.
+    let projected: Vec<Expr> = df
+        .schema()
+        .fields()
+        .iter()
+        .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+        .collect();
+    let projected_df = df
+        .select(projected)
+        .expect("row-id projection should succeed");
+
+    let mut should_materialize = IndexMap::new();
+    for field in projected_df.schema().fields() {
+        let materialized = hint
+            .field_materialization_iter()
+            .find(|(orig_field, _)| orig_field.name() == field.name())
+            .map(|(_, materialized)| *materialized)
+            .unwrap_or(true);
+        should_materialize.insert(field.clone(), materialized);
+    }
+
+    HintDF::new(projected_df, should_materialize)
+}

@@ -69,6 +69,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .iter()
             .map(|sort_expr| sort_expr.expr.clone())
             .collect();
+        // Keep row-id only for deterministic ordering; payloads strip it later.
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 
         let sort_exprs_df = input_df
@@ -116,14 +117,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // 1) Gather the input/output tables for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => {
+                // Drop row-id from gadget payloads while keeping it for ordering in plans.
+                Some(strip_row_id_tracked_table(table))
+            }
             _ => None,
         };
         let output_table =
             virtualized_ir
                 .payload_for_node(&_id)
                 .and_then(|payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    PayloadStructure::PlanPayload(table) => {
+                        // Drop row-id from gadget payloads while keeping it for ordering in plans.
+                        Some(strip_row_id_tracked_table(table))
+                    }
                     _ => None,
                 });
 
@@ -171,13 +178,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // 1) Gather the input/output table oracles for this sort node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => {
+                // Drop row-id from gadget payloads while keeping it for ordering in plans.
+                Some(strip_row_id_tracked_oracle(table))
+            }
             _ => None,
         };
         let output_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                PayloadStructure::PlanPayload(table) => {
+                    // Drop row-id from gadget payloads while keeping it for ordering in plans.
+                    Some(strip_row_id_tracked_oracle(table))
+                }
                 _ => None,
             });
 
@@ -220,7 +233,6 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
     let mut output_cols: IndexMap<FieldRef, ark_piop::prover::structs::polynomial::TrackedPoly<B>> =
         IndexMap::new();
     let mut activator: Option<(FieldRef, _)> = None;
-    let mut row_id: Option<(FieldRef, _)> = None;
     let mut log_size: Option<usize> = None;
     let mut metadata = None;
 
@@ -254,21 +266,6 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_poly));
         }
-        if row_id.is_none()
-            && let Some(row_id_field) = expr_table
-                .tracked_polys()
-                .keys()
-                .find(|field| field.name() == ROW_ID_COL_NAME)
-                .cloned()
-        {
-            let row_id_poly = expr_table
-                .tracked_polys()
-                .get(&row_id_field)
-                .expect("row id field should be in tracked polys")
-                .clone();
-            row_id = Some((row_id_field, row_id_poly));
-        }
-
         let data_indices = expr_table.data_tracked_polys_indices();
         if data_indices.len() != 1 {
             panic!("Sort expression tables must have exactly one data column");
@@ -283,9 +280,7 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
     if let Some((field, poly)) = activator {
         output_cols.entry(field).or_insert(poly);
     }
-    if let Some((field, poly)) = row_id {
-        output_cols.entry(field).or_insert(poly);
-    }
+    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
 
     let fields: Vec<Field> = output_cols
         .keys()
@@ -313,7 +308,6 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
     let mut output_cols: IndexMap<FieldRef, ark_piop::verifier::structs::oracle::TrackedOracle<B>> =
         IndexMap::new();
     let mut activator: Option<(FieldRef, _)> = None;
-    let mut row_id: Option<(FieldRef, _)> = None;
     let mut log_size: Option<usize> = None;
     let mut metadata = None;
 
@@ -347,21 +341,6 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
                 .expect("activator field missing from sort expr table");
             activator = Some((activator_field, activator_oracle));
         }
-        if row_id.is_none()
-            && let Some(row_id_field) = expr_table
-                .tracked_oracles()
-                .keys()
-                .find(|field| field.name() == ROW_ID_COL_NAME)
-                .cloned()
-        {
-            let row_id_oracle = expr_table
-                .tracked_oracles()
-                .get(&row_id_field)
-                .expect("row id field should be in tracked oracles")
-                .clone();
-            row_id = Some((row_id_field, row_id_oracle));
-        }
-
         let data_indices = expr_table.data_tracked_oracles_indices();
         if data_indices.len() != 1 {
             panic!("Sort expression tables must have exactly one data column");
@@ -376,9 +355,7 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
     if let Some((field, oracle)) = activator {
         output_cols.entry(field).or_insert(oracle);
     }
-    if let Some((field, oracle)) = row_id {
-        output_cols.entry(field).or_insert(oracle);
-    }
+    // Do not include row-id in gadget payloads; it is only used for ordering in plans.
 
     let fields: Vec<Field> = output_cols
         .keys()
@@ -393,6 +370,56 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
         output_cols,
         log_size.unwrap_or_default(),
     ))
+}
+
+fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
+    let Some(schema) = table.schema_ref() else {
+        return table.clone();
+    };
+    if !schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        return table.clone();
+    }
+
+    // Row-id is only used for deterministic ordering, so omit it from payload tables.
+    let mut cols = IndexMap::new();
+    for (field, poly) in table.tracked_polys_iter() {
+        if field.name() != ROW_ID_COL_NAME {
+            cols.insert(field.clone(), poly.clone());
+        }
+    }
+    let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
+    let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    TrackedTable::new(schema, cols, table.log_size())
+}
+
+fn strip_row_id_tracked_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let Some(schema) = table.schema_ref() else {
+        return table.clone();
+    };
+    if !schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        return table.clone();
+    }
+
+    // Row-id is only used for deterministic ordering, so omit it from payload tables.
+    let mut cols = IndexMap::new();
+    for (field, oracle) in table.tracked_oracles_iter() {
+        if field.name() != ROW_ID_COL_NAME {
+            cols.insert(field.clone(), oracle.clone());
+        }
+    }
+    let fields: Vec<Field> = cols.keys().map(|field| field.as_ref().clone()).collect();
+    let schema = Some(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    TrackedTableOracle::new(schema, cols, table.log_size())
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {

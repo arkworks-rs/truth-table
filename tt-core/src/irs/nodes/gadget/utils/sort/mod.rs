@@ -60,6 +60,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
         populate_rotated(&mut gadget_payload, &input_hint);
         populate_tie_indicator(&mut gadget_payload, &input_hint);
+        // Strip row-id before storing to avoid exposing it in gadget payloads.
+        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
+        gadget_payload.insert(TABLE_LABEL.to_string(), sanitized_input);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
