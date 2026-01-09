@@ -105,7 +105,8 @@ pub(crate) fn tie_indicator(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusio
         .fields()
         .iter()
         .map(|field| field.name().to_string())
-        .filter(|name| name != ROW_ID_COL_NAME)
+        // Tie indicators should only consider data columns (not activator/row_id).
+        .filter(|name| !is_system_column(name))
         .collect();
     if data_cols.len() < 2 {
         return df.select(Vec::<Expr>::new());

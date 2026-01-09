@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_ff::One;
 use ark_piop::SnarkBackend;
+use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
+use ark_piop::verifier::structs::oracle::Oracle;
 use ark_piop::{
-    prover::structs::polynomial::TrackedPoly, verifier::structs::oracle::TrackedOracle,
+    prover::ArgProver, prover::structs::polynomial::TrackedPoly, verifier::ArgVerifier,
+    verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::datatypes::{DataType, Field};
+use ark_poly::Polynomial;
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use either::Either;
 use indexmap::IndexMap;
 
@@ -27,6 +32,7 @@ mod tests;
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
+const FIRST_TIE_LABEL: &str = "tie_0";
 pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
@@ -163,7 +169,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
             return Ok(());
@@ -178,6 +184,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             populate_prescr_perm_payloads_prover(&self.prescr_perm, &left, &right, virtualized_ir)?;
         }
         if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
+            let tie_table = prepend_first_tie_indicator_prover(&tie_table);
+            payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table.clone());
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -192,6 +200,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
@@ -210,7 +219,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
+        let Some(PayloadStructure::GadgetPayload(mut payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
             return Ok(());
@@ -230,6 +239,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             )?;
         }
         if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
+            let tie_table = prepend_first_tie_indicator_verifier(&tie_table);
+            payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table.clone());
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -244,6 +255,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
@@ -255,7 +267,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)
+        add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
+        dbg!("Added tie monotonicity zerochecks prover for Sort gadget");
+        add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)
     }
 
     fn verify(
@@ -264,7 +278,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)
+        add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
+        add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -347,4 +362,214 @@ fn add_tie_monotonicity_zerochecks_verifier<B: SnarkBackend>(
         prev = current;
     }
     Ok(())
+}
+
+fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    gadget_ready_ir: &mut GadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<()> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+    else {
+        return Ok(());
+    };
+    let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
+        payload.get(TIE_INDICATOR_LABEL).cloned(),
+        payload.get(TABLE_LABEL).cloned(),
+        payload.get(ROTATED_INPUT_LABEL).cloned(),
+    ) else {
+        return Ok(());
+    };
+
+    let tie_indices = tie_table.data_tracked_polys_indices();
+    let input_indices = input_table.data_tracked_polys_indices();
+    let rotated_indices = rotated_table.data_tracked_polys_indices();
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort gadget expects matching data column counts between input and rotated tables."
+    );
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort gadget expects one tie-indicator column per data column."
+    );
+
+    for ((tie_idx, input_idx), rotated_idx) in tie_indices
+        .iter()
+        .copied()
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
+    {
+        dbg!(tie_idx);
+        let tie_col = tie_table.tracked_col_by_ind(tie_idx);
+        let input_col = input_table.tracked_col_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
+
+        let tie_poly = tie_col.activated_data_tracked_poly();
+        let diff_poly =
+            &input_col.activated_data_tracked_poly() - &rotated_col.activated_data_tracked_poly();
+        let zero_poly = &tie_poly * &diff_poly;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
+    }
+    Ok(())
+}
+
+fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+    gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> ark_piop::errors::SnarkResult<()> {
+    let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+    else {
+        return Ok(());
+    };
+    let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
+        payload.get(TIE_INDICATOR_LABEL).cloned(),
+        payload.get(TABLE_LABEL).cloned(),
+        payload.get(ROTATED_INPUT_LABEL).cloned(),
+    ) else {
+        return Ok(());
+    };
+
+    let tie_indices = tie_table.data_tracked_oracles_indices();
+    let input_indices = input_table.data_tracked_oracles_indices();
+    let rotated_indices = rotated_table.data_tracked_oracles_indices();
+    debug_assert_eq!(
+        input_indices.len(),
+        rotated_indices.len(),
+        "Sort gadget expects matching data column counts between input and rotated tables."
+    );
+    debug_assert_eq!(
+        tie_indices.len(),
+        input_indices.len(),
+        "Sort gadget expects one tie-indicator column per data column."
+    );
+
+    for ((tie_idx, input_idx), rotated_idx) in tie_indices
+        .iter()
+        .copied()
+        .zip(input_indices.iter().copied())
+        .zip(rotated_indices.iter().copied())
+    {
+        let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
+        let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
+        let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
+
+        let tie_oracle = tie_col.activated_data_tracked_oracle();
+        let diff_oracle = &input_col.activated_data_tracked_oracle()
+            - &rotated_col.activated_data_tracked_oracle();
+        let zero_oracle = &tie_oracle * &diff_oracle;
+        verifier.add_zerocheck_claim(zero_oracle.id());
+    }
+    Ok(())
+}
+
+fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
+    if table
+        .tracked_polys_iter()
+        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
+    {
+        return table.clone();
+    }
+
+    let data_idx = table
+        .data_tracked_polys_indices()
+        .first()
+        .copied()
+        .unwrap_or_else(|| panic!("Tie indicator table must have data columns"));
+    let data_col = table.tracked_col_by_ind(data_idx);
+    let num_vars = data_col.data_tracked_poly().log_size();
+    let tracker = data_col.data_tracked_poly().tracker();
+    let mut prover = ArgProver::new_from_tracker_rc(tracker.clone());
+
+    // Build the special first tie column: 1 - eq_x_r(1^n).
+    let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
+    let last_eq_poly =
+        build_eq_x_r(&vec![B::F::one(); num_vars]).expect("build_eq_x_r should succeed");
+    let last_eq_id = tracker
+        .borrow_mut()
+        .track_mat_mv_poly(last_eq_poly.as_ref().clone());
+    let tracked_last_eq_poly = TrackedPoly::new(Either::Left(last_eq_id), num_vars, tracker);
+    let first_tie_poly = &one_tracked_poly - &tracked_last_eq_poly;
+
+    let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
+    let mut tracked_polys = IndexMap::new();
+    tracked_polys.insert(first_tie_field.clone(), first_tie_poly);
+    for (field, poly) in table.tracked_polys_iter() {
+        tracked_polys.insert(field.clone(), poly.clone());
+    }
+
+    let schema = table.schema_ref().map(|schema| {
+        let fields = tracked_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        Some(Schema::new(
+            tracked_polys
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ))
+    });
+    TrackedTable::new(schema, tracked_polys, table.log_size())
+}
+
+fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    if table
+        .tracked_oracles_iter()
+        .any(|(field, _)| field.name() == FIRST_TIE_LABEL)
+    {
+        return table.clone();
+    }
+
+    let data_idx = table
+        .data_tracked_oracles_indices()
+        .first()
+        .copied()
+        .unwrap_or_else(|| panic!("Tie indicator table must have data columns"));
+    let data_col = table.tracked_col_oracle_by_ind(data_idx);
+    let num_vars = data_col.data_tracked_oracle().log_size();
+    let tracker = data_col.data_tracked_oracle().tracker();
+    let mut verifier = ArgVerifier::new_from_tracker_rc(tracker.clone());
+
+    // Build the special first tie column: 1 - eq_x_r(1^n).
+    let one_tracked_oracle = verifier.track_mat_mv_cnst_oracle(num_vars, B::F::one());
+    let last_eq_sparse = build_sparse_eq_x_r(&vec![B::F::one(); num_vars])
+        .expect("build_sparse_eq_x_r should succeed");
+    let last_eq_oracle = Oracle::new_multivariate(num_vars, move |point: Vec<B::F>| {
+        Ok(last_eq_sparse.evaluate(&point))
+    });
+    let last_eq_id = tracker.borrow_mut().track_oracle(last_eq_oracle);
+    let tracked_last_eq_oracle = TrackedOracle::new(Either::Left(last_eq_id), tracker, num_vars);
+    let first_tie_oracle = &one_tracked_oracle - &tracked_last_eq_oracle;
+
+    let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
+    let mut tracked_oracles = IndexMap::new();
+    tracked_oracles.insert(first_tie_field.clone(), first_tie_oracle);
+    for (field, oracle) in table.tracked_oracles_iter() {
+        tracked_oracles.insert(field.clone(), oracle.clone());
+    }
+
+    let schema = table.schema_ref().map(|schema| {
+        let fields = tracked_oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        Some(Schema::new(
+            tracked_oracles
+                .keys()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ))
+    });
+    TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
 }
