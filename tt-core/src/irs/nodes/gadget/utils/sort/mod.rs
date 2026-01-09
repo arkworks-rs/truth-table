@@ -194,7 +194,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        dbg!(&payload);
         if payload.get(TABLE_LABEL).is_some() && payload.get(ROTATED_INPUT_LABEL).is_none() {
             panic!("Expected rotated input payload for Sort gadget");
         }
