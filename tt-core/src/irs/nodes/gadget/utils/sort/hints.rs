@@ -21,7 +21,7 @@ pub(crate) fn populate_rotated(
         .schema()
         .fields()
         .iter()
-        .map(|field| (field.clone(), !is_system_column(field.name())))
+        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
         .collect();
     let rotated_hint = crate::irs::nodes::hints::HintDF::new(rotated_df, should_materialize);
     gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
@@ -37,7 +37,7 @@ pub(crate) fn populate_tie_indicator(
         .schema()
         .fields()
         .iter()
-        .map(|field| (field.clone(), !is_system_column(field.name())))
+        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
         .collect();
     let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, should_materialize);
     gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
