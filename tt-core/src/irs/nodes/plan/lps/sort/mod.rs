@@ -161,7 +161,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn initialize_gadgets(

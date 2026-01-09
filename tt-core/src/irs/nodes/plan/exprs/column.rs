@@ -69,10 +69,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             return Ok(());
         };
 
+        let parent_name = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .map(|node| node.name())
+            .unwrap_or_else(|| "<none>".to_string());
+
         panic!(
-            "Column node could not find its column '{}' in scope node {:?}",
+            "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            scope_id
+            scope_id,
+            parent_name
         );
     }
 
@@ -145,10 +153,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             return Ok(());
         };
 
+        let parent_name = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .map(|node| node.name())
+            .unwrap_or_else(|| "<none>".to_string());
+
         panic!(
-            "Column node could not find its column '{}' in scope node {:?}",
+            "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            scope_id
+            scope_id,
+            parent_name
         );
     }
 
