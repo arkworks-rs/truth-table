@@ -59,7 +59,7 @@ fn populate_output_expr(
 
     let sort = Sort {
         expr: sort_exprs,
-        input: Arc::new(LogicalPlan::from(sort_input_df.logical_plan().clone())),
+        input: Arc::new(sort_input_df.logical_plan().clone()),
         fetch: None,
     };
 
@@ -164,8 +164,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -182,8 +182,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

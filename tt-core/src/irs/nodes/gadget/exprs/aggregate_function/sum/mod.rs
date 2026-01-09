@@ -3,10 +3,10 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::utils::keyed_sumcheck;
 use crate::irs::nodes::gadget::exprs::aggregate_function::{
-    input_label, INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL,
+    INPUT_RLC_LABEL, OUTPUT_LABEL, OUTPUT_RLC_LABEL, input_label,
 };
+use crate::irs::nodes::gadget::utils::keyed_sumcheck;
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -78,9 +78,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let input_0 = payload
             .get(&input_0_label)
             .cloned()
-            .unwrap_or_else(|| {
-                panic!("Sum Aggregate Function missing payload {}", input_0_label)
-            });
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing payload {}", input_0_label));
 
         let mut keyed_sumcheck_payload =
             match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
@@ -137,9 +135,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let input_0 = payload
             .get(&input_0_label)
             .cloned()
-            .unwrap_or_else(|| {
-                panic!("Sum Aggregate Function missing payload {}", input_0_label)
-            });
+            .unwrap_or_else(|| panic!("Sum Aggregate Function missing payload {}", input_0_label));
 
         let mut keyed_sumcheck_payload =
             match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {

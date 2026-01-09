@@ -101,8 +101,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
-        id: NodeId,
-        virtualized_ir: &mut ProverVirtualizedIr<B>,
+        _id: NodeId,
+        _virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -158,8 +158,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
-        id: NodeId,
-        virtualized_ir: &mut VerifierVirtualizedIr<B>,
+        _id: NodeId,
+        _virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -243,31 +243,30 @@ fn build_sort_exprs_table_prover<B: SnarkBackend>(
                 .unwrap_or_default()
         });
 
-        if activator.is_none() {
-            if let Some(activator_poly) = expr_table.activator_tracked_poly() {
-                let activator_field = expr_table
-                    .tracked_polys()
-                    .keys()
-                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                    .cloned()
-                    .expect("activator field missing from sort expr table");
-                activator = Some((activator_field, activator_poly));
-            }
+        if activator.is_none()
+            && let Some(activator_poly) = expr_table.activator_tracked_poly()
+        {
+            let activator_field = expr_table
+                .tracked_polys()
+                .keys()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                .cloned()
+                .expect("activator field missing from sort expr table");
+            activator = Some((activator_field, activator_poly));
         }
-        if row_id.is_none() {
-            if let Some(row_id_field) = expr_table
+        if row_id.is_none()
+            && let Some(row_id_field) = expr_table
                 .tracked_polys()
                 .keys()
                 .find(|field| field.name() == ROW_ID_COL_NAME)
                 .cloned()
-            {
-                let row_id_poly = expr_table
-                    .tracked_polys()
-                    .get(&row_id_field)
-                    .expect("row id field should be in tracked polys")
-                    .clone();
-                row_id = Some((row_id_field, row_id_poly));
-            }
+        {
+            let row_id_poly = expr_table
+                .tracked_polys()
+                .get(&row_id_field)
+                .expect("row id field should be in tracked polys")
+                .clone();
+            row_id = Some((row_id_field, row_id_poly));
         }
 
         let data_indices = expr_table.data_tracked_polys_indices();
@@ -337,31 +336,30 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
                 .unwrap_or_default()
         });
 
-        if activator.is_none() {
-            if let Some(activator_oracle) = expr_table.activator_tracked_poly() {
-                let activator_field = expr_table
-                    .tracked_oracles()
-                    .keys()
-                    .find(|field| field.name() == ACTIVATOR_COL_NAME)
-                    .cloned()
-                    .expect("activator field missing from sort expr table");
-                activator = Some((activator_field, activator_oracle));
-            }
+        if activator.is_none()
+            && let Some(activator_oracle) = expr_table.activator_tracked_poly()
+        {
+            let activator_field = expr_table
+                .tracked_oracles()
+                .keys()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                .cloned()
+                .expect("activator field missing from sort expr table");
+            activator = Some((activator_field, activator_oracle));
         }
-        if row_id.is_none() {
-            if let Some(row_id_field) = expr_table
+        if row_id.is_none()
+            && let Some(row_id_field) = expr_table
                 .tracked_oracles()
                 .keys()
                 .find(|field| field.name() == ROW_ID_COL_NAME)
                 .cloned()
-            {
-                let row_id_oracle = expr_table
-                    .tracked_oracles()
-                    .get(&row_id_field)
-                    .expect("row id field should be in tracked oracles")
-                    .clone();
-                row_id = Some((row_id_field, row_id_oracle));
-            }
+        {
+            let row_id_oracle = expr_table
+                .tracked_oracles()
+                .get(&row_id_field)
+                .expect("row id field should be in tracked oracles")
+                .clone();
+            row_id = Some((row_id_field, row_id_oracle));
         }
 
         let data_indices = expr_table.data_tracked_oracles_indices();

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, verifier::structs::oracle::Oracle};
-use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
@@ -165,18 +165,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 
     fn verify(
         &self,
-        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -222,7 +222,10 @@ fn append_index_col_prover<B: SnarkBackend>(right: &TrackedTable<B>) -> TrackedT
         .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
         .map(|(field, poly)| (field.clone(), poly.clone()))
         .unwrap_or_else(|| {
-            panic!("Prescribed Permutation expects {} on right table", ROW_ID_COL_NAME)
+            panic!(
+                "Prescribed Permutation expects {} on right table",
+                ROW_ID_COL_NAME
+            )
         });
     let index_field = Arc::new(
         Field::new(
@@ -285,7 +288,10 @@ fn append_index_col_verifier<B: SnarkBackend>(
         .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
         .map(|(field, oracle)| (field.clone(), oracle.clone()))
         .unwrap_or_else(|| {
-            panic!("Prescribed Permutation expects {} on right table", ROW_ID_COL_NAME)
+            panic!(
+                "Prescribed Permutation expects {} on right table",
+                ROW_ID_COL_NAME
+            )
         });
     let index_field = Arc::new(
         Field::new(

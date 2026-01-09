@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{gadget::utils::sign, IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::sign},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -222,9 +222,9 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            sign::SignNode::new(sign::Sign::NonPositive),
-        )));
+        let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            sign::Sign::NonPositive,
+        ))));
         Self { sign: sign_gadget }
     }
 }

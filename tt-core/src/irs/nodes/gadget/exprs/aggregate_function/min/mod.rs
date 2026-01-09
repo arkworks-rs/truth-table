@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::exprs::aggregate_function::{input_label, OUTPUT_LABEL};
+use crate::irs::nodes::gadget::exprs::aggregate_function::{OUTPUT_LABEL, input_label};
 use crate::irs::nodes::gadget::utils::leq;
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;

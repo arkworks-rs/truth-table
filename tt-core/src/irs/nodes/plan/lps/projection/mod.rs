@@ -1,7 +1,7 @@
 use std::sync::{Arc, Weak};
 
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{LogicalPlan, Projection};

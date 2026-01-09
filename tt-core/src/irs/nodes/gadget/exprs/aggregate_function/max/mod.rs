@@ -88,12 +88,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .expect("Max Aggregate Function output column should have field metadata");
         let output_poly = output_col.data_tracked_poly();
         let input_activator = input_0.activator_tracked_poly();
-        let left_table =
-            arithmetic::table::TrackedTable::single_column_with_activator(
-                output_field,
-                output_poly,
-                input_activator,
-            );
+        let left_table = arithmetic::table::TrackedTable::single_column_with_activator(
+            output_field,
+            output_poly,
+            input_activator,
+        );
 
         let mut geq_payload = match virtualized_ir.payload_for_node(&self.geq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -157,12 +156,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .expect("Max Aggregate Function output column should have field metadata");
         let output_oracle = output_col.data_tracked_oracle();
         let input_activator = input_0.activator_tracked_poly();
-        let left_table =
-            arithmetic::table_oracle::TrackedTableOracle::single_column_with_activator(
-                output_field,
-                output_oracle,
-                input_activator,
-            );
+        let left_table = arithmetic::table_oracle::TrackedTableOracle::single_column_with_activator(
+            output_field,
+            output_oracle,
+            input_activator,
+        );
 
         let mut geq_payload = match virtualized_ir.payload_for_node(&self.geq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
