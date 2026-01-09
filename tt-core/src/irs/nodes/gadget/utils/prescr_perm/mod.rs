@@ -1,9 +1,15 @@
 use std::sync::Arc;
 
-use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE, verifier::structs::oracle::Oracle};
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use ark_piop::{
+    SnarkBackend,
+    arithmetic::mat_poly::mle::MLE,
+    prover::structs::polynomial::TrackedPoly,
+    verifier::structs::oracle::{Oracle, TrackedOracle},
+};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use either::Either;
 use indexmap::IndexMap;
 
 use crate::{
@@ -217,25 +223,23 @@ fn append_perm_col_prover<B: SnarkBackend>(
 }
 
 fn append_index_col_prover<B: SnarkBackend>(right: &TrackedTable<B>) -> TrackedTable<B> {
-    let (row_id_field, row_id_poly) = right
-        .tracked_polys_iter()
-        .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-        .map(|(field, poly)| (field.clone(), poly.clone()))
-        .unwrap_or_else(|| {
-            panic!(
-                "Prescribed Permutation expects {} on right table",
-                ROW_ID_COL_NAME
-            )
-        });
-    let index_field = Arc::new(
-        Field::new(
-            INDEX_LABEL,
-            row_id_field.data_type().clone(),
-            row_id_field.is_nullable(),
-        )
-        .with_metadata(row_id_field.metadata().clone()),
+    let data_col = right
+        .data_tracked_polys_indices()
+        .first()
+        .copied()
+        .map(|idx| right.tracked_col_by_ind(idx))
+        .unwrap_or_else(|| panic!("Prescribed Permutation expects data columns on right table"));
+    let log_size = data_col.data_tracked_poly().log_size();
+    let index_mle = MLE::from_evaluations_vec(
+        log_size,
+        (0..(1 << log_size)).map(|i| B::F::from(i as u64)).collect(),
     );
-    append_tracked_col(right, index_field, row_id_poly)
+    let tracker = data_col.data_tracked_poly().tracker();
+    let index_id = tracker.borrow_mut().track_mat_mv_poly(index_mle);
+    let index_tracked_poly = TrackedPoly::new(Either::Left(index_id), log_size, tracker);
+
+    let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
+    append_tracked_col(right, index_field, index_tracked_poly)
 }
 
 fn append_tracked_col<B: SnarkBackend>(
@@ -283,25 +287,20 @@ fn append_perm_col_verifier<B: SnarkBackend>(
 fn append_index_col_verifier<B: SnarkBackend>(
     right: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
-    let (row_id_field, row_id_oracle) = right
-        .tracked_oracles_iter()
-        .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-        .map(|(field, oracle)| (field.clone(), oracle.clone()))
-        .unwrap_or_else(|| {
-            panic!(
-                "Prescribed Permutation expects {} on right table",
-                ROW_ID_COL_NAME
-            )
-        });
-    let index_field = Arc::new(
-        Field::new(
-            INDEX_LABEL,
-            row_id_field.data_type().clone(),
-            row_id_field.is_nullable(),
-        )
-        .with_metadata(row_id_field.metadata().clone()),
-    );
-    append_tracked_oracle(right, index_field, row_id_oracle)
+    let data_col = right
+        .data_tracked_oracles_indices()
+        .first()
+        .copied()
+        .map(|idx| right.tracked_col_oracle_by_ind(idx))
+        .unwrap_or_else(|| panic!("Prescribed Permutation expects data columns on right table"));
+    let log_size = data_col.data_tracked_oracle().log_size();
+    let index_oracle = shift_permutation_oracle::<B::F>(log_size, 0, true);
+    let tracker = data_col.data_tracked_oracle().tracker();
+    let index_id = tracker.borrow_mut().track_oracle(index_oracle);
+    let index_tracked_oracle = TrackedOracle::new(Either::Left(index_id), tracker, log_size);
+
+    let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
+    append_tracked_oracle(right, index_field, index_tracked_oracle)
 }
 
 fn append_tracked_oracle<B: SnarkBackend>(

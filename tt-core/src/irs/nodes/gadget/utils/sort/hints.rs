@@ -1,11 +1,10 @@
-use crate::irs::nodes::gadget::utils::sort::DataFusionError;
-use crate::irs::nodes::gadget::utils::sort::DataFusionResult;
 use crate::irs::nodes::gadget::utils::sort::{ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL};
 use arithmetic::{ROW_ID_COL_NAME, is_system_column};
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::DataFrame;
+use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::SortExpr;
 use datafusion_expr::when;

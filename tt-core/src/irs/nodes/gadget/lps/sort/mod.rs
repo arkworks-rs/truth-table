@@ -215,14 +215,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {
     fn default() -> Self {
-        Self::new(0)
+        Self::new()
     }
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(num_data_columns: usize) -> Self {
+    pub fn new() -> Self {
         let sort = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(num_data_columns),
+            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(),
         )));
         Self { sort }
     }

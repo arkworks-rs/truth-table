@@ -454,10 +454,7 @@ impl<B: SnarkBackend> IsLpNode<B> for GadgetNode<B> {
             sort_exprs.push(expr_lp);
         }
 
-        let num_data_columns = sort.expr.len();
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(sort::GadgetNode::new(
-            num_data_columns,
-        ))));
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(sort::GadgetNode::new())));
 
         Self {
             sort,
