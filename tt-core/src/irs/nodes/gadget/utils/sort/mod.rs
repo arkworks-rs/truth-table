@@ -141,7 +141,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(num_data_columns: usize) -> Self {
         let mut rotations = vec![];
