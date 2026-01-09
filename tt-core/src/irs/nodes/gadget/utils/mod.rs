@@ -1,3 +1,4 @@
+pub mod bool;
 pub mod eq;
 pub mod geq;
 pub mod keyed_sumcheck;
