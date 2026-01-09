@@ -11,7 +11,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-use super::{rotate, tie_indicator};
+use crate::irs::nodes::gadget::utils::sort::hints::{rotate, tie_indicator};
 
 fn build_df(
     ctx: &SessionContext,
@@ -52,7 +52,9 @@ async fn assert_rotated_int_bool(
             .as_any()
             .downcast_ref::<Int32Array>()
             .unwrap();
-        let actual = (0..vals.len()).map(|row| vals.value(row)).collect::<Vec<_>>();
+        let actual = (0..vals.len())
+            .map(|row| vals.value(row))
+            .collect::<Vec<_>>();
         assert_eq!(&actual, expected);
     }
 
@@ -95,7 +97,9 @@ async fn assert_tie_indicator(
             .as_any()
             .downcast_ref::<BooleanArray>()
             .unwrap();
-        let actual = (0..vals.len()).map(|row| vals.value(row)).collect::<Vec<_>>();
+        let actual = (0..vals.len())
+            .map(|row| vals.value(row))
+            .collect::<Vec<_>>();
         assert_eq!(&actual, expected);
     }
 }
@@ -261,10 +265,7 @@ async fn tie_indicator_full_match_until_last_col() {
     assert_tie_indicator(
         df,
         vec!["tie_1", "tie_2"],
-        vec![
-            vec![true, true, false],
-            vec![true, true, false],
-        ],
+        vec![vec![true, true, false], vec![true, true, false]],
     )
     .await;
 }
@@ -310,10 +311,5 @@ async fn tie_indicator_single_row() {
     )
     .unwrap();
 
-    assert_tie_indicator(
-        df,
-        vec!["tie_1", "tie_2"],
-        vec![vec![false], vec![false]],
-    )
-    .await;
+    assert_tie_indicator(df, vec!["tie_1", "tie_2"], vec![vec![false], vec![false]]).await;
 }
