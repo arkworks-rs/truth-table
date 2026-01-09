@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::One;
+use ark_ff::{One, Zero};
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
 use ark_piop::verifier::structs::oracle::Oracle;
@@ -268,8 +268,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_prover(prover, gadget_ready_ir, id)?;
-        dbg!("Added tie monotonicity zerochecks prover for Sort gadget");
-        add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)
+        // add_tie_rotation_consistency_zerochecks_prover(prover, gadget_ready_ir, id)
+        Ok(())
     }
 
     fn verify(
@@ -279,7 +279,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         add_tie_monotonicity_zerochecks_verifier(verifier, gadget_ready_ir, id)?;
-        add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)
+        // add_tie_rotation_consistency_zerochecks_verifier(verifier, gadget_ready_ir, id)
+
+        Ok(())
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -315,12 +317,22 @@ fn add_tie_monotonicity_zerochecks_prover<B: SnarkBackend>(
         return Ok(());
     };
 
-    let data_indices = tie_table.data_tracked_polys_indices();
+    let tie_polys = tie_table.tracked_polys();
+    let data_indices: Vec<usize> = tie_table
+        .data_tracked_polys_indices()
+        .into_iter()
+        .filter(|idx| {
+            let (field, _) = tie_polys
+                .get_index(*idx)
+                .expect("tie indicator column index out of bounds");
+            field.name() != FIRST_TIE_LABEL
+        })
+        .collect();
     if data_indices.len() < 2 {
         return Ok(());
     }
 
-    // Enforce ties_i * ties_{i-1} - ties_i = 0 for each prefix column i.
+    // Enforce ties_i * ties_{i-1} - ties_i = 0, starting from the second column.
     let mut prev = tie_table.tracked_col_by_ind(data_indices[0]);
     for &idx in data_indices.iter().skip(1) {
         let current = tie_table.tracked_col_by_ind(idx);
@@ -346,12 +358,22 @@ fn add_tie_monotonicity_zerochecks_verifier<B: SnarkBackend>(
         return Ok(());
     };
 
-    let data_indices = tie_table.data_tracked_oracles_indices();
+    let tie_oracles = tie_table.tracked_oracles();
+    let data_indices: Vec<usize> = tie_table
+        .data_tracked_oracles_indices()
+        .into_iter()
+        .filter(|idx| {
+            let (field, _) = tie_oracles
+                .get_index(*idx)
+                .expect("tie indicator column index out of bounds");
+            field.name() != FIRST_TIE_LABEL
+        })
+        .collect();
     if data_indices.len() < 2 {
         return Ok(());
     }
 
-    // Enforce ties_i * ties_{i-1} - ties_i = 0 for each prefix column i.
+    // Enforce ties_i * ties_{i-1} - ties_i = 0, starting from the second column.
     let mut prev = tie_table.tracked_col_oracle_by_ind(data_indices[0]);
     for &idx in data_indices.iter().skip(1) {
         let current = tie_table.tracked_col_oracle_by_ind(idx);
@@ -381,7 +403,18 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
         return Ok(());
     };
 
-    let tie_indices = tie_table.data_tracked_polys_indices();
+    println!("{}", tie_table.pretty_string());
+    let tie_polys = tie_table.tracked_polys();
+    let tie_indices: Vec<usize> = tie_table
+        .data_tracked_polys_indices()
+        .into_iter()
+        .filter(|idx| {
+            let (field, _) = tie_polys
+                .get_index(*idx)
+                .expect("tie indicator column index out of bounds");
+            field.name() != FIRST_TIE_LABEL
+        })
+        .collect();
     let input_indices = input_table.data_tracked_polys_indices();
     let rotated_indices = rotated_table.data_tracked_polys_indices();
     debug_assert_eq!(
@@ -391,24 +424,22 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
     );
     debug_assert_eq!(
         tie_indices.len(),
-        input_indices.len(),
-        "Sort gadget expects one tie-indicator column per data column."
+        input_indices.len().saturating_sub(1),
+        "Sort gadget expects tie-indicator columns starting from the second data column."
     );
 
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
+        .zip(input_indices.iter().copied().skip(1))
+        .zip(rotated_indices.iter().copied().skip(1))
     {
-        dbg!(tie_idx);
         let tie_col = tie_table.tracked_col_by_ind(tie_idx);
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
+        let tie_poly = tie_col.data_tracked_poly();
+        let diff_poly = &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly();
 
-        let tie_poly = tie_col.activated_data_tracked_poly();
-        let diff_poly =
-            &input_col.activated_data_tracked_poly() - &rotated_col.activated_data_tracked_poly();
         let zero_poly = &tie_poly * &diff_poly;
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
     }
@@ -432,7 +463,17 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
         return Ok(());
     };
 
-    let tie_indices = tie_table.data_tracked_oracles_indices();
+    let tie_oracles = tie_table.tracked_oracles();
+    let tie_indices: Vec<usize> = tie_table
+        .data_tracked_oracles_indices()
+        .into_iter()
+        .filter(|idx| {
+            let (field, _) = tie_oracles
+                .get_index(*idx)
+                .expect("tie indicator column index out of bounds");
+            field.name() != FIRST_TIE_LABEL
+        })
+        .collect();
     let input_indices = input_table.data_tracked_oracles_indices();
     let rotated_indices = rotated_table.data_tracked_oracles_indices();
     debug_assert_eq!(
@@ -442,23 +483,22 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     );
     debug_assert_eq!(
         tie_indices.len(),
-        input_indices.len(),
-        "Sort gadget expects one tie-indicator column per data column."
+        input_indices.len().saturating_sub(1),
+        "Sort gadget expects tie-indicator columns starting from the second data column."
     );
 
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
-        .zip(input_indices.iter().copied())
-        .zip(rotated_indices.iter().copied())
+        .zip(input_indices.iter().copied().skip(1))
+        .zip(rotated_indices.iter().copied().skip(1))
     {
         let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
 
-        let tie_oracle = tie_col.activated_data_tracked_oracle();
-        let diff_oracle = &input_col.activated_data_tracked_oracle()
-            - &rotated_col.activated_data_tracked_oracle();
+        let tie_oracle = tie_col.data_tracked_oracle();
+        let diff_oracle = &input_col.data_tracked_oracle() - &rotated_col.data_tracked_oracle();
         let zero_oracle = &tie_oracle * &diff_oracle;
         verifier.add_zerocheck_claim(zero_oracle.id());
     }

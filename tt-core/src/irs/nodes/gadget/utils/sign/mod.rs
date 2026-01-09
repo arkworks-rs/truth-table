@@ -35,7 +35,7 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
-pub const INPUT_LABEL: &str = "input";
+pub const INPUT_LABEL: &str = "__input__";
 #[cfg(test)]
 mod tests;
 #[derive(Debug, Clone, Copy)]
