@@ -29,7 +29,7 @@ async fn assert_rotated_int_bool(
     expected_int_cols: Vec<Vec<i32>>,
     expected_activator: Vec<bool>,
 ) {
-    let out = rotate(df).unwrap();
+    let out = rotate(df, Vec::new()).unwrap();
     let batches = out.collect().await.unwrap();
     let combined = concat_batches(&batches[0].schema(), &batches).unwrap();
 
@@ -170,7 +170,7 @@ async fn rotate_requires_row_id() {
     )
     .unwrap();
 
-    let err = rotate(df).unwrap_err();
+    let err = rotate(df, Vec::new()).unwrap_err();
     assert!(
         err.to_string().contains(ROW_ID_COL_NAME),
         "expected rotate error to mention row id"

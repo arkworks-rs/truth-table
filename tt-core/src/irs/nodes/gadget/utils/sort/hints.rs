@@ -1,5 +1,5 @@
 use crate::irs::nodes::gadget::utils::sort::{ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL};
-use arithmetic::{ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;
 use datafusion::logical_expr::lit;
@@ -15,8 +15,9 @@ pub(crate) fn populate_rotated(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
 ) {
+    let order_by = sort_order_from_hint(input_hint);
     let rotated_df =
-        rotate(input_hint.data_frame().clone()).expect("sort rotate planning should succeed");
+        rotate(input_hint.data_frame().clone(), order_by).expect("sort rotate planning should succeed");
     let should_materialize = rotated_df
         .schema()
         .fields()
@@ -31,7 +32,8 @@ pub(crate) fn populate_tie_indicator(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
 ) {
-    let tie_df = tie_indicator(input_hint.data_frame().clone(), Vec::new())
+    let order_by = sort_order_from_hint(input_hint);
+    let tie_df = tie_indicator(input_hint.data_frame().clone(), order_by)
         .expect("sort tie indicator planning should succeed");
     let should_materialize = tie_df
         .schema()
@@ -43,22 +45,25 @@ pub(crate) fn populate_tie_indicator(
     gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
 }
 
-pub(crate) fn rotate(df: DataFrame) -> DataFusionResult<DataFrame> {
+pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult<DataFrame> {
     let has_row_id = df
         .schema()
         .fields()
         .iter()
         .any(|field| field.name() == ROW_ID_COL_NAME);
-    if !has_row_id {
+    let order_by = if !order_by.is_empty() {
+        order_by
+    } else if has_row_id {
+        vec![col(ROW_ID_COL_NAME).sort(true, true)]
+    } else {
         return Err(DataFusionError::Plan(format!(
             "rotate requires {} column for deterministic ordering",
             ROW_ID_COL_NAME
         )));
-    }
+    };
 
-    let ordered = df.sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])?;
+    let ordered = df.sort(order_by.clone())?;
     let mut rotated_cols = Vec::new();
-    let order_by = vec![col(ROW_ID_COL_NAME).sort(true, true)];
 
     for field in ordered.schema().fields() {
         let name = field.name();
@@ -86,16 +91,15 @@ pub(crate) fn tie_indicator(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusio
         .fields()
         .iter()
         .any(|field| field.name() == ROW_ID_COL_NAME);
-    let order_by = if has_row_id {
+    let order_by = if !order_by.is_empty() {
+        order_by
+    } else if has_row_id {
         vec![col(ROW_ID_COL_NAME).sort(true, true)]
     } else {
-        order_by
-    };
-    if order_by.is_empty() {
         return Err(DataFusionError::Plan(
             "tie_indicator requires ordering or __row_id__ column".to_string(),
         ));
-    }
+    };
 
     let data_cols: Vec<String> = schema
         .fields()
@@ -123,4 +127,36 @@ pub(crate) fn tie_indicator(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusio
     }
 
     ordered.select(out)
+}
+
+fn sort_order_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> Vec<SortExpr> {
+    let schema = hint.data_frame().schema();
+    let mut order_by = Vec::new();
+
+    if schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME)
+    {
+        order_by.push(col(ACTIVATOR_COL_NAME).sort(false, false));
+    }
+
+    order_by.extend(
+        schema
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| col(field.name()).sort(true, true)),
+    );
+
+    if schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        // Row-id is only a deterministic tiebreaker once the sort order is fixed.
+        order_by.push(col(ROW_ID_COL_NAME).sort(true, true));
+    }
+
+    order_by
 }
