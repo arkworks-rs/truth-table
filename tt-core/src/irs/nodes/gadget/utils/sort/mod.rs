@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::{One, Zero};
+use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
 use ark_piop::verifier::structs::oracle::Oracle;
@@ -36,7 +36,7 @@ const FIRST_TIE_LABEL: &str = "tie_0";
 pub struct GadgetNode<B: SnarkBackend> {
     num_columns: usize,
     asc: Vec<bool>,
-    strict: Vec<bool>,
+    strict: bool,
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadgets: Vec<Arc<Node<B>>>,
@@ -338,19 +338,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(asc: Vec<bool>, strict: Vec<bool>) -> Self {
+    pub fn new(asc: Vec<bool>, strict: bool) -> Self {
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
-        assert_eq!(asc.len(), strict.len());
         let mut sign_gadgets = Vec::new();
-        for _ in 0..asc.len() {
-            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
-                sign::Sign::NonNegative,
-            ))));
+        for &is_asc in asc.iter() {
+            let sign = if is_asc {
+                sign::Sign::NonNegative
+            } else {
+                sign::Sign::NonPositive
+            };
+            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(sign))));
             sign_gadgets.push(sign_gadget);
         }
 
@@ -533,8 +535,8 @@ fn populate_neq_payloads_prover<B: SnarkBackend>(
             tie_next_col.data_tracked_poly().log_size(),
             tie_next_col.data_tracked_poly().tracker(),
         );
-        let activator = &tie_col.data_tracked_poly()
-            * &(&one_poly - &tie_next_col.data_tracked_poly());
+        let activator =
+            &tie_col.data_tracked_poly() * &(&one_poly - &tie_next_col.data_tracked_poly());
 
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
@@ -610,8 +612,8 @@ fn populate_neq_payloads_verifier<B: SnarkBackend>(
             tie_next_col.data_tracked_oracle().tracker(),
             tie_next_col.data_tracked_oracle().log_size(),
         );
-        let activator = &tie_col.data_tracked_oracle()
-            * &(&one_oracle - &tie_next_col.data_tracked_oracle());
+        let activator =
+            &tie_col.data_tracked_oracle() * &(&one_oracle - &tie_next_col.data_tracked_oracle());
 
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);

@@ -223,7 +223,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort: Sort) -> Self {
         let asc: Vec<bool> = sort.expr.iter().map(|expr| expr.asc).collect();
         // DataFusion sort expressions do not encode strictness, so default to true.
-        let strict: Vec<bool> = vec![false; asc.len()];
+        let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::sort::GadgetNode::new(asc, strict),
         )));
