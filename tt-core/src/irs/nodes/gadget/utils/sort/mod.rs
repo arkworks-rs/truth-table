@@ -345,24 +345,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
-        let mut sign_gadgets = Vec::new();
-        for &is_asc in asc.iter() {
-            let sign = if is_asc {
-                sign::Sign::NonNegative
-            } else {
-                sign::Sign::NonPositive
-            };
-            let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(sign))));
-            sign_gadgets.push(sign_gadget);
-        }
-
-        let mut neq_gadgets = Vec::new();
-        for _ in 0..asc.len() - 1 {
-            let no_zero_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::gadget::utils::neq::GadgetNode::new(),
-            )));
-            neq_gadgets.push(no_zero_gadget);
-        }
+        let sign_gadgets = build_sign_gadgets::<B>(&asc, strict);
+        let neq_gadgets = build_neq_gadgets::<B>(asc.len().saturating_sub(1));
         Self {
             num_columns: asc.len(),
             prescr_perm,
@@ -373,6 +357,45 @@ impl<B: SnarkBackend> GadgetNode<B> {
             neq_gadgets,
         }
     }
+}
+
+// Picks the sign constraint for a column:
+// - For most columns: NonNegative/NonPositive based on ASC/DESC.
+// - For the last column, if `strict` is true: Positive/Negative.
+fn sign_for_column(is_asc: bool, strict_for_col: bool) -> sign::Sign {
+    if strict_for_col {
+        if is_asc {
+            sign::Sign::Positive
+        } else {
+            sign::Sign::Negative
+        }
+    } else if is_asc {
+        sign::Sign::NonNegative
+    } else {
+        sign::Sign::NonPositive
+    }
+}
+
+fn build_sign_gadgets<B: SnarkBackend>(asc: &[bool], strict: bool) -> Vec<Arc<Node<B>>> {
+    let last_idx = asc.len().saturating_sub(1);
+    asc.iter()
+        .enumerate()
+        .map(|(idx, &is_asc)| {
+            let strict_for_col = strict && idx == last_idx;
+            let sign = sign_for_column(is_asc, strict_for_col);
+            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(sign))))
+        })
+        .collect()
+}
+
+fn build_neq_gadgets<B: SnarkBackend>(count: usize) -> Vec<Arc<Node<B>>> {
+    (0..count)
+        .map(|_| {
+            Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::utils::neq::GadgetNode::new(),
+            )))
+        })
+        .collect()
 }
 
 fn populate_sign_payloads_prover<B: SnarkBackend>(
