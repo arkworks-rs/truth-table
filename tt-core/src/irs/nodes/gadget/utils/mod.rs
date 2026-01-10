@@ -11,3 +11,4 @@ pub mod prescr_perm;
 pub mod sign;
 pub mod contig_sort;
 pub mod supp;
+pub mod remat;

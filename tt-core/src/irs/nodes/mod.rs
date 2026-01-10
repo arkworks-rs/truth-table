@@ -10,7 +10,7 @@ use crate::{
         cost::ProvingCost,
         hints::HintDF,
         plan::{
-            exprs::{aggregate_function, binary_expr, cast, column, literal},
+            exprs::{aggregate_function, alias, binary_expr, cast, column, literal},
             lps::{aggregate, filter, projection, sort, table_scan},
         },
     },
@@ -217,6 +217,15 @@ impl<B: SnarkBackend> Node<B> {
             }),
             Expr::Cast(_) => Arc::new_cyclic(|weak_self| {
                 let node = cast::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::Alias(_) => Arc::new_cyclic(|weak_self| {
+                let node = alias::ProverNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),

@@ -34,7 +34,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         _id: crate::irs::nodes::NodeId,
         _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<crate::irs::nodes::Node<B>>> {
