@@ -152,8 +152,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         println!("{}", super_table.pretty_string());
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
-            let orig_rlc = fold_table_to_single_col(&orig_table, ORIG_RLC_LABEL);
-            let super_rlc = fold_table_to_single_col(&super_table, SUPER_RLC_LABEL);
+            let folding_challs = folding_challenges_from_table(&orig_table);
+            let orig_rlc =
+                fold_table_to_single_col_with_challs(&orig_table, ORIG_RLC_LABEL, &folding_challs);
+            let super_rlc = fold_table_to_single_col_with_challs(
+                &super_table,
+                SUPER_RLC_LABEL,
+                &folding_challs,
+            );
 
             populate_self_rlc_payload_prover(
                 id,
@@ -202,8 +208,17 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         };
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
-            let orig_rlc = fold_table_oracle_to_single_col(&orig_table, ORIG_RLC_LABEL);
-            let super_rlc = fold_table_oracle_to_single_col(&super_table, SUPER_RLC_LABEL);
+            let folding_challs = folding_challenges_from_table_oracle(&orig_table);
+            let orig_rlc = fold_table_oracle_to_single_col_with_challs(
+                &orig_table,
+                ORIG_RLC_LABEL,
+                &folding_challs,
+            );
+            let super_rlc = fold_table_oracle_to_single_col_with_challs(
+                &super_table,
+                SUPER_RLC_LABEL,
+                &folding_challs,
+            );
 
             populate_self_rlc_payload_verifier(
                 id,
@@ -331,8 +346,46 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-fn folding_challenges<F: ark_ff::PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
+fn folding_challenges_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B::F> {
+    let num_data = table.num_data_tracked_cols();
+    if num_data == 0 {
+        return Vec::new();
+    }
+    let (_, first_poly) = table
+        .tracked_polys_iter()
+        .next()
+        .expect("supp folding requires at least one tracked column");
+    let mut prover = ArgProver::new_from_tracker_rc(first_poly.tracker());
+    // Use Fiat-Shamir challenges so folded columns are collision-resistant.
+    (0..num_data)
+        .map(|_| {
+            prover
+                .get_and_append_challenge(b"supp_fold")
+                .expect("supp folding challenge should succeed")
+        })
+        .collect()
+}
+
+fn folding_challenges_from_table_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> Vec<B::F> {
+    let num_data = table.num_data_tracked_col_oracles();
+    if num_data == 0 {
+        return Vec::new();
+    }
+    let (_, first_oracle) = table
+        .tracked_oracles_iter()
+        .next()
+        .expect("supp folding requires at least one tracked oracle");
+    let mut verifier = ArgVerifier::new_from_tracker_rc(first_oracle.tracker());
+    // Mirror prover-side Fiat-Shamir challenges.
+    (0..num_data)
+        .map(|_| {
+            verifier
+                .get_and_append_challenge(b"supp_fold")
+                .expect("supp folding challenge should succeed")
+        })
+        .collect()
 }
 
 fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
@@ -466,13 +519,18 @@ fn populate_lookup_payload_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-fn fold_table_to_single_col<B: SnarkBackend>(
+fn fold_table_to_single_col_with_challs<B: SnarkBackend>(
     table: &TrackedTable<B>,
     label: &str,
+    challenges: &[B::F],
 ) -> TrackedTable<B> {
     let num_data = table.num_data_tracked_cols();
-    let challenges = folding_challenges::<B::F>(num_data);
-    let folded_col = table.fold_all_data_columns(&challenges);
+    assert_eq!(
+        num_data,
+        challenges.len(),
+        "supp folding challenges must align with data columns"
+    );
+    let folded_col = table.fold_all_data_columns(challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
@@ -487,13 +545,18 @@ fn fold_table_to_single_col<B: SnarkBackend>(
     TrackedTable::new(Some(Schema::new(fields)), tracked_polys, table.log_size())
 }
 
-fn fold_table_oracle_to_single_col<B: SnarkBackend>(
+fn fold_table_oracle_to_single_col_with_challs<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     label: &str,
+    challenges: &[B::F],
 ) -> TrackedTableOracle<B> {
     let num_data = table.num_data_tracked_col_oracles();
-    let challenges = folding_challenges::<B::F>(num_data);
-    let folded_col = table.fold_all_data_oracles(&challenges);
+    assert_eq!(
+        num_data,
+        challenges.len(),
+        "supp folding challenges must align with data columns"
+    );
+    let folded_col = table.fold_all_data_oracles(challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
