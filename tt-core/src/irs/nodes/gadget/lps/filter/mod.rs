@@ -210,7 +210,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for FilterNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn verify(

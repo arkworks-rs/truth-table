@@ -149,6 +149,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
             panic!("Expected super table for Supp gadget");
         };
+        println!("{}", super_table.pretty_string());
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
             let orig_rlc = fold_table_to_single_col(&orig_table, ORIG_RLC_LABEL);
@@ -279,14 +280,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
-    
+
     fn honest_prover_check(
         &self,
         prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 }
 

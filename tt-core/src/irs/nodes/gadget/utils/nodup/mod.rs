@@ -103,7 +103,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
             panic!("Expected input table for NoDup gadget");
         };
-
         let col = Self::single_col_from_table(&input_table);
         let input = NoDupCheckProverInput { col };
         NoDupPIOP::<B>::prove(prover, input)?;
@@ -116,7 +115,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn verify(

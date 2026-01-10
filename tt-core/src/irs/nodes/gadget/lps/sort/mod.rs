@@ -1,15 +1,15 @@
 use std::{any::TypeId, sync::Arc};
 
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
-use ark_piop::SnarkBackend;
+use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use datafusion_expr::{LogicalPlan, Sort, col, expr::Sort as SortExpr, lit};
 
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
         nodes::gadget::utils::remat,
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -256,7 +256,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn verify(

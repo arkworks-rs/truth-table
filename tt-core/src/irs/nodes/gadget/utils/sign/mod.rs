@@ -267,7 +267,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn verify(

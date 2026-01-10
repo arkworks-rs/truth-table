@@ -13,6 +13,18 @@ use ark_piop::{
 };
 use std::cell::RefCell;
 
+fn parent_name_for<B: SnarkBackend>(
+    tree: &crate::irs::tree::Tree<B>,
+    id: NodeId,
+) -> Option<String> {
+    for (_parent_id, node) in tree.arena().iter() {
+        if node.children().iter().any(|child| child.id() == id) {
+            return Some(node.name());
+        }
+    }
+    None
+}
+
 /// A proving pass that runs honest prover checks for each gadget.
 ///
 /// This pass mirrors `ProvingPass`, but dispatches to `honest_prover_check`
@@ -59,15 +71,30 @@ where
         }
         match node {
             Node::Gadget(gadget_node) => {
+                let parent_name = {
+                    let gadget_ready_ir = self.gadget_ready_ir.borrow();
+                    parent_name_for(gadget_ready_ir.tree(), id)
+                        .unwrap_or_else(|| "<none>".to_string())
+                };
                 tracing::debug!(
                     gadget = %gadget_node.name(),
                     node_id = id,
+                    parent = %parent_name,
                     "starting honest prover check for gadget"
                 );
                 let result = {
-                    let mut arg_prover = self.arg_prover.borrow_mut();
-                    let mut gadget_ready_ir = self.gadget_ready_ir.borrow_mut();
-                    gadget_node.honest_prover_check(&mut arg_prover, &mut gadget_ready_ir, id)
+                    let gadget_ready_ir = self.gadget_ready_ir.borrow();
+                    let mut gadget_ready_ir_clone = GadgetReadyIr::new(
+                        gadget_ready_ir.tree().clone(),
+                        gadget_ready_ir.payloads().clone(),
+                    );
+                    let arg_prover = self.arg_prover.borrow();
+                    let mut honest_prover = arg_prover.deep_copy();
+                    gadget_node.honest_prover_check(
+                        &mut honest_prover,
+                        &mut gadget_ready_ir_clone,
+                        id,
+                    )
                 };
                 if let Err(err) = result {
                     *self.error.borrow_mut() = Some(err);
@@ -76,6 +103,7 @@ where
                     tracing::info!(
                         gadget = %gadget_node.name(),
                         node_id = id,
+                        parent = %parent_name,
                         "honest prover check completed"
                     );
                     Some(EmptyPayload)

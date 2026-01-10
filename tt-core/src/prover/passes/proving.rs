@@ -13,6 +13,18 @@ use ark_piop::{
 };
 use std::cell::RefCell;
 
+fn parent_name_for<B: SnarkBackend>(
+    tree: &crate::irs::tree::Tree<B>,
+    id: NodeId,
+) -> Option<String> {
+    for (_parent_id, node) in tree.arena().iter() {
+        if node.children().iter().any(|child| child.id() == id) {
+            return Some(node.name());
+        }
+    }
+    None
+}
+
 /// A proving pass that run the prover gadget in each plan node
 ///
 /// This pass iterates the prover plan nodes and runs the associated prover gadget
@@ -57,9 +69,15 @@ where
         }
         match node {
             Node::Gadget(gadget_node) => {
+                let parent_name = {
+                    let gadget_ready_ir = self.gadget_ready_ir.borrow();
+                    parent_name_for(gadget_ready_ir.tree(), id)
+                        .unwrap_or_else(|| "<none>".to_string())
+                };
                 tracing::debug!(
                     gadget = %gadget_node.name(),
                     node_id = id,
+                    parent = %parent_name,
                     "starting to prove gadget"
                 );
                 let result = {
@@ -74,6 +92,7 @@ where
                     tracing::info!(
                         gadget = %gadget_node.name(),
                         node_id = id,
+                        parent = %parent_name,
                         "gadget was proved"
                     );
                     Some(EmptyPayload)
