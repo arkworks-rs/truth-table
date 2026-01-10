@@ -4,6 +4,7 @@
 
 pub mod arithmetization;
 pub mod gadget_initialization;
+pub mod honest_prover;
 pub mod materialization;
 pub mod proving;
 pub mod tracking;

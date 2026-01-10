@@ -305,6 +305,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
         Ok(())
     }
 
+    fn honest_prover_check(
+        &self,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
+
     fn verify(
         &self,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,

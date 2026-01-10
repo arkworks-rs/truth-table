@@ -279,6 +279,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
+    
+    fn honest_prover_check(
+        &self,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
+    }
 }
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {

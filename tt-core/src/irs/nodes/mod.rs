@@ -531,6 +531,16 @@ where
         gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
+    /// Runs the gadget honest prover check.
+    ///
+    /// Defaults to `prove` so existing gadgets don't need to implement it
+    /// unless they want a cheaper check-only path.
+    fn honest_prover_check(
+        &self,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
+        id: NodeId,
+    ) -> SnarkResult<()>;
     /// Runs the gadget verifier
     fn verify(
         &self,

@@ -14,11 +14,11 @@ use crate::irs::nodes::{
     IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::sign,
 };
 use crate::irs::payloads::PayloadStructure;
+use crate::prover::irs::GadgetReadyIr;
 use crate::prover::irs::{
     GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr,
 };
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-
 #[cfg(test)]
 mod tests;
 
@@ -367,6 +367,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // TODO: implement gadget proof
         Ok(())
+    }
+
+    fn honest_prover_check(
+        &self,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        todo!()
     }
 
     fn verify(
