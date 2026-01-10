@@ -9,5 +9,5 @@ pub mod nodup;
 pub mod perm;
 pub mod prescr_perm;
 pub mod sign;
-pub mod sort;
+pub mod contig_sort;
 pub mod supp;

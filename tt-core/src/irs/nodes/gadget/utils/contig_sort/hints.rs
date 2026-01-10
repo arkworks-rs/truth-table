@@ -1,4 +1,4 @@
-use crate::irs::nodes::gadget::utils::sort::{ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL};
+use crate::irs::nodes::gadget::utils::contig_sort::{ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL};
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;

@@ -92,7 +92,7 @@ fn populate_sort_gadget_table<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     output_sort_exprs: &crate::irs::nodes::hints::HintDF,
 ) {
-    let target_type = TypeId::of::<crate::irs::nodes::gadget::utils::sort::GadgetNode<B>>();
+    let target_type = TypeId::of::<crate::irs::nodes::gadget::utils::contig_sort::GadgetNode<B>>();
     let gadget_ids: Vec<_> = planned_ir
         .tree()
         .arena()
@@ -111,7 +111,7 @@ fn populate_sort_gadget_table<B: SnarkBackend>(
             _ => IndexMap::new(),
         };
         payload.insert(
-            crate::irs::nodes::gadget::utils::sort::TABLE_LABEL.to_string(),
+            crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
             output_sort_exprs.clone(),
         );
         planned_ir.set_payload_for_node(node_id, Some(PayloadStructure::GadgetPayload(payload)));
@@ -225,7 +225,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         // DataFusion sort expressions do not encode strictness, so default to true.
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::sort::GadgetNode::new(asc, strict),
+            crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(asc, strict),
         )));
         Self { sort, sort_gadget }
     }

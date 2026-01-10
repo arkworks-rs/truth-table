@@ -11,7 +11,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-use crate::irs::nodes::gadget::utils::sort::hints::{rotate, tie_indicator};
+use crate::irs::nodes::gadget::utils::contig_sort::hints::{rotate, tie_indicator};
 
 fn build_df(
     ctx: &SessionContext,

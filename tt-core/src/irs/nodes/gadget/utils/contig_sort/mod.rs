@@ -19,7 +19,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            gadget::utils::sort::hints::{populate_rotated, populate_tie_indicator},
+            gadget::utils::contig_sort::hints::{populate_rotated, populate_tie_indicator},
         },
         payloads::PayloadStructure,
     },
@@ -29,14 +29,15 @@ use crate::{
 mod hints;
 #[cfg(test)]
 mod tests;
+
+/// Labels for different gadget payloads used by this gadget.
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
 const FIRST_TIE_LABEL: &str = "tie_0";
+
+/// GadgetNode for enforcing sorting of a table according to specified sort expressions.
 pub struct GadgetNode<B: SnarkBackend> {
-    num_columns: usize,
-    asc: Vec<bool>,
-    strict: bool,
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadgets: Vec<Arc<Node<B>>>,
@@ -45,7 +46,7 @@ pub struct GadgetNode<B: SnarkBackend> {
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        "Sort".to_string()
+        "Contiguous Sort".to_string()
     }
 
     fn cost(
@@ -348,11 +349,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let sign_gadgets = build_sign_gadgets::<B>(&asc, strict);
         let neq_gadgets = build_neq_gadgets::<B>(asc.len().saturating_sub(1));
         Self {
-            num_columns: asc.len(),
             prescr_perm,
             bool_gadget,
-            asc,
-            strict,
             sign_gadgets,
             neq_gadgets,
         }
