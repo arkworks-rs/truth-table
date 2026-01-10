@@ -1,25 +1,23 @@
 use std::sync::Arc;
 
-use arithmetic::encoding::encode_arrow_array_to_field;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
-use ark_ff::Zero;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion_common::Statistics;
 use datafusion_expr::expr::Alias;
-use datafusion_expr::{Cast, Expr};
 use indexmap::IndexMap;
-use rayon::iter::Either;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
 };
 use crate::irs::payloads::PayloadStructure;
+use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
+    pub expr: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub alias: Alias,
 }
@@ -223,8 +221,12 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Alias(alias) => alias,
             _ => panic!("Expected Alias expression"),
         };
+        let expr_gadget = Tree::<B>::from_expr(&alias.expr, None, scope.clone())
+            .root()
+            .clone();
         Self {
             alias,
+            expr: expr_gadget,
             scope,
             parent,
         }

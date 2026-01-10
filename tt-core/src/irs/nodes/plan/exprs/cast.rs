@@ -15,13 +15,59 @@ use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
 };
 use crate::irs::payloads::PayloadStructure;
+use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
+    pub expr: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub cast: Cast,
 }
-
+impl<B: SnarkBackend> ProverNode<B> {
+    fn should_materialize(&self) -> bool {
+        match self.expr.as_ref() {
+            Node::Plan(plan_node) => match plan_node {
+                crate::irs::nodes::PlanNode::LpBased(is_lp_node) => todo!(),
+                crate::irs::nodes::PlanNode::ExprBased(expr_node) => match expr_node.expr() {
+                    Expr::Alias(alias) => todo!(),
+                    Expr::Column(column) => todo!(),
+                    Expr::ScalarVariable(data_type, items) => todo!(),
+                    Expr::Literal(scalar_value) => todo!(),
+                    Expr::BinaryExpr(binary_expr) => true,
+                    Expr::Like(like) => todo!(),
+                    Expr::SimilarTo(like) => todo!(),
+                    Expr::Not(expr) => todo!(),
+                    Expr::IsNotNull(expr) => todo!(),
+                    Expr::IsNull(expr) => todo!(),
+                    Expr::IsTrue(expr) => todo!(),
+                    Expr::IsFalse(expr) => todo!(),
+                    Expr::IsUnknown(expr) => todo!(),
+                    Expr::IsNotTrue(expr) => todo!(),
+                    Expr::IsNotFalse(expr) => todo!(),
+                    Expr::IsNotUnknown(expr) => todo!(),
+                    Expr::Negative(expr) => todo!(),
+                    Expr::Between(between) => todo!(),
+                    Expr::Case(case) => todo!(),
+                    Expr::Cast(cast) => todo!(),
+                    Expr::TryCast(try_cast) => todo!(),
+                    Expr::ScalarFunction(scalar_function) => todo!(),
+                    Expr::AggregateFunction(aggregate_function) => todo!(),
+                    Expr::WindowFunction(window_function) => todo!(),
+                    Expr::InList(in_list) => todo!(),
+                    Expr::Exists(exists) => todo!(),
+                    Expr::InSubquery(in_subquery) => todo!(),
+                    Expr::ScalarSubquery(subquery) => todo!(),
+                    Expr::Wildcard { qualifier, options } => todo!(),
+                    Expr::GroupingSet(grouping_set) => todo!(),
+                    Expr::Placeholder(placeholder) => todo!(),
+                    Expr::OuterReferenceColumn(data_type, column) => todo!(),
+                    Expr::Unnest(unnest) => todo!(),
+                },
+            },
+            Node::Gadget(is_gadget_node) => todo!(),
+        }
+    }
+}
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
         "Cast".to_string()
@@ -44,7 +90,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        vec![self.expr.clone()]
     }
 }
 
@@ -58,7 +104,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         // - emitting a constant tracked column for literal casts, or
         // - retyping the child's tracked column for column casts.
         let cast_expr = self.cast.clone();
-        dbg!(&cast_expr);
 
         // Pull the scope table to reuse its activator tracker/log size.
         let scope_id = self.scope.id();
@@ -235,7 +280,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("cast output sort should succeed");
-        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+        if self.should_materialize() {
+            crate::irs::nodes::hints::HintDF::new_materialized(projected)
+        } else {
+            crate::irs::nodes::hints::HintDF::new_virtual(projected)
+        }
     }
 }
 
@@ -406,7 +455,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     fn from_expr(
         expr: datafusion_expr::Expr,
-        _self_ref: std::sync::Weak<Node<B>>,
+        self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
         scope: std::sync::Arc<Node<B>>,
     ) -> Self
@@ -417,8 +466,14 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Cast(col) => col,
             _ => panic!("Expected Cast expression"),
         };
+
+        let expr_node = Tree::<B>::from_expr(&cast.expr, Some(self_ref.clone()), scope.clone())
+            .root()
+            .clone();
+
         Self {
             cast,
+            expr: expr_node,
             scope,
             parent,
         }
