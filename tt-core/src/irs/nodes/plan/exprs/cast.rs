@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::encoding::encode_arrow_array_to_field;
 use arithmetic::table::TrackedTable;
+use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
@@ -23,51 +24,7 @@ pub struct ProverNode<B: SnarkBackend> {
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub cast: Cast,
 }
-impl<B: SnarkBackend> ProverNode<B> {
-    fn should_materialize(&self) -> bool {
-        match self.expr.as_ref() {
-            Node::Plan(plan_node) => match plan_node {
-                crate::irs::nodes::PlanNode::LpBased(is_lp_node) => todo!(),
-                crate::irs::nodes::PlanNode::ExprBased(expr_node) => match expr_node.expr() {
-                    Expr::Alias(alias) => todo!(),
-                    Expr::Column(column) => todo!(),
-                    Expr::ScalarVariable(data_type, items) => todo!(),
-                    Expr::Literal(scalar_value) => todo!(),
-                    Expr::BinaryExpr(binary_expr) => true,
-                    Expr::Like(like) => todo!(),
-                    Expr::SimilarTo(like) => todo!(),
-                    Expr::Not(expr) => todo!(),
-                    Expr::IsNotNull(expr) => todo!(),
-                    Expr::IsNull(expr) => todo!(),
-                    Expr::IsTrue(expr) => todo!(),
-                    Expr::IsFalse(expr) => todo!(),
-                    Expr::IsUnknown(expr) => todo!(),
-                    Expr::IsNotTrue(expr) => todo!(),
-                    Expr::IsNotFalse(expr) => todo!(),
-                    Expr::IsNotUnknown(expr) => todo!(),
-                    Expr::Negative(expr) => todo!(),
-                    Expr::Between(between) => todo!(),
-                    Expr::Case(case) => todo!(),
-                    Expr::Cast(cast) => todo!(),
-                    Expr::TryCast(try_cast) => todo!(),
-                    Expr::ScalarFunction(scalar_function) => todo!(),
-                    Expr::AggregateFunction(aggregate_function) => todo!(),
-                    Expr::WindowFunction(window_function) => todo!(),
-                    Expr::InList(in_list) => todo!(),
-                    Expr::Exists(exists) => todo!(),
-                    Expr::InSubquery(in_subquery) => todo!(),
-                    Expr::ScalarSubquery(subquery) => todo!(),
-                    Expr::Wildcard { qualifier, options } => todo!(),
-                    Expr::GroupingSet(grouping_set) => todo!(),
-                    Expr::Placeholder(placeholder) => todo!(),
-                    Expr::OuterReferenceColumn(data_type, column) => todo!(),
-                    Expr::Unnest(unnest) => todo!(),
-                },
-            },
-            Node::Gadget(is_gadget_node) => todo!(),
-        }
-    }
-}
+
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
         "Cast".to_string()
@@ -100,149 +57,58 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Build a virtual witness table for this cast by either:
-        // - emitting a constant tracked column for literal casts, or
-        // - retyping the child's tracked column for column casts.
-        let cast_expr = self.cast.clone();
-
-        // Pull the scope table to reuse its activator tracker/log size.
-        let scope_id = self.scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
+        // The cast output already carries a materialized data column; copy the activator
+        // from the expression child so the table matches the child scope.
+        let expr_id = self.expr.id();
+        let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Cast scope missing tracked table payload"),
+            _ => return Ok(()),
         };
 
-        match cast_expr.expr.as_ref() {
-            Expr::Literal(scalar) => {
-                // Cast the literal to the target type and encode it into field elements.
-                let scalar = scalar
-                    .cast_to(&cast_expr.data_type)
-                    .expect("failed to cast literal value for cast expression");
-                let array = scalar
-                    .to_array()
-                    .expect("failed to convert scalar into arrow array");
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
 
-                let mut column_values = encode_arrow_array_to_field::<B::F>(&array)
-                    .expect("failed to encode literal into field elements")
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| vec![<B as SnarkBackend>::F::zero()]);
-
-                if column_values.len() > 1 {
-                    panic!("literal encoding resulted in multiple field elements");
-                }
-
-                let constant_value = column_values
-                    .pop()
-                    .unwrap_or_else(<B as SnarkBackend>::F::zero);
-
-                // Reuse the scope activator tracker so the constant aligns with existing rows.
-                let activator_poly = scope_table
-                    .activator_tracked_poly()
-                    .expect("Cast scope should carry an activator column");
-                let tracker = activator_poly.tracker();
-                let log_size = scope_table.log_size();
-
-                let tracked_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
-                    Either::Right(constant_value),
-                    log_size,
-                    tracker,
-                );
-
-                // Build a single-column table (plus row_id/activator) with the casted literal.
-                let data_type = scalar.data_type();
-                let field = Arc::new(Field::new("literal", data_type.clone(), scalar.is_null()));
-
-                let mut columns = IndexMap::from([(field.clone(), tracked_poly)]);
-                if let Some((row_id_field, row_id_poly)) = scope_table
-                    .tracked_polys()
-                    .iter()
-                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-                    .map(|(field, poly)| (field.clone(), poly.clone()))
-                {
-                    columns.insert(row_id_field, row_id_poly);
-                }
-                columns.insert(ACTIVATOR_FIELD.clone(), activator_poly);
-
-                let schema = Some(Schema::new(
-                    columns
-                        .keys()
-                        .map(|field| field.as_ref().clone())
-                        .collect::<Vec<_>>(),
-                ));
-
-                let table = TrackedTable::new(schema, columns, log_size);
-                virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(table)));
-                Ok(())
-            }
-            Expr::Column(column) => {
-                // Extract the source column from the scope table, keeping activator.
-                let child_table = {
-                    let schema = scope_table
-                        .schema_ref()
-                        .expect("Cast scope should have schema");
-                    let col_idx = schema
-                        .index_of(column.name())
-                        .expect("Cast column not found in scope schema");
-                    scope_table.tracked_subtable_by_indices(&[col_idx])
-                };
-
-                let target_type = cast_expr.data_type.clone();
-                // Rebuild the schema/fields with the cast target type for data columns.
-                let mut columns = IndexMap::with_capacity(child_table.tracked_polys().len());
-                for (field, poly) in child_table.tracked_polys() {
-                    let new_field =
-                        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
-                            field.clone()
-                        } else {
-                            let base = field.as_ref();
-                            let mut updated =
-                                Field::new(base.name(), target_type.clone(), base.is_nullable());
-                            if !base.metadata().is_empty() {
-                                updated = updated.with_metadata(base.metadata().clone());
-                            }
-                            Arc::new(updated)
-                        };
-                    columns.insert(new_field, poly.clone());
-                }
-
-                let new_schema = child_table.schema().map(|schema| {
-                    let fields: Vec<Field> = schema
-                        .fields()
-                        .iter()
-                        .map(|field| {
-                            let base = field.as_ref();
-                            if base.name() == ACTIVATOR_COL_NAME || base.name() == ROW_ID_COL_NAME {
-                                base.clone()
-                            } else {
-                                let mut updated = Field::new(
-                                    base.name(),
-                                    target_type.clone(),
-                                    base.is_nullable(),
-                                );
-                                if !base.metadata().is_empty() {
-                                    updated = updated.with_metadata(base.metadata().clone());
-                                }
-                                updated
-                            }
-                        })
-                        .collect();
-                    let mut new_schema = Schema::new(fields);
-                    if !schema.metadata().is_empty() {
-                        new_schema = new_schema.with_metadata(schema.metadata().clone());
-                    }
-                    new_schema
-                });
-
-                let new_table = TrackedTable::new(new_schema, columns, child_table.log_size());
-
-                // Store the updated table as this node's virtual payload.
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(new_table)));
-                Ok(())
-            }
-            _ => panic!("Cast virtual witness expects a literal or column expression"),
+        let mut merged_polys = current_table.tracked_polys();
+        if let Some((row_id_field, row_id_poly)) = expr_table
+            .tracked_polys_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_polys
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_poly.clone());
         }
+        if let Some(activator) = expr_table.activator_tracked_poly() {
+            merged_polys.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, expr) => {
+                debug_assert_eq!(curr, expr, "Cast log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
     }
 
     fn initialize_gadgets(
@@ -280,11 +146,17 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("cast output sort should succeed");
-        if self.should_materialize() {
-            crate::irs::nodes::hints::HintDF::new_materialized(projected)
-        } else {
-            crate::irs::nodes::hints::HintDF::new_virtual(projected)
-        }
+        // Only materialize the casted data column; keep activator/row_id virtual.
+        let should_materialize = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let is_data = field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME;
+                (field.clone(), is_data)
+            })
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 
@@ -294,153 +166,58 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Mirror the prover logic, but build tracked oracles instead of polynomials.
-        // Literals become constant oracles; column casts retype the field metadata.
-        let cast_expr = self.cast.clone();
-
-        // Pull the scope table oracle to reuse its tracker/log size.
-        let scope_id = self.scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
+        // The cast output already carries a materialized data column; copy the activator
+        // from the expression child so the table matches the child scope.
+        let expr_id = self.expr.id();
+        let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Cast scope missing tracked table payload"),
+            _ => return Ok(()),
         };
 
-        match cast_expr.expr.as_ref() {
-            Expr::Literal(scalar) => {
-                // Cast the literal to the target type and encode it into field elements.
-                let scalar = scalar
-                    .cast_to(&cast_expr.data_type)
-                    .expect("failed to cast literal value for cast expression");
-                let array = scalar
-                    .to_array()
-                    .expect("failed to convert scalar into arrow array");
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
 
-                let mut column_values = encode_arrow_array_to_field::<B::F>(&array)
-                    .expect("failed to encode literal into field elements")
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| vec![<B as SnarkBackend>::F::zero()]);
-
-                if column_values.len() > 1 {
-                    panic!("literal encoding resulted in multiple field elements");
-                }
-
-                let constant_value = column_values
-                    .pop()
-                    .unwrap_or_else(<B as SnarkBackend>::F::zero);
-
-                // Reuse the scope activator tracker so the constant aligns with existing rows.
-                let activator_oracle = scope_table
-                    .activator_tracked_poly()
-                    .expect("Cast scope should carry an activator column");
-                let tracker = activator_oracle.tracker();
-                let log_size = activator_oracle.log_size();
-
-                let tracked_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
-                    Either::Right(constant_value),
-                    tracker,
-                    log_size,
-                );
-
-                // Build a single-column oracle table (plus row_id/activator) with the casted literal.
-                let data_type = scalar.data_type();
-                let field = Arc::new(Field::new("literal", data_type.clone(), scalar.is_null()));
-
-                let mut columns = IndexMap::from([(field.clone(), tracked_oracle)]);
-                if let Some((row_id_field, row_id_oracle)) = scope_table
-                    .tracked_oracles()
-                    .iter()
-                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-                    .map(|(field, oracle)| (field.clone(), oracle.clone()))
-                {
-                    columns.insert(row_id_field, row_id_oracle);
-                }
-                columns.insert(ACTIVATOR_FIELD.clone(), activator_oracle);
-
-                let schema = Some(Schema::new(
-                    columns
-                        .keys()
-                        .map(|field| field.as_ref().clone())
-                        .collect::<Vec<_>>(),
-                ));
-
-                let table =
-                    arithmetic::table_oracle::TrackedTableOracle::new(schema, columns, log_size);
-                virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(table)));
-                Ok(())
-            }
-            Expr::Column(column) => {
-                // Extract the source column oracle from the scope, keeping activator.
-                let child_table = {
-                    let schema = scope_table
-                        .schema_ref()
-                        .expect("Cast scope should have schema");
-                    let col_idx = schema
-                        .index_of(column.name())
-                        .expect("Cast column not found in scope schema");
-                    scope_table.tracked_subtable_by_indices(&[col_idx])
-                };
-
-                let target_type = cast_expr.data_type.clone();
-                // Rebuild the schema/fields with the cast target type for data columns.
-                let mut columns = IndexMap::with_capacity(child_table.tracked_oracles().len());
-                for (field, oracle) in child_table.tracked_oracles() {
-                    let new_field =
-                        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
-                            field.clone()
-                        } else {
-                            let base = field.as_ref();
-                            let mut updated =
-                                Field::new(base.name(), target_type.clone(), base.is_nullable());
-                            if !base.metadata().is_empty() {
-                                updated = updated.with_metadata(base.metadata().clone());
-                            }
-                            Arc::new(updated)
-                        };
-                    columns.insert(new_field, oracle.clone());
-                }
-
-                let new_schema = child_table.schema().map(|schema| {
-                    let fields: Vec<Field> = schema
-                        .fields()
-                        .iter()
-                        .map(|field| {
-                            let base = field.as_ref();
-                            if base.name() == ACTIVATOR_COL_NAME || base.name() == ROW_ID_COL_NAME {
-                                base.clone()
-                            } else {
-                                let mut updated = Field::new(
-                                    base.name(),
-                                    target_type.clone(),
-                                    base.is_nullable(),
-                                );
-                                if !base.metadata().is_empty() {
-                                    updated = updated.with_metadata(base.metadata().clone());
-                                }
-                                updated
-                            }
-                        })
-                        .collect();
-                    let mut new_schema = Schema::new(fields);
-                    if !schema.metadata().is_empty() {
-                        new_schema = new_schema.with_metadata(schema.metadata().clone());
-                    }
-                    new_schema
-                });
-
-                let new_table = arithmetic::table_oracle::TrackedTableOracle::new(
-                    new_schema,
-                    columns,
-                    child_table.log_size(),
-                );
-
-                // Store the updated oracle table as this node's virtual payload.
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(new_table)));
-                Ok(())
-            }
-            _ => panic!("Cast virtual witness expects a literal or column expression"),
+        let mut merged_oracles = current_table.tracked_oracles();
+        if let Some((row_id_field, row_id_oracle)) = expr_table
+            .tracked_oracles_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_oracles
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_oracle.clone());
         }
+        if let Some(activator) = expr_table.activator_tracked_poly() {
+            merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, expr) => {
+                debug_assert_eq!(curr, expr, "Cast log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table = TrackedTableOracle::new(schema, merged_oracles, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
+        Ok(())
     }
 
     fn initialize_gadgets(
