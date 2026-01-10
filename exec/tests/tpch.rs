@@ -35,80 +35,18 @@ async fn build_prover_stages(query: &str, table_names: &[&str]) -> Result<Prover
 }
 
 #[tokio::test]
-#[ignore = "Visualization-focused test"]
-async fn tpch_q1_proof_tree() {
-    let spec = query_spec(5);
-    let stages = build_prover_stages(spec.sql, spec.tables)
-        .await
-        .expect("build prover stages");
-    println!("{}", stages.initial.display_graphviz(true));
-}
-
-#[tokio::test]
-#[ignore = "Visualization-focused test"]
-async fn tpch_q1_hint_tree() {
-    let spec = query_spec(1);
-    let stages = build_prover_stages(spec.sql, spec.tables)
-        .await
-        .expect("build prover stages");
-    println!("{}", stages.output_planned.display_graphviz(true));
-}
-
-#[tokio::test]
-#[ignore = "Visualization-focused test"]
-async fn tpch_q1_arithmetized_tree() {
-    let spec = query_spec(1);
-    let stages = build_prover_stages(spec.sql, spec.tables)
-        .await
-        .expect("build prover stages");
-    println!("{}", stages.arithmetized.display_graphviz(true));
-}
-
-#[tokio::test]
-#[ignore = "Visualization-focused test"]
-async fn tpch_q1_tracked_tree() {
-    let spec = query_spec(1);
-    let stages = build_prover_stages(spec.sql, spec.tables)
-        .await
-        .expect("build prover stages");
-    println!("{}", stages.tracked.display_graphviz(true));
-}
-
-#[tokio::test]
-#[ignore = "Visualization-focused test"]
-async fn tpch_q1_piop_tree() {
-    let spec = query_spec(1);
-    let stages = build_prover_stages(spec.sql, spec.tables)
-        .await
-        .expect("build prover stages");
-    println!("{}", stages.gadget_ready.display_graphviz(true));
-}
-
-#[tokio::test]
 async fn tpch_q1_prove_verify() {
     let spec = query_spec(1);
-
-    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
-        .await
-        .expect("prove and verify tpch q1");
-}
-#[tokio::test]
-async fn tpch_q3_prove_verify() {
-    let spec = query_spec(3);
-
     let sql = "SELECT
-    l_orderkey,
-    o_orderdate,
-    o_shippriority
+    l_returnflag,
+    l_linestatus,
+    sum(l_quantity) AS sum_qty
 FROM
-    customer,
-    orders,
     lineitem
-WHERE
-     c_custkey = o_custkey
-    AND l_orderkey = o_orderkey
-";
+GROUP BY
+    l_returnflag,
+    l_linestatus;";
     exec::test_utils::prove_and_verify_query(sql, spec.tables, None)
         .await
-        .expect("prove and verify tpch q3");
+        .expect("prove and verify tpch q1");
 }

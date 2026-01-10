@@ -1,15 +1,4 @@
-use ark_piop::SnarkBackend;
-use datafusion::{
-    arrow::{datatypes::Schema, record_batch::RecordBatch},
-    datasource::MemTable,
-    prelude::DataFrame,
-};
-use datafusion_common::{DFSchema, DataFusionError};
-use datafusion_expr::{Expr, col};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-use tokio::runtime::RuntimeFlavor;
-
+use crate::irs::nodes::IsNode;
 use crate::{
     irs::{
         ir::LocalPass,
@@ -18,8 +7,19 @@ use crate::{
     },
     prover::payloads::{MaterializedPayload, MaterializedTable},
 };
+use ark_piop::SnarkBackend;
+use datafusion::{
+    arrow::{datatypes::Schema, record_batch::RecordBatch},
+    datasource::MemTable,
+    prelude::DataFrame,
+};
+use datafusion_common::{DFSchema, DataFusionError};
+use datafusion_expr::{Expr, col};
 use indexmap::IndexMap;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use std::sync::Arc;
+use tokio::runtime::RuntimeFlavor;
 
 /// A materialization pass that materializes the prover's hint DataFrames
 ///
@@ -46,15 +46,40 @@ where
     }
     fn transform(
         &self,
-        _node: &Node<B>,
-        _id: NodeId,
+        node: &Node<B>,
+        id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<MaterializedPayload> {
-        match payload? {
+        let Some(payload) = payload else {
+            tracing::debug!(node = %node.name(), node_id = id, "materialization skipped (no payload)");
+            return None;
+        };
+        tracing::debug!(node = %node.name(), node_id = id, "starting materialization");
+        match payload {
             PayloadStructure::PlanPayload(hint_df) => {
-                materialize_hint_df(hint_df).map(PayloadStructure::PlanPayload)
+                tracing::debug!(node = %node.name(), node_id = id, payload = "plan", "materializing payload");
+                let materialized = materialize_hint_df(hint_df);
+                if materialized.is_some() {
+                    tracing::debug!(node = %node.name(), node_id = id, payload = "plan", "materialized payload");
+                } else {
+                    tracing::debug!(
+                        node = %node.name(),
+                        node_id = id,
+                        payload = "plan",
+                        "materialization produced no columns"
+                    );
+                }
+                tracing::debug!(node = %node.name(), node_id = id, "finished materialization");
+                materialized.map(PayloadStructure::PlanPayload)
             }
             PayloadStructure::GadgetPayload(map) => {
+                tracing::debug!(
+                    node = %node.name(),
+                    node_id = id,
+                    payload = "gadget",
+                    payload_len = map.len(),
+                    "materializing payload"
+                );
                 #[cfg(feature = "parallel")]
                 let out: IndexMap<_, _> = map
                     .par_iter()
@@ -70,7 +95,14 @@ where
                         materialize_hint_df(hint_df).map(|mat| (k.clone(), mat))
                     })
                     .collect();
-
+                tracing::debug!(
+                    node = %node.name(),
+                    node_id = id,
+                    payload = "gadget",
+                    materialized_len = out.len(),
+                    "materialized payload"
+                );
+                tracing::debug!(node = %node.name(), node_id = id, "finished materialization");
                 Some(PayloadStructure::GadgetPayload(out))
             }
         }
@@ -87,9 +119,14 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
         .collect();
 
     if projection.is_empty() {
+        tracing::debug!("materialization skipped (no columns marked)");
         return None;
     }
 
+    tracing::debug!(
+        projection_len = projection.len(),
+        "materializing hint dataframe"
+    );
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
@@ -101,6 +138,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
+    tracing::debug!(row_count, "materialized hint dataframe");
     Some(MaterializedTable::new(mem_table, row_count))
 }
 
