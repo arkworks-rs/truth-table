@@ -324,26 +324,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             gadgets: Gadgets::BezoutGadgets(BezoutGadgets { lookup, nodup }),
         }
     }
-
-    fn single_col_from_table(table: &TrackedTable<B>) -> TrackedCol<B> {
-        let data_indices = table.data_tracked_polys_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "Supp gadget expects a single data column per input."
-        );
-        table.tracked_col_by_ind(data_indices[0])
-    }
-
-    fn single_col_from_table_oracle(table: &TrackedTableOracle<B>) -> TrackedColOracle<B> {
-        let data_indices = table.data_tracked_oracles_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "Supp gadget expects a single data column per input."
-        );
-        table.tracked_col_oracle_by_ind(data_indices[0])
-    }
 }
 
 fn folding_challenges_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B::F> {
