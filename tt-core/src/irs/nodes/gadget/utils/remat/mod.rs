@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_piop::{
-    SnarkBackend, prover::structs::polynomial::TrackedPoly, verifier::structs::oracle::TrackedOracle,
-};
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use either::Either;
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use indexmap::IndexMap;
 
 use crate::{

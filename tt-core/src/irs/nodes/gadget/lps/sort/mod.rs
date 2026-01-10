@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        nodes::gadget::utils::remat,
         payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
@@ -21,8 +22,8 @@ pub const OUTPUT_LABEL: &str = "__output__";
 pub const INPUT_SORT_EXPRS: &str = "__input_sort_exprs__";
 pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
-    sort: Sort,
     sort_gadget: Arc<Node<B>>,
+    remat_gadget: Arc<Node<B>>,
 }
 
 fn populate_output_expr(
@@ -170,9 +171,31 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
+        };
+
+        let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(input) = payload.get(INPUT_LABEL).cloned() {
+            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+        }
+        if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
+            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+        }
+        if !remat_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.remat_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(remat_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -188,9 +211,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
+        };
+
+        let mut remat_payload = match virtualized_ir.payload_for_node(&self.remat_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(input) = payload.get(INPUT_LABEL).cloned() {
+            remat_payload.insert(remat::INPUT_LABEL.to_string(), input);
+        }
+        if let Some(output) = payload.get(OUTPUT_LABEL).cloned() {
+            remat_payload.insert(remat::OUTPUT_LABEL.to_string(), output);
+        }
+        if !remat_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.remat_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(remat_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -227,6 +272,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(asc, strict),
         )));
-        Self { sort, sort_gadget }
+        let remat_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::remat::GadgetNode::new(),
+        )));
+        Self {
+            sort_gadget,
+            remat_gadget,
+        }
     }
 }

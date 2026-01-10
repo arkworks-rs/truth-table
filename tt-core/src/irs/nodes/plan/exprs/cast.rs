@@ -58,6 +58,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         // - emitting a constant tracked column for literal casts, or
         // - retyping the child's tracked column for column casts.
         let cast_expr = self.cast.clone();
+        dbg!(&cast_expr);
 
         // Pull the scope table to reuse its activator tracker/log size.
         let scope_id = self.scope.id();

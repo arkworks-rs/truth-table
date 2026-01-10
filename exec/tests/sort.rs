@@ -12,7 +12,7 @@ FROM lineitem
 ORDER BY 4 + (l_suppkey * 7 + 3) DESC, l_suppkey ASC;
     "#,
     filter_sort => r#"
-        SELECT 
+SELECT 
     l_suppkey,
     (l_suppkey * 7 + 3) AS computed_key
 FROM lineitem
