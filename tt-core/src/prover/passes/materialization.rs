@@ -9,12 +9,12 @@ use crate::{
 };
 use ark_piop::SnarkBackend;
 use datafusion::{
-    arrow::{datatypes::Schema, record_batch::RecordBatch},
+    arrow::{datatypes::{FieldRef, Schema}, record_batch::RecordBatch},
     datasource::MemTable,
     prelude::DataFrame,
 };
-use datafusion_common::{DFSchema, DataFusionError};
-use datafusion_expr::{Expr, col};
+use datafusion_common::{Column, DFSchema, DataFusionError};
+use datafusion_expr::Expr;
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -111,11 +111,13 @@ where
 
 fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<MaterializedTable> {
     let df = hint_df.data_frame().clone();
-    // Build projection of columns marked for materialization
+    let df_schema = df.schema();
+    // Build projection of columns marked for materialization, preserving qualifiers
+    // to avoid `FieldNotFound` errors when the schema uses table-qualified columns.
     let projection: Vec<Expr> = hint_df
         .field_materialization_iter()
         .filter(|&(_field, should_mat)| *should_mat)
-        .map(|(field, _should_mat)| col(field.name()))
+        .map(|(field, _should_mat)| projection_expr_for_field(df_schema, field))
         .collect();
 
     if projection.is_empty() {
@@ -173,4 +175,19 @@ fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>
             rt.block_on(df.collect())
         }
     }
+}
+
+fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {
+    let name = field.name();
+    if let Some((qualifier, _)) = schema.iter().find(|(_, f)| f.name() == name) {
+        return Expr::Column(Column::new(qualifier.cloned(), name));
+    }
+    if let Some((relation, col_name)) = name.split_once('.') {
+        if let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
+            f.name() == col_name && q.map(|q| q.to_string()) == Some(relation.to_string())
+        }) {
+            return Expr::Column(Column::new(qualifier.cloned(), col_name));
+        }
+    }
+    Expr::Column(Column::new_unqualified(name))
 }

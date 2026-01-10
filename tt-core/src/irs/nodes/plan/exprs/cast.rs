@@ -1,16 +1,12 @@
 use std::sync::Arc;
 
-use arithmetic::encoding::encode_arrow_array_to_field;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
-use ark_ff::Zero;
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::Schema;
 use datafusion_common::Statistics;
-use datafusion_expr::{Cast, Expr};
-use indexmap::IndexMap;
-use rayon::iter::Either;
+use datafusion_expr::Cast;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -139,6 +135,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Cast(self.cast.clone()),
             ACTIVATOR_EXPR.clone(),
         ];
+        dbg!(input_df.schema());
+        dbg!(exprs.clone());
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df
             .select(exprs)
