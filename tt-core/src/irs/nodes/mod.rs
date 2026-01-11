@@ -11,7 +11,7 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{aggregate_function, alias, binary_expr, cast, column, literal},
-            lps::{aggregate, filter, join, projection, sort, table_scan},
+            lps::{aggregate, filter, join, projection, sort, subquery_alias, table_scan},
         },
     },
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -22,7 +22,7 @@ use crate::{
 use ark_piop::{SnarkBackend, errors::SnarkResult};
 use arrow_schema::SchemaRef;
 use datafusion_common::Statistics;
-use datafusion_expr::{Expr, LogicalPlan};
+use datafusion_expr::{Expr, LogicalPlan, builder::subquery_alias};
 use derivative::Derivative;
 use indexmap::IndexMap;
 pub mod cost;
@@ -181,6 +181,11 @@ impl<B: SnarkBackend> Node<B> {
             }),
             LogicalPlan::Join(_) => Arc::new_cyclic(|weak_self| {
                 let node = join::JoinNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+            LogicalPlan::SubqueryAlias(_) => Arc::new_cyclic(|weak_self| {
+                let node =
+                    subquery_alias::SubqueryAliasNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
 

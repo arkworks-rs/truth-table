@@ -2,7 +2,8 @@ use std::sync::{Arc, Weak};
 
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion_expr::{Join, LogicalPlan};
+use datafusion_common::Column;
+use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -45,7 +46,15 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        todo!()
+        let mut children = vec![self.left.clone(), self.right.clone()];
+        if let Some(filter) = &self.filter {
+            children.push(filter.clone());
+        }
+        self.on.iter().for_each(|(l, r)| {
+            children.push(l.clone());
+            children.push(r.clone());
+        });
+        children
     }
 }
 
@@ -73,7 +82,58 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        let left_hint_df = match self.left.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Join left input cannot be a gadget node"),
+        };
+        let right_hint_df = match self.right.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
+        };
+
+        let mut join_exprs: Vec<Expr> = self
+            .join
+            .on
+            .iter()
+            .map(|(left_expr, right_expr)| left_expr.clone().eq(right_expr.clone()))
+            .collect();
+        if let Some(filter) = &self.join.filter {
+            join_exprs.push(filter.clone());
+        }
+
+        let joined = left_hint_df
+            .data_frame()
+            .clone()
+            .join_on(
+                right_hint_df.data_frame().clone(),
+                self.join.join_type,
+                join_exprs,
+            )
+            .expect("join output should succeed");
+
+        // Use all row_id columns (with qualifiers) to keep ordering deterministic.
+        let row_id_sort_exprs: Vec<SortExpr> = self
+            .join
+            .schema
+            .iter()
+            .filter_map(|(qualifier, field)| {
+                if field.name() != ROW_ID_COL_NAME {
+                    return None;
+                }
+                Some(
+                    Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).sort(true, true),
+                )
+            })
+            .collect();
+
+        let joined = if row_id_sort_exprs.is_empty() {
+            joined
+        } else {
+            joined
+                .sort(row_id_sort_exprs)
+                .expect("join output sort should succeed")
+        };
+        crate::irs::nodes::hints::HintDF::new_materialized(joined)
     }
 }
 

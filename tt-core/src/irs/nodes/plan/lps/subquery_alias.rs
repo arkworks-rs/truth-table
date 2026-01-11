@@ -38,7 +38,7 @@ impl<B: SnarkBackend> IsNode<B> for SubqueryAliasNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        todo!()
+        vec![self.input.clone()]
     }
 }
 
@@ -66,7 +66,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for SubqueryAliasNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Subquery alias input cannot be a gadget node"),
+        };
+
+        let aliased_df = input_hint_df
+            .data_frame()
+            .clone()
+            .alias(&self.subquery_alias.alias.to_string())
+            .expect("subquery alias should succeed");
+        let aliased_df = crate::irs::nodes::hints::sort_by_row_id_if_present(aliased_df)
+            .expect("subquery alias output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(aliased_df)
     }
 }
 
