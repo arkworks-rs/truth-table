@@ -43,6 +43,8 @@ async fn tpch_q1_prove_verify() {
     sum(l_quantity) AS sum_qty
 FROM
     lineitem
+WHERE
+    l_shipdate <= CAST('1998-09-02' AS date)
 GROUP BY
     l_returnflag,
     l_linestatus;";

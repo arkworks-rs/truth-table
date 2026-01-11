@@ -1,7 +1,7 @@
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
-use datafusion_common::Result as DataFusionResult;
+use datafusion_common::{Column, Result as DataFusionResult};
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 
@@ -32,6 +32,7 @@ impl Display for HintDF {
 
 impl HintDF {
     pub fn new(data_fram: DataFrame, should_materialize: IndexMap<FieldRef, bool>) -> Self {
+        let (data_fram, should_materialize) = normalize_hint_df(data_fram, should_materialize);
         Self {
             data_fram,
             should_materialize,
@@ -53,6 +54,7 @@ impl HintDF {
             .iter()
             .map(|field| (field.clone(), materialized))
             .collect();
+        let (data_fram, should_materialize) = normalize_hint_df(data_fram, should_materialize);
         Self {
             data_fram,
             should_materialize,
@@ -171,4 +173,38 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
     }
 
     HintDF::new(projected_df, should_materialize)
+}
+
+fn normalize_hint_df(
+    data_fram: DataFrame,
+    should_materialize: IndexMap<FieldRef, bool>,
+) -> (DataFrame, IndexMap<FieldRef, bool>) {
+    let schema = data_fram.schema();
+    let original_fields: Vec<FieldRef> = schema.fields().iter().cloned().collect();
+    let projection: Vec<Expr> = schema
+        .iter()
+        .map(|(qualifier, field)| {
+            if let Some(qualifier) = qualifier {
+                Expr::Column(Column::new(Some(qualifier.clone()), field.name()))
+            } else {
+                Expr::Column(Column::new_unqualified(field.name()))
+            }
+        })
+        .collect();
+
+    let normalized_df = data_fram
+        .select(projection)
+        .expect("hint dataframe normalization should succeed");
+
+    let mut normalized_should_materialize = IndexMap::new();
+    for (idx, field) in normalized_df.schema().fields().iter().enumerate() {
+        let original_field = &original_fields[idx];
+        let should = should_materialize
+            .get(original_field)
+            .copied()
+            .unwrap_or(true);
+        normalized_should_materialize.insert(field.clone(), should);
+    }
+
+    (normalized_df, normalized_should_materialize)
 }

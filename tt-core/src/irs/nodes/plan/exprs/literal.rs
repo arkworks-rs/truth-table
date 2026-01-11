@@ -60,7 +60,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .activator_tracked_poly()
             .expect("Literal scope should carry an activator column");
         let tracker = activator_poly.tracker();
-
+        dbg!(self.literal.clone());
         let literal_value = scalar_to_field::<B>(&self.literal)
             .expect("Unsupported literal type for virtual witness");
         let literal_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
