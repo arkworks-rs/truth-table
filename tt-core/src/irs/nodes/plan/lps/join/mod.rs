@@ -21,6 +21,7 @@ where
     right: Arc<Node<B>>,
     on: Vec<(Arc<Node<B>>, Arc<Node<B>>)>,
     filter: Option<Arc<Node<B>>>,
+    gadget: Arc<Node<B>>,
     join: Join,
 }
 
@@ -64,7 +65,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn initialize_gadgets(
@@ -143,7 +144,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn initialize_gadgets(
@@ -185,11 +186,15 @@ impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
                 .root()
                 .clone()
         });
+        let gadget = Arc::new(Node::Gadget(Arc::new(
+            crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(),
+        )));
         JoinNode {
             left,
             right,
             on,
             filter,
+            gadget,
             join,
         }
     }

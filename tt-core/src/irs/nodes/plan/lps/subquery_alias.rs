@@ -5,6 +5,7 @@ use datafusion_expr::{LogicalPlan, SubqueryAlias};
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    payloads::PayloadStructure,
     tree::Tree,
 };
 
@@ -48,7 +49,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SubqueryAliasNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let input_id = self.input.id();
+        let input_table = match virtualized_ir.payload_for_node(&input_id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+        Ok(())
     }
 
     fn initialize_gadgets(
@@ -88,7 +95,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SubqueryAliasNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let input_id = self.input.id();
+        let input_table = match virtualized_ir.payload_for_node(&input_id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+        Ok(())
     }
 
     fn initialize_gadgets(
