@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
+use crate::irs::{
+    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    payloads::PayloadStructure,
+};
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ROW_ID_COL_NAME};
+use ark_ff::One;
+use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
 use rayon::iter::Either;
-
-use crate::irs::{
-    nodes::{IsExprNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
-    payloads::PayloadStructure,
-};
 pub struct ProverNode<B: SnarkBackend> {
     pub literal: ScalarValue,
     pub scope: Arc<Node<B>>,
@@ -60,7 +62,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .activator_tracked_poly()
             .expect("Literal scope should carry an activator column");
         let tracker = activator_poly.tracker();
-        dbg!(self.literal.clone());
         let literal_value = scalar_to_field::<B>(&self.literal)
             .expect("Unsupported literal type for virtual witness");
         let literal_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
@@ -142,7 +143,30 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 fn scalar_to_field<B: SnarkBackend>(scalar: &ScalarValue) -> Option<<B as SnarkBackend>::F> {
     use ScalarValue::*;
     let f = |i: i128| (i >= 0).then(|| <B as SnarkBackend>::F::from(i as u128));
+    let hash_bytes = |bytes: &[u8]| -> <B as SnarkBackend>::F {
+        <B as SnarkBackend>::F::from_le_bytes_mod_order(&hash_to_32_bytes(bytes))
+    };
     match scalar {
+        Boolean(Some(v)) => Some(if *v {
+            <B as SnarkBackend>::F::one()
+        } else {
+            <B as SnarkBackend>::F::zero()
+        }),
+        Float16(Some(v)) => Some(<B as SnarkBackend>::F::from_le_bytes_mod_order(
+            &v.to_bits().to_le_bytes(),
+        )),
+        Float32(Some(v)) => Some(<B as SnarkBackend>::F::from_le_bytes_mod_order(
+            &v.to_le_bytes(),
+        )),
+        Float64(Some(v)) => Some(<B as SnarkBackend>::F::from_le_bytes_mod_order(
+            &v.to_le_bytes(),
+        )),
+        Decimal128(Some(v), _, _) => Some(<B as SnarkBackend>::F::from_le_bytes_mod_order(
+            &v.to_le_bytes(),
+        )),
+        Decimal256(Some(v), _, _) => Some(<B as SnarkBackend>::F::from_le_bytes_mod_order(
+            &v.to_le_bytes(),
+        )),
         Int8(Some(v)) => f(*v as i128),
         Int16(Some(v)) => f(*v as i128),
         Int32(Some(v)) => f(*v as i128),
@@ -151,8 +175,49 @@ fn scalar_to_field<B: SnarkBackend>(scalar: &ScalarValue) -> Option<<B as SnarkB
         UInt16(Some(v)) => f(*v as i128),
         UInt32(Some(v)) => f(*v as i128),
         UInt64(Some(v)) => f(*v as i128),
+        Utf8(Some(v)) => Some(hash_bytes(v.as_bytes())),
+        Utf8View(Some(v)) => Some(hash_bytes(v.as_bytes())),
+        LargeUtf8(Some(v)) => Some(hash_bytes(v.as_bytes())),
+        Binary(Some(v)) => Some(hash_bytes(v)),
+        BinaryView(Some(v)) => Some(hash_bytes(v)),
+        FixedSizeBinary(_, Some(v)) => Some(hash_bytes(v)),
+        LargeBinary(Some(v)) => Some(hash_bytes(v)),
+        Date32(Some(v)) => f(*v as i128),
+        Date64(Some(v)) => f(*v as i128),
+        Time32Second(Some(v)) => f(*v as i128),
+        Time32Millisecond(Some(v)) => f(*v as i128),
+        Time64Microsecond(Some(v)) => f(*v as i128),
+        Time64Nanosecond(Some(v)) => f(*v as i128),
+        TimestampSecond(Some(v), _) => f(*v as i128),
+        TimestampMillisecond(Some(v), _) => f(*v as i128),
+        TimestampMicrosecond(Some(v), _) => f(*v as i128),
+        TimestampNanosecond(Some(v), _) => f(*v as i128),
+        IntervalYearMonth(Some(v)) => f(*v as i128),
         _ => None,
     }
+}
+
+fn hash_to_32_bytes(data: &[u8]) -> [u8; 32] {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    fn fnv1a_with_seed(data: &[u8], seed: u64) -> u64 {
+        let mut hash = seed;
+        for &byte in data {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
+    }
+
+    let mut out = [0u8; 32];
+    let mut seed = FNV_OFFSET_BASIS;
+    for i in 0..4 {
+        let hash = fnv1a_with_seed(data, seed);
+        out[i * 8..(i + 1) * 8].copy_from_slice(&hash.to_le_bytes());
+        seed ^= hash.rotate_left(13);
+    }
+    out
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
