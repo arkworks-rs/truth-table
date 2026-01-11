@@ -20,6 +20,7 @@ use datafusion::arrow::{
     },
     datatypes::{DataType, IntervalUnit, TimeUnit},
 };
+use datafusion_common::ScalarValue;
 /// This macro implements the `Encodable` trait for Arrow array types that can
 /// be mapped directly to field elements. No decoding functionality is provided
 /// (or needed) for now.
@@ -140,10 +141,54 @@ fn hash_to_32_bytes(data: &[u8]) -> [u8; 32] {
     out
 }
 
+pub fn hash_bytes_to_field<F: PrimeField>(bytes: &[u8]) -> F {
+    F::from_le_bytes_mod_order(&hash_to_32_bytes(bytes))
+}
+
 #[inline]
 fn encode_hashed_bytes<F: PrimeField>(bytes: &[u8]) -> Vec<F> {
     let hash_bytes = hash_to_32_bytes(bytes);
     encode_bytes_to_fields::<F>(&hash_bytes)
+}
+
+pub fn scalar_to_field<F: PrimeField>(scalar: &ScalarValue) -> Option<F> {
+    use ScalarValue::*;
+    let f = |i: i128| (i >= 0).then(|| F::from(i as u128));
+    match scalar {
+        Boolean(Some(v)) => Some(if *v { F::one() } else { F::zero() }),
+        Float16(Some(v)) => Some(F::from_le_bytes_mod_order(&v.to_bits().to_le_bytes())),
+        Float32(Some(v)) => Some(F::from_le_bytes_mod_order(&v.to_le_bytes())),
+        Float64(Some(v)) => Some(F::from_le_bytes_mod_order(&v.to_le_bytes())),
+        Decimal128(Some(v), _, _) => Some(F::from_le_bytes_mod_order(&v.to_le_bytes())),
+        Decimal256(Some(v), _, _) => Some(F::from_le_bytes_mod_order(&v.to_le_bytes())),
+        Int8(Some(v)) => f(*v as i128),
+        Int16(Some(v)) => f(*v as i128),
+        Int32(Some(v)) => f(*v as i128),
+        Int64(Some(v)) => f(*v as i128),
+        UInt8(Some(v)) => f(*v as i128),
+        UInt16(Some(v)) => f(*v as i128),
+        UInt32(Some(v)) => f(*v as i128),
+        UInt64(Some(v)) => f(*v as i128),
+        Utf8(Some(v)) => Some(hash_bytes_to_field(v.as_bytes())),
+        Utf8View(Some(v)) => Some(hash_bytes_to_field(v.as_bytes())),
+        LargeUtf8(Some(v)) => Some(hash_bytes_to_field(v.as_bytes())),
+        Binary(Some(v)) => Some(hash_bytes_to_field(v)),
+        BinaryView(Some(v)) => Some(hash_bytes_to_field(v)),
+        FixedSizeBinary(_, Some(v)) => Some(hash_bytes_to_field(v)),
+        LargeBinary(Some(v)) => Some(hash_bytes_to_field(v)),
+        Date32(Some(v)) => f(*v as i128),
+        Date64(Some(v)) => f(*v as i128),
+        Time32Second(Some(v)) => f(*v as i128),
+        Time32Millisecond(Some(v)) => f(*v as i128),
+        Time64Microsecond(Some(v)) => f(*v as i128),
+        Time64Nanosecond(Some(v)) => f(*v as i128),
+        TimestampSecond(Some(v), _) => f(*v as i128),
+        TimestampMillisecond(Some(v), _) => f(*v as i128),
+        TimestampMicrosecond(Some(v), _) => f(*v as i128),
+        TimestampNanosecond(Some(v), _) => f(*v as i128),
+        IntervalYearMonth(Some(v)) => f(*v as i128),
+        _ => None,
+    }
 }
 
 impl<F: PrimeField> Encodable<F> for BinaryArray {

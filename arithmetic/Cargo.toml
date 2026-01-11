@@ -20,6 +20,7 @@ ark-serialize = { workspace = true }
 # datafusion dependencies
 datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
+datafusion-common = { workspace = true }
 
 # other dependencies
 thiserror = { workspace = true }
