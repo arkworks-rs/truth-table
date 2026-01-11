@@ -11,7 +11,7 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{aggregate_function, alias, binary_expr, cast, column, literal},
-            lps::{aggregate, filter, projection, sort, table_scan},
+            lps::{aggregate, filter, join, projection, sort, table_scan},
         },
     },
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -156,6 +156,7 @@ impl<B: SnarkBackend> Node<B> {
         hasher.finish()
     }
     pub(crate) fn from_lp(plan: LogicalPlan) -> Arc<Self> {
+        dbg!(&plan);
         match plan.clone() {
             LogicalPlan::Projection(_) => Arc::new_cyclic(|weak_self| {
                 let node = projection::ProverNode::from_lp(plan.clone(), weak_self.clone());
@@ -178,6 +179,11 @@ impl<B: SnarkBackend> Node<B> {
                 let node = sort::GadgetNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
+            LogicalPlan::Join(_) => Arc::new_cyclic(|weak_self| {
+                let node = join::JoinNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
+
             _ => todo!(),
         }
     }
