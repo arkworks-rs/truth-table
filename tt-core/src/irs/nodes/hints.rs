@@ -2,7 +2,7 @@ use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
 use datafusion_common::{Column, Result as DataFusionResult};
-use datafusion_expr::{Expr, LogicalPlan, col};
+use datafusion_expr::{Expr, LogicalPlan, SortExpr, col};
 use indexmap::IndexMap;
 
 #[derive(Clone, Debug)]
@@ -101,32 +101,54 @@ impl HintDF {
 }
 
 pub fn sort_by_row_id_if_present(df: DataFrame) -> DataFusionResult<DataFrame> {
-    let has_row_id = df
+    let row_id_sort_exprs: Vec<SortExpr> = df
         .schema()
-        .fields()
         .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    if has_row_id {
-        df.sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])
-    } else {
-        Ok(df)
+        .filter_map(|(qualifier, field)| {
+            if field.name() != ROW_ID_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).sort(true, true))
+        })
+        .collect();
+    if row_id_sort_exprs.is_empty() {
+        return Ok(df);
     }
+    df.sort(row_id_sort_exprs)
 }
 
 pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
-    let has_row_id = df
+    let row_id_exprs: Vec<Expr> = df
         .schema()
-        .fields()
         .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    if !has_row_id {
+        .filter_map(|(qualifier, field)| {
+            if field.name() != ROW_ID_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(
+                qualifier.cloned(),
+                ROW_ID_COL_NAME,
+            )))
+        })
+        .collect();
+    if row_id_exprs.is_empty() {
         return;
     }
-    let already_present = exprs.iter().any(|expr| match expr {
-        Expr::Column(col) => col.name == ROW_ID_COL_NAME,
-        _ => false,
-    });
-    if already_present {
+    let mut to_insert = Vec::new();
+    for row_expr in row_id_exprs {
+        let row_col = match &row_expr {
+            Expr::Column(col) => col,
+            _ => continue,
+        };
+        let already_present = exprs.iter().any(|expr| match expr {
+            Expr::Column(col) => col.name == row_col.name && col.relation == row_col.relation,
+            _ => false,
+        });
+        if !already_present {
+            to_insert.push(row_expr);
+        }
+    }
+    if to_insert.is_empty() {
         return;
     }
     let insert_pos = exprs.iter().position(|expr| match expr {
@@ -134,10 +156,51 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
         _ => false,
     });
     if let Some(pos) = insert_pos {
-        exprs.insert(pos, arithmetic::ROW_ID_EXPR.clone());
-    } else {
-        exprs.push(arithmetic::ROW_ID_EXPR.clone());
+        for (offset, row_expr) in to_insert.into_iter().enumerate() {
+            exprs.insert(pos + offset, row_expr);
+        }
+        return;
     }
+    exprs.extend(to_insert);
+}
+
+pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
+    let activator_exprs: Vec<Expr> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() != arithmetic::ACTIVATOR_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(
+                qualifier.cloned(),
+                arithmetic::ACTIVATOR_COL_NAME,
+            )))
+        })
+        .collect();
+    if activator_exprs.is_empty() {
+        return;
+    }
+    let mut to_insert = Vec::new();
+    for activator_expr in activator_exprs {
+        let activator_col = match &activator_expr {
+            Expr::Column(col) => col,
+            _ => continue,
+        };
+        let already_present = exprs.iter().any(|expr| match expr {
+            Expr::Column(col) => {
+                col.name == activator_col.name && col.relation == activator_col.relation
+            }
+            _ => false,
+        });
+        if !already_present {
+            to_insert.push(activator_expr);
+        }
+    }
+    if to_insert.is_empty() {
+        return;
+    }
+    exprs.extend(to_insert);
 }
 
 pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {

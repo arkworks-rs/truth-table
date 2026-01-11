@@ -1,8 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, table::TrackedTable, table_oracle::TrackedTableOracle,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
@@ -67,15 +65,31 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
         )
         .expect("aggregate output row-id sort should succeed");
 
-        let mut projection_exprs = self.aggregate.group_expr.clone();
-        projection_exprs.push(ACTIVATOR_EXPR.clone());
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut projection_exprs);
+        let mut input_projection_exprs = self.aggregate.group_expr.clone();
+        crate::irs::nodes::hints::append_activator_exprs_if_present(
+            &input_df,
+            &mut input_projection_exprs,
+        );
+        crate::irs::nodes::hints::append_row_id_expr_if_present(
+            &input_df,
+            &mut input_projection_exprs,
+        );
+
+        let mut output_projection_exprs = self.aggregate.group_expr.clone();
+        crate::irs::nodes::hints::append_activator_exprs_if_present(
+            &output_df,
+            &mut output_projection_exprs,
+        );
+        crate::irs::nodes::hints::append_row_id_expr_if_present(
+            &output_df,
+            &mut output_projection_exprs,
+        );
 
         let input_projected = input_df
-            .select(projection_exprs.clone())
+            .select(input_projection_exprs)
             .expect("aggregate input group projection should succeed");
         let output_projected = output_df
-            .select(projection_exprs)
+            .select(output_projection_exprs)
             .expect("aggregate output group projection should succeed");
 
         let input_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(input_projected)

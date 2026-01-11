@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::{ACTIVATOR_EXPR, is_system_column};
+use arithmetic::is_system_column;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion_common::{Column, Statistics};
@@ -119,7 +119,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
         let mut input_exprs = aggregate.group_expr.clone();
         input_exprs.extend(self.aggregate_function.params.args.clone());
-        input_exprs.push(ACTIVATOR_EXPR.clone());
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut input_exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut input_exprs);
 
         let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
@@ -129,7 +129,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 
         let mut output_exprs = aggregate.group_expr.clone();
         output_exprs.push(Expr::Column(Column::from_name(self.output_column_name())));
-        output_exprs.push(ACTIVATOR_EXPR.clone());
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&output_df, &mut output_exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&output_df, &mut output_exprs);
         let output_projected = output_df
             .select(dedup_exprs(output_exprs))
@@ -337,10 +337,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
         )
         .expect("aggregate function row-id sort should succeed");
 
-        let mut exprs = vec![
-            Expr::Column(Column::from_name(column_name)),
-            ACTIVATOR_EXPR.clone(),
-        ];
+        let mut exprs = vec![Expr::Column(Column::from_name(column_name))];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 
         let projected = input_df

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_expr::{BinaryExpr, Expr};
@@ -455,10 +455,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("binary expr row-id sort should succeed");
 
-        let mut exprs = vec![
-            Expr::BinaryExpr(self.binary_expression.clone()),
-            ACTIVATOR_EXPR.clone(),
-        ];
+        let mut exprs = vec![Expr::BinaryExpr(self.binary_expression.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 
         let projected = input_df

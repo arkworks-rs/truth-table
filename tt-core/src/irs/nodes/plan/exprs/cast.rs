@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_EXPR, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_common::Statistics;
@@ -131,10 +131,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("cast row-id sort should succeed");
 
-        let mut exprs = vec![
-            datafusion_expr::Expr::Cast(self.cast.clone()),
-            ACTIVATOR_EXPR.clone(),
-        ];
+        let mut exprs = vec![datafusion_expr::Expr::Cast(self.cast.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df
             .select(exprs)
