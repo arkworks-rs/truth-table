@@ -156,7 +156,6 @@ impl<B: SnarkBackend> Node<B> {
         hasher.finish()
     }
     pub(crate) fn from_lp(plan: LogicalPlan) -> Arc<Self> {
-        dbg!(&plan);
         match plan.clone() {
             LogicalPlan::Projection(_) => Arc::new_cyclic(|weak_self| {
                 let node = projection::ProverNode::from_lp(plan.clone(), weak_self.clone());

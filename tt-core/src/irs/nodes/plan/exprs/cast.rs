@@ -135,8 +135,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Cast(self.cast.clone()),
             ACTIVATOR_EXPR.clone(),
         ];
-        dbg!(input_df.schema());
-        dbg!(exprs.clone());
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
         let projected = input_df
             .select(exprs)

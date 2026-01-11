@@ -149,7 +149,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
             panic!("Expected super table for Supp gadget");
         };
-        println!("{}", super_table.pretty_string());
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
             let folding_challs = folding_challenges_from_table(&orig_table);
