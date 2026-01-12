@@ -7,7 +7,10 @@ use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr};
 use indexmap::IndexMap;
 
 use crate::irs::{
-    nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
+    nodes::{
+        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+        gadget::lps::join as join_gadget,
+    },
     payloads::PayloadStructure,
     tree::Tree,
 };
@@ -40,9 +43,34 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_hint_df);
+        gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_hint_df);
+        gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_hint_df);
+
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -55,6 +83,7 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
             children.push(l.clone());
             children.push(r.clone());
         });
+        children.push(self.gadget.clone());
         children
     }
 }
