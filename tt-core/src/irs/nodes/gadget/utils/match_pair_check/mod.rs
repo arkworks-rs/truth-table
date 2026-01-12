@@ -1,8 +1,24 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use ark_piop::SnarkBackend;
+use datafusion::{
+    arrow::{
+        array::BooleanArray,
+        compute::concat_batches,
+        datatypes::{Field, Schema},
+        record_batch::RecordBatch,
+    },
+    prelude::{DataFrame, SessionContext},
+};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion_expr::{Expr, Join, LogicalPlan, col};
+use datafusion_functions_aggregate::expr_fn::min;
 use indexmap::IndexMap;
+use tokio::runtime::RuntimeFlavor;
 
+use crate::irs::nodes::gadget::lps::join as join_gadget;
+use crate::irs::nodes::gadget::utils::{lookup, nodup};
+use crate::irs::nodes::hints::sort_by_row_id_if_present;
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -17,7 +33,11 @@ pub const RIGHT_LABEL: &str = "__right__";
 pub const OUT_LABEL: &str = "__out__";
 pub const UNION_LABEL: &str = "__union__";
 
-pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
+pub struct GadgetNode<B: SnarkBackend> {
+    nodup_gadget: Arc<Node<B>>,
+    left_lookup_gadget: Arc<Node<B>>,
+    right_lookup_gadget: Arc<Node<B>>,
+}
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -34,14 +54,88 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(join_gadget_id) = find_parent_id(id, planned_ir.tree()) else {
+            return Ok(());
+        };
+        let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let left_hint = match join_payload.get(join_gadget::LEFT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let right_hint = match join_payload.get(join_gadget::RIGHT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let Some(join) = find_parent_join_plan(join_gadget_id, planned_ir.tree()) else {
+            return Ok(());
+        };
+
+        let (key_union, key_names) =
+            build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
+                .expect("match-pair key union should succeed");
+        let key_union =
+            pad_key_union_df(key_union, &key_names).expect("match-pair padding should succeed");
+        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+        let (left_cols, right_cols, _) =
+            join_key_columns(&join).expect("match-pair join keys should be columns");
+
+        let left_keys_df =
+            build_lookup_keys_df(left_hint.data_frame(), &left_cols, &key_names, "left")
+                .expect("match-pair left key projection should succeed");
+        let right_keys_df =
+            build_lookup_keys_df(right_hint.data_frame(), &right_cols, &key_names, "right")
+                .expect("match-pair right key projection should succeed");
+        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
+            .expect("match-pair union sort should succeed");
+        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(UNION_LABEL.to_string(), key_hint);
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+
+        let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
+        let mut left_lookup_payload =
+            match planned_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), left_lookup_hint);
+        left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint.clone());
+        planned_ir.set_payload_for_node(
+            self.left_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
+        );
+
+        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
+        let mut right_lookup_payload =
+            match planned_ir.payload_for_node(&self.right_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), right_lookup_hint);
+        right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint);
+        planned_ir.set_payload_for_node(
+            self.right_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        );
         Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        vec![
+            self.nodup_gadget.clone(),
+            self.left_lookup_gadget.clone(),
+            self.right_lookup_gadget.clone(),
+        ]
     }
 }
 
@@ -56,9 +150,71 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
+        };
+        let union = payload
+            .get(UNION_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
+        let left_keys = payload
+            .get(LEFT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL));
+        let right_keys = payload
+            .get(RIGHT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL));
+
+        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
+        virtualized_ir.set_payload_for_node(
+            self.nodup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
+
+        let mut left_lookup_payload = match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        left_lookup_payload.insert(
+            lookup::INCLUDED_LABEL.to_string(),
+            drop_row_id_keep_activator_prover(&left_keys),
+        );
+        left_lookup_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            drop_row_id_keep_activator_prover(&union),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.left_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
+        );
+
+        let mut right_lookup_payload =
+            match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        right_lookup_payload.insert(
+            lookup::INCLUDED_LABEL.to_string(),
+            drop_row_id_keep_activator_prover(&right_keys),
+        );
+        right_lookup_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            drop_row_id_keep_activator_prover(&union),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.right_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        );
         Ok(())
     }
 }
@@ -74,9 +230,71 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) =
+            virtualized_ir.payload_for_node(&id).cloned()
+        else {
+            return Ok(());
+        };
+        let union = payload
+            .get(UNION_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
+        let left_keys = payload
+            .get(LEFT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL));
+        let right_keys = payload
+            .get(RIGHT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL));
+
+        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
+        virtualized_ir.set_payload_for_node(
+            self.nodup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
+
+        let mut left_lookup_payload = match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        left_lookup_payload.insert(
+            lookup::INCLUDED_LABEL.to_string(),
+            drop_row_id_keep_activator_verifier(&left_keys),
+        );
+        left_lookup_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            drop_row_id_keep_activator_verifier(&union),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.left_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
+        );
+
+        let mut right_lookup_payload =
+            match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        right_lookup_payload.insert(
+            lookup::INCLUDED_LABEL.to_string(),
+            drop_row_id_keep_activator_verifier(&right_keys),
+        );
+        right_lookup_payload.insert(
+            lookup::SUPER_LABEL.to_string(),
+            drop_row_id_keep_activator_verifier(&union),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.right_lookup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        );
         Ok(())
     }
 }
@@ -122,6 +340,281 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        Self(PhantomData)
+        let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
+        )));
+        let left_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::lookup::GadgetNode::new(),
+        )));
+        let right_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::lookup::GadgetNode::new(),
+        )));
+        Self {
+            nodup_gadget,
+            left_lookup_gadget,
+            right_lookup_gadget,
+        }
+    }
+}
+
+fn drop_row_id_keep_activator_prover<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+) -> arithmetic::table::TrackedTable<B> {
+    let cols = table.tracked_polys();
+    if !cols.keys().any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME) {
+        panic!("Match-Pair lookup tables must include {}", arithmetic::ACTIVATOR_COL_NAME);
+    }
+    let indices: Vec<usize> = cols
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, (field, _))| {
+            (field.name() != arithmetic::ROW_ID_COL_NAME).then_some(idx)
+        })
+        .collect();
+    table.tracked_subtable_by_indices(&indices)
+}
+
+fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+) -> arithmetic::table_oracle::TrackedTableOracle<B> {
+    let cols = table.tracked_oracles();
+    if !cols.keys().any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME) {
+        panic!("Match-Pair lookup tables must include {}", arithmetic::ACTIVATOR_COL_NAME);
+    }
+    let indices: Vec<usize> = cols
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, (field, _))| {
+            (field.name() != arithmetic::ROW_ID_COL_NAME).then_some(idx)
+        })
+        .collect();
+    table.tracked_subtable_by_indices(&indices)
+}
+
+fn find_parent_id<B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+) -> Option<crate::irs::nodes::NodeId> {
+    tree.arena().iter().find_map(|(node_id, node)| {
+        let is_parent = node.children().iter().any(|child| child.id() == id);
+        is_parent.then_some(*node_id)
+    })
+}
+
+fn find_parent_join_plan<B: SnarkBackend>(
+    gadget_id: crate::irs::nodes::NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+) -> Option<Join> {
+    tree.arena().iter().find_map(|(_, node)| {
+        let is_parent = node.children().iter().any(|child| child.id() == gadget_id);
+        if !is_parent {
+            return None;
+        }
+        match node.as_ref() {
+            Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => match plan_node.lp() {
+                LogicalPlan::Join(join) => Some(join),
+                _ => None,
+            },
+            _ => None,
+        }
+    })
+}
+
+fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, Vec<String>)> {
+    let mut left_cols = Vec::with_capacity(join.on.len());
+    let mut right_cols = Vec::with_capacity(join.on.len());
+    let mut key_names = Vec::with_capacity(join.on.len());
+
+    for (left_expr, right_expr) in &join.on {
+        let (left_col, right_col) = match (left_expr, right_expr) {
+            (Expr::Column(left_col), Expr::Column(right_col)) => (left_col, right_col),
+            _ => {
+                return Err(DataFusionError::Plan(
+                    "match-pair keys must be column expressions".to_string(),
+                ));
+            }
+        };
+        left_cols.push(left_col.clone());
+        right_cols.push(right_col.clone());
+        key_names.push(left_col.name.clone());
+    }
+
+    Ok((left_cols, right_cols, key_names))
+}
+
+fn build_lookup_keys_df(
+    df: &DataFrame,
+    cols: &[Column],
+    key_names: &[String],
+    side: &str,
+) -> DataFusionResult<DataFrame> {
+    let mut exprs: Vec<Expr> = cols
+        .iter()
+        .zip(key_names)
+        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
+        .collect();
+    crate::irs::nodes::hints::append_activator_exprs_if_present(df, &mut exprs);
+    crate::irs::nodes::hints::append_row_id_expr_if_present(df, &mut exprs);
+    let projected = df.clone().select(exprs)?;
+    let sorted = sort_by_row_id_if_present(projected)?;
+
+    let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted, &mut final_exprs);
+    let final_df = sorted.select(final_exprs)?;
+    if final_df.schema().fields().len() == key_names.len() {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} lookup keys missing activator column"
+        )));
+    }
+    Ok(final_df)
+}
+
+fn row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> {
+    let mut row_id_cols: Vec<Column> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            (field.name() == arithmetic::ROW_ID_COL_NAME)
+                .then_some(Column::new(qualifier.cloned(), arithmetic::ROW_ID_COL_NAME))
+        })
+        .collect();
+    if row_id_cols.is_empty() {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} input is missing {}",
+            arithmetic::ROW_ID_COL_NAME
+        )));
+    }
+    if row_id_cols.len() > 1 {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} input has multiple {} columns",
+            arithmetic::ROW_ID_COL_NAME
+        )));
+    }
+    Ok(row_id_cols.remove(0))
+}
+
+fn build_key_union_df(
+    join: &Join,
+    left: &DataFrame,
+    right: &DataFrame,
+) -> DataFusionResult<(DataFrame, Vec<String>)> {
+    let (left_cols, right_cols, key_names) = join_key_columns(join)?;
+    let left_row_id = row_id_column(left, "left")?;
+    let right_row_id = row_id_column(right, "right")?;
+
+    let mut left_exprs: Vec<Expr> = left_cols
+        .iter()
+        .zip(&key_names)
+        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
+        .collect();
+    left_exprs.push(Expr::Column(left_row_id).alias(arithmetic::ROW_ID_COL_NAME));
+    let left_keys = sort_by_row_id_if_present(left.clone().select(left_exprs)?)?;
+
+    let mut right_exprs: Vec<Expr> = right_cols
+        .iter()
+        .zip(&key_names)
+        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
+        .collect();
+    right_exprs.push(Expr::Column(right_row_id).alias(arithmetic::ROW_ID_COL_NAME));
+    let right_keys = sort_by_row_id_if_present(right.clone().select(right_exprs)?)?;
+
+    let unioned = left_keys.union(right_keys)?;
+    let key_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    let aggregated = unioned.aggregate(
+        key_exprs.clone(),
+        vec![min(col(arithmetic::ROW_ID_COL_NAME)).alias(arithmetic::ROW_ID_COL_NAME)],
+    )?;
+    let sorted = sort_by_row_id_if_present(aggregated)?;
+    let with_row_id = sorted.select(
+        key_exprs
+            .into_iter()
+            .chain(std::iter::once(col(arithmetic::ROW_ID_COL_NAME)))
+            .collect(),
+    )?;
+    Ok((with_row_id, key_names))
+}
+
+fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
+    let batches = collect_blocking(df)?;
+    if batches.is_empty() {
+        return Err(DataFusionError::Plan(
+            "match-pair key union is empty".to_string(),
+        ));
+    }
+    let schema_ref = batches[0].schema();
+    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+    let combined = concat_batches(&schema_ref, batch_refs)?;
+    let row_count = combined.num_rows();
+
+    let target = row_count.next_power_of_two();
+    let pad = target - row_count;
+
+    let mut output_fields = Vec::with_capacity(key_names.len() + 1);
+    let mut output_arrays = Vec::with_capacity(key_names.len() + 1);
+
+    for key in key_names {
+        let (idx, field) = combined
+            .schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .find(|(_, field)| field.name() == key)
+            .map(|(idx, field)| (idx, field.clone()))
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!("match-pair key column missing: {key}"))
+            })?;
+        let base = combined.column(idx).clone();
+        let padded = if pad > 0 {
+            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
+            let pad_arr = last.to_array_of_size(pad)?;
+            datafusion::arrow::compute::concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else {
+            base
+        };
+        output_fields.push(field.as_ref().clone());
+        output_arrays.push(padded);
+    }
+
+    let mut activator_vals = Vec::with_capacity(target);
+    activator_vals.extend(std::iter::repeat(true).take(row_count));
+    activator_vals.extend(std::iter::repeat(false).take(pad));
+    output_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
+    output_arrays.push(Arc::new(BooleanArray::from(activator_vals)) as _);
+
+    let out_schema = Arc::new(Schema::new(output_fields));
+    let out_batch = RecordBatch::try_new(out_schema, output_arrays)?;
+    let ctx = SessionContext::new();
+    ctx.read_batch(out_batch)
+}
+
+fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
+        }
     }
 }
