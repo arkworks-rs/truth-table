@@ -100,8 +100,34 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(left) = left_table {
+            gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left);
+        }
+        if let Some(right) = right_table {
+            gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }
@@ -179,8 +205,34 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+        let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            _ => None,
+        };
+
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        if let Some(left) = left_table {
+            gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left);
+        }
+        if let Some(right) = right_table {
+            gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right);
+        }
+
+        if !gadget_payload.is_empty() {
+            virtualized_ir.set_payload_for_node(
+                self.gadget.id(),
+                Some(PayloadStructure::GadgetPayload(gadget_payload)),
+            );
+        }
         Ok(())
     }
 }

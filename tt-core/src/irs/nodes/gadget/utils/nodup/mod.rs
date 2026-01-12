@@ -4,6 +4,7 @@ use arithmetic::{
     col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
+use ark_ff::PrimeField;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput, NoDupPIOP};
 use indexmap::IndexMap;
@@ -159,21 +160,23 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
     fn single_col_from_table(table: &TrackedTable<B>) -> TrackedCol<B> {
         let data_indices = table.data_tracked_polys_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "NoDup gadget expects a single data column."
-        );
-        table.tracked_col_by_ind(data_indices[0])
+        if data_indices.len() == 1 {
+            return table.tracked_col_by_ind(data_indices[0]);
+        }
+        let challenges = folding_challenges::<B::F>(data_indices.len());
+        table.fold_all_data_columns(&challenges)
     }
 
     fn single_col_from_table_oracle(table: &TrackedTableOracle<B>) -> TrackedColOracle<B> {
         let data_indices = table.data_tracked_oracles_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "NoDup gadget expects a single data column."
-        );
-        table.tracked_col_oracle_by_ind(data_indices[0])
+        if data_indices.len() == 1 {
+            return table.tracked_col_oracle_by_ind(data_indices[0]);
+        }
+        let challenges = folding_challenges::<B::F>(data_indices.len());
+        table.fold_all_data_oracles(&challenges)
     }
+}
+
+fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
+    (0..count).map(|i| F::from((i + 1) as u64)).collect()
 }
