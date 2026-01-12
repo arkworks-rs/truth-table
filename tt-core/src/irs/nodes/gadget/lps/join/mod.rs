@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
@@ -13,14 +14,14 @@ use datafusion::{
     prelude::DataFrame,
 };
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, JoinType, col, lit};
+use datafusion_expr::{Expr, JoinType, LogicalPlan, col, lit};
 use either::Either;
 use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{
         IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::utils::{bool, nodup, prescr_perm},
+        gadget::utils::{bool, match_pair_check, nodup, prescr_perm},
     },
     payloads::PayloadStructure,
 };
@@ -93,12 +94,43 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             SRC_RIGHT_LABEL.to_string(),
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         );
+
+        let join_lp = planned_ir
+            .tree()
+            .arena()
+            .iter()
+            .find_map(|(_, node)| {
+                let is_parent = node.children().iter().any(|child| child.id() == id);
+                if !is_parent {
+                    return None;
+                }
+                match node.as_ref() {
+                    Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => {
+                        Some(plan_node.lp())
+                    }
+                    _ => None,
+                }
+            });
+        let join = match join_lp {
+            Some(LogicalPlan::Join(join)) => join,
+            _ => return Ok(()),
+        };
+        let (match_left, match_right, match_out) =
+            build_match_pair_hints(&join, &left_hint, &right_hint, &output_hint)
+                .expect("match-pair hint derivation should succeed");
+        gadget_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
+        gadget_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
+        gadget_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.bool_gadget.clone(), self.nodup_gadget.clone()]
+        vec![
+            self.bool_gadget.clone(),
+            self.nodup_gadget.clone(),
+            self.match_pair_gadget.clone(),
+        ]
     }
 }
 
@@ -149,6 +181,27 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         virtualized_ir.set_payload_for_node(
             self.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
+
+        let Some(join) = find_parent_join_plan(id, virtualized_ir.tree()) else {
+            return Ok(());
+        };
+        let match_tables =
+            build_match_pair_tables_prover(&join, output, payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+                .unwrap_or_else(|| {
+                    panic!("Match-pair tables require left/right/output for Join gadget");
+                });
+        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
+        {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
+        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
+        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
+        virtualized_ir.set_payload_for_node(
+            self.match_pair_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(match_payload)),
         );
         Ok(())
     }
@@ -201,6 +254,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir.set_payload_for_node(
             self.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
+
+        let Some(join) = find_parent_join_plan(id, virtualized_ir.tree()) else {
+            return Ok(());
+        };
+        let match_tables = build_match_pair_tables_verifier(
+            &join,
+            output,
+            payload.get(LEFT_LABEL),
+            payload.get(RIGHT_LABEL),
+        )
+        .unwrap_or_else(|| {
+            panic!("Match-pair tables require left/right/output for Join gadget");
+        });
+        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
+        {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
+        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
+        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
+        virtualized_ir.set_payload_for_node(
+            self.match_pair_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(match_payload)),
         );
         Ok(())
     }
@@ -783,4 +861,227 @@ pub(crate) fn build_source_dfs(
         SRC_RIGHT_COL_NAME,
     ))])?;
     Ok((left_src, right_src))
+}
+
+fn find_parent_join_plan<B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+) -> Option<datafusion_expr::Join> {
+    tree.arena().iter().find_map(|(_, node)| {
+        let is_parent = node.children().iter().any(|child| child.id() == id);
+        if !is_parent {
+            return None;
+        }
+        match node.as_ref() {
+            Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => {
+                match plan_node.lp() {
+                    LogicalPlan::Join(join) => Some(join),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    })
+}
+
+fn build_match_pair_hints(
+    join: &datafusion_expr::Join,
+    left_hint: &crate::irs::nodes::hints::HintDF,
+    right_hint: &crate::irs::nodes::hints::HintDF,
+    output_hint: &crate::irs::nodes::hints::HintDF,
+) -> DataFusionResult<(
+    crate::irs::nodes::hints::HintDF,
+    crate::irs::nodes::hints::HintDF,
+    crate::irs::nodes::hints::HintDF,
+)> {
+    let mut left_exprs: Vec<Expr> = join.on.iter().map(|(l, _)| l.clone()).collect();
+    let mut right_exprs: Vec<Expr> = join.on.iter().map(|(_, r)| r.clone()).collect();
+    crate::irs::nodes::hints::append_row_id_expr_if_present(left_hint.data_frame(), &mut left_exprs);
+    crate::irs::nodes::hints::append_activator_exprs_if_present(
+        left_hint.data_frame(),
+        &mut left_exprs,
+    );
+    crate::irs::nodes::hints::append_row_id_expr_if_present(
+        right_hint.data_frame(),
+        &mut right_exprs,
+    );
+    crate::irs::nodes::hints::append_activator_exprs_if_present(
+        right_hint.data_frame(),
+        &mut right_exprs,
+    );
+
+    let left_df = left_hint.data_frame().clone().select(left_exprs)?;
+    let left_df = crate::irs::nodes::hints::sort_by_row_id_if_present(left_df)?;
+    let right_df = right_hint.data_frame().clone().select(right_exprs)?;
+    let right_df = crate::irs::nodes::hints::sort_by_row_id_if_present(right_df)?;
+
+    let output_sorted = crate::irs::nodes::hints::sort_by_row_id_if_present(
+        output_hint.data_frame().clone(),
+    )?;
+    let mut out_exprs = Vec::new();
+    crate::irs::nodes::hints::append_activator_exprs_if_present(
+        &output_sorted,
+        &mut out_exprs,
+    );
+    if out_exprs.is_empty() {
+        return Err(DataFusionError::Plan(
+            "Join output is missing an activator column".to_string(),
+        ));
+    }
+    let output_df = output_sorted.select(out_exprs)?;
+
+    Ok((
+        crate::irs::nodes::hints::HintDF::new_virtual(left_df),
+        crate::irs::nodes::hints::HintDF::new_virtual(right_df),
+        crate::irs::nodes::hints::HintDF::new_virtual(output_df),
+    ))
+}
+
+fn join_key_names(join: &datafusion_expr::Join, use_left: bool) -> Vec<String> {
+    join.on
+        .iter()
+        .map(|(left, right)| {
+            let expr = if use_left { left } else { right };
+            match expr {
+                Expr::Column(col) => col.name.clone(),
+                _ => panic!("Join match-pair keys must be column expressions"),
+            }
+        })
+        .collect()
+}
+
+fn ordered_column_names(mut keys: Vec<String>) -> Vec<String> {
+    if !keys.iter().any(|name| name == ROW_ID_COL_NAME) {
+        keys.push(ROW_ID_COL_NAME.to_string());
+    }
+    if !keys.iter().any(|name| name == ACTIVATOR_COL_NAME) {
+        keys.push(ACTIVATOR_COL_NAME.to_string());
+    }
+    keys
+}
+
+fn build_match_pair_tables_prover<B: SnarkBackend>(
+    join: &datafusion_expr::Join,
+    output: &TrackedTable<B>,
+    left: Option<&TrackedTable<B>>,
+    right: Option<&TrackedTable<B>>,
+) -> Option<(TrackedTable<B>, TrackedTable<B>, TrackedTable<B>)> {
+    let left_table = left?;
+    let right_table = right?;
+    let left_keys = ordered_column_names(join_key_names(join, true));
+    let right_keys = ordered_column_names(join_key_names(join, false));
+
+    let left_selected = select_tracked_columns(left_table, &left_keys, "left");
+    let right_selected = select_tracked_columns(right_table, &right_keys, "right");
+    let out_selected = output_activator_table(output);
+
+    Some((left_selected, right_selected, out_selected))
+}
+
+fn build_match_pair_tables_verifier<B: SnarkBackend>(
+    join: &datafusion_expr::Join,
+    output: &TrackedTableOracle<B>,
+    left: Option<&TrackedTableOracle<B>>,
+    right: Option<&TrackedTableOracle<B>>,
+) -> Option<(TrackedTableOracle<B>, TrackedTableOracle<B>, TrackedTableOracle<B>)> {
+    let left_table = left?;
+    let right_table = right?;
+    let left_keys = ordered_column_names(join_key_names(join, true));
+    let right_keys = ordered_column_names(join_key_names(join, false));
+
+    let left_selected = select_tracked_oracles(left_table, &left_keys, "left");
+    let right_selected = select_tracked_oracles(right_table, &right_keys, "right");
+    let out_selected = output_activator_table_oracle(output);
+
+    Some((left_selected, right_selected, out_selected))
+}
+
+fn select_tracked_columns<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    column_names: &[String],
+    side: &str,
+) -> TrackedTable<B> {
+    let cols = table.tracked_polys();
+    let mut selected = IndexMap::new();
+    for name in column_names {
+        let (field, poly) = cols
+            .iter()
+            .find(|(field, _)| field.name() == name)
+            .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
+        selected.insert(field.clone(), poly.clone());
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = selected
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        let fields: Vec<Field> = selected
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Some(Schema::new(fields))
+    });
+    TrackedTable::new(schema, selected, table.log_size())
+}
+
+fn select_tracked_oracles<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    column_names: &[String],
+    side: &str,
+) -> TrackedTableOracle<B> {
+    let cols = table.tracked_oracles();
+    let mut selected = IndexMap::new();
+    for name in column_names {
+        let (field, oracle) = cols
+            .iter()
+            .find(|(field, _)| field.name() == name)
+            .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
+        selected.insert(field.clone(), oracle.clone());
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = selected
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        let fields: Vec<Field> = selected
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Some(Schema::new(fields))
+    });
+    TrackedTableOracle::new(schema, selected, table.log_size())
+}
+
+fn output_activator_table<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
+    let activator = output
+        .tracked_polys()
+        .iter()
+        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        .map(|(field, poly)| (field.clone(), poly.clone()))
+        .unwrap_or_else(|| panic!("Join output missing activator column"));
+    let mut selected = IndexMap::new();
+    selected.insert(activator.0.clone(), activator.1);
+    let schema = Some(Schema::new(vec![activator.0.as_ref().clone()]));
+    TrackedTable::new(schema, selected, output.log_size())
+}
+
+fn output_activator_table_oracle<B: SnarkBackend>(
+    output: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let activator = output
+        .tracked_oracles()
+        .iter()
+        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+        .map(|(field, oracle)| (field.clone(), oracle.clone()))
+        .unwrap_or_else(|| panic!("Join output missing activator column"));
+    let mut selected = IndexMap::new();
+    selected.insert(activator.0.clone(), activator.1);
+    let schema = Some(Schema::new(vec![activator.0.as_ref().clone()]));
+    TrackedTableOracle::new(schema, selected, output.log_size())
 }

@@ -15,6 +15,7 @@ use crate::{
 pub const LEFT_LABEL: &str = "__left__";
 pub const RIGHT_LABEL: &str = "__right__";
 pub const OUT_LABEL: &str = "__out__";
+pub const UNION_LABEL: &str = "__union__";
 
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
@@ -87,7 +88,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn honest_prover_check(
@@ -105,7 +106,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        Ok(())
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
