@@ -38,6 +38,7 @@ pub const SRC_RIGHT_COL_NAME: &str = "src_right";
 pub struct GadgetNode<B: SnarkBackend> {
     bool_gadget: Arc<Node<B>>,
     nodup_gadget: Arc<Node<B>>,
+    match_pair_gadget: Arc<Node<B>>,
 }
 #[cfg(test)]
 mod tests;
@@ -681,9 +682,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
         )));
+        let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::match_pair_check::GadgetNode::new(),
+        )));
         Self {
             bool_gadget,
             nodup_gadget,
+            match_pair_gadget,
         }
     }
 }
