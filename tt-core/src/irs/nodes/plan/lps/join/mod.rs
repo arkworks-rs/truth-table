@@ -6,10 +6,11 @@ use arithmetic::{
 };
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
+use datafusion::functions_window::expr_fn::row_number;
 use datafusion_common::Column;
-use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr};
+use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr, col, lit};
 use indexmap::IndexMap;
-
+use datafusion_expr::ExprFunctionExt;
 use crate::irs::{
     nodes::{
         IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
@@ -208,9 +209,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
             join_exprs.push(filter.clone());
         }
 
-        let prepare_input = |df: datafusion::prelude::DataFrame, label: &str| {
+        let prepare_input = |df: datafusion::prelude::DataFrame,
+                             activator_label: &str,
+                             row_id_prefix: &str| {
             let mut projection_exprs = Vec::new();
             let mut activator_exprs = Vec::new();
+            let mut row_id_cols = Vec::new();
             for (qualifier, field) in df.schema().iter() {
                 if field.name() == ACTIVATOR_COL_NAME {
                     activator_exprs.push(Expr::Column(Column::new(
@@ -219,22 +223,46 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
                     )));
                     continue;
                 }
+                if field.name() == ROW_ID_COL_NAME {
+                    row_id_cols.push(Column::new(qualifier.cloned(), ROW_ID_COL_NAME));
+                    continue;
+                }
+                if field.name().starts_with("__left_row_id__")
+                    || field.name().starts_with("__right_row_id__")
+                {
+                    continue;
+                }
                 projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
             }
-            if activator_exprs.is_empty() {
+            if activator_exprs.is_empty() && row_id_cols.is_empty() {
                 return df;
             }
-            let mut combined = activator_exprs[0].clone();
-            for expr in activator_exprs.iter().skip(1) {
-                combined = combined.and(expr.clone());
+            for (idx, col) in row_id_cols.iter().enumerate() {
+                projection_exprs.push(
+                    Expr::Column(col.clone()).alias(format!("{row_id_prefix}{idx}")),
+                );
             }
-            projection_exprs.push(combined.alias(label));
+            if !activator_exprs.is_empty() {
+                let mut combined = activator_exprs[0].clone();
+                for expr in activator_exprs.iter().skip(1) {
+                    combined = combined.and(expr.clone());
+                }
+                projection_exprs.push(combined.alias(activator_label));
+            }
             df.select(projection_exprs)
                 .expect("join input activator projection should succeed")
         };
 
-        let left_df = prepare_input(left_hint_df.data_frame().clone(), "__left_activator__");
-        let right_df = prepare_input(right_hint_df.data_frame().clone(), "__right_activator__");
+        let left_df = prepare_input(
+            left_hint_df.data_frame().clone(),
+            "__left_activator__",
+            "__left_row_id__",
+        );
+        let right_df = prepare_input(
+            right_hint_df.data_frame().clone(),
+            "__right_activator__",
+            "__right_row_id__",
+        );
 
         let joined = left_df
             .join_on(right_df, self.join.join_type, join_exprs)
@@ -271,16 +299,18 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
             .expect("join output activator projection should succeed");
 
         // Use all row_id columns (with qualifiers) to keep ordering deterministic.
-        let row_id_sort_exprs: Vec<SortExpr> = self
-            .join
-            .schema
+        let row_id_sort_exprs: Vec<SortExpr> = joined
+            .schema()
             .iter()
             .filter_map(|(qualifier, field)| {
-                if field.name() != ROW_ID_COL_NAME {
+                if field.name() != "__left_row_id__0"
+                    && field.name() != "__right_row_id__0"
+                    && field.name() != ROW_ID_COL_NAME
+                {
                     return None;
                 }
                 Some(
-                    Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).sort(true, true),
+                    Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(true, true),
                 )
             })
             .collect();
@@ -289,14 +319,55 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
             joined
         } else {
             joined
-                .sort(row_id_sort_exprs)
+                .sort(row_id_sort_exprs.clone())
                 .expect("join output sort should succeed")
+        };
+        let joined = if row_id_sort_exprs.is_empty() {
+            joined
+        } else {
+            let row_number_expr = row_number()
+                .partition_by(Vec::new())
+                .order_by(row_id_sort_exprs)
+                .build()
+                .expect("join row_number window should build")
+                .alias("__row_number__");
+            let mut indexed_exprs = Vec::new();
+            for (qualifier, field) in joined.schema().iter() {
+                if field.name() == ROW_ID_COL_NAME
+                {
+                    continue;
+                }
+                indexed_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            }
+            indexed_exprs.push(row_number_expr);
+            let with_row_number = joined
+                .select(indexed_exprs)
+                .expect("join row_number projection should succeed");
+
+            let mut final_exprs = Vec::new();
+            for (qualifier, field) in with_row_number.schema().iter() {
+                if field.name() == "__row_number__"
+                {
+                    continue;
+                }
+                final_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            }
+            final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
+            with_row_number
+                .select(final_exprs)
+                .expect("join row_id projection should succeed")
         };
         let should_materialize: IndexMap<_, _> = joined
             .schema()
             .fields()
             .iter()
-            .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+            .map(|field| {
+                let name = field.name();
+                let mat = name != ROW_ID_COL_NAME
+                    && !name.starts_with("__left_row_id__")
+                    && !name.starts_with("__right_row_id__");
+                (field.clone(), mat)
+            })
             .collect();
         crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
     }

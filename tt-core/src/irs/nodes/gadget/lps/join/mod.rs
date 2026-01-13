@@ -23,7 +23,7 @@ use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef, Schema},
     prelude::DataFrame,
 };
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, TableReference};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::{Expr, JoinType, LogicalPlan, col, lit};
 use either::Either;
@@ -845,7 +845,8 @@ pub(crate) fn build_source_dfs(
     output: DataFrame,
 ) -> DataFusionResult<(DataFrame, DataFrame)> {
     // Use row_id columns to keep output ordering deterministic.
-    let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?;
+    let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?
+        .alias("__output__")?;
     let left_row_ids = row_id_columns(&left, "left")?;
     let right_row_ids = row_id_columns(&right, "right")?;
     let left_aliases: Vec<String> = (0..left_row_ids.len())
@@ -855,34 +856,50 @@ pub(crate) fn build_source_dfs(
         .map(|idx| format!("__right_row_id__{idx}"))
         .collect();
 
-    let left_index_df = build_row_index_df(left, &left_row_ids, &left_aliases, SRC_LEFT_COL_NAME)?;
+    let left_index_df = build_row_index_df(left, &left_row_ids, &left_aliases, SRC_LEFT_COL_NAME)?
+        .alias("__left_index__")?;
     let right_index_df =
-        build_row_index_df(right, &right_row_ids, &right_aliases, SRC_RIGHT_COL_NAME)?;
+        build_row_index_df(right, &right_row_ids, &right_aliases, SRC_RIGHT_COL_NAME)?
+            .alias("__right_index__")?;
 
     // Join the output with index mappings to recover source row indices.
     let left_join_exprs: Vec<Expr> = left_row_ids
         .iter()
         .zip(left_aliases.iter())
-        .map(|(col, alias)| {
-            Expr::Column(col.clone()).eq(Expr::Column(Column::new_unqualified(alias)))
+        .map(|(_col, alias)| {
+            Expr::Column(Column::new(
+                Some(TableReference::bare("__output__")),
+                alias,
+            ))
+            .eq(Expr::Column(Column::new(
+                Some(TableReference::bare("__left_index__")),
+                alias,
+            )))
         })
         .collect();
     let output = output.join_on(left_index_df, JoinType::Inner, left_join_exprs)?;
     let right_join_exprs: Vec<Expr> = right_row_ids
         .iter()
         .zip(right_aliases.iter())
-        .map(|(col, alias)| {
-            Expr::Column(col.clone()).eq(Expr::Column(Column::new_unqualified(alias)))
+        .map(|(_col, alias)| {
+            Expr::Column(Column::new(
+                Some(TableReference::bare("__output__")),
+                alias,
+            ))
+            .eq(Expr::Column(Column::new(
+                Some(TableReference::bare("__right_index__")),
+                alias,
+            )))
         })
         .collect();
     let output = output.join_on(right_index_df, JoinType::Inner, right_join_exprs)?;
     let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?;
-    let left_src = output
-        .clone()
-        .select(vec![Expr::Column(Column::new_unqualified(
-            SRC_LEFT_COL_NAME,
-        ))])?;
-    let right_src = output.select(vec![Expr::Column(Column::new_unqualified(
+    let left_src = output.clone().select(vec![Expr::Column(Column::new(
+        Some(TableReference::bare("__left_index__")),
+        SRC_LEFT_COL_NAME,
+    ))])?;
+    let right_src = output.select(vec![Expr::Column(Column::new(
+        Some(TableReference::bare("__right_index__")),
         SRC_RIGHT_COL_NAME,
     ))])?;
     Ok((left_src, right_src))
