@@ -150,8 +150,29 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             panic!("Expected included, super, and super multiplicities inputs for Lookup gadget");
         };
-        let included_cols = Self::tracked_cols_from_table(&included_table);
-        let super_col = Self::single_col_from_table(prover, &super_table)?;
+        let included_len = included_table.data_tracked_polys_indices().len();
+        let super_len = super_table.data_tracked_polys_indices().len();
+        if included_len != super_len {
+            panic!(
+                "Lookup included/super data column mismatch: {} vs {}",
+                included_len, super_len
+            );
+        }
+        let (included_cols, super_col) = if included_len <= 1 {
+            (
+                Self::tracked_cols_from_table(&included_table),
+                Self::single_col_from_table(prover, &super_table)?,
+            )
+        } else {
+            let mut challenges = Vec::with_capacity(included_len);
+            for _ in 0..included_len {
+                challenges.push(prover.get_and_append_challenge(b"lookup_fold")?);
+            }
+            (
+                vec![included_table.fold_all_data_columns(&challenges)],
+                super_table.fold_all_data_columns(&challenges),
+            )
+        };
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
         let input = HintedLookupProverInput {
@@ -192,8 +213,29 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected included, super, and super multiplicities inputs for Lookup gadget");
         };
 
-        let included_cols = Self::tracked_cols_from_table_oracle(&included_table);
-        let super_col = Self::single_col_from_table_oracle(verifier, &super_table)?;
+        let included_len = included_table.data_tracked_oracles_indices().len();
+        let super_len = super_table.data_tracked_oracles_indices().len();
+        if included_len != super_len {
+            panic!(
+                "Lookup included/super data column mismatch: {} vs {}",
+                included_len, super_len
+            );
+        }
+        let (included_cols, super_col) = if included_len <= 1 {
+            (
+                Self::tracked_cols_from_table_oracle(&included_table),
+                Self::single_col_from_table_oracle(verifier, &super_table)?,
+            )
+        } else {
+            let mut challenges = Vec::with_capacity(included_len);
+            for _ in 0..included_len {
+                challenges.push(verifier.get_and_append_challenge(b"lookup_fold")?);
+            }
+            (
+                vec![included_table.fold_all_data_oracles(&challenges)],
+                super_table.fold_all_data_oracles(&challenges),
+            )
+        };
         let super_col_multiplicities =
             Self::multiplicities_from_table_oracle(&multiplicities_table, included_cols.len());
 

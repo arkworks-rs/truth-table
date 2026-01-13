@@ -1,7 +1,11 @@
 use std::sync::{Arc, Weak};
 
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Schema;
 use datafusion_common::Column;
 use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr};
 use indexmap::IndexMap;
@@ -127,12 +131,34 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
         _id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let strip_row_id = |table: TrackedTable<B>| -> TrackedTable<B> {
+            let cols = table.tracked_polys();
+            if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
+                return table;
+            }
+            let mut filtered = IndexMap::new();
+            for (field, poly) in cols.iter() {
+                if field.name() == ROW_ID_COL_NAME {
+                    continue;
+                }
+                filtered.insert(field.clone(), poly.clone());
+            }
+            let schema = table.schema_ref().map(|schema| {
+                let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
+                    .keys()
+                    .map(|field| field.as_ref().clone())
+                    .collect();
+                Schema::new_with_metadata(fields, schema.metadata().clone())
+            });
+            TrackedTable::new(schema, filtered, table.log_size())
+        };
+
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
             _ => None,
         };
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
             _ => None,
         };
 
@@ -182,15 +208,67 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
             join_exprs.push(filter.clone());
         }
 
-        let joined = left_hint_df
-            .data_frame()
-            .clone()
-            .join_on(
-                right_hint_df.data_frame().clone(),
-                self.join.join_type,
-                join_exprs,
-            )
+        let prepare_input = |df: datafusion::prelude::DataFrame, label: &str| {
+            let mut projection_exprs = Vec::new();
+            let mut activator_exprs = Vec::new();
+            for (qualifier, field) in df.schema().iter() {
+                if field.name() == ACTIVATOR_COL_NAME {
+                    activator_exprs.push(Expr::Column(Column::new(
+                        qualifier.cloned(),
+                        ACTIVATOR_COL_NAME,
+                    )));
+                    continue;
+                }
+                projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            }
+            if activator_exprs.is_empty() {
+                return df;
+            }
+            let mut combined = activator_exprs[0].clone();
+            for expr in activator_exprs.iter().skip(1) {
+                combined = combined.and(expr.clone());
+            }
+            projection_exprs.push(combined.alias(label));
+            df.select(projection_exprs)
+                .expect("join input activator projection should succeed")
+        };
+
+        let left_df = prepare_input(left_hint_df.data_frame().clone(), "__left_activator__");
+        let right_df = prepare_input(right_hint_df.data_frame().clone(), "__right_activator__");
+
+        let joined = left_df
+            .join_on(right_df, self.join.join_type, join_exprs)
             .expect("join output should succeed");
+
+        let mut projection_exprs = Vec::new();
+        let mut left_activator = None;
+        let mut right_activator = None;
+        for (qualifier, field) in joined.schema().iter() {
+            if field.name() == "__left_activator__" {
+                left_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+                continue;
+            }
+            if field.name() == "__right_activator__" {
+                right_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+                continue;
+            }
+            projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+        }
+
+        if let Some(left_act) = left_activator {
+            let combined = if let Some(right_act) = right_activator {
+                left_act.and(right_act)
+            } else {
+                left_act
+            };
+            projection_exprs.push(combined.alias(ACTIVATOR_COL_NAME));
+        } else if let Some(right_act) = right_activator {
+            projection_exprs.push(right_act.alias(ACTIVATOR_COL_NAME));
+        }
+
+        let joined = joined
+            .select(projection_exprs)
+            .expect("join output activator projection should succeed");
 
         // Use all row_id columns (with qualifiers) to keep ordering deterministic.
         let row_id_sort_exprs: Vec<SortExpr> = self
@@ -238,12 +316,35 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
         _id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let strip_row_id =
+            |table: TrackedTableOracle<B>| -> TrackedTableOracle<B> {
+                let cols = table.tracked_oracles();
+                if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
+                    return table;
+                }
+                let mut filtered = IndexMap::new();
+                for (field, oracle) in cols.iter() {
+                    if field.name() == ROW_ID_COL_NAME {
+                        continue;
+                    }
+                    filtered.insert(field.clone(), oracle.clone());
+                }
+                let schema = table.schema_ref().map(|schema| {
+                    let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
+                        .keys()
+                        .map(|field| field.as_ref().clone())
+                        .collect();
+                    Schema::new_with_metadata(fields, schema.metadata().clone())
+                });
+                TrackedTableOracle::new(schema, filtered, table.log_size())
+            };
+
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
             _ => None,
         };
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
             _ => None,
         };
 

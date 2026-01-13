@@ -113,6 +113,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
+        let left_lookup_hint =
+            crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
         let mut left_lookup_payload =
             match planned_ir.payload_for_node(&self.left_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -126,6 +128,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         );
 
         let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
+        let right_lookup_hint =
+            crate::irs::nodes::hints::strip_row_id_from_hint(&right_lookup_hint);
         let mut right_lookup_payload =
             match planned_ir.payload_for_node(&self.right_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -447,14 +451,21 @@ fn drop_row_id_keep_activator_prover<B: SnarkBackend>(
             arithmetic::ACTIVATOR_COL_NAME
         );
     }
-    let indices: Vec<usize> = cols
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, (field, _))| {
-            (field.name() != arithmetic::ROW_ID_COL_NAME).then_some(idx)
-        })
-        .collect();
-    table.tracked_subtable_by_indices(&indices)
+    let mut filtered = IndexMap::new();
+    for (field, poly) in cols.iter() {
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
+            continue;
+        }
+        filtered.insert(field.clone(), poly.clone());
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = filtered
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    arithmetic::table::TrackedTable::new(schema, filtered, table.log_size())
 }
 
 fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
@@ -470,14 +481,21 @@ fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
             arithmetic::ACTIVATOR_COL_NAME
         );
     }
-    let indices: Vec<usize> = cols
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, (field, _))| {
-            (field.name() != arithmetic::ROW_ID_COL_NAME).then_some(idx)
-        })
-        .collect();
-    table.tracked_subtable_by_indices(&indices)
+    let mut filtered = IndexMap::new();
+    for (field, oracle) in cols.iter() {
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
+            continue;
+        }
+        filtered.insert(field.clone(), oracle.clone());
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = filtered
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    arithmetic::table_oracle::TrackedTableOracle::new(schema, filtered, table.log_size())
 }
 
 fn lookup_multiplicities_table_prover<B: SnarkBackend>(
@@ -606,15 +624,14 @@ fn build_lookup_keys_df(
     key_names: &[String],
     side: &str,
 ) -> DataFusionResult<DataFrame> {
+    let sorted_input = sort_by_row_id_if_present(df.clone())?;
     let mut exprs: Vec<Expr> = cols
         .iter()
         .zip(key_names)
         .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
         .collect();
-    crate::irs::nodes::hints::append_activator_exprs_if_present(df, &mut exprs);
-    crate::irs::nodes::hints::append_row_id_expr_if_present(df, &mut exprs);
-    let projected = df.clone().select(exprs)?;
-    let sorted = sort_by_row_id_if_present(projected)?;
+    crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted_input, &mut exprs);
+    let sorted = sorted_input.select(exprs)?;
 
     let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
     crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted, &mut final_exprs);
