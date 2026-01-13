@@ -1,23 +1,30 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::prelude::DataFrame;
-use datafusion_expr::{Sort, col, expr::Sort as SortExpr};
+use datafusion_common::Column;
+use datafusion_expr::{Expr, Sort, col, expr::Sort as SortExpr};
 
 /// Sorts by activator first (active rows first), then the provided sort
 /// expressions, and finally `__row_id__` when present for deterministic output.
 pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
+    let row_id_sort_exprs: Vec<SortExpr> = input
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() != ROW_ID_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).sort(true, true))
+        })
+        .collect();
+
     // Prefix sort with activator so active rows come first.
     let mut sort_exprs: Vec<SortExpr> = Vec::with_capacity(sort.expr.len() + 2);
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
     // Apply the sort expressions requested by the query.
     sort_exprs.extend(sort.expr.clone());
-    if input
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME)
-    {
+    if !row_id_sort_exprs.is_empty() {
         // Stabilize ordering for identical sort keys.
-        sort_exprs.push(col(ROW_ID_COL_NAME).sort(true, true));
+        sort_exprs.extend(row_id_sort_exprs);
     }
 
     input

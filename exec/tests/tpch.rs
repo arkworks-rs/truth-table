@@ -37,26 +37,38 @@ async fn build_prover_stages(query: &str, table_names: &[&str]) -> Result<Prover
 #[tokio::test]
 async fn tpch_q1_prove_verify() {
     let spec = query_spec(1);
-    let sql = "SELECT
-    l_returnflag,
-    l_linestatus,
-    sum(l_quantity) AS sum_qty,
-    sum(l_extendedprice) AS sum_base_price,
-    sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
-    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,
-    avg(l_discount) AS avg_disc,
-    count(*) AS count_order
-FROM
-    lineitem
-WHERE
-    l_shipdate <= CAST('1998-09-02' AS date)
-GROUP BY
-    l_returnflag,
-    l_linestatus
-ORDER BY
-    l_returnflag,
-    l_linestatus;";
-    exec::test_utils::prove_and_verify_query(sql, spec.tables, None)
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
         .await
         .expect("prove and verify tpch q1");
+}
+
+#[tokio::test]
+async fn tpch_q3_prove_verify() {
+    let spec = query_spec(3);
+    let sql = "SELECT
+    l_orderkey,
+    sum(l_extendedprice * (1 - l_discount)) AS revenue,
+    o_orderdate,
+    o_shippriority
+FROM
+    customer,
+    orders,
+    lineitem
+WHERE
+    c_mktsegment = 'BUILDING'
+    AND c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+    AND o_orderdate < CAST('1995-03-15' AS date)
+    AND l_shipdate > CAST('1995-03-15' AS date)
+GROUP BY
+    l_orderkey,
+    o_orderdate,
+    o_shippriority
+ORDER BY
+    revenue DESC,
+    o_orderdate
+LIMIT 10;";
+    exec::test_utils::prove_and_verify_query(sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q2");
 }

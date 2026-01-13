@@ -11,7 +11,7 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{aggregate_function, alias, binary_expr, cast, column, literal},
-            lps::{aggregate, filter, join, projection, sort, subquery_alias, table_scan},
+            lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
         },
     },
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
@@ -82,9 +82,7 @@ where
     /// Returns the human-readable name of this node.
     fn name(&self) -> String;
     /// Returns a human-readable representation of this node.
-    fn display(&self) -> String {
-        self.name()
-    }
+    fn display(&self) -> String;
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
     /// Optional hook for pre-order gadget planning.
@@ -187,7 +185,10 @@ impl<B: SnarkBackend> Node<B> {
                     subquery_alias::SubqueryAliasNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
-
+            LogicalPlan::Limit(_) => Arc::new_cyclic(|weak_self| {
+                let node = limit::LimitNode::from_lp(plan.clone(), weak_self.clone());
+                Node::Plan(PlanNode::LpBased(Arc::new(node)))
+            }),
             _ => todo!(),
         }
     }

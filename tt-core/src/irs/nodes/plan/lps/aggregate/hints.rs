@@ -1,6 +1,7 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
+use datafusion_common::Column;
 use datafusion_expr::{
     Aggregate, Expr, ExprFunctionExt, JoinType, col, expr::Sort as SortExpr, expr_fn::when, lit,
 };
@@ -10,6 +11,17 @@ use datafusion_expr::{
 /// - exactly one active row per group is marked as the representative (activator = true)
 /// - all other rows (including originally inactive ones) have activator = false
 pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -> DataFrame {
+    let row_id_sort_exprs: Vec<SortExpr> = input
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() != ROW_ID_COL_NAME {
+                return None;
+            }
+            Some(Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).sort(true, true))
+        })
+        .collect();
+
     // 0. Make the original activator explicit so we don’t lose it
     let df = input
         .clone()
@@ -67,14 +79,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     // and then:
     //   new_activator = (orig_activator && row_number == 1)
     let mut row_number_builder = row_number().partition_by(aggregate.group_expr.clone());
-    if input
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME)
-    {
-        row_number_builder =
-            row_number_builder.order_by(vec![col(ROW_ID_COL_NAME).sort(true, true)]);
+    if !row_id_sort_exprs.is_empty() {
+        row_number_builder = row_number_builder.order_by(row_id_sort_exprs.clone());
     }
     let window_expr = row_number_builder
         .build()
@@ -101,13 +107,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         .iter()
         .map(|expr| expr.clone().sort(true, true))
         .collect();
-    if input
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME)
-    {
-        sort_exprs.push(col(ROW_ID_COL_NAME).sort(true, true));
+    if !row_id_sort_exprs.is_empty() {
+        sort_exprs.extend(row_id_sort_exprs);
     }
     sort_exprs.push(col("__row_number__").sort(true, true));
     let sorted = with_new_activator.sort(sort_exprs).unwrap();

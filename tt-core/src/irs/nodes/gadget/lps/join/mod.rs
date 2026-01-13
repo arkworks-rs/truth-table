@@ -95,22 +95,16 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         );
 
-        let join_lp = planned_ir
-            .tree()
-            .arena()
-            .iter()
-            .find_map(|(_, node)| {
-                let is_parent = node.children().iter().any(|child| child.id() == id);
-                if !is_parent {
-                    return None;
-                }
-                match node.as_ref() {
-                    Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => {
-                        Some(plan_node.lp())
-                    }
-                    _ => None,
-                }
-            });
+        let join_lp = planned_ir.tree().arena().iter().find_map(|(_, node)| {
+            let is_parent = node.children().iter().any(|child| child.id() == id);
+            if !is_parent {
+                return None;
+            }
+            match node.as_ref() {
+                Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => Some(plan_node.lp()),
+                _ => None,
+            }
+        });
         let join = match join_lp {
             Some(LogicalPlan::Join(join)) => join,
             _ => return Ok(()),
@@ -186,11 +180,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(join) = find_parent_join_plan(id, virtualized_ir.tree()) else {
             return Ok(());
         };
-        let match_tables =
-            build_match_pair_tables_prover(&join, output, payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
-                .unwrap_or_else(|| {
-                    panic!("Match-pair tables require left/right/output for Join gadget");
-                });
+        let match_tables = build_match_pair_tables_prover(
+            &join,
+            output,
+            payload.get(LEFT_LABEL),
+            payload.get(RIGHT_LABEL),
+        )
+        .unwrap_or_else(|| {
+            panic!("Match-pair tables require left/right/output for Join gadget");
+        });
         let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
         {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -873,12 +871,10 @@ fn find_parent_join_plan<B: SnarkBackend>(
             return None;
         }
         match node.as_ref() {
-            Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => {
-                match plan_node.lp() {
-                    LogicalPlan::Join(join) => Some(join),
-                    _ => None,
-                }
-            }
+            Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => match plan_node.lp() {
+                LogicalPlan::Join(join) => Some(join),
+                _ => None,
+            },
             _ => None,
         }
     })
@@ -896,7 +892,10 @@ fn build_match_pair_hints(
 )> {
     let mut left_exprs: Vec<Expr> = join.on.iter().map(|(l, _)| l.clone()).collect();
     let mut right_exprs: Vec<Expr> = join.on.iter().map(|(_, r)| r.clone()).collect();
-    crate::irs::nodes::hints::append_row_id_expr_if_present(left_hint.data_frame(), &mut left_exprs);
+    crate::irs::nodes::hints::append_row_id_expr_if_present(
+        left_hint.data_frame(),
+        &mut left_exprs,
+    );
     crate::irs::nodes::hints::append_activator_exprs_if_present(
         left_hint.data_frame(),
         &mut left_exprs,
@@ -915,14 +914,10 @@ fn build_match_pair_hints(
     let right_df = right_hint.data_frame().clone().select(right_exprs)?;
     let right_df = crate::irs::nodes::hints::sort_by_row_id_if_present(right_df)?;
 
-    let output_sorted = crate::irs::nodes::hints::sort_by_row_id_if_present(
-        output_hint.data_frame().clone(),
-    )?;
+    let output_sorted =
+        crate::irs::nodes::hints::sort_by_row_id_if_present(output_hint.data_frame().clone())?;
     let mut out_exprs = Vec::new();
-    crate::irs::nodes::hints::append_activator_exprs_if_present(
-        &output_sorted,
-        &mut out_exprs,
-    );
+    crate::irs::nodes::hints::append_activator_exprs_if_present(&output_sorted, &mut out_exprs);
     if out_exprs.is_empty() {
         return Err(DataFusionError::Plan(
             "Join output is missing an activator column".to_string(),
@@ -983,7 +978,11 @@ fn build_match_pair_tables_verifier<B: SnarkBackend>(
     output: &TrackedTableOracle<B>,
     left: Option<&TrackedTableOracle<B>>,
     right: Option<&TrackedTableOracle<B>>,
-) -> Option<(TrackedTableOracle<B>, TrackedTableOracle<B>, TrackedTableOracle<B>)> {
+) -> Option<(
+    TrackedTableOracle<B>,
+    TrackedTableOracle<B>,
+    TrackedTableOracle<B>,
+)> {
     let left_table = left?;
     let right_table = right?;
     let left_keys = ordered_column_names(join_key_names(join, true));

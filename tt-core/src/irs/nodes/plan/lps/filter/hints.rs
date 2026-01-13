@@ -1,25 +1,37 @@
 use arithmetic::ACTIVATOR_COL_NAME;
 use datafusion::prelude::DataFrame;
-use datafusion_expr::{Expr, Filter, col};
+use datafusion_common::Column;
+use datafusion_expr::{Expr, Filter};
 
 /// Build a DataFrame that preserves all rows but deactivates ones that do not
 /// satisfy the filter predicate by zeroing the activator column.
 pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> DataFrame {
     let predicate = filter.predicate.clone();
-    let projection_exprs: Vec<Expr> = input
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let name = field.name();
-            let base_expr = col(name);
-            if name == ACTIVATOR_COL_NAME {
-                base_expr.and(predicate.clone()).alias(ACTIVATOR_COL_NAME)
-            } else {
-                base_expr
+    let mut projection_exprs: Vec<Expr> = Vec::new();
+    let mut activator_exprs: Vec<Expr> = Vec::new();
+    let mut activator_insert_pos: Option<usize> = None;
+
+    for (qualifier, field) in input.schema().iter() {
+        let name = field.name();
+        if name == ACTIVATOR_COL_NAME {
+            if activator_insert_pos.is_none() {
+                activator_insert_pos = Some(projection_exprs.len());
             }
-        })
-        .collect();
+            activator_exprs.push(Expr::Column(Column::new(qualifier.cloned(), name)));
+            continue;
+        }
+        projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), name)));
+    }
+
+    if !activator_exprs.is_empty() {
+        let mut combined = activator_exprs[0].clone();
+        for expr in activator_exprs.iter().skip(1) {
+            combined = combined.and(expr.clone());
+        }
+        combined = combined.and(predicate).alias(ACTIVATOR_COL_NAME);
+        let insert_pos = activator_insert_pos.unwrap_or(projection_exprs.len());
+        projection_exprs.insert(insert_pos, combined);
+    }
 
     input
         .clone()

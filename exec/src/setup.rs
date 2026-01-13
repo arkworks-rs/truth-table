@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use ark_piop::{DefaultSnarkBackend, setup::KeyGenerator};
 use ark_serialize::CanonicalSerialize;
 
-pub const DEFAULT_TEST_LOG_SIZE: usize = 16;
+pub const DEFAULT_TEST_LOG_SIZE: usize = 19;
 pub const DEFAULT_BENCH_LOG_SIZE: usize = 20;
 pub const DEFAULT_LOG_SIZE: usize = DEFAULT_TEST_LOG_SIZE;
 const DEFAULT_PK_FILE: &str = "tt_pk";
