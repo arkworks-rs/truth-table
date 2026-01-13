@@ -1,6 +1,10 @@
 use std::{marker::PhantomData, sync::Arc};
 
-use ark_piop::SnarkBackend;
+use ark_ff::Zero;
+use ark_piop::{
+    SnarkBackend, prover::structs::polynomial::TrackedPoly,
+    verifier::structs::oracle::TrackedOracle,
+};
 use datafusion::{
     arrow::{
         array::BooleanArray,
@@ -181,10 +185,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
 
-        let mut left_lookup_payload = match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut left_lookup_payload =
+            match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         left_lookup_payload.insert(
             lookup::INCLUDED_LABEL.to_string(),
             drop_row_id_keep_activator_prover(&left_keys),
@@ -261,10 +266,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
 
-        let mut left_lookup_payload = match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut left_lookup_payload =
+            match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         left_lookup_payload.insert(
             lookup::INCLUDED_LABEL.to_string(),
             drop_row_id_keep_activator_verifier(&left_keys),
@@ -306,6 +312,39 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Match-Pair gadget node");
+        };
+        let Some(union_table) = payload.get(UNION_LABEL).cloned() else {
+            panic!("Expected union table for Match-Pair gadget");
+        };
+        let Some(output_table) = payload.get(OUT_LABEL).cloned() else {
+            panic!("Expected output activator table for Match-Pair gadget");
+        };
+
+        let left_multiplicities =
+            lookup_multiplicities_table_prover(gadget_ready_ir, &self.left_lookup_gadget);
+
+        let union_activator = union_table
+            .activator_tracked_poly()
+            .expect("Match-Pair union table missing activator");
+        let output_activator = output_table
+            .activator_tracked_poly()
+            .expect("Match-Pair output table missing activator");
+        let left_mult = single_data_poly_from_table(&left_multiplicities, "left multiplicity");
+
+        let union_left = &union_activator * &left_mult;
+
+        let output_sum = output_activator
+            .evaluations()
+            .into_iter()
+            .fold(B::F::zero(), |acc, val| acc + val);
+
+        let output_sum_key = format!("match_pair_output_sum_{:?}", id);
+        prover.add_miscellaneous_field_element(output_sum_key.clone(), output_sum)?;
+        prover.add_mv_sumcheck_claim(union_left.id(), output_sum)?;
+        prover.add_mv_sumcheck_claim(output_activator.id(), output_sum)?;
         Ok(())
     }
 
@@ -324,6 +363,35 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            panic!("Expected gadget payload for Match-Pair gadget node");
+        };
+        let Some(union_table) = payload.get(UNION_LABEL).cloned() else {
+            panic!("Expected union table for Match-Pair gadget");
+        };
+        let Some(output_table) = payload.get(OUT_LABEL).cloned() else {
+            panic!("Expected output activator table for Match-Pair gadget");
+        };
+
+        let left_multiplicities =
+            lookup_multiplicities_table_verifier(gadget_ready_ir, &self.left_lookup_gadget);
+
+        let union_activator = union_table
+            .activator_tracked_poly()
+            .expect("Match-Pair union table missing activator");
+        let output_activator = output_table
+            .activator_tracked_poly()
+            .expect("Match-Pair output table missing activator");
+        let left_mult = single_data_oracle_from_table(&left_multiplicities, "left multiplicity");
+
+        let union_left = &union_activator * &left_mult;
+
+        let output_sum_key = format!("match_pair_output_sum_{:?}", id);
+        let output_sum = verifier.miscellaneous_field_element(&output_sum_key)?;
+
+        verifier.add_sumcheck_claim(union_left.id(), output_sum);
+        verifier.add_sumcheck_claim(output_activator.id(), output_sum);
         Ok(())
     }
 
@@ -361,8 +429,14 @@ fn drop_row_id_keep_activator_prover<B: SnarkBackend>(
     table: &arithmetic::table::TrackedTable<B>,
 ) -> arithmetic::table::TrackedTable<B> {
     let cols = table.tracked_polys();
-    if !cols.keys().any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME) {
-        panic!("Match-Pair lookup tables must include {}", arithmetic::ACTIVATOR_COL_NAME);
+    if !cols
+        .keys()
+        .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+    {
+        panic!(
+            "Match-Pair lookup tables must include {}",
+            arithmetic::ACTIVATOR_COL_NAME
+        );
     }
     let indices: Vec<usize> = cols
         .iter()
@@ -378,8 +452,14 @@ fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
     table: &arithmetic::table_oracle::TrackedTableOracle<B>,
 ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
     let cols = table.tracked_oracles();
-    if !cols.keys().any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME) {
-        panic!("Match-Pair lookup tables must include {}", arithmetic::ACTIVATOR_COL_NAME);
+    if !cols
+        .keys()
+        .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+    {
+        panic!(
+            "Match-Pair lookup tables must include {}",
+            arithmetic::ACTIVATOR_COL_NAME
+        );
     }
     let indices: Vec<usize> = cols
         .iter()
@@ -389,6 +469,75 @@ fn drop_row_id_keep_activator_verifier<B: SnarkBackend>(
         })
         .collect();
     table.tracked_subtable_by_indices(&indices)
+}
+
+fn lookup_multiplicities_table_prover<B: SnarkBackend>(
+    gadget_ready_ir: &mut GadgetReadyIr<B>,
+    lookup_node: &Arc<Node<B>>,
+) -> arithmetic::table::TrackedTable<B> {
+    let Some(PayloadStructure::GadgetPayload(payload)) =
+        gadget_ready_ir.payload_for_node(&lookup_node.id())
+    else {
+        panic!("Expected payload for lookup gadget");
+    };
+    payload
+        .get(lookup::SUPER_MULTIPLICITIES_LABEL)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected {} for lookup gadget",
+                lookup::SUPER_MULTIPLICITIES_LABEL
+            )
+        })
+}
+
+fn lookup_multiplicities_table_verifier<B: SnarkBackend>(
+    gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+    lookup_node: &Arc<Node<B>>,
+) -> arithmetic::table_oracle::TrackedTableOracle<B> {
+    let Some(PayloadStructure::GadgetPayload(payload)) =
+        gadget_ready_ir.payload_for_node(&lookup_node.id())
+    else {
+        panic!("Expected payload for lookup gadget");
+    };
+    payload
+        .get(lookup::SUPER_MULTIPLICITIES_LABEL)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected {} for lookup gadget",
+                lookup::SUPER_MULTIPLICITIES_LABEL
+            )
+        })
+}
+
+fn single_data_poly_from_table<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+    label: &str,
+) -> TrackedPoly<B> {
+    let data_indices = table.data_tracked_polys_indices();
+    if data_indices.len() != 1 {
+        panic!("Match-Pair {label} table must have exactly one data column");
+    }
+    let data_cols = table.tracked_polys();
+    let (_, poly) = data_cols
+        .get_index(data_indices[0])
+        .expect("Match-Pair multiplicity column missing");
+    poly.clone()
+}
+fn single_data_oracle_from_table<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    label: &str,
+) -> TrackedOracle<B> {
+    let data_indices = table.data_tracked_oracles_indices();
+    if data_indices.len() != 1 {
+        panic!("Match-Pair {label} table must have exactly one data column");
+    }
+    let data_cols = table.tracked_oracles();
+    let (_, oracle) = data_cols
+        .get_index(data_indices[0])
+        .expect("Match-Pair multiplicity column missing");
+    oracle.clone()
 }
 
 fn find_parent_id<B: SnarkBackend>(
