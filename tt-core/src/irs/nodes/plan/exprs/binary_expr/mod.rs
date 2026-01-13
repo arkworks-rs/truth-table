@@ -87,6 +87,15 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
         "BinaryExpr".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "BinaryExpr\nLeft: {}, Right: {}, op: {:?}",
+            self.left.name(),
+            self.right.name(),
+            self.binary_expression.op
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

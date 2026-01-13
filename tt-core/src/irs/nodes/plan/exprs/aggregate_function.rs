@@ -58,6 +58,24 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "AggregateFunction".to_string()
     }
 
+    fn display(&self) -> String {
+        let args = if self.args.is_empty() {
+            "none".to_string()
+        } else {
+            self.args
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!(
+            "AggregateFunction\nScope: {}, func: {}, args: {}",
+            self.scope.name(),
+            self.aggregate_function.func.name(),
+            args
+        )
+    }
+
     fn cost(
         &self,
         _statistics: Statistics,

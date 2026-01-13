@@ -20,6 +20,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "Literal".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Literal\nScope: {}, value: {}",
+            self.scope.name(),
+            self.literal
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

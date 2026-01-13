@@ -34,6 +34,26 @@ impl<B: SnarkBackend> IsNode<B> for LimitNode<B> {
         "Limit".to_string()
     }
 
+    fn display(&self) -> String {
+        let skip = match self.limit.get_skip_type() {
+            Ok(datafusion_expr::SkipType::Literal(val)) => val.to_string(),
+            Ok(datafusion_expr::SkipType::UnsupportedExpr) => "<expr>".to_string(),
+            Err(err) => format!("err:{err}"),
+        };
+        let fetch = match self.limit.get_fetch_type() {
+            Ok(datafusion_expr::FetchType::Literal(Some(val))) => val.to_string(),
+            Ok(datafusion_expr::FetchType::Literal(None)) => "none".to_string(),
+            Ok(datafusion_expr::FetchType::UnsupportedExpr) => "<expr>".to_string(),
+            Err(err) => format!("err:{err}"),
+        };
+        format!(
+            "Limit\nInput: {}, skip: {}, fetch: {}",
+            self.input.name(),
+            skip,
+            fetch
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

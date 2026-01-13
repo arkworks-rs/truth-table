@@ -29,6 +29,19 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "Projection".to_string()
     }
 
+    fn display(&self) -> String {
+        let exprs = if self.exprs.is_empty() {
+            "none".to_string()
+        } else {
+            self.exprs
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!("Projection\nInput: {}, exprs: {}", self.input.name(), exprs)
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

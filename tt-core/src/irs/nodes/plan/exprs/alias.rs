@@ -27,6 +27,15 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "Alias".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Alias\nInput: {}, alias: {}, scope: {}",
+            self.expr.name(),
+            self.alias.name,
+            self.scope.name()
+        )
+    }
+
     fn cost(
         &self,
         _statistics: Statistics,

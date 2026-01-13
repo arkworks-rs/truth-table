@@ -41,6 +41,29 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         "Order By".to_string()
     }
 
+    fn display(&self) -> String {
+        let exprs = if self.sort_exprs.is_empty() {
+            "none".to_string()
+        } else {
+            self.sort_exprs
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let fetch = self
+            .sort
+            .fetch
+            .map(|val| val.to_string())
+            .unwrap_or_else(|| "none".to_string());
+        format!(
+            "Order By\nInput: {}, exprs: {}, fetch: {}",
+            self.input.name(),
+            exprs,
+            fetch
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

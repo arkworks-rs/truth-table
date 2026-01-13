@@ -81,35 +81,29 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
         dot.push_str("  }\n");
 
         for (id, node) in self.tree.arena().iter() {
-            let name = node.name();
-            let (label, html) = if show_payload {
+            let display = node.display();
+            let display_html =
+                escape_html(&display).replace('\n', "<BR ALIGN=\"LEFT\"/>");
+            let label = if show_payload {
                 if let Some(Some(payload)) = self.payloads.get(id) {
                     let payload_str =
                         escape_html(&format!("{}", payload)).replace('\n', "<BR ALIGN=\"LEFT\"/>");
                     if payload_str.is_empty() {
-                        (escape_html(&name), false)
+                        format!("<{}>", display_html)
                     } else {
-                        (
-                            format!(
-                                "<{}<BR/><FONT COLOR=\"red\">{}</FONT>>",
-                                escape_html(&name),
-                                payload_str
-                            ),
-                            true,
+                        format!(
+                            "<{}<BR/><FONT COLOR=\"red\">{}</FONT>>",
+                            display_html, payload_str
                         )
                     }
                 } else {
-                    (escape_html(&name), false)
+                    format!("<{}>", display_html)
                 }
             } else {
-                (escape_html(&name), false)
+                format!("<{}>", display_html)
             };
             let mut attrs = Vec::new();
-            if html {
-                attrs.push(format!("label={}", label));
-            } else {
-                attrs.push(format!("label=\"{}\"", label));
-            }
+            attrs.push(format!("label={}", label));
             match node.as_ref() {
                 Node::Gadget(_) => attrs.push("color=\"purple\"".to_string()),
                 Node::Plan(PlanNode::LpBased(_)) => attrs.push("color=\"blue\"".to_string()),

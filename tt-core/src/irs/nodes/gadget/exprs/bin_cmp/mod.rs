@@ -94,6 +94,11 @@ impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
         Self::name_for_op(self.op).to_string()
     }
 
+    fn display(&self) -> String {
+        let name = self.name();
+        crate::irs::nodes::display_with_inputs(&name, &self.children())
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

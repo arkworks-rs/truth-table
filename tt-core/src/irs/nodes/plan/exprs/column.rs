@@ -20,6 +20,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "Column".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Column\nScope: {}, column: {}",
+            self.scope.name(),
+            self.column
+        )
+    }
+
     fn cost(
         &self,
         _statistics: Statistics,

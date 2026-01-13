@@ -26,6 +26,14 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         "Cast".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Cast\nInput: {}, data_type: {:?}",
+            self.expr.name(),
+            self.cast.data_type
+        )
+    }
+
     fn cost(
         &self,
         _statistics: Statistics,

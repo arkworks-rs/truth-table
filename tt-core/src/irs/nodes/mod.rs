@@ -99,6 +99,14 @@ where
     }
 }
 
+pub(crate) fn display_with_inputs<B: SnarkBackend>(name: &str, inputs: &[Arc<Node<B>>]) -> String {
+    if inputs.is_empty() {
+        return name.to_string();
+    }
+    let input_names: Vec<String> = inputs.iter().map(|node| node.name()).collect();
+    format!("{name}\nInputs: {}", input_names.join(", "))
+}
+
 pub trait ProverNodeOps<B>: IsNode<B>
 where
     B: SnarkBackend,

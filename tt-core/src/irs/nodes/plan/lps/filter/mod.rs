@@ -44,6 +44,14 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
         "Filter".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Filter\nInput: {}, predicate: {}",
+            self.input.name(),
+            self.filter.predicate
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

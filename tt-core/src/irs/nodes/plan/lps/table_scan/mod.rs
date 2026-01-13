@@ -15,6 +15,16 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
         "TableScan".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "TableScan\nTable: {}, projection: {:?}, filters: {}, fetch: {:?}",
+            self.table_scan.table_name,
+            self.table_scan.projection,
+            self.table_scan.filters.len(),
+            self.table_scan.fetch
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

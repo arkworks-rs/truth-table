@@ -33,6 +33,31 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
         "Join".to_string()
     }
 
+    fn display(&self) -> String {
+        let on_pairs = if self.on.is_empty() {
+            "none".to_string()
+        } else {
+            self.on
+                .iter()
+                .map(|(left, right)| format!("{}={}", left.name(), right.name()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let filter = self
+            .filter
+            .as_ref()
+            .map(|node| node.name())
+            .unwrap_or_else(|| "none".to_string());
+        format!(
+            "Join\nLeft: {}, Right: {}, type: {:?}, on: {}, filter: {}",
+            self.left.name(),
+            self.right.name(),
+            self.join.join_type,
+            on_pairs,
+            filter
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

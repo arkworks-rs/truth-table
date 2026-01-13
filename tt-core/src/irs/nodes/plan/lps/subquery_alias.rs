@@ -22,6 +22,14 @@ impl<B: SnarkBackend> IsNode<B> for SubqueryAliasNode<B> {
         "Subquery Alias".to_string()
     }
 
+    fn display(&self) -> String {
+        format!(
+            "Subquery Alias\nInput: {}, alias: {}",
+            self.input.name(),
+            self.subquery_alias.alias
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,

@@ -35,6 +35,33 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
         "Aggregate".to_string()
     }
 
+    fn display(&self) -> String {
+        let groups = if self.group_exprs.is_empty() {
+            "none".to_string()
+        } else {
+            self.group_exprs
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let aggs = if self.aggr_exprs.is_empty() {
+            "none".to_string()
+        } else {
+            self.aggr_exprs
+                .iter()
+                .map(|node| node.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!(
+            "Aggregate\nInput: {}, groups: {}, aggs: {}",
+            self.input.name(),
+            groups,
+            aggs
+        )
+    }
+
     fn cost(
         &self,
         _statistics: datafusion_common::Statistics,
