@@ -151,7 +151,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected included, super, and super multiplicities inputs for Lookup gadget");
         };
         let included_cols = Self::tracked_cols_from_table(&included_table);
-        let super_col = Self::single_col_from_table(&super_table);
+        let super_col = Self::single_col_from_table(prover, &super_table)?;
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
         let input = HintedLookupProverInput {
@@ -193,7 +193,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         };
 
         let included_cols = Self::tracked_cols_from_table_oracle(&included_table);
-        let super_col = Self::single_col_from_table_oracle(&super_table);
+        let super_col = Self::single_col_from_table_oracle(verifier, &super_table)?;
         let super_col_multiplicities =
             Self::multiplicities_from_table_oracle(&multiplicities_table, included_cols.len());
 
@@ -240,24 +240,34 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .collect()
     }
 
-    fn single_col_from_table(table: &TrackedTable<B>) -> TrackedCol<B> {
+    fn single_col_from_table(
+        prover: &mut ArgProver<B>,
+        table: &TrackedTable<B>,
+    ) -> ark_piop::errors::SnarkResult<TrackedCol<B>> {
         let data_indices = table.data_tracked_polys_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "Lookup gadget expects a single data column for super input."
-        );
-        table.tracked_col_by_ind(data_indices[0])
+        if data_indices.len() == 1 {
+            return Ok(table.tracked_col_by_ind(data_indices[0]));
+        }
+        let mut challenges = Vec::with_capacity(data_indices.len());
+        for _ in 0..data_indices.len() {
+            challenges.push(prover.get_and_append_challenge(b"lookup_fold")?);
+        }
+        Ok(table.fold_all_data_columns(&challenges))
     }
 
-    fn single_col_from_table_oracle(table: &TrackedTableOracle<B>) -> TrackedColOracle<B> {
+    fn single_col_from_table_oracle(
+        verifier: &mut ArgVerifier<B>,
+        table: &TrackedTableOracle<B>,
+    ) -> ark_piop::errors::SnarkResult<TrackedColOracle<B>> {
         let data_indices = table.data_tracked_oracles_indices();
-        debug_assert_eq!(
-            data_indices.len(),
-            1,
-            "Lookup gadget expects a single data column for super input."
-        );
-        table.tracked_col_oracle_by_ind(data_indices[0])
+        if data_indices.len() == 1 {
+            return Ok(table.tracked_col_oracle_by_ind(data_indices[0]));
+        }
+        let mut challenges = Vec::with_capacity(data_indices.len());
+        for _ in 0..data_indices.len() {
+            challenges.push(verifier.get_and_append_challenge(b"lookup_fold")?);
+        }
+        Ok(table.fold_all_data_oracles(&challenges))
     }
 
     fn multiplicities_from_table(
