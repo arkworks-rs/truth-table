@@ -214,7 +214,13 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
                 .sort(row_id_sort_exprs)
                 .expect("join output sort should succeed")
         };
-        crate::irs::nodes::hints::HintDF::new_materialized(joined)
+        let should_materialize: IndexMap<_, _> = joined
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
     }
 }
 
