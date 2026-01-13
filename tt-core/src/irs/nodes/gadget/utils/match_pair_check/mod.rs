@@ -325,7 +325,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let left_multiplicities =
             lookup_multiplicities_table_prover(gadget_ready_ir, &self.left_lookup_gadget);
-
+        let right_multiplicities =
+            lookup_multiplicities_table_prover(gadget_ready_ir, &self.right_lookup_gadget);
         let union_activator = union_table
             .activator_tracked_poly()
             .expect("Match-Pair union table missing activator");
@@ -333,15 +334,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .activator_tracked_poly()
             .expect("Match-Pair output table missing activator");
         let left_mult = single_data_poly_from_table(&left_multiplicities, "left multiplicity");
-
-        let union_left = &union_activator * &left_mult;
-
+        let right_mult = single_data_poly_from_table(&right_multiplicities, "right multiplicity");
+        let union_left = &union_activator * &(&left_mult * &right_mult);
         let output_sum = output_activator
             .evaluations()
             .into_iter()
             .fold(B::F::zero(), |acc, val| acc + val);
 
-        let output_sum_key = format!("match_pair_output_sum_{:?}", id);
+        let output_sum_key = format!("match_pair_output_sum");
         prover.add_miscellaneous_field_element(output_sum_key.clone(), output_sum)?;
         prover.add_mv_sumcheck_claim(union_left.id(), output_sum)?;
         prover.add_mv_sumcheck_claim(output_activator.id(), output_sum)?;
@@ -376,6 +376,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let left_multiplicities =
             lookup_multiplicities_table_verifier(gadget_ready_ir, &self.left_lookup_gadget);
+        let right_multiplicities =
+            lookup_multiplicities_table_verifier(gadget_ready_ir, &self.right_lookup_gadget);
 
         let union_activator = union_table
             .activator_tracked_poly()
@@ -384,10 +386,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .activator_tracked_poly()
             .expect("Match-Pair output table missing activator");
         let left_mult = single_data_oracle_from_table(&left_multiplicities, "left multiplicity");
+        let right_mult = single_data_oracle_from_table(&right_multiplicities, "right multiplicity");
 
-        let union_left = &union_activator * &left_mult;
+        let union_left = &union_activator * &(&left_mult * &right_mult);
 
-        let output_sum_key = format!("match_pair_output_sum_{:?}", id);
+        let output_sum_key = format!("match_pair_output_sum");
         let output_sum = verifier.miscellaneous_field_element(&output_sum_key)?;
 
         verifier.add_sumcheck_claim(union_left.id(), output_sum);
