@@ -1,3 +1,4 @@
+use arithmetic::ACTIVATOR_COL_NAME;
 use crate::irs::nodes::IsNode;
 use crate::{
     irs::{
@@ -9,11 +10,16 @@ use crate::{
 };
 use ark_piop::SnarkBackend;
 use datafusion::{
-    arrow::{datatypes::{FieldRef, Schema}, record_batch::RecordBatch},
+    arrow::{
+        array::{ArrayRef, BooleanArray},
+        compute::{concat, concat_batches},
+        datatypes::{FieldRef, Schema},
+        record_batch::RecordBatch,
+    },
     datasource::MemTable,
     prelude::DataFrame,
 };
-use datafusion_common::{Column, DFSchema, DataFusionError};
+use datafusion_common::{Column, DFSchema, DataFusionError, ScalarValue};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
 #[cfg(feature = "parallel")]
@@ -134,10 +140,12 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
         .expect("materialization projection should succeed");
 
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
-    let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
 
     let df_schema_ref = df.schema();
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
+    let (batches, row_count) =
+        pad_batches_to_power_of_two(&arrow_schema, batches).expect("padding should succeed");
+
     let mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
     tracing::debug!(row_count, "materialized hint dataframe");
@@ -175,6 +183,56 @@ fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>
             rt.block_on(df.collect())
         }
     }
+}
+
+fn pad_batches_to_power_of_two(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
+    let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+    let target = if row_count == 0 {
+        1
+    } else {
+        row_count.next_power_of_two()
+    };
+    let pad = target - row_count;
+    if pad == 0 {
+        return Ok((batches, row_count));
+    }
+
+    let schema_ref = Arc::new(schema.clone());
+    let combined = if batches.is_empty() {
+        None
+    } else {
+        let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+        Some(concat_batches(&schema_ref, batch_refs)?)
+    };
+
+    let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
+    for (idx, field) in schema_ref.fields().iter().enumerate() {
+        let padded = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| {
+                    Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef
+                });
+            let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if let Some(batch) = combined.as_ref() {
+            let base = batch.column(idx).clone();
+            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
+            let pad_arr = last.to_array_of_size(pad)?;
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else {
+            let null = ScalarValue::try_new_null(field.data_type())?;
+            null.to_array_of_size(pad)?
+        };
+        output_arrays.push(padded);
+    }
+
+    let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
+    Ok((vec![out_batch], target))
 }
 
 fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {

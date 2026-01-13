@@ -12,10 +12,11 @@ use datafusion::{
         datatypes::{Field, Schema},
         record_batch::RecordBatch,
     },
+    functions_window::expr_fn::row_number,
     prelude::{DataFrame, SessionContext},
 };
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::{Expr, Join, LogicalPlan, col};
+use datafusion_expr::{Expr, ExprFunctionExt, Join, LogicalPlan, col, lit};
 use datafusion_functions_aggregate::expr_fn::min;
 use indexmap::IndexMap;
 use tokio::runtime::RuntimeFlavor;
@@ -626,8 +627,8 @@ fn build_lookup_keys_df(
     Ok(final_df)
 }
 
-fn row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> {
-    let mut row_id_cols: Vec<Column> = df
+fn row_id_columns(df: &DataFrame, side: &str) -> DataFusionResult<Vec<Column>> {
+    let row_id_cols: Vec<Column> = df
         .schema()
         .iter()
         .filter_map(|(qualifier, field)| {
@@ -641,13 +642,7 @@ fn row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> {
             arithmetic::ROW_ID_COL_NAME
         )));
     }
-    if row_id_cols.len() > 1 {
-        return Err(DataFusionError::Plan(format!(
-            "match-pair {side} input has multiple {} columns",
-            arithmetic::ROW_ID_COL_NAME
-        )));
-    }
-    Ok(row_id_cols.remove(0))
+    Ok(row_id_cols)
 }
 
 fn build_key_union_df(
@@ -656,24 +651,11 @@ fn build_key_union_df(
     right: &DataFrame,
 ) -> DataFusionResult<(DataFrame, Vec<String>)> {
     let (left_cols, right_cols, key_names) = join_key_columns(join)?;
-    let left_row_id = row_id_column(left, "left")?;
-    let right_row_id = row_id_column(right, "right")?;
+    let left_row_ids = row_id_columns(left, "left")?;
+    let right_row_ids = row_id_columns(right, "right")?;
 
-    let mut left_exprs: Vec<Expr> = left_cols
-        .iter()
-        .zip(&key_names)
-        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
-        .collect();
-    left_exprs.push(Expr::Column(left_row_id).alias(arithmetic::ROW_ID_COL_NAME));
-    let left_keys = sort_by_row_id_if_present(left.clone().select(left_exprs)?)?;
-
-    let mut right_exprs: Vec<Expr> = right_cols
-        .iter()
-        .zip(&key_names)
-        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
-        .collect();
-    right_exprs.push(Expr::Column(right_row_id).alias(arithmetic::ROW_ID_COL_NAME));
-    let right_keys = sort_by_row_id_if_present(right.clone().select(right_exprs)?)?;
+    let left_keys = build_key_df(left, &left_cols, &key_names, &left_row_ids)?;
+    let right_keys = build_key_df(right, &right_cols, &key_names, &right_row_ids)?;
 
     let unioned = left_keys.union(right_keys)?;
     let key_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
@@ -689,6 +671,45 @@ fn build_key_union_df(
             .collect(),
     )?;
     Ok((with_row_id, key_names))
+}
+
+fn build_key_df(
+    df: &DataFrame,
+    cols: &[Column],
+    key_names: &[String],
+    row_id_cols: &[Column],
+) -> DataFusionResult<DataFrame> {
+    let mut exprs: Vec<Expr> = cols
+        .iter()
+        .zip(key_names)
+        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
+        .collect();
+
+    if row_id_cols.len() == 1 {
+        exprs.push(
+            Expr::Column(row_id_cols[0].clone()).alias(arithmetic::ROW_ID_COL_NAME),
+        );
+        return sort_by_row_id_if_present(df.clone().select(exprs)?);
+    }
+
+    let row_number_expr = row_number()
+        .partition_by(Vec::new())
+        .order_by(
+            row_id_cols
+                .iter()
+                .cloned()
+                .map(|col_ref| Expr::Column(col_ref).sort(true, true))
+                .collect(),
+        )
+        .build()?
+        .alias("__row_number__");
+    exprs.push(row_number_expr);
+    let with_row_number = df.clone().select(exprs)?;
+
+    let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    final_exprs
+        .push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
+    sort_by_row_id_if_present(with_row_number.select(final_exprs)?)
 }
 
 fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {

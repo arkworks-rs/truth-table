@@ -532,28 +532,27 @@ fn output_left_from_output<B: SnarkBackend>(
 
     let mut filtered = IndexMap::new();
     for left_field in &left_fields {
-        let (out_field, out_poly) = output_cols
+        let maybe = output_cols
             .iter()
-            .find(|(field, _)| field.name() == left_field.name())
-            .expect("Join output missing left column");
+            .find(|(field, _)| field.name() == left_field.name());
+        let Some((out_field, out_poly)) = maybe else {
+            if left_field.name() == arithmetic::ROW_ID_COL_NAME {
+                continue;
+            }
+            panic!("Join output missing left column {}", left_field.name());
+        };
         filtered.insert(out_field.clone(), out_poly.clone());
     }
 
-    let schema = left.schema_ref().map(|schema| {
-        let fields: Vec<Field> = schema
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        let fields: Vec<Field> = filtered
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Some(Schema::new(fields))
-    });
+    let metadata = left
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
     TrackedTable::new(schema, filtered, output.log_size())
 }
 
@@ -573,28 +572,27 @@ fn output_left_from_output_oracle<B: SnarkBackend>(
 
     let mut filtered = IndexMap::new();
     for left_field in &left_fields {
-        let (out_field, out_oracle) = output_cols
+        let maybe = output_cols
             .iter()
-            .find(|(field, _)| field.name() == left_field.name())
-            .expect("Join output missing left column");
+            .find(|(field, _)| field.name() == left_field.name());
+        let Some((out_field, out_oracle)) = maybe else {
+            if left_field.name() == arithmetic::ROW_ID_COL_NAME {
+                continue;
+            }
+            panic!("Join output missing left column {}", left_field.name());
+        };
         filtered.insert(out_field.clone(), out_oracle.clone());
     }
 
-    let schema = left.schema_ref().map(|schema| {
-        let fields: Vec<Field> = schema
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        let fields: Vec<Field> = filtered
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Some(Schema::new(fields))
-    });
+    let metadata = left
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
     TrackedTableOracle::new(schema, filtered, output.log_size())
 }
 
@@ -776,25 +774,42 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
 fn build_row_index_df(
     df: DataFrame,
-    row_id_col: Column,
+    row_id_cols: &[Column],
+    row_id_aliases: &[String],
     index_col_name: &str,
-    row_id_alias: &str,
 ) -> DataFusionResult<DataFrame> {
+    debug_assert_eq!(
+        row_id_cols.len(),
+        row_id_aliases.len(),
+        "row_id alias count should match row_id column count"
+    );
     let row_number_expr = row_number()
         .partition_by(Vec::new())
-        .order_by(vec![Expr::Column(row_id_col.clone()).sort(true, true)])
+        .order_by(
+            row_id_cols
+                .iter()
+                .cloned()
+                .map(|col| Expr::Column(col).sort(true, true))
+                .collect(),
+        )
         .build()?
         .alias("__row_number__");
-    let indexed = df.select(vec![Expr::Column(row_id_col.clone()), row_number_expr])?;
-    let indexed = indexed.select(vec![
-        Expr::Column(row_id_col.clone()),
-        (col("__row_number__") - lit(1_i64)).alias(index_col_name),
-    ])?;
-    indexed.with_column_renamed(ROW_ID_COL_NAME, row_id_alias)
+    let mut indexed_exprs: Vec<Expr> =
+        row_id_cols.iter().cloned().map(Expr::Column).collect();
+    indexed_exprs.push(row_number_expr);
+    let indexed = df.select(indexed_exprs)?;
+
+    let mut final_exprs: Vec<Expr> = row_id_cols
+        .iter()
+        .zip(row_id_aliases.iter())
+        .map(|(col, alias)| Expr::Column(col.clone()).alias(alias))
+        .collect();
+    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(index_col_name));
+    indexed.select(final_exprs)
 }
 
-fn single_row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> {
-    let mut row_id_cols: Vec<Column> = df
+fn row_id_columns(df: &DataFrame, side: &str) -> DataFusionResult<Vec<Column>> {
+    let row_id_cols: Vec<Column> = df
         .schema()
         .iter()
         .filter_map(|(qualifier, field)| {
@@ -807,12 +822,7 @@ fn single_row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> 
             "Join {side} input is missing {ROW_ID_COL_NAME}"
         )));
     }
-    if row_id_cols.len() > 1 {
-        return Err(DataFusionError::Plan(format!(
-            "Join {side} input has multiple {ROW_ID_COL_NAME} columns"
-        )));
-    }
-    Ok(row_id_cols.remove(0))
+    Ok(row_id_cols)
 }
 
 pub(crate) fn build_source_dfs(
@@ -822,37 +832,52 @@ pub(crate) fn build_source_dfs(
 ) -> DataFusionResult<(DataFrame, DataFrame)> {
     // Use row_id columns to keep output ordering deterministic.
     let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?;
-    let left_row_id = single_row_id_column(&left, "left")?;
-    let right_row_id = single_row_id_column(&right, "right")?;
+    let left_row_ids = row_id_columns(&left, "left")?;
+    let right_row_ids = row_id_columns(&right, "right")?;
+    let left_aliases: Vec<String> = (0..left_row_ids.len())
+        .map(|idx| format!("__left_row_id__{idx}"))
+        .collect();
+    let right_aliases: Vec<String> = (0..right_row_ids.len())
+        .map(|idx| format!("__right_row_id__{idx}"))
+        .collect();
 
     let left_index_df = build_row_index_df(
         left,
-        left_row_id.clone(),
+        &left_row_ids,
+        &left_aliases,
         SRC_LEFT_COL_NAME,
-        "__left_row_id__",
     )?;
     let right_index_df = build_row_index_df(
         right,
-        right_row_id.clone(),
+        &right_row_ids,
+        &right_aliases,
         SRC_RIGHT_COL_NAME,
-        "__right_row_id__",
     )?;
 
     // Join the output with index mappings to recover source row indices.
+    let left_join_exprs: Vec<Expr> = left_row_ids
+        .iter()
+        .zip(left_aliases.iter())
+        .map(|(col, alias)| {
+            Expr::Column(col.clone()).eq(Expr::Column(Column::new_unqualified(alias)))
+        })
+        .collect();
     let output = output.join_on(
         left_index_df,
         JoinType::Inner,
-        vec![
-            Expr::Column(left_row_id).eq(Expr::Column(Column::new_unqualified("__left_row_id__"))),
-        ],
+        left_join_exprs,
     )?;
+    let right_join_exprs: Vec<Expr> = right_row_ids
+        .iter()
+        .zip(right_aliases.iter())
+        .map(|(col, alias)| {
+            Expr::Column(col.clone()).eq(Expr::Column(Column::new_unqualified(alias)))
+        })
+        .collect();
     let output = output.join_on(
         right_index_df,
         JoinType::Inner,
-        vec![
-            Expr::Column(right_row_id)
-                .eq(Expr::Column(Column::new_unqualified("__right_row_id__"))),
-        ],
+        right_join_exprs,
     )?;
     let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?;
     let left_src = output
@@ -950,11 +975,15 @@ fn join_key_names(join: &datafusion_expr::Join, use_left: bool) -> Vec<String> {
         .collect()
 }
 
-fn ordered_column_names(mut keys: Vec<String>) -> Vec<String> {
-    if !keys.iter().any(|name| name == ROW_ID_COL_NAME) {
+fn ordered_column_names(
+    mut keys: Vec<String>,
+    include_row_id: bool,
+    include_activator: bool,
+) -> Vec<String> {
+    if include_row_id && !keys.iter().any(|name| name == ROW_ID_COL_NAME) {
         keys.push(ROW_ID_COL_NAME.to_string());
     }
-    if !keys.iter().any(|name| name == ACTIVATOR_COL_NAME) {
+    if include_activator && !keys.iter().any(|name| name == ACTIVATOR_COL_NAME) {
         keys.push(ACTIVATOR_COL_NAME.to_string());
     }
     keys
@@ -968,8 +997,38 @@ fn build_match_pair_tables_prover<B: SnarkBackend>(
 ) -> Option<(TrackedTable<B>, TrackedTable<B>, TrackedTable<B>)> {
     let left_table = left?;
     let right_table = right?;
-    let left_keys = ordered_column_names(join_key_names(join, true));
-    let right_keys = ordered_column_names(join_key_names(join, false));
+    let include_left_row_id = left_table
+        .tracked_polys()
+        .keys()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    let include_right_row_id = right_table
+        .tracked_polys()
+        .keys()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    let include_left_activator = left_table
+        .tracked_polys()
+        .keys()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    let include_right_activator = right_table
+        .tracked_polys()
+        .keys()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    if !include_left_activator {
+        panic!("Join left table missing column {ACTIVATOR_COL_NAME}");
+    }
+    if !include_right_activator {
+        panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
+    }
+    let left_keys = ordered_column_names(
+        join_key_names(join, true),
+        include_left_row_id,
+        true,
+    );
+    let right_keys = ordered_column_names(
+        join_key_names(join, false),
+        include_right_row_id,
+        true,
+    );
 
     let left_selected = select_tracked_columns(left_table, &left_keys, "left");
     let right_selected = select_tracked_columns(right_table, &right_keys, "right");
@@ -990,8 +1049,38 @@ fn build_match_pair_tables_verifier<B: SnarkBackend>(
 )> {
     let left_table = left?;
     let right_table = right?;
-    let left_keys = ordered_column_names(join_key_names(join, true));
-    let right_keys = ordered_column_names(join_key_names(join, false));
+    let include_left_row_id = left_table
+        .tracked_oracles()
+        .keys()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    let include_right_row_id = right_table
+        .tracked_oracles()
+        .keys()
+        .any(|field| field.name() == ROW_ID_COL_NAME);
+    let include_left_activator = left_table
+        .tracked_oracles()
+        .keys()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    let include_right_activator = right_table
+        .tracked_oracles()
+        .keys()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    if !include_left_activator {
+        panic!("Join left table missing column {ACTIVATOR_COL_NAME}");
+    }
+    if !include_right_activator {
+        panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
+    }
+    let left_keys = ordered_column_names(
+        join_key_names(join, true),
+        include_left_row_id,
+        true,
+    );
+    let right_keys = ordered_column_names(
+        join_key_names(join, false),
+        include_right_row_id,
+        true,
+    );
 
     let left_selected = select_tracked_oracles(left_table, &left_keys, "left");
     let right_selected = select_tracked_oracles(right_table, &right_keys, "right");

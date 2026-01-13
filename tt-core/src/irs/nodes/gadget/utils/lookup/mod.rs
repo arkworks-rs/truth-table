@@ -8,8 +8,8 @@ use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifie
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_common::Result as DataFusionResult;
-use datafusion_expr::{ExprFunctionExt, JoinType, col, expr_fn::when, lit};
+use datafusion_common::{Column, Result as DataFusionResult};
+use datafusion_expr::{Expr, ExprFunctionExt, JoinType, col, expr_fn::when, lit};
 use datafusion_functions_aggregate::expr_fn::count;
 use indexmap::IndexMap;
 
@@ -314,38 +314,51 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         .map(|f| f.name().clone())
         .collect();
 
-    // 2) Ensure we have a stable row identifier to preserve `a`'s order.
-    //    If `__row_id__` exists, use it. Otherwise generate a synthetic one.
-    let has_row_id = schema
-        .fields()
+    let row_id_cols: Vec<Column> = schema
         .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let row_id_col = if has_row_id {
-        ROW_ID_COL_NAME
-    } else {
-        "__row_id__"
-    };
-    let a_with_row_id = if has_row_id {
-        // Keep data columns + activator + row_id.
+        .filter_map(|(qualifier, field)| {
+            (field.name() == ROW_ID_COL_NAME)
+                .then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
+        })
+        .collect();
+
+    let activator_expr = combined_activator_expr(&a);
+    let row_id_col = ROW_ID_COL_NAME;
+    let a_with_row_id = if row_id_cols.len() == 1 {
+        // Keep data columns + combined activator + row_id.
         a.select(
             data_cols
                 .iter()
                 .map(col)
-                .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
-                .chain(std::iter::once(col(ROW_ID_COL_NAME)))
+                .chain(std::iter::once(
+                    activator_expr.clone().alias(ACTIVATOR_COL_NAME),
+                ))
+                .chain(std::iter::once(
+                    Expr::Column(row_id_cols[0].clone()).alias(row_id_col),
+                ))
                 .collect(),
         )?
     } else {
         // Attach a synthetic row id to preserve a deterministic order.
-        let row_id_expr = row_number()
-            .partition_by(Vec::new())
-            .build()?
-            .alias(row_id_col);
+        let row_number_builder = if row_id_cols.is_empty() {
+            row_number().partition_by(Vec::new())
+        } else {
+            row_number().partition_by(Vec::new()).order_by(
+                row_id_cols
+                    .iter()
+                    .cloned()
+                    .map(|col_ref| Expr::Column(col_ref).sort(true, true))
+                    .collect(),
+            )
+        };
+        let row_id_expr = row_number_builder.build()?.alias(row_id_col);
         a.select(
             data_cols
                 .iter()
                 .map(col)
-                .chain(std::iter::once(col(ACTIVATOR_COL_NAME)))
+                .chain(std::iter::once(
+                    activator_expr.clone().alias(ACTIVATOR_COL_NAME),
+                ))
                 .chain(std::iter::once(row_id_expr))
                 .collect(),
         )?
@@ -374,10 +387,13 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
         .with_column_renamed(row_id_col, "__row_id_rhs__")?;
 
     // 4) Count active rows per key in `b`.
-    let b_counts = b.filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?.aggregate(
-        data_cols.iter().map(col).collect(),
-        vec![count(lit(1_i64)).alias("mult")],
-    )?;
+    let b_counts = b
+        .clone()
+        .filter(combined_activator_expr(&b).eq(lit(true)))?
+        .aggregate(
+            data_cols.iter().map(col).collect(),
+            vec![count(lit(1_i64)).alias("mult")],
+        )?;
     let b_group_cols: Vec<String> = data_cols
         .iter()
         .enumerate()
@@ -421,4 +437,25 @@ fn multiplicity_once_per_active_key(a: DataFrame, b: DataFrame) -> DataFusionRes
     // 7) Restore deterministic ordering by row_id and project final columns.
     let ordered = joined.sort(vec![col(row_id_col).sort(true, true)])?;
     ordered.select(vec![col(ACTIVATOR_COL_NAME), multiplicity_expr])
+}
+
+fn combined_activator_expr(df: &DataFrame) -> Expr {
+    let mut activators: Vec<Expr> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            (field.name() == ACTIVATOR_COL_NAME).then_some(Expr::Column(Column::new(
+                qualifier.cloned(),
+                ACTIVATOR_COL_NAME,
+            )))
+        })
+        .collect();
+    if activators.is_empty() {
+        return lit(true);
+    }
+    let mut combined = activators.remove(0);
+    for expr in activators {
+        combined = combined.and(expr);
+    }
+    combined
 }

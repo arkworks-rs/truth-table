@@ -134,21 +134,28 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
     if row_id_exprs.is_empty() {
         return;
     }
-    let mut to_insert = Vec::new();
-    for row_expr in row_id_exprs {
-        let row_col = match &row_expr {
-            Expr::Column(col) => col,
-            _ => continue,
-        };
-        let already_present = exprs.iter().any(|expr| match expr {
-            Expr::Column(col) => col.name == row_col.name && col.relation == row_col.relation,
-            _ => false,
-        });
-        if !already_present {
-            to_insert.push(row_expr);
-        }
-    }
-    if to_insert.is_empty() {
+    let mut qualified: Vec<Expr> = row_id_exprs
+        .iter()
+        .cloned()
+        .filter(|expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
+        .collect();
+    let row_expr = if !qualified.is_empty() {
+        qualified.remove(0)
+    } else if row_id_exprs.len() == 1 {
+        row_id_exprs[0].clone()
+    } else {
+        return;
+    };
+
+    let row_col = match &row_expr {
+        Expr::Column(col) => col,
+        _ => return,
+    };
+    let already_present = exprs.iter().any(|expr| match expr {
+        Expr::Column(col) => col.name == row_col.name && col.relation == row_col.relation,
+        _ => false,
+    });
+    if already_present {
         return;
     }
     let insert_pos = exprs.iter().position(|expr| match expr {
@@ -156,12 +163,10 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
         _ => false,
     });
     if let Some(pos) = insert_pos {
-        for (offset, row_expr) in to_insert.into_iter().enumerate() {
-            exprs.insert(pos + offset, row_expr);
-        }
+        exprs.insert(pos, row_expr);
         return;
     }
-    exprs.extend(to_insert);
+    exprs.push(row_expr);
 }
 
 pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {

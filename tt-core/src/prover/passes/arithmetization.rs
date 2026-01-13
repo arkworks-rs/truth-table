@@ -41,7 +41,6 @@ where
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
-        use crate::irs::nodes::IsNode;
         match payload? {
             MaterializedPayload::PlanPayload(mat) => Some(ArithPayload::PlanPayload(
                 arithmetize_materialized_table(mat),
