@@ -14,8 +14,9 @@ use indexmap::IndexMap;
 pub(crate) fn populate_rotated(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(bool, bool)],
 ) {
-    let order_by = sort_order_from_hint(input_hint);
+    let order_by = sort_order_from_hint(input_hint, sort_specs);
     let rotated_df =
         rotate(input_hint.data_frame().clone(), order_by).expect("sort rotate planning should succeed");
     let should_materialize = rotated_df
@@ -31,8 +32,9 @@ pub(crate) fn populate_rotated(
 pub(crate) fn populate_tie_indicator(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(bool, bool)],
 ) {
-    let order_by = sort_order_from_hint(input_hint);
+    let order_by = sort_order_from_hint(input_hint, sort_specs);
     let tie_df = tie_indicator(input_hint.data_frame().clone(), order_by)
         .expect("sort tie indicator planning should succeed");
     let should_materialize = tie_df
@@ -130,7 +132,10 @@ pub(crate) fn tie_indicator(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusio
     ordered.select(out)
 }
 
-fn sort_order_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> Vec<SortExpr> {
+fn sort_order_from_hint(
+    hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(bool, bool)],
+) -> Vec<SortExpr> {
     let schema = hint.data_frame().schema();
     let mut order_by = Vec::new();
 
@@ -142,13 +147,18 @@ fn sort_order_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> Vec<SortExpr
         order_by.push(col(ACTIVATOR_COL_NAME).sort(false, false));
     }
 
-    order_by.extend(
-        schema
-            .fields()
-            .iter()
-            .filter(|field| !is_system_column(field.name()))
-            .map(|field| col(field.name()).sort(true, true)),
-    );
+    let data_fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .filter(|field| !is_system_column(field.name()))
+        .collect();
+    if data_fields.len() == sort_specs.len() {
+        order_by.extend(data_fields.iter().zip(sort_specs.iter()).map(
+            |(field, (asc, nulls_first))| col(field.name()).sort(*asc, *nulls_first),
+        ));
+    } else {
+        order_by.extend(data_fields.iter().map(|field| col(field.name()).sort(true, true)));
+    }
 
     if schema
         .fields()

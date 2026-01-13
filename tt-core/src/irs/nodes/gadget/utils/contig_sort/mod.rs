@@ -42,6 +42,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     bool_gadget: Arc<Node<B>>,
     sign_gadgets: Vec<Arc<Node<B>>>,
     neq_gadgets: Vec<Arc<Node<B>>>,
+    sort_specs: Vec<(bool, bool)>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -71,8 +72,8 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        populate_rotated(&mut gadget_payload, &input_hint);
-        populate_tie_indicator(&mut gadget_payload, &input_hint);
+        populate_rotated(&mut gadget_payload, &input_hint, &self.sort_specs);
+        populate_tie_indicator(&mut gadget_payload, &input_hint, &self.sort_specs);
         // Strip row-id before storing to avoid exposing it in gadget payloads.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(TABLE_LABEL.to_string(), sanitized_input);
@@ -348,7 +349,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(asc: Vec<bool>, strict: bool) -> Self {
+    pub fn new(sort_specs: Vec<(bool, bool)>, strict: bool) -> Self {
+        let asc: Vec<bool> = sort_specs.iter().map(|(asc, _)| *asc).collect();
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
@@ -362,6 +364,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             bool_gadget,
             sign_gadgets,
             neq_gadgets,
+            sort_specs,
         }
     }
 }

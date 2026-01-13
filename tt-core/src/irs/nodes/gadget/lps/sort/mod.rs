@@ -24,11 +24,13 @@ pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     remat_gadget: Arc<Node<B>>,
+    sort_specs: Vec<(bool, bool)>,
 }
 
 fn populate_output_expr(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(bool, bool)],
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
     let has_activator = input_df
@@ -50,14 +52,26 @@ fn populate_output_expr(
     let mut sort_exprs: Vec<SortExpr> =
         Vec::with_capacity(1 + sort_input_df.schema().fields().len());
     sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-    sort_exprs.extend(
-        sort_input_df
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| !is_system_column(field.name()))
-            .map(|field| col(field.name()).sort(true, true)),
-    );
+    let data_fields: Vec<_> = sort_input_df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !is_system_column(field.name()))
+        .collect();
+    if data_fields.len() == sort_specs.len() {
+        sort_exprs.extend(
+            data_fields
+                .iter()
+                .zip(sort_specs.iter())
+                .map(|(field, (asc, nulls_first))| col(field.name()).sort(*asc, *nulls_first)),
+        );
+    } else {
+        sort_exprs.extend(
+            data_fields
+                .iter()
+                .map(|field| col(field.name()).sort(true, true)),
+        );
+    }
 
     let sort = Sort {
         expr: sort_exprs,
@@ -146,7 +160,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint = populate_output_expr(&mut gadget_payload, &input_hint);
+        let output_hint = populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs);
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
@@ -275,11 +289,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort: Sort) -> Self {
-        let asc: Vec<bool> = sort.expr.iter().map(|expr| expr.asc).collect();
+        let sort_specs: Vec<(bool, bool)> = sort
+            .expr
+            .iter()
+            .map(|expr| (expr.asc, expr.nulls_first))
+            .collect();
         // DataFusion sort expressions do not encode strictness, so default to true.
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(asc, strict),
+            crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(
+                sort_specs.clone(),
+                strict,
+            ),
         )));
         let remat_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::remat::GadgetNode::new(),
@@ -287,6 +308,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         Self {
             sort_gadget,
             remat_gadget,
+            sort_specs,
         }
     }
 }
