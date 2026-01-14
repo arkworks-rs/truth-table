@@ -18,12 +18,11 @@ use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
-use datafusion::functions_window::expr_fn::row_number;
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef, Schema},
     prelude::DataFrame,
 };
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, TableReference};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::{Expr, JoinType, LogicalPlan, col, lit};
 use either::Either;
@@ -84,11 +83,15 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        // Build source-row tables aligned with the (row-id sorted) join output.
-        let (left_src_df, right_src_df) = build_source_dfs(
+        let Some(join) = find_parent_join_plan(id, planned_ir.tree()) else {
+            return Ok(());
+        };
+
+        // Build source-row tables aligned with the join output.
+        let (left_src_df, right_src_df) = hints::build_source_dfs(
             left_hint.data_frame().clone(),
             right_hint.data_frame().clone(),
-            output_hint.data_frame().clone(),
+            &join,
         )
         .expect("join source dataframe derivation should succeed");
         gadget_payload.insert(
@@ -100,20 +103,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         );
 
-        let join_lp = planned_ir.tree().arena().iter().find_map(|(_, node)| {
-            let is_parent = node.children().iter().any(|child| child.id() == id);
-            if !is_parent {
-                return None;
-            }
-            match node.as_ref() {
-                Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => Some(plan_node.lp()),
-                _ => None,
-            }
-        });
-        let join = match join_lp {
-            Some(LogicalPlan::Join(join)) => join,
-            _ => return Ok(()),
-        };
         let (match_left, match_right, match_out) =
             build_match_pair_hints(&join, &left_hint, &right_hint, &output_hint)
                 .expect("match-pair hint derivation should succeed");
@@ -770,120 +759,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             match_pair_gadget,
         }
     }
-}
-
-fn build_row_index_df(
-    df: DataFrame,
-    row_id_cols: &[Column],
-    row_id_aliases: &[String],
-    index_col_name: &str,
-) -> DataFusionResult<DataFrame> {
-    debug_assert_eq!(
-        row_id_cols.len(),
-        row_id_aliases.len(),
-        "row_id alias count should match row_id column count"
-    );
-    let row_number_expr = row_number()
-        .partition_by(Vec::new())
-        .order_by(
-            row_id_cols
-                .iter()
-                .cloned()
-                .map(|col| Expr::Column(col).sort(true, true))
-                .collect(),
-        )
-        .build()?
-        .alias("__row_number__");
-    let mut indexed_exprs: Vec<Expr> = row_id_cols.iter().cloned().map(Expr::Column).collect();
-    indexed_exprs.push(row_number_expr);
-    let indexed = df.select(indexed_exprs)?;
-
-    let mut final_exprs: Vec<Expr> = row_id_cols
-        .iter()
-        .zip(row_id_aliases.iter())
-        .map(|(col, alias)| Expr::Column(col.clone()).alias(alias))
-        .collect();
-    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(index_col_name));
-    indexed.select(final_exprs)
-}
-
-fn row_id_columns(df: &DataFrame, side: &str) -> DataFusionResult<Vec<Column>> {
-    let row_id_cols: Vec<Column> = df
-        .schema()
-        .iter()
-        .filter_map(|(qualifier, field)| {
-            (field.name() == ROW_ID_COL_NAME)
-                .then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
-        })
-        .collect();
-    if row_id_cols.is_empty() {
-        return Err(DataFusionError::Plan(format!(
-            "Join {side} input is missing {ROW_ID_COL_NAME}"
-        )));
-    }
-    Ok(row_id_cols)
-}
-
-pub(crate) fn build_source_dfs(
-    left: DataFrame,
-    right: DataFrame,
-    output: DataFrame,
-) -> DataFusionResult<(DataFrame, DataFrame)> {
-    // Use row_id columns to keep output ordering deterministic.
-    let output =
-        crate::irs::nodes::hints::sort_by_row_id_if_present(output)?.alias("__output__")?;
-    let left_row_ids = row_id_columns(&left, "left")?;
-    let right_row_ids = row_id_columns(&right, "right")?;
-    let left_aliases: Vec<String> = (0..left_row_ids.len())
-        .map(|idx| format!("__left_row_id__{idx}"))
-        .collect();
-    let right_aliases: Vec<String> = (0..right_row_ids.len())
-        .map(|idx| format!("__right_row_id__{idx}"))
-        .collect();
-
-    let left_index_df = build_row_index_df(left, &left_row_ids, &left_aliases, SRC_LEFT_COL_NAME)?
-        .alias("__left_index__")?;
-    let right_index_df =
-        build_row_index_df(right, &right_row_ids, &right_aliases, SRC_RIGHT_COL_NAME)?
-            .alias("__right_index__")?;
-
-    // Join the output with index mappings to recover source row indices.
-    let left_join_exprs: Vec<Expr> = left_row_ids
-        .iter()
-        .zip(left_aliases.iter())
-        .map(|(_col, alias)| {
-            Expr::Column(Column::new(Some(TableReference::bare("__output__")), alias)).eq(
-                Expr::Column(Column::new(
-                    Some(TableReference::bare("__left_index__")),
-                    alias,
-                )),
-            )
-        })
-        .collect();
-    let output = output.join_on(left_index_df, JoinType::Inner, left_join_exprs)?;
-    let right_join_exprs: Vec<Expr> = right_row_ids
-        .iter()
-        .zip(right_aliases.iter())
-        .map(|(_col, alias)| {
-            Expr::Column(Column::new(Some(TableReference::bare("__output__")), alias)).eq(
-                Expr::Column(Column::new(
-                    Some(TableReference::bare("__right_index__")),
-                    alias,
-                )),
-            )
-        })
-        .collect();
-    let output = output.join_on(right_index_df, JoinType::Inner, right_join_exprs)?;
-    let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?;
-    let left_src = output.clone().select(vec![Expr::Column(Column::new(
-        Some(TableReference::bare("__left_index__")),
-        SRC_LEFT_COL_NAME,
-    ))])?;
-    let right_src = output.select(vec![Expr::Column(Column::new(
-        Some(TableReference::bare("__right_index__")),
-        SRC_RIGHT_COL_NAME,
-    ))])?;
-    Ok((left_src, right_src))
 }
 
 fn find_parent_join_plan<B: SnarkBackend>(

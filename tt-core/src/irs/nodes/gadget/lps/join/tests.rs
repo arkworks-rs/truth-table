@@ -11,9 +11,10 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_common::{Column, TableReference};
-use datafusion_expr::{Expr, JoinType};
+use datafusion_expr::{Expr, JoinType, LogicalPlan};
 
-use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME, build_source_dfs};
+use super::hints::build_source_dfs;
+use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
 fn build_df(
     ctx: &SessionContext,
@@ -75,7 +76,7 @@ async fn assert_source_mapping(
         Some(TableReference::bare("r")),
         "key",
     ));
-    let output = left_df
+    let join_df = left_df
         .clone()
         .join_on(
             right_df.clone(),
@@ -84,8 +85,12 @@ async fn assert_source_mapping(
         )
         .expect("join should succeed");
 
+    let join = match join_df.logical_plan() {
+        LogicalPlan::Join(join) => join.clone(),
+        _ => panic!("expected a join logical plan"),
+    };
     let (left_src, right_src) =
-        build_source_dfs(left_df, right_df, output).expect("source dfs should build");
+        build_source_dfs(left_df, right_df, &join).expect("source dfs should build");
     let left_vals = collect_i64_column(left_src, SRC_LEFT_COL_NAME).await;
     let right_vals = collect_i64_column(right_src, SRC_RIGHT_COL_NAME).await;
 
@@ -96,15 +101,15 @@ async fn assert_source_mapping(
 #[tokio::test]
 async fn source_mapping_basic_inner_join() {
     // Both sides have duplicated join keys, so the join output has a 2x2 Cartesian
-    // product for key=1. The src_* columns are left/right row indices (0-based)
-    // from the original inputs after sorting by row_id.
+    // product for key=1. The src_* columns report the original row_id values
+    // from the left/right inputs in sorted (row_id) order.
     let left_rows = vec![(0, 1), (2, 1), (5, 2)];
     let right_rows = vec![(10, 1), (11, 1)];
     assert_source_mapping(
         &left_rows,
         &right_rows,
-        &[0, 0, 1, 1],
-        &[0, 1, 0, 1],
+        &[0, 0, 2, 2],
+        &[10, 11, 10, 11],
     )
     .await;
 }
@@ -112,14 +117,14 @@ async fn source_mapping_basic_inner_join() {
 #[tokio::test]
 async fn source_mapping_sorts_by_row_id() {
     // Row IDs are intentionally out of order on both sides; the helper should
-    // sort by row_id and still report the correct 0-based row indices.
+    // sort by row_id and still report the original row_id values.
     let left_rows = vec![(5, 1), (1, 1)];
     let right_rows = vec![(20, 1), (10, 1)];
     assert_source_mapping(
         &left_rows,
         &right_rows,
-        &[0, 0, 1, 1],
-        &[0, 1, 0, 1],
+        &[1, 1, 5, 5],
+        &[10, 20, 10, 20],
     )
     .await;
 }
