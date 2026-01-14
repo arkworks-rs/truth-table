@@ -7,8 +7,6 @@ use ark_piop::{
     prover::ArgProver, verifier::ArgVerifier,
 };
 use ark_std::log2;
-use num_bigint::BigUint;
-
 use crate::rematerialize_check::{
     RematerializeCheck, RematerializeCheckProverInput, RematerializeCheckVerifierInput,
 };
@@ -28,15 +26,14 @@ impl<B: SnarkBackend> Defragmenter<B> {
         if col.activator_tracked_poly().is_none() {
             return Ok(col.clone());
         }
-        let new_col_size_f: B::F = col
+        let new_col_size: usize = col
             .activator_tracked_poly()
             .as_ref()
             .unwrap()
             .evaluations()
             .iter()
-            .sum();
-        let new_col_size_biguint: BigUint = new_col_size_f.into();
-        let new_col_size: usize = new_col_size_biguint.try_into().unwrap();
+            .filter(|value| !value.is_zero())
+            .count();
         let new_nv: usize = log2(new_col_size) as usize;
         // if new_nv == old_nv {
         //     return Ok(col.clone());

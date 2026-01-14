@@ -74,11 +74,14 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        let support_hint = match supp_payload.get(ORIG_LABEL) {
+        let orig_hint = match supp_payload.get(ORIG_LABEL) {
             Some(hint_df) => hint_df.clone(),
             None => return Ok(()),
         };
-        let super_hint = supp_payload.get(SUPER_LABEL).cloned();
+        let support_hint = match supp_payload.get(SUPER_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
             let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup.id()) {
@@ -96,26 +99,24 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
             );
 
-            if let Some(super_hint) = super_hint {
-                let mut lookup_payload = match planned_ir.payload_for_node(&gadgets.lookup.id()) {
-                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                    _ => IndexMap::new(),
-                };
+            let mut lookup_payload = match planned_ir.payload_for_node(&gadgets.lookup.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
-                lookup_payload.insert(
-                    crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
-                    support_hint.clone(),
-                );
-                lookup_payload.insert(
-                    crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
-                    super_hint,
-                );
+            lookup_payload.insert(
+                crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
+                orig_hint.clone(),
+            );
+            lookup_payload.insert(
+                crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
+                support_hint,
+            );
 
-                planned_ir.set_payload_for_node(
-                    gadgets.lookup.id(),
-                    Some(PayloadStructure::GadgetPayload(lookup_payload)),
-                );
-            }
+            planned_ir.set_payload_for_node(
+                gadgets.lookup.id(),
+                Some(PayloadStructure::GadgetPayload(lookup_payload)),
+            );
         }
         Ok(())
     }
@@ -152,7 +153,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             panic!("Expected original table for Supp gadget");
         };
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected super table for Supp gadget");
+            panic!("Expected support table for Supp gadget");
         };
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
@@ -208,7 +209,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             panic!("Expected original table for Supp gadget");
         };
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected super table for Supp gadget");
+            panic!("Expected support table for Supp gadget");
         };
 
         if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
@@ -255,16 +256,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let Some(supp_table) = payload.get(ORIG_LABEL).cloned() else {
-            panic!("Expected support table for Supp gadget");
+        let Some(orig_table) = payload.get(ORIG_LABEL).cloned() else {
+            panic!("Expected original table for Supp gadget");
         };
-        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected super table for Supp gadget");
+        let Some(supp_table) = payload.get(SUPER_LABEL).cloned() else {
+            panic!("Expected support table for Supp gadget");
         };
 
         let input = BezoutMultiColSuppCheckProverInput {
-            orig_tracked_table: supp_table,
-            supp_tracked_table: super_table,
+            orig_tracked_table: orig_table,
+            supp_tracked_table: supp_table,
         };
         BezoutMultiColSuppCheckPIOP::<B>::prove(prover, input)?;
         Ok(())
@@ -281,16 +282,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Supp gadget node");
         };
 
-        let Some(supp_table) = payload.get(ORIG_LABEL).cloned() else {
-            panic!("Expected support table for Supp gadget");
+        let Some(orig_table) = payload.get(ORIG_LABEL).cloned() else {
+            panic!("Expected original table for Supp gadget");
         };
-        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected super table for Supp gadget");
+        let Some(supp_table) = payload.get(SUPER_LABEL).cloned() else {
+            panic!("Expected support table for Supp gadget");
         };
 
         let input = BezoutMultiColSuppCheckVerifierInput {
-            orig_tracked_table_oracle: supp_table,
-            supp_tracked_table_oracle: super_table,
+            orig_tracked_table_oracle: orig_table,
+            supp_tracked_table_oracle: supp_table,
         };
         BezoutMultiColSuppCheckPIOP::<B>::verify(verifier, input)?;
         Ok(())

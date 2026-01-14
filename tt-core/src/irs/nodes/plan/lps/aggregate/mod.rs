@@ -509,21 +509,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
                 None => return Ok(()),
             };
 
-            let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len());
-            let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len());
-            for expr in &aggregate.group_expr {
-                let Expr::Column(col) = expr else {
-                    panic!("Aggregate group expressions must be column references");
-                };
-                let input_idx = input_schema
-                    .index_of(&col.name)
-                    .expect("Aggregate input group column missing from payload schema");
-                let output_idx = output_schema
-                    .index_of(&col.name)
-                    .expect("Aggregate output group column missing from payload schema");
+        let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
+        let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
+        for expr in &aggregate.group_expr {
+            let Expr::Column(col) = expr else {
+                panic!("Aggregate group expressions must be column references");
+            };
+            let input_idx = input_schema
+                .index_of(&col.name)
+                .expect("Aggregate input group column missing from payload schema");
+            let output_idx = output_schema
+                .index_of(&col.name)
+                .expect("Aggregate output group column missing from payload schema");
+            input_group_indices.push(input_idx);
+            output_group_indices.push(output_idx);
+        }
+        if let Ok(input_idx) = input_schema.index_of(ACTIVATOR_COL_NAME) {
+            if !input_group_indices.contains(&input_idx) {
                 input_group_indices.push(input_idx);
+            }
+        }
+        if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME) {
+            if !output_group_indices.contains(&output_idx) {
                 output_group_indices.push(output_idx);
             }
+        }
 
             let input_groups_table = input_table.tracked_subtable_by_indices(&input_group_indices);
             let output_groups_table =
@@ -703,8 +713,8 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
         None => return Ok(()),
     };
 
-    let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len());
-    let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len());
+    let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
+    let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
     for expr in &aggregate.group_expr {
         let Expr::Column(col) = expr else {
             panic!("Aggregate group expressions must be column references");
@@ -717,6 +727,16 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
             .expect("Aggregate output group column missing from payload schema");
         input_group_indices.push(input_idx);
         output_group_indices.push(output_idx);
+    }
+    if let Ok(input_idx) = input_schema.index_of(ACTIVATOR_COL_NAME) {
+        if !input_group_indices.contains(&input_idx) {
+            input_group_indices.push(input_idx);
+        }
+    }
+    if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME) {
+        if !output_group_indices.contains(&output_idx) {
+            output_group_indices.push(output_idx);
+        }
     }
 
     let input_groups_table = input_table.tracked_subtable_by_indices(&input_group_indices);

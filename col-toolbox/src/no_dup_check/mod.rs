@@ -102,9 +102,13 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
         let num_vars = defraged_in_col.data_tracked_poly().log_size();
 
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
-        let f_query_point: Vec<B::F> = std::iter::once(B::F::zero())
-            .chain((0..num_vars - 1).map(|_| B::F::one()))
-            .collect();
+        let f_query_point: Vec<B::F> = if num_vars == 0 {
+            Vec::new()
+        } else {
+            std::iter::once(B::F::zero())
+                .chain((0..num_vars - 1).map(|_| B::F::one()))
+                .collect()
+        };
 
         ///////////////////// Compute the deduplicated polynomial /////////////////////
         // TODO: Make sure the randomness is provided safely
@@ -168,16 +172,19 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
             let poly_size = 2_i32.pow(num_vars as u32) as usize;
             let s_eval = s_p_tr.evaluate_uv(&chall).unwrap();
             let t_eval = t_p_tr.evaluate_uv(&chall).unwrap();
-            let f_prime_eval = f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
-            let f_eval = f_poly.evaluations()[poly_size - 2];
-            if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
-                use ark_piop::prover;
+            if f_poly.evaluations().len() >= 2 && f_prime_poly.evaluations().len() >= 2 {
+                let f_prime_eval =
+                    f_prime_poly.evaluations()[f_prime_poly.evaluations().len() - 2];
+                let f_eval = f_poly.evaluations()[poly_size - 2];
+                if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
+                    use ark_piop::prover;
 
-                return Err(SnarkError::ProverError(
-                    prover::errors::ProverError::HonestProverError(
-                        prover::errors::HonestProverError::FalseClaim,
-                    ),
-                ));
+                    return Err(SnarkError::ProverError(
+                        prover::errors::ProverError::HonestProverError(
+                            prover::errors::HonestProverError::FalseClaim,
+                        ),
+                    ));
+                }
             }
         }
 
@@ -205,9 +212,13 @@ impl<B: SnarkBackend> PIOP<B> for NoDupPIOP<B> {
         // The number of variables in all the polynomials in this protocol
         let num_vars = defraged_in_tracked_col_oracle.log_size();
         // The final query point for the polynomial f and f', i.e. (1,1,...,1,0)
-        let f_query_point: Vec<B::F> = std::iter::once(B::F::zero())
-            .chain((0..num_vars - 1).map(|_| B::F::one()))
-            .collect();
+        let f_query_point: Vec<B::F> = if num_vars == 0 {
+            Vec::new()
+        } else {
+            std::iter::once(B::F::zero())
+                .chain((0..num_vars - 1).map(|_| B::F::one()))
+                .collect()
+        };
 
         ///////////////////// Deduplication check /////////////////////
         if let Some(defraged_activator_tracked_col_oracle) =
