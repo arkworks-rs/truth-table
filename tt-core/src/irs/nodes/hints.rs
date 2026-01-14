@@ -260,9 +260,24 @@ fn normalize_hint_df(
         })
         .collect();
 
-    let normalized_df = data_fram
-        .select(projection)
-        .expect("hint dataframe normalization should succeed");
+    let already_normalized = match data_fram.logical_plan() {
+        LogicalPlan::Projection(proj) => proj.expr.len() == projection.len()
+            && proj.expr.iter().zip(projection.iter()).all(|(expr, expected)| {
+                matches!(
+                    (expr, expected),
+                    (Expr::Column(actual), Expr::Column(expected)) if actual == expected
+                )
+            }),
+        _ => false,
+    };
+
+    let normalized_df = if already_normalized {
+        data_fram
+    } else {
+        data_fram
+            .select(projection)
+            .expect("hint dataframe normalization should succeed")
+    };
 
     let mut normalized_should_materialize = IndexMap::new();
     for (idx, field) in normalized_df.schema().fields().iter().enumerate() {

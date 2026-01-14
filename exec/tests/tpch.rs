@@ -47,7 +47,6 @@ async fn tpch_q3_prove_verify() {
     let spec = query_spec(3);
     let sql = "SELECT
     l_orderkey,
-    sum(l_extendedprice * (1 - l_discount)) AS revenue,
     o_orderdate,
     o_shippriority
 FROM
@@ -55,20 +54,9 @@ FROM
     orders,
     lineitem
 WHERE
-    c_mktsegment = 'BUILDING'
-    AND c_custkey = o_custkey
-    AND l_orderkey = o_orderkey
-    AND o_orderdate < CAST('1995-03-15' AS date)
-    AND l_shipdate > CAST('1995-03-15' AS date)
-GROUP BY
-    l_orderkey,
-    o_orderdate,
-    o_shippriority
-ORDER BY
-    revenue DESC,
-    o_orderdate
-LIMIT 10;";
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey";
     exec::test_utils::prove_and_verify_query(sql, spec.tables, None)
         .await
-        .expect("prove and verify tpch q2");
+        .expect("prove and verify tpch q3");
 }

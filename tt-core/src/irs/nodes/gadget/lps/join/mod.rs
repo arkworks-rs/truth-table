@@ -13,7 +13,7 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
     table_oracle::TrackedTableOracle,
 };
-use ark_ff::{Field as ArkField, PrimeField};
+use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
@@ -337,27 +337,19 @@ fn nodup_table_from_output_prover<B: SnarkBackend>(
         .get_index(left_indices[0])
         .expect("Join src-left data column missing");
     let right_cols = right_src.tracked_polys();
-    let (_right_field, right_poly) = right_cols
+    let (right_field, right_poly) = right_cols
         .get_index(right_indices[0])
         .expect("Join src-right data column missing");
 
-    let base = B::F::from(2u64).pow([output.log_size() as u64]);
-    let left_scaled = left_poly.mul_scalar_poly(base);
-    let encoded_pair = &left_scaled + right_poly;
-
-    let pair_field = Arc::new(Field::new(
-        "src_pair",
-        left_field.data_type().clone(),
-        left_field.is_nullable(),
-    ));
-
     let mut tracked_polys = IndexMap::new();
     tracked_polys.insert(ACTIVATOR_FIELD.clone(), activator);
-    tracked_polys.insert(pair_field.clone(), encoded_pair);
+    tracked_polys.insert(left_field.clone(), left_poly.clone());
+    tracked_polys.insert(right_field.clone(), right_poly.clone());
 
     let schema = Some(Schema::new(vec![
         ACTIVATOR_FIELD.as_ref().clone(),
-        pair_field.as_ref().clone(),
+        left_field.as_ref().clone(),
+        right_field.as_ref().clone(),
     ]));
     TrackedTable::new(schema, tracked_polys, output.log_size())
 }
@@ -389,27 +381,19 @@ fn nodup_table_from_output_verifier<B: SnarkBackend>(
         .get_index(left_indices[0])
         .expect("Join src-left data column missing");
     let right_cols = right_src.tracked_oracles();
-    let (_right_field, right_oracle) = right_cols
+    let (right_field, right_oracle) = right_cols
         .get_index(right_indices[0])
         .expect("Join src-right data column missing");
 
-    let base = B::F::from(2u64).pow([output.log_size() as u64]);
-    let left_scaled = left_oracle.mul_scalar_oracle(base);
-    let encoded_pair = &left_scaled + right_oracle;
-
-    let pair_field = Arc::new(Field::new(
-        "src_pair",
-        left_field.data_type().clone(),
-        left_field.is_nullable(),
-    ));
-
     let mut tracked_oracles = IndexMap::new();
     tracked_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-    tracked_oracles.insert(pair_field.clone(), encoded_pair);
+    tracked_oracles.insert(left_field.clone(), left_oracle.clone());
+    tracked_oracles.insert(right_field.clone(), right_oracle.clone());
 
     let schema = Some(Schema::new(vec![
         ACTIVATOR_FIELD.as_ref().clone(),
-        pair_field.as_ref().clone(),
+        left_field.as_ref().clone(),
+        right_field.as_ref().clone(),
     ]));
     TrackedTableOracle::new(schema, tracked_oracles, output.log_size())
 }
