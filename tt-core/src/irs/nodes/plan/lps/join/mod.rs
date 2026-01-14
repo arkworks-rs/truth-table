@@ -1,16 +1,5 @@
 use std::sync::{Arc, Weak};
 
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
-use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
-use datafusion::functions_window::expr_fn::row_number;
-use datafusion_common::Column;
-use datafusion_expr::{Expr, Join, LogicalPlan, SortExpr, col, lit};
-use indexmap::IndexMap;
-use datafusion_expr::ExprFunctionExt;
 use crate::irs::{
     nodes::{
         IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
@@ -19,7 +8,12 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-
+use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Schema;
+use datafusion_expr::{Join, LogicalPlan};
+use indexmap::IndexMap;
+mod hints;
 #[allow(clippy::type_complexity)]
 pub struct JoinNode<B>
 where
@@ -198,174 +192,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
         };
-
-        let mut join_exprs: Vec<Expr> = self
-            .join
-            .on
-            .iter()
-            .map(|(left_expr, right_expr)| left_expr.clone().eq(right_expr.clone()))
-            .collect();
-        if let Some(filter) = &self.join.filter {
-            join_exprs.push(filter.clone());
-        }
-
-        let prepare_input = |df: datafusion::prelude::DataFrame,
-                             activator_label: &str,
-                             row_id_prefix: &str| {
-            let mut projection_exprs = Vec::new();
-            let mut activator_exprs = Vec::new();
-            let mut row_id_cols = Vec::new();
-            for (qualifier, field) in df.schema().iter() {
-                if field.name() == ACTIVATOR_COL_NAME {
-                    activator_exprs.push(Expr::Column(Column::new(
-                        qualifier.cloned(),
-                        ACTIVATOR_COL_NAME,
-                    )));
-                    continue;
-                }
-                if field.name() == ROW_ID_COL_NAME {
-                    row_id_cols.push(Column::new(qualifier.cloned(), ROW_ID_COL_NAME));
-                    continue;
-                }
-                if field.name().starts_with("__left_row_id__")
-                    || field.name().starts_with("__right_row_id__")
-                {
-                    continue;
-                }
-                projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            }
-            if activator_exprs.is_empty() && row_id_cols.is_empty() {
-                return df;
-            }
-            for (idx, col) in row_id_cols.iter().enumerate() {
-                projection_exprs.push(
-                    Expr::Column(col.clone()).alias(format!("{row_id_prefix}{idx}")),
-                );
-            }
-            if !activator_exprs.is_empty() {
-                let mut combined = activator_exprs[0].clone();
-                for expr in activator_exprs.iter().skip(1) {
-                    combined = combined.and(expr.clone());
-                }
-                projection_exprs.push(combined.alias(activator_label));
-            }
-            df.select(projection_exprs)
-                .expect("join input activator projection should succeed")
-        };
-
-        let left_df = prepare_input(
+        let joined = hints::build_output_dataframe(
             left_hint_df.data_frame().clone(),
-            "__left_activator__",
-            "__left_row_id__",
-        );
-        let right_df = prepare_input(
             right_hint_df.data_frame().clone(),
-            "__right_activator__",
-            "__right_row_id__",
+            &self.join,
         );
 
-        let joined = left_df
-            .join_on(right_df, self.join.join_type, join_exprs)
-            .expect("join output should succeed");
-
-        let mut projection_exprs = Vec::new();
-        let mut left_activator = None;
-        let mut right_activator = None;
-        for (qualifier, field) in joined.schema().iter() {
-            if field.name() == "__left_activator__" {
-                left_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-                continue;
-            }
-            if field.name() == "__right_activator__" {
-                right_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-                continue;
-            }
-            projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-        }
-
-        if let Some(left_act) = left_activator {
-            let combined = if let Some(right_act) = right_activator {
-                left_act.and(right_act)
-            } else {
-                left_act
-            };
-            projection_exprs.push(combined.alias(ACTIVATOR_COL_NAME));
-        } else if let Some(right_act) = right_activator {
-            projection_exprs.push(right_act.alias(ACTIVATOR_COL_NAME));
-        }
-
-        let joined = joined
-            .select(projection_exprs)
-            .expect("join output activator projection should succeed");
-
-        // Use all row_id columns (with qualifiers) to keep ordering deterministic.
-        let row_id_sort_exprs: Vec<SortExpr> = joined
-            .schema()
-            .iter()
-            .filter_map(|(qualifier, field)| {
-                if field.name() != "__left_row_id__0"
-                    && field.name() != "__right_row_id__0"
-                    && field.name() != ROW_ID_COL_NAME
-                {
-                    return None;
-                }
-                Some(
-                    Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(true, true),
-                )
-            })
-            .collect();
-
-        let joined = if row_id_sort_exprs.is_empty() {
-            joined
-        } else {
-            joined
-                .sort(row_id_sort_exprs.clone())
-                .expect("join output sort should succeed")
-        };
-        let joined = if row_id_sort_exprs.is_empty() {
-            joined
-        } else {
-            let row_number_expr = row_number()
-                .partition_by(Vec::new())
-                .order_by(row_id_sort_exprs)
-                .build()
-                .expect("join row_number window should build")
-                .alias("__row_number__");
-            let mut indexed_exprs = Vec::new();
-            for (qualifier, field) in joined.schema().iter() {
-                if field.name() == ROW_ID_COL_NAME
-                {
-                    continue;
-                }
-                indexed_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            }
-            indexed_exprs.push(row_number_expr);
-            let with_row_number = joined
-                .select(indexed_exprs)
-                .expect("join row_number projection should succeed");
-
-            let mut final_exprs = Vec::new();
-            for (qualifier, field) in with_row_number.schema().iter() {
-                if field.name() == "__row_number__"
-                {
-                    continue;
-                }
-                final_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            }
-            final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
-            with_row_number
-                .select(final_exprs)
-                .expect("join row_id projection should succeed")
-        };
         let should_materialize: IndexMap<_, _> = joined
             .schema()
             .fields()
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = name != ROW_ID_COL_NAME
-                    && !name.starts_with("__left_row_id__")
-                    && !name.starts_with("__right_row_id__");
+                let mat = name != ROW_ID_COL_NAME;
                 (field.clone(), mat)
             })
             .collect();
@@ -387,28 +226,27 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
         _id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let strip_row_id =
-            |table: TrackedTableOracle<B>| -> TrackedTableOracle<B> {
-                let cols = table.tracked_oracles();
-                if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
-                    return table;
+        let strip_row_id = |table: TrackedTableOracle<B>| -> TrackedTableOracle<B> {
+            let cols = table.tracked_oracles();
+            if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
+                return table;
+            }
+            let mut filtered = IndexMap::new();
+            for (field, oracle) in cols.iter() {
+                if field.name() == ROW_ID_COL_NAME {
+                    continue;
                 }
-                let mut filtered = IndexMap::new();
-                for (field, oracle) in cols.iter() {
-                    if field.name() == ROW_ID_COL_NAME {
-                        continue;
-                    }
-                    filtered.insert(field.clone(), oracle.clone());
-                }
-                let schema = table.schema_ref().map(|schema| {
-                    let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
-                        .keys()
-                        .map(|field| field.as_ref().clone())
-                        .collect();
-                    Schema::new_with_metadata(fields, schema.metadata().clone())
-                });
-                TrackedTableOracle::new(schema, filtered, table.log_size())
-            };
+                filtered.insert(field.clone(), oracle.clone());
+            }
+            let schema = table.schema_ref().map(|schema| {
+                let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
+                    .keys()
+                    .map(|field| field.as_ref().clone())
+                    .collect();
+                Schema::new_with_metadata(fields, schema.metadata().clone())
+            });
+            TrackedTableOracle::new(schema, filtered, table.log_size())
+        };
 
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
             Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),

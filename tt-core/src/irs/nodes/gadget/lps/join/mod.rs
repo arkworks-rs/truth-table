@@ -28,6 +28,7 @@ use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::{Expr, JoinType, LogicalPlan, col, lit};
 use either::Either;
 use indexmap::IndexMap;
+mod hints;
 pub const LEFT_LABEL: &str = "__LEFT__";
 pub const RIGHT_LABEL: &str = "__RIGHT__";
 pub const OUTPUT_LABEL: &str = "__OUTPUT__";
@@ -829,8 +830,8 @@ pub(crate) fn build_source_dfs(
     output: DataFrame,
 ) -> DataFusionResult<(DataFrame, DataFrame)> {
     // Use row_id columns to keep output ordering deterministic.
-    let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)?
-        .alias("__output__")?;
+    let output =
+        crate::irs::nodes::hints::sort_by_row_id_if_present(output)?.alias("__output__")?;
     let left_row_ids = row_id_columns(&left, "left")?;
     let right_row_ids = row_id_columns(&right, "right")?;
     let left_aliases: Vec<String> = (0..left_row_ids.len())
@@ -851,14 +852,12 @@ pub(crate) fn build_source_dfs(
         .iter()
         .zip(left_aliases.iter())
         .map(|(_col, alias)| {
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__output__")),
-                alias,
-            ))
-            .eq(Expr::Column(Column::new(
-                Some(TableReference::bare("__left_index__")),
-                alias,
-            )))
+            Expr::Column(Column::new(Some(TableReference::bare("__output__")), alias)).eq(
+                Expr::Column(Column::new(
+                    Some(TableReference::bare("__left_index__")),
+                    alias,
+                )),
+            )
         })
         .collect();
     let output = output.join_on(left_index_df, JoinType::Inner, left_join_exprs)?;
@@ -866,14 +865,12 @@ pub(crate) fn build_source_dfs(
         .iter()
         .zip(right_aliases.iter())
         .map(|(_col, alias)| {
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__output__")),
-                alias,
-            ))
-            .eq(Expr::Column(Column::new(
-                Some(TableReference::bare("__right_index__")),
-                alias,
-            )))
+            Expr::Column(Column::new(Some(TableReference::bare("__output__")), alias)).eq(
+                Expr::Column(Column::new(
+                    Some(TableReference::bare("__right_index__")),
+                    alias,
+                )),
+            )
         })
         .collect();
     let output = output.join_on(right_index_df, JoinType::Inner, right_join_exprs)?;

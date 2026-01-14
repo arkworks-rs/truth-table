@@ -8,8 +8,8 @@ use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, FetchType, Limit, SkipType, col, expr::Sort as SortExpr,
-    expr_fn::when, lit,
+    Expr, ExprFunctionExt, FetchType, Limit, SkipType, col, expr::Sort as SortExpr, expr_fn::when,
+    lit,
 };
 use std::sync::Arc;
 use tokio::runtime::RuntimeFlavor;

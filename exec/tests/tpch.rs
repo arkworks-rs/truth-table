@@ -45,6 +45,7 @@ async fn tpch_q1_prove_verify() {
 #[tokio::test]
 async fn tpch_q3_prove_verify() {
     let spec = query_spec(3);
+    println!("TPCH Q3 SQL:\n{}", spec.sql);
     let sql = "SELECT
     l_orderkey,
     o_orderdate,
