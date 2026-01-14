@@ -79,9 +79,11 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     // and then:
     //   new_activator = (orig_activator && row_number == 1)
     let mut row_number_builder = row_number().partition_by(aggregate.group_expr.clone());
+    let mut row_number_sort_exprs = vec![col("__activator_orig__").sort(false, true)];
     if !row_id_sort_exprs.is_empty() {
-        row_number_builder = row_number_builder.order_by(row_id_sort_exprs.clone());
+        row_number_sort_exprs.extend(row_id_sort_exprs.clone());
     }
+    row_number_builder = row_number_builder.order_by(row_number_sort_exprs);
     let window_expr = row_number_builder
         .build()
         .expect("partitioned row_number window should build")
