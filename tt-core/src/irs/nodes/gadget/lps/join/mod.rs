@@ -24,6 +24,7 @@ use datafusion_expr::{Expr, Join, LogicalPlan};
 use either::Either;
 use indexmap::IndexMap;
 mod hints;
+mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
 pub const RIGHT_LABEL: &str = "__RIGHT__";
 pub const OUTPUT_LABEL: &str = "__OUTPUT__";
@@ -78,16 +79,12 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let Some(join) = find_parent_join_plan(id, planned_ir.tree()) else {
-            return Ok(());
-        };
-
         // Build source-row tables aligned with the join output.
         let (left_src_df, right_src_df) = hints::build_source_dfs(
             left_hint.data_frame().clone(),
             right_hint.data_frame().clone(),
             output_hint.data_frame().clone(),
-            &join,
+            &self.join,
         )
         .expect("join source dataframe derivation should succeed");
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
@@ -105,7 +102,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
         let (match_left, match_right, match_out) =
-            build_match_pair_hints(&join, &left_hint, &right_hint, &output_hint)
+            build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
                 .expect("match-pair hint derivation should succeed");
         let mut match_payload = match planned_ir.payload_for_node(&self.match_pair_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -167,21 +164,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         else {
             panic!("Expected output, left, and right payloads for Join gadget node");
         };
-        wire_prover_bool_payload(&self.bool_gadget.id(), current_output, virtualized_ir);
+        self.wire_prover_bool_payload(current_output, virtualized_ir);
 
-        wire_prover_nodup_payload(
-            &self.nodup_gadget.id(),
+        self.wire_prover_nodup_payload(
             current_output,
             current_left_src,
             current_right_src,
             virtualized_ir,
         );
 
-        wire_prover_match_pair_payload(
-            &self.match_pair_gadget.id(),
-            &self.join,
+        self.wire_prover_match_pair_payload(
             current_output,
-            &payload,
+            current_left,
+            current_right,
             virtualized_ir,
         );
         Ok(())
@@ -209,8 +204,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         };
         let (
             Some(current_output),
-            Some(_current_left),
-            Some(_current_right),
+            Some(current_left),
+            Some(current_right),
             Some(current_left_src),
             Some(current_right_src),
         ) = (
@@ -223,266 +218,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         else {
             panic!("Expected output, left, and right payloads for Join gadget node");
         };
-        wire_verifier_bool_payload(&self.bool_gadget.id(), current_output, virtualized_ir);
+        self.wire_verifier_bool_payload(current_output, virtualized_ir);
 
-        wire_verifier_nodup_payload(
-            &self.nodup_gadget.id(),
+        self.wire_verifier_nodup_payload(
             current_output,
             current_left_src,
             current_right_src,
             virtualized_ir,
         );
 
-        wire_verifier_match_pair_payload(
-            &self.match_pair_gadget.id(),
-            &self.join,
+        self.wire_verifier_match_pair_payload(
             current_output,
-            &payload,
+            current_left,
+            current_right,
             virtualized_ir,
         );
         Ok(())
     }
-}
-
-fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
-    let activator = output
-        .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
-    let field = Arc::new(Field::new("data", DataType::Boolean, false));
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(field.clone(), activator);
-    let schema = Some(Schema::new(vec![field.as_ref().clone()]));
-    TrackedTable::new(schema, tracked_polys, output.log_size())
-}
-
-fn wire_prover_bool_payload<B: SnarkBackend>(
-    bool_gadget_id: &crate::irs::nodes::NodeId,
-    output: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) {
-    let bool_table = bool_table_from_output_prover(output);
-    let mut bool_payload = match virtualized_ir.payload_for_node(bool_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-    virtualized_ir.set_payload_for_node(
-        *bool_gadget_id,
-        Some(PayloadStructure::GadgetPayload(bool_payload)),
-    );
-}
-
-fn wire_prover_nodup_payload<B: SnarkBackend>(
-    nodup_gadget_id: &crate::irs::nodes::NodeId,
-    output: &TrackedTable<B>,
-    left_src: &TrackedTable<B>,
-    right_src: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) {
-    let nodup_table = nodup_table_from_output_prover(output, left_src, right_src);
-    let mut nodup_payload = match virtualized_ir.payload_for_node(nodup_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
-    virtualized_ir.set_payload_for_node(
-        *nodup_gadget_id,
-        Some(PayloadStructure::GadgetPayload(nodup_payload)),
-    );
-}
-
-fn wire_prover_match_pair_payload<B: SnarkBackend>(
-    match_pair_gadget_id: &crate::irs::nodes::NodeId,
-    join: &datafusion_expr::Join,
-    output: &TrackedTable<B>,
-    payload: &IndexMap<String, TrackedTable<B>>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
-) {
-    let match_tables = build_match_pair_tables_prover(
-        join,
-        output,
-        payload.get(LEFT_LABEL),
-        payload.get(RIGHT_LABEL),
-    )
-    .unwrap_or_else(|| {
-        panic!("Match-pair tables require left/right/output for Join gadget");
-    });
-    let mut match_payload = match virtualized_ir.payload_for_node(match_pair_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
-    match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
-    match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
-    virtualized_ir.set_payload_for_node(
-        *match_pair_gadget_id,
-        Some(PayloadStructure::GadgetPayload(match_payload)),
-    );
-}
-
-fn wire_verifier_bool_payload<B: SnarkBackend>(
-    bool_gadget_id: &crate::irs::nodes::NodeId,
-    output: &TrackedTableOracle<B>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) {
-    let bool_table = bool_table_from_output_verifier(output);
-    let mut bool_payload = match virtualized_ir.payload_for_node(bool_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-    virtualized_ir.set_payload_for_node(
-        *bool_gadget_id,
-        Some(PayloadStructure::GadgetPayload(bool_payload)),
-    );
-}
-
-fn wire_verifier_nodup_payload<B: SnarkBackend>(
-    nodup_gadget_id: &crate::irs::nodes::NodeId,
-    output: &TrackedTableOracle<B>,
-    left_src: &TrackedTableOracle<B>,
-    right_src: &TrackedTableOracle<B>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) {
-    let nodup_table = nodup_table_from_output_verifier(output, left_src, right_src);
-    let mut nodup_payload = match virtualized_ir.payload_for_node(nodup_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
-    virtualized_ir.set_payload_for_node(
-        *nodup_gadget_id,
-        Some(PayloadStructure::GadgetPayload(nodup_payload)),
-    );
-}
-
-fn wire_verifier_match_pair_payload<B: SnarkBackend>(
-    match_pair_gadget_id: &crate::irs::nodes::NodeId,
-    join: &datafusion_expr::Join,
-    output: &TrackedTableOracle<B>,
-    payload: &IndexMap<String, TrackedTableOracle<B>>,
-    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
-) {
-    let match_tables = build_match_pair_tables_verifier(
-        join,
-        output,
-        payload.get(LEFT_LABEL),
-        payload.get(RIGHT_LABEL),
-    )
-    .unwrap_or_else(|| {
-        panic!("Match-pair tables require left/right/output for Join gadget");
-    });
-    let mut match_payload = match virtualized_ir.payload_for_node(match_pair_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-        _ => IndexMap::new(),
-    };
-    match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
-    match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
-    match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
-    virtualized_ir.set_payload_for_node(
-        *match_pair_gadget_id,
-        Some(PayloadStructure::GadgetPayload(match_payload)),
-    );
-}
-fn bool_table_from_output_verifier<B: SnarkBackend>(
-    output: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let activator = output
-        .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
-    let field = Arc::new(Field::new("data", DataType::Boolean, false));
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(field.clone(), activator);
-    let schema = Some(Schema::new(vec![field.as_ref().clone()]));
-    TrackedTableOracle::new(schema, tracked_oracles, output.log_size())
-}
-
-fn nodup_table_from_output_prover<B: SnarkBackend>(
-    output: &TrackedTable<B>,
-    left_src: &TrackedTable<B>,
-    right_src: &TrackedTable<B>,
-) -> TrackedTable<B> {
-    let activator = output
-        .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
-
-    let left_indices = left_src.data_tracked_polys_indices();
-    assert_eq!(
-        left_indices.len(),
-        1,
-        "Join src-left should have exactly one data column"
-    );
-    let right_indices = right_src.data_tracked_polys_indices();
-    assert_eq!(
-        right_indices.len(),
-        1,
-        "Join src-right should have exactly one data column"
-    );
-
-    let left_cols = left_src.tracked_polys();
-    let (left_field, left_poly) = left_cols
-        .get_index(left_indices[0])
-        .expect("Join src-left data column missing");
-    let right_cols = right_src.tracked_polys();
-    let (right_field, right_poly) = right_cols
-        .get_index(right_indices[0])
-        .expect("Join src-right data column missing");
-
-    let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(ACTIVATOR_FIELD.clone(), activator);
-    tracked_polys.insert(left_field.clone(), left_poly.clone());
-    tracked_polys.insert(right_field.clone(), right_poly.clone());
-
-    let schema = Some(Schema::new(vec![
-        ACTIVATOR_FIELD.as_ref().clone(),
-        left_field.as_ref().clone(),
-        right_field.as_ref().clone(),
-    ]));
-    TrackedTable::new(schema, tracked_polys, output.log_size())
-}
-
-fn nodup_table_from_output_verifier<B: SnarkBackend>(
-    output: &TrackedTableOracle<B>,
-    left_src: &TrackedTableOracle<B>,
-    right_src: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let activator = output
-        .activator_tracked_poly()
-        .expect("Join output should carry an activator column");
-
-    let left_indices = left_src.data_tracked_oracles_indices();
-    assert_eq!(
-        left_indices.len(),
-        1,
-        "Join src-left should have exactly one data column"
-    );
-    let right_indices = right_src.data_tracked_oracles_indices();
-    assert_eq!(
-        right_indices.len(),
-        1,
-        "Join src-right should have exactly one data column"
-    );
-
-    let left_cols = left_src.tracked_oracles();
-    let (left_field, left_oracle) = left_cols
-        .get_index(left_indices[0])
-        .expect("Join src-left data column missing");
-    let right_cols = right_src.tracked_oracles();
-    let (right_field, right_oracle) = right_cols
-        .get_index(right_indices[0])
-        .expect("Join src-right data column missing");
-
-    let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-    tracked_oracles.insert(left_field.clone(), left_oracle.clone());
-    tracked_oracles.insert(right_field.clone(), right_oracle.clone());
-
-    let schema = Some(Schema::new(vec![
-        ACTIVATOR_FIELD.as_ref().clone(),
-        left_field.as_ref().clone(),
-        right_field.as_ref().clone(),
-    ]));
-    TrackedTableOracle::new(schema, tracked_oracles, output.log_size())
 }
 
 fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
@@ -863,25 +615,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
-fn find_parent_join_plan<B: SnarkBackend>(
-    id: crate::irs::nodes::NodeId,
-    tree: &crate::irs::tree::Tree<B>,
-) -> Option<datafusion_expr::Join> {
-    tree.arena().iter().find_map(|(_, node)| {
-        let is_parent = node.children().iter().any(|child| child.id() == id);
-        if !is_parent {
-            return None;
-        }
-        match node.as_ref() {
-            Node::Plan(crate::irs::nodes::PlanNode::LpBased(plan_node)) => match plan_node.lp() {
-                LogicalPlan::Join(join) => Some(join),
-                _ => None,
-            },
-            _ => None,
-        }
-    })
-}
-
 fn build_match_pair_hints(
     join: &datafusion_expr::Join,
     left_hint: &crate::irs::nodes::hints::HintDF,
@@ -932,205 +665,4 @@ fn build_match_pair_hints(
         crate::irs::nodes::hints::HintDF::new_virtual(right_df),
         crate::irs::nodes::hints::HintDF::new_virtual(output_df),
     ))
-}
-
-fn join_key_names(join: &datafusion_expr::Join, use_left: bool) -> Vec<String> {
-    join.on
-        .iter()
-        .map(|(left, right)| {
-            let expr = if use_left { left } else { right };
-            match expr {
-                Expr::Column(col) => col.name.clone(),
-                _ => panic!("Join match-pair keys must be column expressions"),
-            }
-        })
-        .collect()
-}
-
-fn ordered_column_names(
-    mut keys: Vec<String>,
-    include_row_id: bool,
-    include_activator: bool,
-) -> Vec<String> {
-    if include_row_id && !keys.iter().any(|name| name == ROW_ID_COL_NAME) {
-        keys.push(ROW_ID_COL_NAME.to_string());
-    }
-    if include_activator && !keys.iter().any(|name| name == ACTIVATOR_COL_NAME) {
-        keys.push(ACTIVATOR_COL_NAME.to_string());
-    }
-    keys
-}
-
-fn build_match_pair_tables_prover<B: SnarkBackend>(
-    join: &datafusion_expr::Join,
-    output: &TrackedTable<B>,
-    left: Option<&TrackedTable<B>>,
-    right: Option<&TrackedTable<B>>,
-) -> Option<(TrackedTable<B>, TrackedTable<B>, TrackedTable<B>)> {
-    let left_table = left?;
-    let right_table = right?;
-    let include_left_row_id = left_table
-        .tracked_polys()
-        .keys()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let include_right_row_id = right_table
-        .tracked_polys()
-        .keys()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let include_left_activator = left_table
-        .tracked_polys()
-        .keys()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    let include_right_activator = right_table
-        .tracked_polys()
-        .keys()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    if !include_left_activator {
-        panic!("Join left table missing column {ACTIVATOR_COL_NAME}");
-    }
-    if !include_right_activator {
-        panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
-    }
-    let left_keys = ordered_column_names(join_key_names(join, true), include_left_row_id, true);
-    let right_keys = ordered_column_names(join_key_names(join, false), include_right_row_id, true);
-
-    let left_selected = select_tracked_columns(left_table, &left_keys, "left");
-    let right_selected = select_tracked_columns(right_table, &right_keys, "right");
-    let out_selected = output_activator_table(output);
-
-    Some((left_selected, right_selected, out_selected))
-}
-
-fn build_match_pair_tables_verifier<B: SnarkBackend>(
-    join: &datafusion_expr::Join,
-    output: &TrackedTableOracle<B>,
-    left: Option<&TrackedTableOracle<B>>,
-    right: Option<&TrackedTableOracle<B>>,
-) -> Option<(
-    TrackedTableOracle<B>,
-    TrackedTableOracle<B>,
-    TrackedTableOracle<B>,
-)> {
-    let left_table = left?;
-    let right_table = right?;
-    let include_left_row_id = left_table
-        .tracked_oracles()
-        .keys()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let include_right_row_id = right_table
-        .tracked_oracles()
-        .keys()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let include_left_activator = left_table
-        .tracked_oracles()
-        .keys()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    let include_right_activator = right_table
-        .tracked_oracles()
-        .keys()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    if !include_left_activator {
-        panic!("Join left table missing column {ACTIVATOR_COL_NAME}");
-    }
-    if !include_right_activator {
-        panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
-    }
-    let left_keys = ordered_column_names(join_key_names(join, true), include_left_row_id, true);
-    let right_keys = ordered_column_names(join_key_names(join, false), include_right_row_id, true);
-
-    let left_selected = select_tracked_oracles(left_table, &left_keys, "left");
-    let right_selected = select_tracked_oracles(right_table, &right_keys, "right");
-    let out_selected = output_activator_table_oracle(output);
-
-    Some((left_selected, right_selected, out_selected))
-}
-
-fn select_tracked_columns<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-    column_names: &[String],
-    side: &str,
-) -> TrackedTable<B> {
-    let cols = table.tracked_polys();
-    let mut selected = IndexMap::new();
-    for name in column_names {
-        let (field, poly) = cols
-            .iter()
-            .find(|(field, _)| field.name() == name)
-            .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
-        selected.insert(field.clone(), poly.clone());
-    }
-    let schema = table.schema_ref().map(|schema| {
-        let fields: Vec<Field> = selected
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        let fields: Vec<Field> = selected
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Some(Schema::new(fields))
-    });
-    TrackedTable::new(schema, selected, table.log_size())
-}
-
-fn select_tracked_oracles<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-    column_names: &[String],
-    side: &str,
-) -> TrackedTableOracle<B> {
-    let cols = table.tracked_oracles();
-    let mut selected = IndexMap::new();
-    for name in column_names {
-        let (field, oracle) = cols
-            .iter()
-            .find(|(field, _)| field.name() == name)
-            .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
-        selected.insert(field.clone(), oracle.clone());
-    }
-    let schema = table.schema_ref().map(|schema| {
-        let fields: Vec<Field> = selected
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Schema::new_with_metadata(fields, schema.metadata().clone())
-    });
-    let schema = schema.or_else(|| {
-        let fields: Vec<Field> = selected
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect();
-        Some(Schema::new(fields))
-    });
-    TrackedTableOracle::new(schema, selected, table.log_size())
-}
-
-fn output_activator_table<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
-    let activator = output
-        .tracked_polys()
-        .iter()
-        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-        .map(|(field, poly)| (field.clone(), poly.clone()))
-        .unwrap_or_else(|| panic!("Join output missing activator column"));
-    let mut selected = IndexMap::new();
-    selected.insert(activator.0.clone(), activator.1);
-    let schema = Some(Schema::new(vec![activator.0.as_ref().clone()]));
-    TrackedTable::new(schema, selected, output.log_size())
-}
-
-fn output_activator_table_oracle<B: SnarkBackend>(
-    output: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let activator = output
-        .tracked_oracles()
-        .iter()
-        .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
-        .map(|(field, oracle)| (field.clone(), oracle.clone()))
-        .unwrap_or_else(|| panic!("Join output missing activator column"));
-    let mut selected = IndexMap::new();
-    selected.insert(activator.0.clone(), activator.1);
-    let schema = Some(Schema::new(vec![activator.0.as_ref().clone()]));
-    TrackedTableOracle::new(schema, selected, output.log_size())
 }
