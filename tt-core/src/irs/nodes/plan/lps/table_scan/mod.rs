@@ -4,7 +4,6 @@ use datafusion_expr::TableScan;
 
 use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps};
 
-mod gadget;
 #[derive(Debug)]
 pub struct ProverNode {
     table_scan: TableScan,
@@ -71,6 +70,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
+        use indexmap::IndexMap;
 
         let ctx = SessionContext::new();
         let df = DataFrame::new(
@@ -79,7 +79,16 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
         );
         let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
             .expect("table scan row-id sort should succeed");
-        crate::irs::nodes::hints::HintDF::new_materialized(df)
+        let should_materialize: IndexMap<_, _> = df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = field.name() != arithmetic::ROW_ID_COL_NAME;
+                (field.clone(), mat)
+            })
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(df, should_materialize)
     }
 }
 
