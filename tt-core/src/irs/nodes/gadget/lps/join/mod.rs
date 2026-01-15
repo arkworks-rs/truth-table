@@ -648,6 +648,6 @@ fn build_match_pair_hints(
     Ok((
         crate::irs::nodes::hints::HintDF::new_virtual(left_df),
         crate::irs::nodes::hints::HintDF::new_virtual(right_df),
-        crate::irs::nodes::hints::HintDF::new_materialized(output_df),
+        crate::irs::nodes::hints::HintDF::new_virtual(output_df),
     ))
 }

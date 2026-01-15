@@ -113,8 +113,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
-        let left_lookup_hint =
-            crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
+        let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
         let mut left_lookup_payload =
             match planned_ir.payload_for_node(&self.left_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -350,8 +349,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .evaluations()
             .into_iter()
             .fold(B::F::zero(), |acc, val| acc + val);
-
-        let output_sum_key = format!("match_pair_output_sum");
+        let challenge = prover.get_and_append_challenge(b"match_pair_output_sum_key")?;
+        let output_sum_key = format!("match_pair_output_sum_{challenge}");
         prover.add_miscellaneous_field_element(output_sum_key.clone(), output_sum)?;
         prover.add_mv_sumcheck_claim(union_left.id(), output_sum)?;
         prover.add_mv_sumcheck_claim(output_activator.id(), output_sum)?;
@@ -400,7 +399,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let union_left = &union_activator * &(&left_mult * &right_mult);
 
-        let output_sum_key = format!("match_pair_output_sum");
+        let challenge = verifier.get_and_append_challenge(b"match_pair_output_sum_key")?;
+        let output_sum_key = format!("match_pair_output_sum_{challenge}");
         let output_sum = verifier.miscellaneous_field_element(&output_sum_key)?;
 
         verifier.add_sumcheck_claim(union_left.id(), output_sum);
@@ -703,9 +703,7 @@ fn build_key_df(
         .collect();
 
     if row_id_cols.len() == 1 {
-        exprs.push(
-            Expr::Column(row_id_cols[0].clone()).alias(arithmetic::ROW_ID_COL_NAME),
-        );
+        exprs.push(Expr::Column(row_id_cols[0].clone()).alias(arithmetic::ROW_ID_COL_NAME));
         return sort_by_row_id_if_present(df.clone().select(exprs)?);
     }
 
@@ -724,8 +722,7 @@ fn build_key_df(
     let with_row_number = df.clone().select(exprs)?;
 
     let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
-    final_exprs
-        .push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
+    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
     sort_by_row_id_if_present(with_row_number.select(final_exprs)?)
 }
 
