@@ -60,7 +60,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        let gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
@@ -89,22 +89,37 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             &join,
         )
         .expect("join source dataframe derivation should succeed");
-        gadget_payload.insert(
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(
             SRC_LEFT_LABEL.to_string(),
             crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
         );
-        gadget_payload.insert(
+        nodup_payload.insert(
             SRC_RIGHT_LABEL.to_string(),
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
+        );
+        planned_ir.set_payload_for_node(
+            self.nodup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
 
         let (match_left, match_right, match_out) =
             build_match_pair_hints(&join, &left_hint, &right_hint, &output_hint)
                 .expect("match-pair hint derivation should succeed");
-        gadget_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
-        gadget_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
-        gadget_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        let mut match_payload = match planned_ir.payload_for_node(&self.match_pair_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
+        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
+        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
+        planned_ir.set_payload_for_node(
+            self.match_pair_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(match_payload)),
+        );
         Ok(())
     }
 
@@ -150,9 +165,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
 
-        let (Some(left_src), Some(right_src)) =
-            (payload.get(SRC_LEFT_LABEL), payload.get(SRC_RIGHT_LABEL))
-        else {
+        let (Some(left_src), Some(right_src)) = (match virtualized_ir
+            .payload_for_node(&self.nodup_gadget.id())
+        {
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                (map.get(SRC_LEFT_LABEL), map.get(SRC_RIGHT_LABEL))
+            }
+            _ => (None, None),
+        }) else {
             return Ok(());
         };
         let nodup_table = nodup_table_from_output_prover(output, left_src, right_src);
@@ -227,9 +247,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
 
-        let (Some(left_src), Some(right_src)) =
-            (payload.get(SRC_LEFT_LABEL), payload.get(SRC_RIGHT_LABEL))
-        else {
+        let (Some(left_src), Some(right_src)) = (match virtualized_ir
+            .payload_for_node(&self.nodup_gadget.id())
+        {
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                (map.get(SRC_LEFT_LABEL), map.get(SRC_RIGHT_LABEL))
+            }
+            _ => (None, None),
+        }) else {
             return Ok(());
         };
         let nodup_table = nodup_table_from_output_verifier(output, left_src, right_src);
@@ -601,10 +626,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
             panic!("Expected right table for Join gadget");
         };
-        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
+        let Some(PayloadStructure::GadgetPayload(nodup_payload)) =
+            gadget_ready_ir.payload_for_node(&self.nodup_gadget.id())
+        else {
+            panic!("Expected nodup gadget payload for Join gadget");
+        };
+        let Some(left_src) = nodup_payload.get(SRC_LEFT_LABEL).cloned() else {
             panic!("Expected src-left table for Join gadget");
         };
-        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+        let Some(right_src) = nodup_payload.get(SRC_RIGHT_LABEL).cloned() else {
             panic!("Expected src-right table for Join gadget");
         };
 
@@ -676,10 +706,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
             panic!("Expected right table for Join gadget");
         };
-        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
+        let Some(PayloadStructure::GadgetPayload(nodup_payload)) =
+            gadget_ready_ir.payload_for_node(&self.nodup_gadget.id())
+        else {
+            panic!("Expected nodup gadget payload for Join gadget");
+        };
+        let Some(left_src) = nodup_payload.get(SRC_LEFT_LABEL).cloned() else {
             panic!("Expected src-left table for Join gadget");
         };
-        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+        let Some(right_src) = nodup_payload.get(SRC_RIGHT_LABEL).cloned() else {
             panic!("Expected src-right table for Join gadget");
         };
 
