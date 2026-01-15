@@ -148,22 +148,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Join gadget node")
         };
         // Among the payload, we expect left, right, and output tables
-        let (
-            Some(current_output),
-            Some(current_left),
-            Some(current_right),
-            Some(current_left_src),
-            Some(current_right_src),
-        ) = (
-            payload.get(OUTPUT_LABEL),
-            payload.get(LEFT_LABEL),
-            payload.get(RIGHT_LABEL),
-            payload.get(SRC_LEFT_LABEL),
-            payload.get(SRC_RIGHT_LABEL),
-        )
-        else {
-            panic!("Expected output, left, and right payloads for Join gadget node");
-        };
+        let current_output = payload
+            .get(OUTPUT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
+        let current_left = payload
+            .get(LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
+        let current_right = payload
+            .get(RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
+        let current_left_src = payload
+            .get(SRC_LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
+        let current_right_src = payload
+            .get(SRC_RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
         self.wire_prover_bool_payload(current_output, virtualized_ir);
 
         self.wire_prover_nodup_payload(
@@ -202,22 +201,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         else {
             panic!("expected gadget payload for Join gadget node")
         };
-        let (
-            Some(current_output),
-            Some(current_left),
-            Some(current_right),
-            Some(current_left_src),
-            Some(current_right_src),
-        ) = (
-            payload.get(OUTPUT_LABEL),
-            payload.get(LEFT_LABEL),
-            payload.get(RIGHT_LABEL),
-            payload.get(SRC_LEFT_LABEL),
-            payload.get(SRC_RIGHT_LABEL),
-        )
-        else {
-            panic!("Expected output, left, and right payloads for Join gadget node");
-        };
+        let current_output = payload
+            .get(OUTPUT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
+        let current_left = payload
+            .get(LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
+        let current_right = payload
+            .get(RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
+        let current_left_src = payload
+            .get(SRC_LEFT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
+        let current_right_src = payload
+            .get(SRC_RIGHT_LABEL)
+            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
         self.wire_verifier_bool_payload(current_output, virtualized_ir);
 
         self.wire_verifier_nodup_payload(
