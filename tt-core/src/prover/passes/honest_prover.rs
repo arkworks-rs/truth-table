@@ -57,7 +57,7 @@ where
     B: SnarkBackend,
 {
     fn order(&self) -> crate::irs::ir::PassOrder {
-        crate::irs::ir::PassOrder::PostOrder
+        crate::irs::ir::PassOrder::PreOrder
     }
 
     fn transform(
@@ -97,6 +97,13 @@ where
                     )
                 };
                 if let Err(err) = result {
+                    tracing::error!(
+                        gadget = %gadget_node.name(),
+                        node_id = id,
+                        parent = %parent_name,
+                        error = %err,
+                        "honest prover check failed"
+                    );
                     *self.error.borrow_mut() = Some(err);
                     None
                 } else {

@@ -20,7 +20,7 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-
+use ark_ff::One;
 pub const LEFT_LABEL: &str = "__left__";
 pub const PERM_LABEL: &str = "__perm__";
 pub const RIGHT_LABEL: &str = "__right__";
@@ -185,10 +185,37 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let left = payload
+            .get(LEFT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", LEFT_LABEL));
+        println!("left: {}", left.pretty_string());
+        let right = payload
+            .get(RIGHT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", RIGHT_LABEL));
+        println!("right: {}", right.pretty_string());
+        let perm = payload
+            .get(PERM_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
+        println!("perm: {}", perm.pretty_string());
+
+        if !prescribed_perm_honest_check::<B>(&left, &right, &perm) {
+            return Err(ark_piop::errors::SnarkError::ProverError(
+                ark_piop::prover::errors::ProverError::HonestProverError(
+                    ark_piop::prover::errors::HonestProverError::FalseClaim,
+                ),
+            ));
+        }
         Ok(())
     }
 
@@ -342,6 +369,107 @@ fn append_tracked_oracle<B: SnarkBackend>(
         ))
     });
     TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
+}
+
+fn prescribed_perm_honest_check<B: SnarkBackend>(
+    left: &TrackedTable<B>,
+    right: &TrackedTable<B>,
+    perm: &TrackedTable<B>,
+) -> bool {
+    if left.log_size() != right.log_size() || left.log_size() != perm.log_size() {
+        return false;
+    }
+    let size = left.size();
+
+    let perm_indices = perm.data_tracked_polys_indices();
+    if perm_indices.len() != 1 {
+        return false;
+    }
+    let perm_vals = perm
+        .tracked_col_by_ind(perm_indices[0])
+        .data_tracked_poly()
+        .evaluations();
+    if perm_vals.len() != size {
+        return false;
+    }
+
+    let left_data = data_columns_evals::<B>(left);
+    let right_data = data_columns_evals::<B>(right);
+    if left_data.len() != right_data.len() {
+        return false;
+    }
+
+    let left_act = left.activator_tracked_poly().map(|poly| poly.evaluations());
+    let right_act = right
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations());
+
+    let mut used = vec![false; size];
+    let mut left_active_count = 0usize;
+    let mut right_active_count = 0usize;
+    if let Some(act) = right_act.as_ref() {
+        right_active_count = act.iter().filter(|val| **val == B::F::one()).count();
+    } else {
+        right_active_count = size;
+    }
+
+    for row in 0..size {
+        if let Some(act) = left_act.as_ref() {
+            if act[row] != B::F::one() {
+                continue;
+            }
+        }
+        left_active_count += 1;
+        let perm_val = perm_vals[row];
+        let target = (0..size).find(|idx| perm_val == B::F::from(*idx as u64));
+        let Some(target) = target else {
+            return false;
+        };
+        if used[target] {
+            return false;
+        }
+        if let Some(act) = right_act.as_ref() {
+            if act[target] != B::F::one() {
+                return false;
+            }
+        }
+        if !rows_match(&left_data, &right_data, row, target) {
+            return false;
+        }
+        used[target] = true;
+    }
+
+    if left_active_count != right_active_count {
+        return false;
+    }
+    true
+}
+
+fn data_columns_evals<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<Vec<B::F>> {
+    table
+        .data_tracked_polys_indices()
+        .into_iter()
+        .map(|idx| {
+            table
+                .tracked_col_by_ind(idx)
+                .data_tracked_poly()
+                .evaluations()
+        })
+        .collect()
+}
+
+fn rows_match<F: PartialEq>(
+    left: &[Vec<F>],
+    right: &[Vec<F>],
+    left_row: usize,
+    right_row: usize,
+) -> bool {
+    left.iter().zip(right.iter()).all(|(lcol, rcol)| {
+        lcol.get(left_row)
+            .zip(rcol.get(right_row))
+            .map(|(l, r)| l == r)
+            .unwrap_or(false)
+    })
 }
 
 /// Builds a permutation polynomial representing a cyclic rotation of the

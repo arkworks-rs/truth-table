@@ -97,9 +97,15 @@ fn populate_output_expr(
         .expect("sort exprs projection should succeed");
 
     let output_hint = crate::irs::nodes::hints::HintDF::new_materialized(sorted_df);
-    // Strip row-id before storing to avoid turning it into a witness payload.
-    let sanitized_output = crate::irs::nodes::hints::strip_row_id_from_hint(&output_hint);
-    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), sanitized_output);
+    // Keep row-id for deterministic tie-breaking, but do not materialize it.
+    let mut should_materialize = IndexMap::new();
+    for field in output_hint.data_frame().schema().fields() {
+        let mat = field.name() != ROW_ID_COL_NAME;
+        should_materialize.insert(field.clone(), mat);
+    }
+    let output_sort_exprs =
+        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
+    gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
     output_hint
 }
 

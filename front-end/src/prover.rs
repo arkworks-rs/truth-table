@@ -173,10 +173,6 @@ impl<B: SnarkBackend> TTProver<B> {
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
         );
-        let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
-        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
-        proving_pass.take_result()?;
-
         let honest_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
@@ -184,6 +180,9 @@ impl<B: SnarkBackend> TTProver<B> {
         let honest_prover_pass = HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
         let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
         honest_prover_pass.take_result()?;
+        let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
+        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
+        proving_pass.take_result()?;
 
         Ok((
             ProverIrStages {

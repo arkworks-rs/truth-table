@@ -172,11 +172,34 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let left = payload
+            .get(LEFT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
+        let right = payload
+            .get(RIGHT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
+
+        let left_counts = active_row_multiset::<B>(&left);
+        let right_counts = active_row_multiset::<B>(&right);
+        if left_counts == right_counts {
+            return Ok(());
+        }
+
+        Err(ark_piop::errors::SnarkError::ProverError(
+            ark_piop::prover::errors::ProverError::HonestProverError(
+                ark_piop::prover::errors::HonestProverError::FalseClaim,
+            ),
+        ))
     }
 
     fn verify(
@@ -309,4 +332,44 @@ fn constant_one_table_oracle<B: SnarkBackend>(
         tracked_oracles,
         log_size,
     )
+}
+
+fn active_row_multiset<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+) -> std::collections::HashMap<String, usize> {
+    let data_indices = table.data_tracked_polys_indices();
+    let data_evals: Vec<Vec<B::F>> = data_indices
+        .iter()
+        .copied()
+        .map(|idx| {
+            table
+                .tracked_col_by_ind(idx)
+                .data_tracked_poly()
+                .evaluations()
+        })
+        .collect();
+    let activator = table
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations());
+    let size = table.size();
+
+    let mut counts = std::collections::HashMap::new();
+    for row in 0..size {
+        if let Some(act) = activator.as_ref() {
+            if act[row] != B::F::one() {
+                continue;
+            }
+        }
+        let key = if data_evals.is_empty() {
+            String::new()
+        } else {
+            let mut parts = Vec::with_capacity(data_evals.len());
+            for col in &data_evals {
+                parts.push(format!("{:?}", col[row]));
+            }
+            parts.join("|")
+        };
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    counts
 }

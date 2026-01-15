@@ -11,6 +11,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> Data
     let mut activator_exprs: Vec<Expr> = Vec::new();
     let mut activator_insert_pos: Option<usize> = None;
 
+    // Build a projection that keeps every non-activator column and records where
+    // the activator should be reinserted after it is recomputed.
     for (qualifier, field) in input.schema().iter() {
         let name = field.name();
         if name == ACTIVATOR_COL_NAME {
@@ -23,6 +25,8 @@ pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> Data
         projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), name)));
     }
 
+    // If the input has an activator, combine all activators with the filter predicate
+    // and insert the new activator back into the projected column order.
     if !activator_exprs.is_empty() {
         let mut combined = activator_exprs[0].clone();
         for expr in activator_exprs.iter().skip(1) {
@@ -33,6 +37,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> Data
         projection_exprs.insert(insert_pos, combined);
     }
 
+    // Apply the projection so all rows remain, but activator marks filtered-out rows.
     input
         .clone()
         .select(projection_exprs)
