@@ -450,15 +450,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
             panic!("Expected right table for Join gadget");
         };
-        let Some(PayloadStructure::GadgetPayload(nodup_payload)) =
-            gadget_ready_ir.payload_for_node(&self.nodup_gadget.id())
-        else {
-            panic!("Expected nodup gadget payload for Join gadget");
-        };
-        let Some(left_src) = nodup_payload.get(SRC_LEFT_LABEL).cloned() else {
+        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
             panic!("Expected src-left table for Join gadget");
         };
-        let Some(right_src) = nodup_payload.get(SRC_RIGHT_LABEL).cloned() else {
+        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
             panic!("Expected src-right table for Join gadget");
         };
 
@@ -530,15 +525,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
             panic!("Expected right table for Join gadget");
         };
-        let Some(PayloadStructure::GadgetPayload(nodup_payload)) =
-            gadget_ready_ir.payload_for_node(&self.nodup_gadget.id())
-        else {
-            panic!("Expected nodup gadget payload for Join gadget");
-        };
-        let Some(left_src) = nodup_payload.get(SRC_LEFT_LABEL).cloned() else {
+        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
             panic!("Expected src-left table for Join gadget");
         };
-        let Some(right_src) = nodup_payload.get(SRC_RIGHT_LABEL).cloned() else {
+        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
             panic!("Expected src-right table for Join gadget");
         };
 

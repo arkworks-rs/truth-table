@@ -16,9 +16,13 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
         join_exprs.push(filter.clone());
     }
 
-    // 2) Strip system columns (activator/row_id) from inputs, but keep row_id
+    // 2) Filter out padding rows (activator = false), then strip system columns
+    //    (activator/row_id) from inputs, but keep row_id
     //    under a unique name so we can build the new output row_id later.
     let prepare_input = |df: DataFrame, row_id_label: &str| {
+        let df = df
+            .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
+            .expect("join input activator filter should succeed");
         let mut projection_exprs = Vec::new();
         for (qualifier, field) in df.schema().iter() {
             if field.name() == ACTIVATOR_COL_NAME {
