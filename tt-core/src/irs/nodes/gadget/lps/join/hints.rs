@@ -111,6 +111,7 @@ fn prepare_input(
     side: &str,
     row_id_alias: &str,
 ) -> DataFusionResult<(DataFrame, Column)> {
+    let df = df.filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?;
     let mut projection_exprs = Vec::new();
     let mut row_id_col: Option<Column> = None;
     for (qualifier, field) in df.schema().iter() {
