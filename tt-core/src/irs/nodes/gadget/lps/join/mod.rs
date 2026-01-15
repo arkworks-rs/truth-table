@@ -3,24 +3,21 @@ use std::sync::Arc;
 use crate::irs::{
     nodes::{
         IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::utils::{bool, match_pair_check, nodup, prescr_perm},
+        gadget::utils::{match_pair_check, prescr_perm},
     },
     payloads::PayloadStructure,
 };
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, Join, LogicalPlan};
+use datafusion_expr::{Expr, Join};
 use either::Either;
 use indexmap::IndexMap;
 mod hints;

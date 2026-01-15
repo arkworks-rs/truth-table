@@ -132,57 +132,30 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let strip_row_id = |table: TrackedTable<B>| -> TrackedTable<B> {
-            let cols = table.tracked_polys();
-            if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
-                return table;
-            }
-            let mut filtered = IndexMap::new();
-            for (field, poly) in cols.iter() {
-                if field.name() == ROW_ID_COL_NAME {
-                    continue;
-                }
-                filtered.insert(field.clone(), poly.clone());
-            }
-            let schema = table.schema_ref().map(|schema| {
-                let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
-                    .keys()
-                    .map(|field| field.as_ref().clone())
-                    .collect();
-                Schema::new_with_metadata(fields, schema.metadata().clone())
-            });
-            TrackedTable::new(schema, filtered, table.log_size())
+        let output_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join output payload missing"),
         };
-
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join left payload missing"),
         };
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join right payload missing"),
         };
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(left) = left_table {
-            gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left);
-        }
-        if let Some(right) = right_table {
-            gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right);
-        }
+        gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
+        gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
+        gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
 
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
-            );
-        }
         Ok(())
     }
 }
@@ -235,34 +208,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
         _id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let strip_row_id = |table: TrackedTableOracle<B>| -> TrackedTableOracle<B> {
-            let cols = table.tracked_oracles();
-            if !cols.keys().any(|field| field.name() == ROW_ID_COL_NAME) {
-                return table;
-            }
-            let mut filtered = IndexMap::new();
-            for (field, oracle) in cols.iter() {
-                if field.name() == ROW_ID_COL_NAME {
-                    continue;
-                }
-                filtered.insert(field.clone(), oracle.clone());
-            }
-            let schema = table.schema_ref().map(|schema| {
-                let fields: Vec<datafusion::arrow::datatypes::Field> = filtered
-                    .keys()
-                    .map(|field| field.as_ref().clone())
-                    .collect();
-                Schema::new_with_metadata(fields, schema.metadata().clone())
-            });
-            TrackedTableOracle::new(schema, filtered, table.log_size())
-        };
-
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(strip_row_id(table.clone())),
+            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
             _ => None,
         };
 
