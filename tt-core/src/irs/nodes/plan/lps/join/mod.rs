@@ -155,6 +155,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
 
         Ok(())
     }
@@ -228,6 +232,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
         gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
         gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
         gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
 
         Ok(())
     }
