@@ -70,6 +70,13 @@ pub(crate) fn build_source_dfs(
         ])?
         .alias("__mapping__")?;
     let output = output.alias("__output__")?;
+    let output = output.filter(
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ACTIVATOR_COL_NAME,
+        ))
+        .eq(lit(true)),
+    )?;
     let join_on = vec![
         Expr::Column(Column::new(
             Some(TableReference::bare("__output__")),
