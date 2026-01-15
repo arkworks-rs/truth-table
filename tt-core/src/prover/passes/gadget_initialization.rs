@@ -5,7 +5,7 @@ use ark_piop::SnarkBackend;
 
 use crate::irs::ir::{LocalPass, PassOrder};
 use crate::irs::nodes::NodeId;
-use crate::irs::nodes::{Node, ProverNodeOps};
+use crate::irs::nodes::{IsNode, Node, ProverNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::VirtualizedIr;
 use crate::prover::payloads::{GadgetReadyPayload, VirtualizedPayload};
@@ -43,8 +43,28 @@ where
             ir.set_payload_for_node(id, payload.cloned());
         }
 
+        let node_name = node.name();
+        let node_kind = match node {
+            Node::Gadget(_) => "gadget",
+            Node::Plan(plan) => match plan {
+                crate::irs::nodes::PlanNode::LpBased(_) => "lp",
+                crate::irs::nodes::PlanNode::ExprBased(_) => "expr",
+            },
+        };
+        tracing::debug!(
+            node = %node_name,
+            node_id = id,
+            node_kind = node_kind,
+            "starting gadget initialization"
+        );
         node.initialize_gadgets(id, &mut ir)
             .expect("gadget initialization should succeed");
+        tracing::debug!(
+            node = %node_name,
+            node_id = id,
+            node_kind = node_kind,
+            "finished gadget initialization"
+        );
 
         ir.payloads()
             .get(&id)
