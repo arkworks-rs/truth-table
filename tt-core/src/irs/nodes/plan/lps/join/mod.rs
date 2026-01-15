@@ -87,9 +87,18 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_hint_df);
-        gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_hint_df);
-        gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_hint_df);
+        gadget_payload.insert(
+            join_gadget::LEFT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::RIGHT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::OUTPUT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+        );
 
         planned_ir.set_payload_for_node(
             self.gadget.id(),

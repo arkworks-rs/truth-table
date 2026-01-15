@@ -18,13 +18,9 @@ use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
-use datafusion::{
-    arrow::datatypes::{DataType, Field, FieldRef, Schema},
-    prelude::DataFrame,
-};
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
-use datafusion_expr::ExprFunctionExt;
-use datafusion_expr::{Expr, JoinType, LogicalPlan, col, lit};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion_common::{DataFusionError, Result as DataFusionResult};
+use datafusion_expr::{Expr, LogicalPlan};
 use either::Either;
 use indexmap::IndexMap;
 mod hints;
@@ -40,7 +36,6 @@ pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     match_pair_gadget: Arc<Node<B>>,
 }
-
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
