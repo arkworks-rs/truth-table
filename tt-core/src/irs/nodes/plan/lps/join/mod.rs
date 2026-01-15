@@ -318,7 +318,7 @@ impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
                 .clone()
         });
         let gadget = Arc::new(Node::Gadget(Arc::new(
-            crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(),
+            crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone()),
         )));
         JoinNode {
             left,

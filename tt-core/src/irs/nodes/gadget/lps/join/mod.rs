@@ -20,7 +20,7 @@ use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, LogicalPlan};
+use datafusion_expr::{Expr, Join, LogicalPlan};
 use either::Either;
 use indexmap::IndexMap;
 mod hints;
@@ -35,6 +35,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     bool_gadget: Arc<Node<B>>,
     nodup_gadget: Arc<Node<B>>,
     match_pair_gadget: Arc<Node<B>>,
+    join: Join,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -89,22 +90,19 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             &join,
         )
         .expect("join source dataframe derivation should succeed");
-        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
+        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload.insert(
+        gadget_payload.insert(
             SRC_LEFT_LABEL.to_string(),
             crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
         );
-        nodup_payload.insert(
+        gadget_payload.insert(
             SRC_RIGHT_LABEL.to_string(),
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         );
-        planned_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
         let (match_left, match_right, match_out) =
             build_match_pair_hints(&join, &left_hint, &right_hint, &output_hint)
@@ -146,69 +144,45 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // First fetch the payload for the current node, prepared by the parent
         let Some(PayloadStructure::GadgetPayload(payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
-            return Ok(());
+            panic!("Expected gadget payload for Join gadget node")
         };
-        let Some(output) = payload.get(OUTPUT_LABEL) else {
-            return Ok(());
-        };
-        let bool_table = bool_table_from_output_prover(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-
-        let (Some(left_src), Some(right_src)) = (match virtualized_ir
-            .payload_for_node(&self.nodup_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                (map.get(SRC_LEFT_LABEL), map.get(SRC_RIGHT_LABEL))
-            }
-            _ => (None, None),
-        }) else {
-            return Ok(());
-        };
-        let nodup_table = nodup_table_from_output_prover(output, left_src, right_src);
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
-        virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-
-        let Some(join) = find_parent_join_plan(id, virtualized_ir.tree()) else {
-            return Ok(());
-        };
-        let match_tables = build_match_pair_tables_prover(
-            &join,
-            output,
+        // Among the payload, we expect left, right, and output tables
+        let (
+            Some(current_output),
+            Some(current_left),
+            Some(current_right),
+            Some(current_left_src),
+            Some(current_right_src),
+        ) = (
+            payload.get(OUTPUT_LABEL),
             payload.get(LEFT_LABEL),
             payload.get(RIGHT_LABEL),
+            payload.get(SRC_LEFT_LABEL),
+            payload.get(SRC_RIGHT_LABEL),
         )
-        .unwrap_or_else(|| {
-            panic!("Match-pair tables require left/right/output for Join gadget");
-        });
-        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
+        else {
+            panic!("Expected output, left, and right payloads for Join gadget node");
         };
-        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
-        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
-        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
-        virtualized_ir.set_payload_for_node(
-            self.match_pair_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(match_payload)),
+        wire_prover_bool_payload(&self.bool_gadget.id(), current_output, virtualized_ir);
+
+        wire_prover_nodup_payload(
+            &self.nodup_gadget.id(),
+            current_output,
+            current_left_src,
+            current_right_src,
+            virtualized_ir,
+        );
+
+        wire_prover_match_pair_payload(
+            &self.match_pair_gadget.id(),
+            &self.join,
+            current_output,
+            &payload,
+            virtualized_ir,
         );
         Ok(())
     }
@@ -231,66 +205,40 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(PayloadStructure::GadgetPayload(payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
-            return Ok(());
+            panic!("expected gadget payload for Join gadget node")
         };
-        let Some(output) = payload.get(OUTPUT_LABEL) else {
-            return Ok(());
-        };
-        let bool_table = bool_table_from_output_verifier(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
-        virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(bool_payload)),
-        );
-
-        let (Some(left_src), Some(right_src)) = (match virtualized_ir
-            .payload_for_node(&self.nodup_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                (map.get(SRC_LEFT_LABEL), map.get(SRC_RIGHT_LABEL))
-            }
-            _ => (None, None),
-        }) else {
-            return Ok(());
-        };
-        let nodup_table = nodup_table_from_output_verifier(output, left_src, right_src);
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
-        virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-
-        let Some(join) = find_parent_join_plan(id, virtualized_ir.tree()) else {
-            return Ok(());
-        };
-        let match_tables = build_match_pair_tables_verifier(
-            &join,
-            output,
+        let (
+            Some(current_output),
+            Some(_current_left),
+            Some(_current_right),
+            Some(current_left_src),
+            Some(current_right_src),
+        ) = (
+            payload.get(OUTPUT_LABEL),
             payload.get(LEFT_LABEL),
             payload.get(RIGHT_LABEL),
+            payload.get(SRC_LEFT_LABEL),
+            payload.get(SRC_RIGHT_LABEL),
         )
-        .unwrap_or_else(|| {
-            panic!("Match-pair tables require left/right/output for Join gadget");
-        });
-        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
+        else {
+            panic!("Expected output, left, and right payloads for Join gadget node");
         };
-        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
-        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
-        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
-        virtualized_ir.set_payload_for_node(
-            self.match_pair_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(match_payload)),
+        wire_verifier_bool_payload(&self.bool_gadget.id(), current_output, virtualized_ir);
+
+        wire_verifier_nodup_payload(
+            &self.nodup_gadget.id(),
+            current_output,
+            current_left_src,
+            current_right_src,
+            virtualized_ir,
+        );
+
+        wire_verifier_match_pair_payload(
+            &self.match_pair_gadget.id(),
+            &self.join,
+            current_output,
+            &payload,
+            virtualized_ir,
         );
         Ok(())
     }
@@ -307,6 +255,135 @@ fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> T
     TrackedTable::new(schema, tracked_polys, output.log_size())
 }
 
+fn wire_prover_bool_payload<B: SnarkBackend>(
+    bool_gadget_id: &crate::irs::nodes::NodeId,
+    output: &TrackedTable<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+) {
+    let bool_table = bool_table_from_output_prover(output);
+    let mut bool_payload = match virtualized_ir.payload_for_node(bool_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
+    virtualized_ir.set_payload_for_node(
+        *bool_gadget_id,
+        Some(PayloadStructure::GadgetPayload(bool_payload)),
+    );
+}
+
+fn wire_prover_nodup_payload<B: SnarkBackend>(
+    nodup_gadget_id: &crate::irs::nodes::NodeId,
+    output: &TrackedTable<B>,
+    left_src: &TrackedTable<B>,
+    right_src: &TrackedTable<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+) {
+    let nodup_table = nodup_table_from_output_prover(output, left_src, right_src);
+    let mut nodup_payload = match virtualized_ir.payload_for_node(nodup_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
+    virtualized_ir.set_payload_for_node(
+        *nodup_gadget_id,
+        Some(PayloadStructure::GadgetPayload(nodup_payload)),
+    );
+}
+
+fn wire_prover_match_pair_payload<B: SnarkBackend>(
+    match_pair_gadget_id: &crate::irs::nodes::NodeId,
+    join: &datafusion_expr::Join,
+    output: &TrackedTable<B>,
+    payload: &IndexMap<String, TrackedTable<B>>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+) {
+    let match_tables = build_match_pair_tables_prover(
+        join,
+        output,
+        payload.get(LEFT_LABEL),
+        payload.get(RIGHT_LABEL),
+    )
+    .unwrap_or_else(|| {
+        panic!("Match-pair tables require left/right/output for Join gadget");
+    });
+    let mut match_payload = match virtualized_ir.payload_for_node(match_pair_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
+    match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
+    match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
+    virtualized_ir.set_payload_for_node(
+        *match_pair_gadget_id,
+        Some(PayloadStructure::GadgetPayload(match_payload)),
+    );
+}
+
+fn wire_verifier_bool_payload<B: SnarkBackend>(
+    bool_gadget_id: &crate::irs::nodes::NodeId,
+    output: &TrackedTableOracle<B>,
+    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+) {
+    let bool_table = bool_table_from_output_verifier(output);
+    let mut bool_payload = match virtualized_ir.payload_for_node(bool_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
+    virtualized_ir.set_payload_for_node(
+        *bool_gadget_id,
+        Some(PayloadStructure::GadgetPayload(bool_payload)),
+    );
+}
+
+fn wire_verifier_nodup_payload<B: SnarkBackend>(
+    nodup_gadget_id: &crate::irs::nodes::NodeId,
+    output: &TrackedTableOracle<B>,
+    left_src: &TrackedTableOracle<B>,
+    right_src: &TrackedTableOracle<B>,
+    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+) {
+    let nodup_table = nodup_table_from_output_verifier(output, left_src, right_src);
+    let mut nodup_payload = match virtualized_ir.payload_for_node(nodup_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
+    virtualized_ir.set_payload_for_node(
+        *nodup_gadget_id,
+        Some(PayloadStructure::GadgetPayload(nodup_payload)),
+    );
+}
+
+fn wire_verifier_match_pair_payload<B: SnarkBackend>(
+    match_pair_gadget_id: &crate::irs::nodes::NodeId,
+    join: &datafusion_expr::Join,
+    output: &TrackedTableOracle<B>,
+    payload: &IndexMap<String, TrackedTableOracle<B>>,
+    virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+) {
+    let match_tables = build_match_pair_tables_verifier(
+        join,
+        output,
+        payload.get(LEFT_LABEL),
+        payload.get(RIGHT_LABEL),
+    )
+    .unwrap_or_else(|| {
+        panic!("Match-pair tables require left/right/output for Join gadget");
+    });
+    let mut match_payload = match virtualized_ir.payload_for_node(match_pair_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
+    match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
+    match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
+    virtualized_ir.set_payload_for_node(
+        *match_pair_gadget_id,
+        Some(PayloadStructure::GadgetPayload(match_payload)),
+    );
+}
 fn bool_table_from_output_verifier<B: SnarkBackend>(
     output: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
@@ -766,14 +843,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
+    pub fn new(join: Join) -> Self {
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
@@ -787,6 +858,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             bool_gadget,
             nodup_gadget,
             match_pair_gadget,
+            join,
         }
     }
 }
