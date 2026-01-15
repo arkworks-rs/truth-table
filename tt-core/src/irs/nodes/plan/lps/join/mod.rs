@@ -205,35 +205,30 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
+        id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let output_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join output payload missing"),
+        };
         let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join left payload missing"),
         };
         let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-            _ => None,
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => panic!("Join right payload missing"),
         };
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        if let Some(left) = left_table {
-            gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left);
-        }
-        if let Some(right) = right_table {
-            gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right);
-        }
+        gadget_payload.insert(join_gadget::LEFT_LABEL.to_string(), left_table);
+        gadget_payload.insert(join_gadget::RIGHT_LABEL.to_string(), right_table);
+        gadget_payload.insert(join_gadget::OUTPUT_LABEL.to_string(), output_table);
 
-        if !gadget_payload.is_empty() {
-            virtualized_ir.set_payload_for_node(
-                self.gadget.id(),
-                Some(PayloadStructure::GadgetPayload(gadget_payload)),
-            );
-        }
         Ok(())
     }
 }
