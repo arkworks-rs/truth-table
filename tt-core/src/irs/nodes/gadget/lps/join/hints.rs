@@ -1,15 +1,15 @@
-use arithmetic::ROW_ID_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
-use datafusion_expr::expr::Sort as SortExpr;
-use datafusion_expr::{Expr, ExprFunctionExt, Join, col};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, TableReference};
+use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, col, lit};
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
 pub(crate) fn build_source_dfs(
     left: DataFrame,
     right: DataFrame,
+    output: DataFrame,
     join: &Join,
 ) -> DataFusionResult<(DataFrame, DataFrame)> {
     // Build join predicates (equi-join pairs plus optional filter).
@@ -18,12 +18,24 @@ pub(crate) fn build_source_dfs(
         .iter()
         .map(|(left_expr, right_expr)| left_expr.clone().eq(right_expr.clone()))
         .collect();
+    for expr in join.on.iter().flat_map(|(l, r)| [l, r]) {
+        if expr_has_system_column(expr) {
+            return Err(DataFusionError::Plan(
+                "Join keys must not reference system columns".to_string(),
+            ));
+        }
+    }
     if let Some(filter) = &join.filter {
+        if expr_has_system_column(filter) {
+            return Err(DataFusionError::Plan(
+                "Join filters must not reference system columns".to_string(),
+            ));
+        }
         join_exprs.push(filter.clone());
     }
 
-    let left_row_id = row_id_column(&left, "left")?;
-    let right_row_id = row_id_column(&right, "right")?;
+    let (left, left_row_id) = prepare_input(left, "left", "__left_row_id__")?;
+    let (right, right_row_id) = prepare_input(right, "right", "__right_row_id__")?;
 
     // Execute the join so we can recover which left/right row_id contributed to each output row.
     let joined = left
@@ -49,51 +61,107 @@ pub(crate) fn build_source_dfs(
         row_number_expr,
     ])?;
 
-    // Keep rows in row_id order and select the left/right source row_ids.
-    let ordered = indexed.sort(vec![col("__row_number__").sort(true, true)])?;
-    let left_src = ordered
-        .clone()
-        .select(vec![col("left_row_id").alias(SRC_LEFT_COL_NAME)])?;
-    let right_src = ordered.select(vec![col("right_row_id").alias(SRC_RIGHT_COL_NAME)])?;
+    // Align the mapping with the output's __row_id__ so src_* match output rows.
+    let mapping = indexed
+        .select(vec![
+            col("left_row_id"),
+            col("right_row_id"),
+            (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
+        ])?
+        .alias("__mapping__")?;
+    let output = output.alias("__output__")?;
+    let join_on = vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ROW_ID_COL_NAME,
+        ))
+        .eq(Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            ROW_ID_COL_NAME,
+        ))),
+    ];
+    let aligned = output.join_on(mapping, JoinType::Inner, join_on)?;
+    let aligned = aligned.sort(vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ROW_ID_COL_NAME,
+        ))
+        .sort(true, true),
+    ])?;
+
+    let left_src = aligned.clone().select(vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            "left_row_id",
+        ))
+        .alias(SRC_LEFT_COL_NAME),
+    ])?;
+    let right_src = aligned.select(vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            "right_row_id",
+        ))
+        .alias(SRC_RIGHT_COL_NAME),
+    ])?;
     Ok((left_src, right_src))
 }
 
-fn row_id_column(df: &DataFrame, side: &str) -> DataFusionResult<Column> {
-    let row_id_cols: Vec<Column> = df
-        .schema()
-        .iter()
-        .filter_map(|(qualifier, field)| {
-            (field.name() == ROW_ID_COL_NAME)
-                .then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
-        })
-        .collect();
-    if row_id_cols.is_empty() {
+fn prepare_input(
+    df: DataFrame,
+    side: &str,
+    row_id_alias: &str,
+) -> DataFusionResult<(DataFrame, Column)> {
+    let mut projection_exprs = Vec::new();
+    let mut row_id_col: Option<Column> = None;
+    for (qualifier, field) in df.schema().iter() {
+        if field.name() == ACTIVATOR_COL_NAME {
+            continue;
+        }
+        if field.name() == ROW_ID_COL_NAME {
+            if row_id_col.is_some() {
+                return Err(DataFusionError::Plan(format!(
+                    "Join {side} input has multiple {ROW_ID_COL_NAME} columns"
+                )));
+            }
+            projection_exprs.push(
+                Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).alias(row_id_alias),
+            );
+            // Alias columns are unqualified in the projection.
+            row_id_col = Some(Column::from_name(row_id_alias));
+            continue;
+        }
+        projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+    }
+    let Some(row_id_col) = row_id_col else {
         return Err(DataFusionError::Plan(format!(
             "Join {side} input is missing {ROW_ID_COL_NAME}"
         )));
-    }
-    if row_id_cols.len() > 1 {
-        return Err(DataFusionError::Plan(format!(
-            "Join {side} input has multiple {ROW_ID_COL_NAME} columns"
-        )));
-    }
-    Ok(row_id_cols[0].clone())
+    };
+    let df = df.select(projection_exprs)?;
+    Ok((df, row_id_col))
+}
+
+fn expr_has_system_column(expr: &Expr) -> bool {
+    expr.column_refs()
+        .iter()
+        .any(|col| col.name == ACTIVATOR_COL_NAME || col.name == ROW_ID_COL_NAME)
 }
 
 #[cfg(test)]
 mod tests {
     use super::build_source_dfs;
     use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
-    use arithmetic::ROW_ID_COL_NAME;
+    use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
     use datafusion::arrow::{
         array::{ArrayRef, Int32Array, Int64Array},
         compute::concat_batches,
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
+    use datafusion::functions_window::expr_fn::row_number;
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
-    use datafusion_expr::{Expr, JoinType, LogicalPlan};
+    use datafusion_expr::{Expr, ExprFunctionExt, JoinType, LogicalPlan, col, lit};
     use std::sync::Arc;
 
     fn build_df(
@@ -143,6 +211,88 @@ mod tests {
         }
     }
 
+    fn build_output_df(
+        left_df: datafusion::prelude::DataFrame,
+        right_df: datafusion::prelude::DataFrame,
+        join_type: JoinType,
+        left_key: Expr,
+        right_key: Expr,
+    ) -> datafusion::prelude::DataFrame {
+        let prepare_input = |df: datafusion::prelude::DataFrame, row_id_label: &str| {
+            let mut projection_exprs = Vec::new();
+            for (qualifier, field) in df.schema().iter() {
+                if field.name() == ROW_ID_COL_NAME {
+                    projection_exprs.push(
+                        Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
+                            .alias(row_id_label),
+                    );
+                    continue;
+                }
+                projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            }
+            df.select(projection_exprs)
+                .expect("output input projection should succeed")
+        };
+
+        let left_df = prepare_input(left_df, "__left_row_id__");
+        let right_df = prepare_input(right_df, "__right_row_id__");
+        let joined = left_df
+            .join_on(right_df, join_type, vec![left_key.eq(right_key)])
+            .expect("output join should succeed");
+
+        let mut data_exprs = Vec::new();
+        let mut left_row_id = None;
+        let mut right_row_id = None;
+        for (qualifier, field) in joined.schema().iter() {
+            if field.name() == "__left_row_id__" {
+                left_row_id = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+                continue;
+            }
+            if field.name() == "__right_row_id__" {
+                right_row_id = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+                continue;
+            }
+            data_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+        }
+
+        let row_id_sort_exprs = vec![
+            left_row_id
+                .expect("left row_id should exist")
+                .sort(true, true),
+            right_row_id
+                .expect("right row_id should exist")
+                .sort(true, true),
+        ];
+        let joined = joined
+            .sort(row_id_sort_exprs.clone())
+            .expect("output sort should succeed");
+
+        let row_number_expr = row_number()
+            .partition_by(Vec::new())
+            .order_by(row_id_sort_exprs)
+            .build()
+            .expect("row_number should build")
+            .alias("__row_number__");
+        let mut projection_exprs = data_exprs;
+        projection_exprs.push(lit(true).alias(ACTIVATOR_COL_NAME));
+        projection_exprs.push(row_number_expr);
+        let with_row_number = joined
+            .select(projection_exprs)
+            .expect("output row_number projection should succeed");
+
+        let mut final_exprs = Vec::new();
+        for (qualifier, field) in with_row_number.schema().iter() {
+            if field.name() == "__row_number__" {
+                continue;
+            }
+            final_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+        }
+        final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
+        with_row_number
+            .select(final_exprs)
+            .expect("output row_id projection should succeed")
+    }
+
     async fn assert_source_mapping(
         left_rows: &[(i64, i32, i32)],
         right_rows: &[(i64, i32, i32)],
@@ -160,13 +310,20 @@ mod tests {
             .join_on(
                 right_df.clone(),
                 JoinType::Inner,
-                vec![left_key.eq(right_key)],
+                vec![left_key.clone().eq(right_key.clone())],
             )
             .expect("join should succeed");
 
         let join = join_plan_from_df(&join_df);
+        let output_df = build_output_df(
+            left_df.clone(),
+            right_df.clone(),
+            JoinType::Inner,
+            left_key,
+            right_key,
+        );
         let (left_src, right_src) =
-            build_source_dfs(left_df, right_df, &join).expect("source dfs should build");
+            build_source_dfs(left_df, right_df, output_df, &join).expect("source dfs should build");
         let left_vals = collect_i64_column(left_src, SRC_LEFT_COL_NAME).await;
         let right_vals = collect_i64_column(right_src, SRC_RIGHT_COL_NAME).await;
 

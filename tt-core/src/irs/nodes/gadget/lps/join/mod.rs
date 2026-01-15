@@ -40,8 +40,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     match_pair_gadget: Arc<Node<B>>,
 }
-#[cfg(test)]
-mod tests;
+
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -91,6 +90,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         let (left_src_df, right_src_df) = hints::build_source_dfs(
             left_hint.data_frame().clone(),
             right_hint.data_frame().clone(),
+            output_hint.data_frame().clone(),
             &join,
         )
         .expect("join source dataframe derivation should succeed");

@@ -33,7 +33,7 @@ ON
 "#,
 
 ]);
-end_to_end_tests!(&["partsupp", "lineitem"] => [
+end_to_end_tests!(&["orders", "lineitem", "customer"] => [
     three_way_join => r#"SELECT
     l_orderkey,
     o_orderdate,
@@ -43,7 +43,7 @@ FROM
     orders,
     lineitem
 WHERE
-    AND c_custkey = o_custkey
-    AND l_orderkey = o_orderkey
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey;
 "#,
 ]);
