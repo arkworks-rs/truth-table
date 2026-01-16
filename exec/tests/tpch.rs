@@ -57,3 +57,35 @@ async fn tpch_q5_prove_verify() {
         .await
         .expect("prove and verify tpch q5");
 }
+
+#[tokio::test]
+async fn tpch_q8_prove_verify() {
+    let spec = query_spec(8);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q8");
+}
+
+#[tokio::test]
+async fn tpch_q9_prove_verify() {
+    let spec = query_spec(9);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q9");
+}
+
+#[tokio::test]
+async fn tpch_q18_prove_verify() {
+    let spec = query_spec(18);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q18");
+}
+
+#[tokio::test]
+async fn tpch_q19_prove_verify() {
+    let spec = query_spec(19);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q19");
+}

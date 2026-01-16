@@ -34,7 +34,12 @@ impl<B: SnarkBackend> Defragmenter<B> {
             .iter()
             .filter(|value| !value.is_zero())
             .count();
-        let new_nv: usize = log2(new_col_size) as usize;
+        let new_nv: usize = if new_col_size == 0 {
+            // Avoid log2(0) by pinning the defragmented column to size 1.
+            0
+        } else {
+            log2(new_col_size) as usize
+        };
         // if new_nv == old_nv {
         //     return Ok(col.clone());
         // }
