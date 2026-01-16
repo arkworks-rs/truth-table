@@ -260,15 +260,18 @@ impl<B: SnarkBackend> PIOP<B> for BezoutBasedMultiNoDup<B> {
         let s_p_id = verifier.peek_next_id();
         let _s_p_tr = verifier.track_uv_com_by_id(s_p_id)?;
 
-        let f_eval = verifier.query_mv(f_p_id, f_query_point.clone()).unwrap();
-        let f_prime_eval = verifier.query_mv(f_prime_p_id, f_query_point).unwrap();
-        let t_eval = verifier.query_uv(t_p_id, chall).unwrap();
-        let s_eval = verifier.query_uv(s_p_id, chall).unwrap();
+        if num_vars > 0 {
+            // Only enforce the Bezout identity when the polynomials have variables.
+            let f_eval = verifier.query_mv(f_p_id, f_query_point.clone()).unwrap();
+            let f_prime_eval = verifier.query_mv(f_prime_p_id, f_query_point).unwrap();
+            let t_eval = verifier.query_uv(t_p_id, chall).unwrap();
+            let s_eval = verifier.query_uv(s_p_id, chall).unwrap();
 
-        if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
-            return Err(SnarkError::VerifierError(
-                VerifierError::VerifierCheckFailed("Bezout identity check failed".to_string()),
-            ));
+            if !(t_eval * f_eval + s_eval * f_prime_eval).is_one() {
+                return Err(SnarkError::VerifierError(
+                    VerifierError::VerifierCheckFailed("Bezout identity check failed".to_string()),
+                ));
+            }
         }
 
         Ok(())
