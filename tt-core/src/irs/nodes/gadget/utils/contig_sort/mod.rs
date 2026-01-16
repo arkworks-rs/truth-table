@@ -375,6 +375,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 self.bool_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
+        } else if let Some(input_table) = payload.get(TABLE_LABEL).cloned() {
+            // For single-key sorts the tie table can be dropped during materialization; keep
+            // a no-op Bool payload so the Bool gadget doesn't panic.
+            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            bool_payload.insert(
+                crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
+                TrackedTable::new(None, IndexMap::new(), input_table.log_size()),
+            );
+            virtualized_ir.set_payload_for_node(
+                self.bool_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(bool_payload)),
+            );
         }
         if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
             payload.get(TIE_INDICATOR_LABEL).cloned(),
@@ -450,6 +465,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             bool_payload.insert(
                 crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
                 tie_table,
+            );
+            virtualized_ir.set_payload_for_node(
+                self.bool_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(bool_payload)),
+            );
+        } else if let Some(input_table) = payload.get(TABLE_LABEL).cloned() {
+            // For single-key sorts the tie table can be dropped during materialization; keep
+            // a no-op Bool payload so the Bool gadget doesn't panic.
+            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            bool_payload.insert(
+                crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
+                TrackedTableOracle::new(None, IndexMap::new(), input_table.log_size()),
             );
             virtualized_ir.set_payload_for_node(
                 self.bool_gadget.id(),

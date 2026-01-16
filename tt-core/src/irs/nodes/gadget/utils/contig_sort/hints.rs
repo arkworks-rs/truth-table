@@ -269,8 +269,13 @@ pub(crate) fn tie_indicator(
             data_cols = ordered;
         }
     }
-    if data_cols.len() < 2 {
+    if data_cols.is_empty() {
         return df.select(Vec::<Expr>::new());
+    }
+    if data_cols.len() == 1 {
+        // Emit tie_0 so Bool/Sign gadgets stay wired for single-key sorts.
+        let ordered = df.sort(order_by.clone())?;
+        return ordered.select(vec![lit(true).alias("tie_0")]);
     }
 
     let ordered = df.sort(order_by.clone())?;
