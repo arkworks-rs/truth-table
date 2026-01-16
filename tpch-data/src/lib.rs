@@ -32,8 +32,8 @@ fn next_power_of_two(n: usize) -> usize {
 }
 
 /// Write Parquet after augmenting with a stable `row_id` column and an
-/// `activator` Boolean column, then pad by duplicating the last row until the
-/// total row count is a power of two (appended rows have activator=false).
+/// `__activator__` Boolean column, then pad by duplicating the last row until the
+/// total row count is a power of two (appended rows have __activator__=false).
 fn write_parquet<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -44,7 +44,7 @@ fn write_parquet<P: AsRef<Path>>(
         create_dir_all(parent).expect("create output dir");
     }
 
-    // Build output schema = original fields + row_id: Int64 + activator: Boolean
+    // Build output schema = original fields + row_id: Int64 + __activator__: Boolean
     let mut fields: Vec<Field> = orig_schema.fields().iter().map(|f| (**f).clone()).collect();
     fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, false));
     fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
@@ -57,7 +57,7 @@ fn write_parquet<P: AsRef<Path>>(
     let mut next_row_id: i64 = 0;
     let mut last_nonempty_batch: Option<RecordBatch> = None;
 
-    // Stream original batches, tagging activator=true and writing out directly
+    // Stream original batches, tagging __activator__=true and writing out directly
     for batch in batches {
         let n = batch.num_rows();
         if n == 0 {
@@ -74,14 +74,14 @@ fn write_parquet<P: AsRef<Path>>(
         next_row_id += n as i64;
         let row_id = Arc::new(row_id_builder.finish());
 
-        // activator=true for existing rows
+        // __activator__=true for existing rows
         let mut act_builder = BooleanBuilder::new();
         for _ in 0..n {
             act_builder.append_value(true);
         }
         let activator = Arc::new(act_builder.finish());
 
-        // Rebuild the batch with the new schema + extra activator column
+        // Rebuild the batch with the new schema + extra __activator__ column
         let mut cols = batch.columns().to_vec();
         cols.push(row_id);
         cols.push(activator);
@@ -122,7 +122,7 @@ fn write_parquet<P: AsRef<Path>>(
         let pad_row_id = Arc::new(row_id_builder.finish());
         pad_cols.push(pad_row_id);
 
-        // activator=false for appended rows
+        // __activator__=false for appended rows
         let mut act_builder = BooleanBuilder::new();
         for _ in 0..pad {
             act_builder.append_value(false);
@@ -142,10 +142,9 @@ fn write_parquet<P: AsRef<Path>>(
 /// output directory (if it doesn't exist, it will be created).
 // Note that the tables are further preprocessed as follows:
 // - All tables have an additional __row_id__ Int64 column with stable row
-//   indices, plus the boolean ACTIVATOR_COL_NAME column set true for existing
-//   rows
+//   indices, plus the boolean __activator__ column set true for existing rows
 // - The tables are padded by duplicating the last row until the total row count
-//   is a power of two; the appended rows have activator=false
+//   is a power of two; the appended rows have __activator__=false
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
     let out = out_dir.as_ref();
 

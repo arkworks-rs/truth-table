@@ -5,8 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable};
+use arithmetic::{
+    ROW_ID_COL_NAME,
+    table_oracle::{ArithTableOracle, TrackedTableOracle},
+};
 use ark_piop::{
     DefaultSnarkBackend, prover::ArgProver, setup::structs::SNARKVk, verifier::ArgVerifier,
 };
@@ -154,7 +157,7 @@ async fn commit_parquet_with_pk(
     .await
     .context("failed to register parquet")?;
 
-    let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ACTIVATOR_COL_NAME);
+    let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ROW_ID_COL_NAME);
 
     let (arg_prover, mut verifier) = load_prover_verifier(pk_path)
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;

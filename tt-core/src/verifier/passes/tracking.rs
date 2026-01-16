@@ -1,9 +1,10 @@
-use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
 use datafusion::arrow::datatypes::Schema;
 use datafusion_common::DFSchema;
 use indexmap::IndexMap;
 
+use crate::irs::nodes::IsNode;
 use crate::{
     ctx_oracles::CtxOracles,
     irs::{
@@ -14,7 +15,7 @@ use crate::{
     verifier::payloads::TrackedPayload,
 };
 use std::cell::RefCell;
-
+use tracing::debug;
 /// A tracking pass that tracks and commits the verifier's arithmetized tables
 ///
 /// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK verifier with an associated id. Note that this pass is stateful, as it requires access to the verifier instance to perform the tracking and committing.
@@ -41,7 +42,7 @@ where
     }
     fn transform(
         &self,
-        _node: &Node<B>,
+        node: &Node<B>,
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
@@ -50,6 +51,19 @@ where
         match payload {
             // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
+                if node.name() == "TableScan" {
+                    let base_schema: Schema =
+                        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+                    if let Some(oracle) = self.ctx_oracles.table_oracle(&base_schema) {
+                        debug!(
+                            schema = ?base_schema,
+                            "using ctx_oracle for table scan in verifier tracking pass"
+                        );
+                        // Table scans can reuse pre-committed ctx_oracles instead of proof IDs.
+                        return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
+                            .map(TrackedPayload::PlanPayload);
+                    }
+                }
                 track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
@@ -98,6 +112,51 @@ fn track_hint_df<B: SnarkBackend>(
         tracked_oracles.insert(field.clone(), oracle);
     }
     // If there was no columns to be materialized, return None
+    if tracked_oracles.is_empty() {
+        None
+    } else {
+        let metadata = base_schema.metadata().clone();
+        let fields = tracked_oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+        Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
+    }
+}
+
+fn track_hint_df_from_oracle<B: SnarkBackend>(
+    hint_df: &crate::irs::nodes::hints::HintDF,
+    oracle: &ArithTableOracle<B>,
+    verifier: &RefCell<ArgVerifier<B>>,
+) -> Option<TrackedTableOracle<B>> {
+    let base_schema: Schema =
+        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+    let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
+    let mut log_size = 0usize;
+
+    let mut verifier = verifier.borrow_mut();
+    for (field, should_mat) in hint_df.field_materialization_iter() {
+        if !*should_mat {
+            continue;
+        }
+        let commitment = oracle
+            .comitments()
+            .get(field)
+            .expect("ctx_oracle missing commitment for table scan field")
+            .clone();
+        // Reuse ctx_oracle commitments to avoid tracking via proof IDs.
+        let tracked_oracle = verifier
+            .track_mat_mv_com(commitment)
+            .expect("verifier should track ctx_oracle commitment");
+        if log_size == 0 {
+            log_size = tracked_oracle.log_size();
+        } else {
+            debug_assert_eq!(log_size, tracked_oracle.log_size());
+        }
+        tracked_oracles.insert(field.clone(), tracked_oracle);
+    }
+
     if tracked_oracles.is_empty() {
         None
     } else {
