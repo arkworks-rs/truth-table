@@ -175,7 +175,7 @@ pub(crate) fn diff_input(
                 right: Box::new(rhs),
             })
             .alias(name.to_string())
-        } else {
+        } else if is_numeric_type(field.data_type()) {
             let raw_diff = if is_asc {
                 Expr::BinaryExpr(BinaryExpr {
                     left: Box::new(rotated_expr.clone()),
@@ -194,11 +194,35 @@ pub(crate) fn diff_input(
                 data_type: field.data_type().clone(),
             })
             .alias(name.to_string())
+        } else {
+            // Non-numeric types cannot be differenced in DataFusion; feed a zero diff for sign checks.
+            lit(0_i64).alias(name.to_string())
         };
         diff_cols.push(diff_expr);
     }
 
     ordered.select(diff_cols)
+}
+
+// Keep diff materialization on numeric types to avoid invalid arithmetic in DataFusion.
+fn is_numeric_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
+    use datafusion::arrow::datatypes::DataType;
+    matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal128(_, _)
+            | DataType::Decimal256(_, _)
+    )
 }
 
 /// Builds a boolean tie-indicator table:

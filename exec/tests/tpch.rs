@@ -49,3 +49,11 @@ async fn tpch_q3_prove_verify() {
         .await
         .expect("prove and verify tpch q3");
 }
+
+#[tokio::test]
+async fn tpch_q5_prove_verify() {
+    let spec = query_spec(5);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q5");
+}

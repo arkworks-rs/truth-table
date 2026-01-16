@@ -1,4 +1,3 @@
-use arithmetic::ACTIVATOR_COL_NAME;
 use crate::irs::nodes::IsNode;
 use crate::{
     irs::{
@@ -8,6 +7,7 @@ use crate::{
     },
     prover::payloads::{MaterializedPayload, MaterializedTable},
 };
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 use datafusion::{
     arrow::{
@@ -214,9 +214,7 @@ fn pad_batches_to_power_of_two(
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
-                .unwrap_or_else(|| {
-                    Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef
-                });
+                .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if let Some(batch) = combined.as_ref() {
