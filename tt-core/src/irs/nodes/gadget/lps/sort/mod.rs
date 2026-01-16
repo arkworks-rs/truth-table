@@ -24,13 +24,13 @@ pub const OUTPUT_SORT_EXPRS: &str = "__output_sort_exprs__";
 pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     remat_gadget: Arc<Node<B>>,
-    sort_specs: Vec<(bool, bool)>,
+    sort_specs: Vec<(String, bool, bool)>,
 }
 
 fn populate_output_expr(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
-    sort_specs: &[(bool, bool)],
+    sort_specs: &[(String, bool, bool)],
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
     let has_activator = input_df
@@ -38,6 +38,7 @@ fn populate_output_expr(
         .fields()
         .iter()
         .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    // Guarantee a materialized activator so downstream gadgets can rely on it.
     let sort_input_df = if has_activator {
         input_df.clone()
     } else {
@@ -58,13 +59,27 @@ fn populate_output_expr(
         .iter()
         .filter(|field| !is_system_column(field.name()))
         .collect();
-    if data_fields.len() == sort_specs.len() {
-        sort_exprs.extend(
-            data_fields
+    // Respect the sort spec ordering by column name, falling back to schema order if needed.
+    if !sort_specs.is_empty() {
+        let mut ordered = Vec::with_capacity(sort_specs.len());
+        for (name, asc, nulls_first) in sort_specs {
+            let normalized = normalize_sort_name(name);
+            if let Some(field) = data_fields
                 .iter()
-                .zip(sort_specs.iter())
-                .map(|(field, (asc, nulls_first))| col(field.name()).sort(*asc, *nulls_first)),
-        );
+                .find(|field| normalize_sort_name(field.name()) == normalized)
+            {
+                ordered.push(col(field.name()).sort(*asc, *nulls_first));
+            }
+        }
+        if ordered.len() == data_fields.len() {
+            sort_exprs.extend(ordered);
+        } else {
+            sort_exprs.extend(
+                data_fields
+                    .iter()
+                    .map(|field| col(field.name()).sort(true, true)),
+            );
+        }
     } else {
         sort_exprs.extend(
             data_fields
@@ -300,10 +315,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort: Sort) -> Self {
-        let sort_specs: Vec<(bool, bool)> = sort
+        // Preserve column names so sort-spec ordering can be matched to hint schemas.
+        let sort_specs: Vec<(String, bool, bool)> = sort
             .expr
             .iter()
-            .map(|expr| (expr.asc, expr.nulls_first))
+            .map(|expr| (expr.expr.schema_name().to_string(), expr.asc, expr.nulls_first))
             .collect();
         // DataFusion sort expressions do not encode strictness, so default to true.
         let strict: bool = false;
@@ -322,4 +338,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
             sort_specs,
         }
     }
+}
+
+fn normalize_sort_name(name: &str) -> String {
+    name.rsplit('.').next().unwrap_or(name).to_string()
 }

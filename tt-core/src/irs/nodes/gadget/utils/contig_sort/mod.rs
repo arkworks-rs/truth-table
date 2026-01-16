@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
@@ -10,7 +10,15 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use ark_poly::Polynomial;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::{
+    array::{ArrayRef, BooleanArray, Int64Array, UInt64Array},
+    compute::{concat, concat_batches},
+    datatypes::{DataType, Field, Schema},
+    record_batch::RecordBatch,
+};
+use datafusion::datasource::MemTable;
+use datafusion::prelude::SessionContext;
+use datafusion_common::{DFSchema, DataFusionError, ScalarValue};
 use either::Either;
 use indexmap::IndexMap;
 
@@ -19,7 +27,9 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            gadget::utils::contig_sort::hints::{populate_rotated, populate_tie_indicator},
+            gadget::utils::contig_sort::hints::{
+                populate_diff, populate_rotated, populate_tie_indicator,
+            },
         },
         payloads::PayloadStructure,
     },
@@ -30,10 +40,140 @@ mod hints;
 #[cfg(test)]
 mod tests;
 
+// Pad contig-sort hints to a power-of-two row count for circuit alignment.
+fn pad_df_to_power_of_two(
+    df: datafusion::prelude::DataFrame,
+) -> datafusion_common::Result<datafusion::prelude::DataFrame> {
+    let schema_ref = df.schema();
+    let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema_ref).clone();
+    let batches = collect_blocking(df)?;
+    let (batches, row_count) = pad_batches_to_power_of_two(&arrow_schema, batches)?;
+    if batches.is_empty() {
+        return Err(DataFusionError::Execution(
+            "contig sort padding produced empty batches".to_string(),
+        ));
+    }
+    let mem_table = MemTable::try_new(Arc::new(arrow_schema), vec![batches])
+        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+    let ctx = SessionContext::new();
+    let padded_df = ctx
+        .read_table(Arc::new(mem_table))
+        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+    Ok(padded_df)
+}
+
+// Collect a DataFrame from both async and non-async contexts.
+fn collect_blocking(
+    df: datafusion::prelude::DataFrame,
+) -> datafusion_common::Result<Vec<RecordBatch>> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
+        }
+    }
+}
+
+// Pad batches to a power-of-two row count, preserving system columns.
+fn pad_batches_to_power_of_two(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
+    let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
+    let target = if row_count == 0 {
+        1
+    } else {
+        row_count.next_power_of_two()
+    };
+    let pad = target - row_count;
+    if pad == 0 {
+        return Ok((batches, row_count));
+    }
+
+    let schema_ref = Arc::new(schema.clone());
+    let combined = if batches.is_empty() {
+        None
+    } else {
+        let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+        Some(concat_batches(&schema_ref, batch_refs)?)
+    };
+
+    let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
+    for (idx, field) in schema_ref.fields().iter().enumerate() {
+        let padded = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| {
+                    Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef
+                });
+            let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if field.name() == ROW_ID_COL_NAME {
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| {
+                    Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef
+                });
+            let start = combined
+                .as_ref()
+                .and_then(|batch| {
+                    ScalarValue::try_from_array(batch.column(idx).as_ref(), row_count - 1).ok()
+                })
+                .and_then(|val| match val {
+                    ScalarValue::Int64(Some(v)) => Some(v + 1),
+                    ScalarValue::UInt64(Some(v)) => i64::try_from(v).ok().map(|v| v + 1),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let pad_vals: Vec<i64> = (0..pad as i64).map(|offset| start + offset).collect();
+            let pad_arr: ArrayRef = Arc::new(Int64Array::from(pad_vals));
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if let Some(batch) = combined.as_ref() {
+            let base = batch.column(idx).clone();
+            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
+            let pad_arr = last.to_array_of_size(pad)?;
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else {
+            let null = ScalarValue::try_new_null(field.data_type())?;
+            null.to_array_of_size(pad)?
+        };
+        output_arrays.push(padded);
+    }
+
+    let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
+    Ok((vec![out_batch], target))
+}
+
 /// Labels for different gadget payloads used by this gadget.
 pub const TABLE_LABEL: &str = "__input__";
 pub const ROTATED_INPUT_LABEL: &str = "__rotated_input__";
 pub const TIE_INDICATOR_LABEL: &str = "__tie_indicator__";
+pub const DIFF_INPUT_LABEL: &str = "__diff_input__";
 const FIRST_TIE_LABEL: &str = "tie_0";
 
 /// GadgetNode for enforcing sorting of a table according to specified sort expressions.
@@ -41,8 +181,9 @@ pub struct GadgetNode<B: SnarkBackend> {
     prescr_perm: Arc<Node<B>>,
     bool_gadget: Arc<Node<B>>,
     sign_gadgets: Vec<Arc<Node<B>>>,
+    sign_gadget_names: Vec<String>,
     neq_gadgets: Vec<Arc<Node<B>>>,
-    sort_specs: Vec<(bool, bool)>,
+    sort_specs: Vec<(String, bool, bool)>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -76,11 +217,31 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             Some(hint_df) => hint_df.clone(),
             None => return Ok(()),
         };
+        let sorted_input_hint = {
+            let sorted_df = crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
+                &input_hint,
+                &self.sort_specs,
+            )
+            .expect("contig sort ordering should succeed");
+            let padded_df = pad_df_to_power_of_two(sorted_df)
+                .expect("contig sort input padding should succeed");
+            let mut should_materialize = IndexMap::new();
+            for field in padded_df.schema().fields() {
+                let materialized = input_hint
+                    .field_materialization_iter()
+                    .find(|(orig_field, _)| orig_field.name() == field.name())
+                    .map(|(_, materialized)| *materialized)
+                    .unwrap_or(true);
+                should_materialize.insert(field.clone(), materialized);
+            }
+            crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
+        };
 
-        populate_rotated(&mut gadget_payload, &input_hint, &self.sort_specs);
-        populate_tie_indicator(&mut gadget_payload, &input_hint, &self.sort_specs);
+        populate_rotated(&mut gadget_payload, &sorted_input_hint, &self.sort_specs);
+        populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &self.sort_specs);
+        populate_diff(&mut gadget_payload, &sorted_input_hint, &self.sort_specs);
         // Strip row-id before storing to avoid exposing it in gadget payloads.
-        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
+        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint);
         gadget_payload.insert(TABLE_LABEL.to_string(), sanitized_input);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
@@ -220,8 +381,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             payload.get(TABLE_LABEL).cloned(),
             payload.get(ROTATED_INPUT_LABEL).cloned(),
         ) {
+            // Prefer precomputed diffs so sign gadgets operate on bounded values.
+            let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
             populate_sign_payloads_prover(
                 &self.sign_gadgets,
+                &self.sign_gadget_names,
+                &self.sort_specs,
+                diff_table.as_ref(),
                 &tie_table,
                 &input_table,
                 &rotated_table,
@@ -295,8 +461,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             payload.get(TABLE_LABEL).cloned(),
             payload.get(ROTATED_INPUT_LABEL).cloned(),
         ) {
+            let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
             populate_sign_payloads_verifier(
                 &self.sign_gadgets,
+                &self.sign_gadget_names,
+                &self.sort_specs,
+                diff_table.as_ref(),
                 &tie_table,
                 &input_table,
                 &rotated_table,
@@ -354,8 +524,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(sort_specs: Vec<(bool, bool)>, strict: bool) -> Self {
-        let asc: Vec<bool> = sort_specs.iter().map(|(asc, _)| *asc).collect();
+    pub fn new(sort_specs: Vec<(String, bool, bool)>, strict: bool) -> Self {
+        let sign_gadget_names: Vec<String> = sort_specs
+            .iter()
+            .map(|(name, _, _)| normalize_sort_name(name))
+            .collect();
+        let asc: Vec<bool> = sort_specs.iter().map(|(_, asc, _)| *asc).collect();
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
@@ -368,26 +542,19 @@ impl<B: SnarkBackend> GadgetNode<B> {
             prescr_perm,
             bool_gadget,
             sign_gadgets,
+            sign_gadget_names,
             neq_gadgets,
             sort_specs,
         }
     }
 }
 
-// Picks the sign constraint for a column:
-// - For most columns: NonNegative/NonPositive based on ASC/DESC.
-// - For the last column, if `strict` is true: Positive/Negative.
-fn sign_for_column(is_asc: bool, strict_for_col: bool) -> sign::Sign {
+// Use a forward-difference sign check so contig-sort only enforces monotonicity.
+fn sign_for_column(_is_asc: bool, strict_for_col: bool) -> sign::Sign {
     if strict_for_col {
-        if is_asc {
-            sign::Sign::Positive
-        } else {
-            sign::Sign::Negative
-        }
-    } else if is_asc {
-        sign::Sign::NonNegative
+        sign::Sign::Positive
     } else {
-        sign::Sign::NonPositive
+        sign::Sign::NonNegative
     }
 }
 
@@ -413,8 +580,23 @@ fn build_neq_gadgets<B: SnarkBackend>(count: usize) -> Vec<Arc<Node<B>>> {
         .collect()
 }
 
+fn normalize_sort_name(name: &str) -> String {
+    name.rsplit('.').next().unwrap_or(name).to_string()
+}
+
+fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
+    sort_specs
+        .iter()
+        .find(|(name, _, _)| normalize_sort_name(name) == col_name)
+        .map(|(_, asc, _)| *asc)
+        .unwrap_or(true)
+}
+
 fn populate_sign_payloads_prover<B: SnarkBackend>(
     sign_gadgets: &[Arc<Node<B>>],
+    sign_gadget_names: &[String],
+    sort_specs: &[(String, bool, bool)],
+    diff_table: Option<&TrackedTable<B>>,
     tie_table: &TrackedTable<B>,
     input_table: &TrackedTable<B>,
     rotated_table: &TrackedTable<B>,
@@ -435,27 +617,85 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     );
     debug_assert_eq!(
         sign_gadgets.len(),
-        tie_indices.len(),
-        "Sort gadget expects one sign gadget per tie-indicator column."
+        sign_gadget_names.len(),
+        "Sort gadget expects name for each sign gadget."
     );
-
-    for (((sign_gadget, tie_idx), input_idx), rotated_idx) in sign_gadgets
+    for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
-        .zip(tie_indices.iter().copied())
+        .copied()
         .zip(input_indices.iter().copied())
         .zip(rotated_indices.iter().copied())
     {
         let tie_col = tie_table.tracked_col_by_ind(tie_idx);
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-        let diff_poly = &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly();
-        let data_field = input_col
+        let col_name = input_col
             .field_ref()
-            .expect("Expected field ref for Sort sign input");
+            .expect("Expected field ref for Sort sign input")
+            .name()
+            .to_string();
+        let col_name = normalize_sort_name(&col_name);
+        let is_asc = sort_is_asc(sort_specs, &col_name);
+        let sign_pos = sign_gadget_names
+            .iter()
+            .position(|name| name == &col_name)
+            .unwrap_or_else(|| {
+                panic!("Missing sign gadget for Sort column {}", col_name);
+            });
+        let sign_gadget = &sign_gadgets[sign_pos];
+        // When diffs are materialized, use their column type for sign checks.
+        let (diff_poly, diff_field) = if let Some(diff_table) = diff_table {
+            let diff_idx = diff_table
+                .data_tracked_polys_indices()
+                .into_iter()
+                .find(|idx| {
+                    let diff_field = diff_table
+                        .tracked_col_by_ind(*idx)
+                        .field_ref()
+                        .expect("Expected field ref for diff column");
+                    normalize_sort_name(diff_field.name()) == col_name
+                })
+                .unwrap_or_else(|| panic!("Missing diff column for Sort column {}", col_name));
+            let diff_col = diff_table.tracked_col_by_ind(diff_idx);
+            let diff_field = diff_col
+                .field_ref()
+                .expect("Expected field ref for diff column")
+                .as_ref()
+                .clone();
+            (diff_col.data_tracked_poly(), diff_field)
+        } else if is_asc {
+            (
+                &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly(),
+                input_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort sign input")
+                    .as_ref()
+                    .clone(),
+            )
+        } else {
+            (
+                &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly(),
+                input_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort sign input")
+                    .as_ref()
+                    .clone(),
+            )
+        };
+        let data_field = Arc::new(diff_field);
+        let input_activator = input_table.activator_tracked_poly();
+        let rotated_activator = rotated_table.activator_tracked_poly();
+        let mut combined_activator = tie_col.data_tracked_poly();
+        if let Some(input_act) = input_activator {
+            combined_activator = &combined_activator * &input_act;
+        }
+        if let Some(rotated_act) = rotated_activator {
+            combined_activator = &combined_activator * &rotated_act;
+        }
         let sign_input = TrackedTable::single_column_with_activator(
             data_field,
             diff_poly,
-            Some(tie_col.data_tracked_poly()),
+            Some(combined_activator),
         );
 
         let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
@@ -473,6 +713,9 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
 
 fn populate_sign_payloads_verifier<B: SnarkBackend>(
     sign_gadgets: &[Arc<Node<B>>],
+    sign_gadget_names: &[String],
+    sort_specs: &[(String, bool, bool)],
+    diff_table: Option<&TrackedTableOracle<B>>,
     tie_table: &TrackedTableOracle<B>,
     input_table: &TrackedTableOracle<B>,
     rotated_table: &TrackedTableOracle<B>,
@@ -493,27 +736,86 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
     );
     debug_assert_eq!(
         sign_gadgets.len(),
-        tie_indices.len(),
-        "Sort gadget expects one sign gadget per tie-indicator column."
+        sign_gadget_names.len(),
+        "Sort gadget expects name for each sign gadget."
     );
 
-    for (((sign_gadget, tie_idx), input_idx), rotated_idx) in sign_gadgets
+    for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
-        .zip(tie_indices.iter().copied())
+        .copied()
         .zip(input_indices.iter().copied())
         .zip(rotated_indices.iter().copied())
     {
         let tie_col = tie_table.tracked_col_oracle_by_ind(tie_idx);
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
-        let diff_oracle = &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle();
-        let data_field = input_col
+        let col_name = input_col
             .field_ref()
-            .expect("Expected field ref for Sort sign input");
+            .expect("Expected field ref for Sort sign input")
+            .name()
+            .to_string();
+        let col_name = normalize_sort_name(&col_name);
+        let is_asc = sort_is_asc(sort_specs, &col_name);
+        let sign_pos = sign_gadget_names
+            .iter()
+            .position(|name| name == &col_name)
+            .unwrap_or_else(|| {
+                panic!("Missing sign gadget for Sort column {}", col_name);
+            });
+        let sign_gadget = &sign_gadgets[sign_pos];
+        // Mirror diff column typing in the verifier flow.
+        let (diff_oracle, diff_field) = if let Some(diff_table) = diff_table {
+            let diff_idx = diff_table
+                .data_tracked_oracles_indices()
+                .into_iter()
+                .find(|idx| {
+                    let diff_field = diff_table
+                        .tracked_col_oracle_by_ind(*idx)
+                        .field_ref()
+                        .expect("Expected field ref for diff column");
+                    normalize_sort_name(diff_field.name()) == col_name
+                })
+                .unwrap_or_else(|| panic!("Missing diff column for Sort column {}", col_name));
+            let diff_col = diff_table.tracked_col_oracle_by_ind(diff_idx);
+            let diff_field = diff_col
+                .field_ref()
+                .expect("Expected field ref for diff column")
+                .as_ref()
+                .clone();
+            (diff_col.data_tracked_oracle(), diff_field)
+        } else if is_asc {
+            (
+                &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle(),
+                input_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort sign input")
+                    .as_ref()
+                    .clone(),
+            )
+        } else {
+            (
+                &input_col.data_tracked_oracle() - &rotated_col.data_tracked_oracle(),
+                input_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort sign input")
+                    .as_ref()
+                    .clone(),
+            )
+        };
+        let data_field = Arc::new(diff_field);
+        let input_activator = input_table.activator_tracked_poly();
+        let rotated_activator = rotated_table.activator_tracked_poly();
+        let mut combined_activator = tie_col.data_tracked_oracle();
+        if let Some(input_act) = input_activator {
+            combined_activator = &combined_activator * &input_act;
+        }
+        if let Some(rotated_act) = rotated_activator {
+            combined_activator = &combined_activator * &rotated_act;
+        }
         let sign_input = TrackedTableOracle::single_column_with_activator(
             data_field,
             diff_oracle,
-            Some(tie_col.data_tracked_oracle()),
+            Some(combined_activator),
         );
 
         let mut sign_payload = match virtualized_ir.payload_for_node(&sign_gadget.id()) {
@@ -573,8 +875,15 @@ fn populate_neq_payloads_prover<B: SnarkBackend>(
             tie_next_col.data_tracked_poly().log_size(),
             tie_next_col.data_tracked_poly().tracker(),
         );
-        let activator =
+        // Activate only when a tie breaks and the row is active.
+        let mut activator =
             &tie_col.data_tracked_poly() * &(&one_poly - &tie_next_col.data_tracked_poly());
+        if let Some(input_act) = input_table.activator_tracked_poly() {
+            activator = &activator * &input_act;
+        }
+        if let Some(rotated_act) = rotated_table.activator_tracked_poly() {
+            activator = &activator * &rotated_act;
+        }
 
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
@@ -650,8 +959,15 @@ fn populate_neq_payloads_verifier<B: SnarkBackend>(
             tie_next_col.data_tracked_oracle().tracker(),
             tie_next_col.data_tracked_oracle().log_size(),
         );
-        let activator =
+        // Match prover activation logic for verifier oracles.
+        let mut activator =
             &tie_col.data_tracked_oracle() * &(&one_oracle - &tie_next_col.data_tracked_oracle());
+        if let Some(input_act) = input_table.activator_tracked_poly() {
+            activator = &activator * &input_act;
+        }
+        if let Some(rotated_act) = rotated_table.activator_tracked_poly() {
+            activator = &activator * &rotated_act;
+        }
 
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);

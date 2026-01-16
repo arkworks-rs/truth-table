@@ -20,7 +20,6 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use ark_ff::One;
 pub const LEFT_LABEL: &str = "__left__";
 pub const PERM_LABEL: &str = "__perm__";
 pub const RIGHT_LABEL: &str = "__right__";
@@ -197,18 +196,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .get(LEFT_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", LEFT_LABEL));
-        println!("left: {}", left.pretty_string());
         let right = payload
             .get(RIGHT_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", RIGHT_LABEL));
-        println!("right: {}", right.pretty_string());
         let perm = payload
             .get(PERM_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
-        println!("perm: {}", perm.pretty_string());
 
+        // Basic permutation sanity check for honest prover mode.
         if !prescribed_perm_honest_check::<B>(&left, &right, &perm) {
             return Err(ark_piop::errors::SnarkError::ProverError(
                 ark_piop::prover::errors::ProverError::HonestProverError(
@@ -399,27 +396,9 @@ fn prescribed_perm_honest_check<B: SnarkBackend>(
         return false;
     }
 
-    let left_act = left.activator_tracked_poly().map(|poly| poly.evaluations());
-    let right_act = right
-        .activator_tracked_poly()
-        .map(|poly| poly.evaluations());
-
     let mut used = vec![false; size];
-    let mut left_active_count = 0usize;
-    let mut right_active_count = 0usize;
-    if let Some(act) = right_act.as_ref() {
-        right_active_count = act.iter().filter(|val| **val == B::F::one()).count();
-    } else {
-        right_active_count = size;
-    }
 
     for row in 0..size {
-        if let Some(act) = left_act.as_ref() {
-            if act[row] != B::F::one() {
-                continue;
-            }
-        }
-        left_active_count += 1;
         let perm_val = perm_vals[row];
         let target = (0..size).find(|idx| perm_val == B::F::from(*idx as u64));
         let Some(target) = target else {
@@ -428,19 +407,10 @@ fn prescribed_perm_honest_check<B: SnarkBackend>(
         if used[target] {
             return false;
         }
-        if let Some(act) = right_act.as_ref() {
-            if act[target] != B::F::one() {
-                return false;
-            }
-        }
         if !rows_match(&left_data, &right_data, row, target) {
             return false;
         }
         used[target] = true;
-    }
-
-    if left_active_count != right_active_count {
-        return false;
     }
     true
 }

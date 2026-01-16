@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle, ACTIVATOR_FIELD,
+    ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::{One, PrimeField, Zero};
 use ark_piop::{
@@ -47,7 +47,6 @@ pub enum Sign {
 }
 pub struct SignNode<B: SnarkBackend> {
     sign: Sign,
-    has_zero: bool,
     neq_zero_gadget: Option<Arc<Node<B>>>,
 }
 
@@ -272,6 +271,65 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let _ = prover;
+        // Validate activated rows against the expected sign semantics.
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let input = payload
+            .get(INPUT_LABEL)
+            .cloned()
+            .expect("Expected input for Sign gadget");
+        let data_inds = input.data_tracked_polys_indices();
+        debug_assert!(
+            !data_inds.is_empty(),
+            "Sign gadget supports at least one data column per input."
+        );
+        let activator = input.activator_tracked_poly().map(|poly| poly.evaluations());
+        for data_ind in data_inds {
+            let input_col = input.tracked_col_by_ind(data_ind);
+            let field_ref = input_col
+                .field_ref()
+                .expect("Expected field ref for Sign gadget");
+            let data_type = field_ref.data_type();
+            let evals = input_col.data_tracked_poly().evaluations();
+            for (idx, eval) in evals.iter().enumerate() {
+                if let Some(act) = activator.as_ref() {
+                    if act[idx] != B::F::one() {
+                        continue;
+                    }
+                }
+                let (check_val, check_sign) = match self.sign {
+                    Sign::NonNegative => (*eval, Sign::NonNegative),
+                    Sign::Positive => (*eval, Sign::Positive),
+                    Sign::NonPositive => (-*eval, Sign::NonNegative),
+                    Sign::Negative => (-*eval, Sign::Positive),
+                };
+                if !Self::eval_matches_sign(data_type, check_sign, check_val) {
+                    let (signed_val, unsigned_val, bit_width) =
+                        Self::eval_debug_values(data_type, check_val);
+                    tracing::error!(
+                        target: "tt_core::prover::passes::honest_prover",
+                        gadget = "Sign",
+                        node_id = id,
+                        row = idx,
+                        data_type = %data_type,
+                        sign = ?self.sign,
+                        effective_sign = ?check_sign,
+                        bits = ?bit_width,
+                        signed_val = ?signed_val,
+                        unsigned_val = ?unsigned_val,
+                        "honest prover sign check failed"
+                    );
+                    return Err(ark_piop::errors::SnarkError::ProverError(
+                        ark_piop::prover::errors::ProverError::HonestProverError(
+                            ark_piop::prover::errors::HonestProverError::FalseClaim,
+                        ),
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -335,11 +393,9 @@ impl<B: SnarkBackend> SignNode<B> {
         } else {
             None
         };
-
         Self {
             sign,
             neq_zero_gadget,
-            has_zero,
         }
     }
 
@@ -1063,4 +1119,63 @@ impl<B: SnarkBackend> SignNode<B> {
             unsigned as i128
         }
     }
+
+    // Interpret the field element using the column's bit-width/signing rules.
+    fn eval_matches_sign(data_type: &DataType, sign: Sign, value: B::F) -> bool {
+        match data_type {
+            DataType::UInt8 => Self::eval_unsigned_sign(value, 8, sign),
+            DataType::UInt16 => Self::eval_unsigned_sign(value, 16, sign),
+            DataType::UInt32 => Self::eval_unsigned_sign(value, 32, sign),
+            DataType::UInt64 => Self::eval_unsigned_sign(value, 64, sign),
+            DataType::Int8 => Self::eval_signed_sign(value, 8, sign),
+            DataType::Int16 => Self::eval_signed_sign(value, 16, sign),
+            DataType::Int32 | DataType::Date32 => Self::eval_signed_sign(value, 32, sign),
+            DataType::Int64 => Self::eval_signed_sign(value, 64, sign),
+            DataType::Decimal128(..) => Self::eval_signed_sign(value, 128, sign),
+            DataType::Utf8View => match sign {
+                Sign::NonNegative => true,
+                Sign::Positive => !value.is_zero(),
+                Sign::NonPositive => value.is_zero(),
+                Sign::Negative => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn eval_unsigned_sign(value: B::F, bits: usize, sign: Sign) -> bool {
+        let val = Self::field_low_bits_unsigned(value, bits);
+        match sign {
+            Sign::NonNegative => true,
+            Sign::Positive => val > 0,
+            Sign::NonPositive => val == 0,
+            Sign::Negative => false,
+        }
+    }
+
+    fn eval_signed_sign(value: B::F, bits: usize, sign: Sign) -> bool {
+        let val = Self::field_low_bits_signed(value, bits);
+        match sign {
+            Sign::NonNegative => val >= 0,
+            Sign::Positive => val > 0,
+            Sign::NonPositive => val <= 0,
+            Sign::Negative => val < 0,
+        }
+    }
+
+    fn eval_debug_values(data_type: &DataType, value: B::F) -> (Option<i128>, Option<u128>, Option<usize>) {
+        match data_type {
+            DataType::UInt8 => (None, Some(Self::field_low_bits_unsigned(value, 8)), Some(8)),
+            DataType::UInt16 => (None, Some(Self::field_low_bits_unsigned(value, 16)), Some(16)),
+            DataType::UInt32 => (None, Some(Self::field_low_bits_unsigned(value, 32)), Some(32)),
+            DataType::UInt64 => (None, Some(Self::field_low_bits_unsigned(value, 64)), Some(64)),
+            DataType::Int8 => (Some(Self::field_low_bits_signed(value, 8)), None, Some(8)),
+            DataType::Int16 => (Some(Self::field_low_bits_signed(value, 16)), None, Some(16)),
+            DataType::Int32 | DataType::Date32 => (Some(Self::field_low_bits_signed(value, 32)), None, Some(32)),
+            DataType::Int64 => (Some(Self::field_low_bits_signed(value, 64)), None, Some(64)),
+            DataType::Decimal128(..) => (Some(Self::field_low_bits_signed(value, 128)), None, Some(128)),
+            DataType::Utf8View => (None, Some(Self::field_low_bits_unsigned(value, 128)), Some(128)),
+            _ => (None, None, None),
+        }
+    }
+
 }

@@ -1,12 +1,5 @@
 use std::marker::PhantomData;
 
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_piop::{SnarkBackend, piop::PIOP};
-use col_toolbox::no_zeros_check::{
-    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
-};
-use indexmap::IndexMap;
-
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -15,6 +8,13 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use ark_ff::One;
+use ark_piop::{SnarkBackend, piop::PIOP};
+use col_toolbox::no_zeros_check::{
+    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
+};
+use indexmap::IndexMap;
 pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
@@ -104,6 +104,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected left and right inputs for neq gadget");
         };
 
+        // Check that every activated row differs between left/right inputs.
         let left_data_inds = left_input.data_tracked_polys_indices();
         let right_data_inds = right_input.data_tracked_polys_indices();
         debug_assert_eq!(
@@ -126,10 +127,54 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (Some(left_input), Some(right_input)) = (
+            payload.get(LEFT_LABEL).cloned(),
+            payload.get(RIGHT_LABEL).cloned(),
+        ) else {
+            return Ok(());
+        };
+
+        let left_data_inds = left_input.data_tracked_polys_indices();
+        let right_data_inds = right_input.data_tracked_polys_indices();
+        debug_assert_eq!(
+            left_data_inds.len(),
+            right_data_inds.len(),
+            "Neq gadget expects the same number of data columns on left and right."
+        );
+        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
+            let left_col = left_input.tracked_col_by_ind(*left_data_ind);
+            let right_col = right_input.tracked_col_by_ind(*right_data_ind);
+            let left_vals = left_col.data_tracked_poly().evaluations();
+            let right_vals = right_col.data_tracked_poly().evaluations();
+            let activator = left_col
+                .activator_tracked_poly()
+                .map(|poly| poly.evaluations());
+            for (row_idx, (left_val, right_val)) in
+                left_vals.iter().zip(right_vals.iter()).enumerate()
+            {
+                if let Some(act) = activator.as_ref() {
+                    if act[row_idx] != B::F::one() {
+                        continue;
+                    }
+                }
+                if left_val == right_val {
+                    // Activated rows must differ on the checked column.
+                    return Err(ark_piop::errors::SnarkError::ProverError(
+                        ark_piop::prover::errors::ProverError::HonestProverError(
+                            ark_piop::prover::errors::HonestProverError::FalseClaim,
+                        ),
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
