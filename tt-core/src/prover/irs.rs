@@ -31,6 +31,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
     use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
@@ -176,7 +177,8 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+            let tracking_pass =
+                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -201,7 +203,8 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+            let tracking_pass =
+                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -228,7 +231,8 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover);
+            let tracking_pass =
+                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -265,7 +269,8 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(arg_prover.clone());
+            let tracking_pass =
+                TrackingPass::<DefaultSnarkBackend>::new(arg_prover.clone(), CtxOracles::default());
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();

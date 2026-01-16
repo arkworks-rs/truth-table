@@ -5,6 +5,7 @@ use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
 use tracing::debug;
 use tt_core::{
+    ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::{
         nodes::Node,
@@ -60,8 +61,12 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn arithmetization_pass(&self) -> ArithmetizationPass<B> {
         ArithmetizationPass::new()
     }
-    pub fn tracking_pass(&self, arg_prover: ArgProver<B>) -> TrackingPass<B> {
-        TrackingPass::new(arg_prover)
+    pub fn tracking_pass(
+        &self,
+        arg_prover: ArgProver<B>,
+        ctx_oracles: CtxOracles<B>,
+    ) -> TrackingPass<B> {
+        TrackingPass::new(arg_prover, ctx_oracles)
     }
 }
 
@@ -151,8 +156,11 @@ impl<B: SnarkBackend> TTProver<B> {
         );
 
         let arg_prover = self.arg_prover().clone();
-        let tracked_ir = arithmetized_ir
-            .apply_local_pass_sequential(&self.prover_config().tracking_pass(arg_prover.clone()));
+        let tracked_ir =
+            arithmetized_ir.apply_local_pass_sequential(&self.prover_config().tracking_pass(
+                arg_prover.clone(),
+                self.shared_config().ctx_oracles().clone(),
+            ));
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);

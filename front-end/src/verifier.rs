@@ -1,6 +1,7 @@
 use ark_piop::{verifier::ArgVerifier, SnarkBackend};
 use tracing::debug;
 use tt_core::{
+    ctx_oracles::{self, CtxOracles},
     errors::TTResult,
     irs::{
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
@@ -48,8 +49,12 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         GadgetPlanningPass::new(planned_ir)
     }
 
-    pub fn tracking_pass(&self, arg_verifier: ArgVerifier<B>) -> VerifierTrackingPass<B> {
-        VerifierTrackingPass::new(arg_verifier)
+    pub fn tracking_pass(
+        &self,
+        arg_verifier: ArgVerifier<B>,
+        ctx_oracles: CtxOracles<B>,
+    ) -> VerifierTrackingPass<B> {
+        VerifierTrackingPass::new(arg_verifier, ctx_oracles)
     }
 }
 
@@ -128,7 +133,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());
 
-        let verifier_tracking_pass = self.verifier_config().tracking_pass(arg_verifier.clone());
+        let verifier_tracking_pass = self.verifier_config().tracking_pass(arg_verifier.clone(),self.shared_config().ctx_oracles().clone());
         let tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);

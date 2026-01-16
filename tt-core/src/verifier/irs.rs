@@ -24,6 +24,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::EmptyIr;
     use crate::irs::shared_passes::OutputPlanningPass;
     use crate::irs::{payloads::HintDFPayload, tree::Tree};
@@ -144,7 +145,8 @@ mod test {
         let planning_pass = OutputPlanningPass::<Backend>::new();
         let materialization_pass = MaterializationPass::<Backend>::new();
         let arithmetization_pass = ArithmetizationPass::<Backend>::new();
-        let prover_tracking_pass = ProverTrackingPass::<Backend>::new(arg_prover.clone());
+        let prover_tracking_pass =
+            ProverTrackingPass::<Backend>::new(arg_prover.clone(), CtxOracles::default());
 
         let df = ctx.sql(query).await.unwrap();
         let lp = df.into_unoptimized_plan();
@@ -196,7 +198,8 @@ mod test {
 
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
-            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
+            let verifier_tracking_pass =
+                VerifierTrackingPass::<Backend>::new(arg_verifier, CtxOracles::default());
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
@@ -223,7 +226,8 @@ mod test {
 
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
-            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
+            let verifier_tracking_pass =
+                VerifierTrackingPass::<Backend>::new(arg_verifier, CtxOracles::default());
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             let verifier_virtualization_pass =
                 VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
@@ -254,7 +258,8 @@ mod test {
 
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
-            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier);
+            let verifier_tracking_pass =
+                VerifierTrackingPass::<Backend>::new(arg_verifier, CtxOracles::default());
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             let verifier_virtualization_pass =
                 VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
@@ -293,7 +298,8 @@ mod test {
 
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
-            let verifier_tracking_pass = VerifierTrackingPass::<Backend>::new(arg_verifier.clone());
+            let verifier_tracking_pass =
+                VerifierTrackingPass::<Backend>::new(arg_verifier.clone(), CtxOracles::default());
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             let verifier_virtualization_pass =
                 VerifierVirtualizationPass::<Backend>::new(&tracked_ir);

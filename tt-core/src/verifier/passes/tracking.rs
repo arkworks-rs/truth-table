@@ -5,6 +5,7 @@ use datafusion_common::DFSchema;
 use indexmap::IndexMap;
 
 use crate::{
+    ctx_oracles::CtxOracles,
     irs::{
         ir::LocalPass,
         nodes::{Node, NodeId},
@@ -19,12 +20,14 @@ use std::cell::RefCell;
 /// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK verifier with an associated id. Note that this pass is stateful, as it requires access to the verifier instance to perform the tracking and committing.
 pub struct TrackingPass<B: SnarkBackend> {
     verifier: RefCell<ArgVerifier<B>>,
+    ctx_oracles: CtxOracles<B>,
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
-    pub fn new(verifier: ArgVerifier<B>) -> Self {
+    pub fn new(verifier: ArgVerifier<B>, ctx_oracles: CtxOracles<B>) -> Self {
         Self {
             verifier: RefCell::new(verifier),
+            ctx_oracles,
         }
     }
 }
