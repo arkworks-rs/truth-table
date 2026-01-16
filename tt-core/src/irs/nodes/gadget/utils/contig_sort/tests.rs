@@ -74,7 +74,7 @@ async fn assert_tie_indicator(
     expected_names: Vec<&str>,
     expected_cols: Vec<Vec<bool>>,
 ) {
-    let out = tie_indicator(df, Vec::new()).unwrap();
+    let out = tie_indicator(df, Vec::new(), &[]).unwrap();
     let batches = out.collect().await.unwrap();
     let combined = concat_batches(&batches[0].schema(), &batches).unwrap();
 
