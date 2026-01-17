@@ -1,14 +1,19 @@
 use std::sync::Arc;
 
+use arithmetic::table::TrackedTable;
+use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::Between;
 use datafusion_expr::Expr;
 use datafusion_expr::expr::InList;
+use indexmap::IndexMap;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
 };
+use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
@@ -59,6 +64,55 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_polys();
+        if let Some((row_id_field, row_id_poly)) = expr_table
+            .tracked_polys_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_polys
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_poly.clone());
+        }
+        if let Some(activator) = expr_table.activator_tracked_poly() {
+            // Reuse the input activator so the IN-list result stays aligned.
+            merged_polys.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, expr) => {
+                debug_assert_eq!(curr, expr, "InList log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 
@@ -77,7 +131,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a virtual DataFrame with the IN-list result and scope metadata.
+        // Produce a DataFrame with the IN-list result and scope metadata.
         let scope_hint_df = match self.scope.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("InList scope cannot be a gadget node"),
@@ -95,9 +149,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             .select(exprs)
             .expect("in-list projection should succeed");
 
+        let should_materialize: IndexMap<FieldRef, bool> = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = !is_system_column(field.name());
+                (field.clone(), mat)
+            })
+            .collect();
+
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("in-list output sort should succeed");
-        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 
@@ -107,6 +171,55 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_oracles = current_table.tracked_oracles();
+        if let Some((row_id_field, row_id_oracle)) = expr_table
+            .tracked_oracles_iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+        {
+            merged_oracles
+                .entry(row_id_field.clone())
+                .or_insert_with(|| row_id_oracle.clone());
+        }
+        if let Some(activator) = expr_table.activator_tracked_poly() {
+            // Reuse the input activator so the IN-list result stays aligned.
+            merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|f| f.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+            (0, other) => other,
+            (curr, 0) => curr,
+            (curr, expr) => {
+                debug_assert_eq!(curr, expr, "InList log sizes should agree");
+                curr
+            }
+        };
+
+        let updated_table = TrackedTableOracle::new(schema, merged_oracles, log_size);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 
