@@ -53,7 +53,6 @@ where
         };
         tracing::debug!(
             node = %node_name,
-            node_id = id,
             node_kind = node_kind,
             "starting gadget initialization"
         );
@@ -61,7 +60,6 @@ where
             .expect("gadget initialization should succeed");
         tracing::debug!(
             node = %node_name,
-            node_id = id,
             node_kind = node_kind,
             "finished gadget initialization"
         );

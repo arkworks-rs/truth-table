@@ -76,7 +76,6 @@ where
                 };
                 tracing::debug!(
                     gadget = %gadget_node.name(),
-                    node_id = id,
                     parent = %parent_name,
                     "starting to verify gadget"
                 );
@@ -91,7 +90,6 @@ where
                 } else {
                     tracing::info!(
                         gadget = %gadget_node.name(),
-                        node_id = id,
                         parent = %parent_name,
                         "gadget was verified"
                     );

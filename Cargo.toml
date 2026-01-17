@@ -69,7 +69,12 @@ tracing-subscriber = { version = "0.3" }
 rustdoc-args = ["--html-in-header", "../docs-header.html"]
 
 [patch.crates-io]
-# ark-std = { git = "https://github.com/arkworks-rs/std" }
+ark-std = { git = "https://github.com/arkworks-rs/std" }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-test-curves = { git = "https://github.com/arkworks-rs/algebra" }
 
 
 [workspace.metadata.cargo-alias]

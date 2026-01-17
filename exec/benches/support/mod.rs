@@ -64,8 +64,19 @@ pub fn init_bench_tracing() {
     INIT.get_or_init(|| {
         use tracing_subscriber::EnvFilter;
 
+        // Default to info, and always suppress DataFusion unless explicitly requested.
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+        let mut filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        if !rust_log.contains("datafusion") {
+            filter = filter.add_directive("datafusion=off".parse().expect("parse datafusion directive"));
+            filter = filter.add_directive("datafusion_=off".parse().expect("parse datafusion directive"));
+        }
+        if !rust_log.contains("sqlparser") {
+            filter = filter.add_directive("sqlparser=off".parse().expect("parse sqlparser directive"));
+        }
+
         let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
+            .with_env_filter(filter)
             .with_target(true)
             .try_init();
     });

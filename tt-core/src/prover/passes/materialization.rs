@@ -56,34 +56,30 @@ where
         payload: Option<&HintDFPayload>,
     ) -> Option<MaterializedPayload> {
         let Some(payload) = payload else {
-            tracing::debug!(node = %node.name(), node_id = id, "materialization skipped (no payload)");
+            tracing::debug!(node = %node.name(),  "skipped (no payload)");
             return None;
         };
-        tracing::debug!(node = %node.name(), node_id = id, "starting materialization");
         match payload {
             PayloadStructure::PlanPayload(hint_df) => {
-                tracing::debug!(node = %node.name(), node_id = id, payload = "plan", "materializing payload");
+                tracing::debug!(node = %node.name(),  payload = "plan", "start");
                 let materialized = materialize_hint_df(hint_df);
                 if materialized.is_some() {
-                    tracing::debug!(node = %node.name(), node_id = id, payload = "plan", "materialized payload");
+                    tracing::debug!(node = %node.name(),  payload = "plan", "finished (with payload)");
                 } else {
                     tracing::debug!(
                         node = %node.name(),
-                        node_id = id,
+
                         payload = "plan",
-                        "materialization produced no columns"
+                        "finished (without pyload)"
                     );
                 }
-                tracing::debug!(node = %node.name(), node_id = id, "finished materialization");
                 materialized.map(PayloadStructure::PlanPayload)
             }
             PayloadStructure::GadgetPayload(map) => {
                 tracing::debug!(
                     node = %node.name(),
-                    node_id = id,
                     payload = "gadget",
-                    payload_len = map.len(),
-                    "materializing payload"
+                    "start"
                 );
                 #[cfg(feature = "parallel")]
                 let out: IndexMap<_, _> = map
@@ -102,12 +98,10 @@ where
                     .collect();
                 tracing::debug!(
                     node = %node.name(),
-                    node_id = id,
                     payload = "gadget",
-                    materialized_len = out.len(),
-                    "materialized payload"
+                    "finished"
                 );
-                tracing::debug!(node = %node.name(), node_id = id, "finished materialization");
+                tracing::debug!(node = %node.name(),  "finished materialization");
                 Some(PayloadStructure::GadgetPayload(out))
             }
         }
@@ -125,15 +119,6 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
         .map(|(field, _should_mat)| projection_expr_for_field(df_schema, field))
         .collect();
 
-    if projection.is_empty() {
-        tracing::debug!("materialization skipped (no columns marked)");
-        return None;
-    }
-
-    tracing::debug!(
-        projection_len = projection.len(),
-        "materializing hint dataframe"
-    );
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
@@ -147,7 +132,6 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
 
     let mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
-    tracing::debug!(row_count, "materialized hint dataframe");
     Some(MaterializedTable::new(mem_table, row_count))
 }
 

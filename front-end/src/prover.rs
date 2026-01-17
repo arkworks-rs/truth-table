@@ -126,34 +126,34 @@ impl<B: SnarkBackend> TTProver<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
-        debug!(
-            "output planned ir:\n{}",
-            output_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "output planned ir:\n{}",
+        //     output_planned_ir.display_graphviz(true)
+        // );
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .prover_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
-        debug!(
-            "gadget planned ir:\n{}",
-            gadget_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget planned ir:\n{}",
+        //     gadget_planned_ir.display_graphviz(true)
+        // );
         let materialized_ir = gadget_planned_ir
             .apply_local_pass_parallel(&self.prover_config().materialization_pass());
-        debug!(
-            "materialized ir:\n{}",
-            materialized_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "materialized ir:\n{}",
+        //     materialized_ir.display_graphviz(true)
+        // );
         let arithmetized_ir =
             materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
-        debug!(
-            "arithmetized ir:\n{}",
-            arithmetized_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "arithmetized ir:\n{}",
+        //     arithmetized_ir.display_graphviz(true)
+        // );
 
         let arg_prover = self.arg_prover().clone();
         let tracked_ir =
@@ -161,11 +161,11 @@ impl<B: SnarkBackend> TTProver<B> {
                 arg_prover.clone(),
                 self.shared_config().ctx_oracles().clone(),
             ));
-        debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
+        // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
-        debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
+        // debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
         let gadget_ir_view = ProverVirtualizedIr::new(
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
@@ -173,10 +173,10 @@ impl<B: SnarkBackend> TTProver<B> {
         let gadget_initialization_pass = GadgetInitializationPass::<B>::new(gadget_ir_view);
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        debug!(
-            "gadget ready ir:\n{}",
-            gadget_ready_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget ready ir:\n{}",
+        //     gadget_ready_ir.display_graphviz(true)
+        // );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),

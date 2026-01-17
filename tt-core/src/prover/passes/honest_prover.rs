@@ -78,7 +78,6 @@ where
                 };
                 tracing::debug!(
                     gadget = %gadget_node.name(),
-                    node_id = id,
                     parent = %parent_name,
                     "starting honest prover check for gadget"
                 );
@@ -99,7 +98,6 @@ where
                 if let Err(err) = result {
                     tracing::error!(
                         gadget = %gadget_node.name(),
-                        node_id = id,
                         parent = %parent_name,
                         error = %err,
                         "honest prover check failed"
@@ -109,7 +107,6 @@ where
                 } else {
                     tracing::info!(
                         gadget = %gadget_node.name(),
-                        node_id = id,
                         parent = %parent_name,
                         "honest prover check completed"
                     );

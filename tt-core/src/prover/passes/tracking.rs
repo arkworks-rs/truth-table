@@ -60,10 +60,7 @@ where
                     && let Some(schema) = arith_table.schema()
                     && let Some(oracle) = self.ctx_oracles.table_oracle(&schema)
                 {
-                    debug!(
-                        schema = ?schema,
-                        "using ctx_oracle for table scan in tracking pass"
-                    );
+                    debug!("using ctx_oracle for table scan in tracking pass");
                     // Table scans can reuse pre-committed ctx_oracles instead of committing.
                     return Some(TrackedPayload::PlanPayload(arith_to_tracked_from_oracle(
                         arith_table,

@@ -113,32 +113,32 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
-        debug!(
-            "output planned ir:\n{}",
-            output_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "output planned ir:\n{}",
+        //     output_planned_ir.display_graphviz(true)
+        // );
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .verifier_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
-        debug!(
-            "gadget planned ir:\n{}",
-            gadget_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget planned ir:\n{}",
+        //     gadget_planned_ir.display_graphviz(true)
+        // );
 
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());
 
         let verifier_tracking_pass = self.verifier_config().tracking_pass(arg_verifier.clone(),self.shared_config().ctx_oracles().clone());
         let tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
-        debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
+        // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
-        debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
+        // debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
         let gadget_ir_view = VerifierVirtualizedIr::new(
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
@@ -146,10 +146,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let gadget_initialization_pass = VerifierGadgetInitializationPass::<B>::new(gadget_ir_view);
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        debug!(
-            "gadget ready ir:\n{}",
-            gadget_ready_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget ready ir:\n{}",
+        //     gadget_ready_ir.display_graphviz(true)
+        // );
 
         let verify_ir_view = VerifierGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),

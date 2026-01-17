@@ -312,7 +312,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                     tracing::error!(
                         target: "tt_core::prover::passes::honest_prover",
                         gadget = "Sign",
-                        node_id = id,
                         row = idx,
                         data_type = %data_type,
                         sign = ?self.sign,
