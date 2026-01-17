@@ -27,12 +27,16 @@ pub struct Query {
     /// Print how long the command takes to execute
     #[arg(long)]
     pub timed: bool,
+
+    /// Print the logical plan as Graphviz DOT
+    #[arg(long = "logical-plan-graphviz")]
+    pub logical_plan_graphviz: bool,
 }
 
 #[async_trait::async_trait(?Send)]
 impl Runnable for Query {
     async fn run(self) -> Result<()> {
-        let sql = self.query.query.clone();
+        let sql = self.query.resolve_sql()?;
         let inputs = self.parquet.parquet.clone();
 
         if inputs.is_empty() {
@@ -40,7 +44,7 @@ impl Runnable for Query {
         }
 
         let parquet_files = expand_parquet_inputs(&inputs)?;
-        execute_query(&parquet_files, &sql).await
+        execute_query(&parquet_files, &sql, self.logical_plan_graphviz).await
     }
 }
 
@@ -50,7 +54,11 @@ impl super::TimedCommand for Query {
     }
 }
 
-async fn execute_query(parquet_files: &[PathBuf], sql: &str) -> Result<()> {
+async fn execute_query(
+    parquet_files: &[PathBuf],
+    sql: &str,
+    logical_plan_graphviz: bool,
+) -> Result<()> {
     let ctx = SessionContext::new();
     let mut table_names = HashSet::new();
 
@@ -77,7 +85,21 @@ async fn execute_query(parquet_files: &[PathBuf], sql: &str) -> Result<()> {
         .with_context(|| format!("failed to register parquet {}", path.display()))?;
     }
 
-    let df = ctx.sql(sql).await.context("failed to plan query")?;
+    let plan = ctx
+        .state()
+        .create_logical_plan(sql)
+        .await
+        .context("failed to create logical plan")?;
+
+    if logical_plan_graphviz {
+        // Show the logical plan before execution for debugging.
+        println!("{}", plan.display_graphviz());
+    }
+
+    let df = ctx
+        .execute_logical_plan(plan)
+        .await
+        .context("failed to plan query")?;
     let batches = df.collect().await.context("failed to execute query")?;
 
     if batches.is_empty() {

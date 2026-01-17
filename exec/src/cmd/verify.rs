@@ -36,8 +36,9 @@ pub struct Verify {
 #[async_trait::async_trait(?Send)]
 impl Runnable for Verify {
     async fn run(self) -> Result<()> {
+        let sql = self.query.resolve_sql()?;
         let runner = VerifyBuilder::new()
-            .with_query(self.query.query)
+            .with_query(sql)
             .with_parquet_paths(self.parquet.parquet)
             .with_oracle_paths(self.oracle.oracle)
             .with_proof_path(self.proof)
