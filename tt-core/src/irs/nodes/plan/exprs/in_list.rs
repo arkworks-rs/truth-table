@@ -69,15 +69,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let current_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
 
-        let mut merged_polys = current_table.tracked_polys();
+        // Keep only the IN-list result data column, then append system columns from the input.
+        let mut merged_polys = IndexMap::new();
+        if let Some((data_field, data_poly)) = current_table
+            .tracked_polys_iter()
+            .find(|(field, _)| !is_system_column(field.name()))
+        {
+            merged_polys.insert(data_field.clone(), data_poly.clone());
+        }
         if let Some((row_id_field, row_id_poly)) = expr_table
             .tracked_polys_iter()
             .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
@@ -176,15 +180,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let current_table = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
 
-        let mut merged_oracles = current_table.tracked_oracles();
+        // Keep only the IN-list result data column, then append system columns from the input.
+        let mut merged_oracles = IndexMap::new();
+        if let Some((data_field, data_oracle)) = current_table
+            .tracked_oracles_iter()
+            .find(|(field, _)| !is_system_column(field.name()))
+        {
+            merged_oracles.insert(data_field.clone(), data_oracle.clone());
+        }
         if let Some((row_id_field, row_id_oracle)) = expr_table
             .tracked_oracles_iter()
             .find(|(field, _)| field.name() == ROW_ID_COL_NAME)

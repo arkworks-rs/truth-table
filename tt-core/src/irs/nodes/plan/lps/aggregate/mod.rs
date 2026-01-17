@@ -1,9 +1,13 @@
 use std::{collections::HashSet, sync::Arc};
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_piop::SnarkBackend;
+use ark_ff::One;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
+use either::Either;
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -28,6 +32,84 @@ where
     aggr_exprs: Vec<Arc<Node<B>>>,
     // The aggregate gadget node.
     gadget: Arc<Node<B>>,
+}
+
+const AGG_GROUP_KEY_COL_NAME: &str = "__agg_group_key__";
+
+fn agg_group_key_field() -> FieldRef {
+    Arc::new(Field::new(
+        AGG_GROUP_KEY_COL_NAME,
+        datafusion::arrow::datatypes::DataType::Boolean,
+        false,
+    ))
+}
+
+fn constant_one_poly_from_table<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+) -> Option<ark_piop::prover::structs::polynomial::TrackedPoly<B>> {
+    table.tracked_polys_iter().next().map(|(_, poly)| {
+        // Use a constant tracked polynomial so no new commitments are introduced.
+        ark_piop::prover::structs::polynomial::TrackedPoly::new(
+            Either::Right(B::F::one()),
+            poly.log_size(),
+            poly.tracker(),
+        )
+    })
+}
+
+fn constant_one_oracle_from_table<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> Option<ark_piop::verifier::structs::oracle::TrackedOracle<B>> {
+    table.tracked_oracles_iter().next().map(|(_, oracle)| {
+        // Use a constant tracked oracle so no new commitments are introduced.
+        ark_piop::verifier::structs::oracle::TrackedOracle::new(
+            Either::Right(B::F::one()),
+            oracle.tracker(),
+            oracle.log_size(),
+        )
+    })
+}
+
+fn single_group_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Option<TrackedTable<B>> {
+    let group_key = constant_one_poly_from_table(table)?;
+    let mut polys = IndexMap::new();
+    // Use a deterministic constant group key when there are no group-by expressions.
+    polys.insert(agg_group_key_field(), group_key);
+    if let Some(activator) = table.activator_tracked_poly() {
+        polys.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+    let metadata = table
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields = polys
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect::<Vec<_>>();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    Some(TrackedTable::new(schema, polys, table.log_size()))
+}
+
+fn single_group_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> Option<TrackedTableOracle<B>> {
+    let group_key = constant_one_oracle_from_table(table)?;
+    let mut oracles = IndexMap::new();
+    // Use a deterministic constant group key when there are no group-by expressions.
+    oracles.insert(agg_group_key_field(), group_key);
+    if let Some(activator) = table.activator_tracked_poly() {
+        oracles.insert(ACTIVATOR_FIELD.clone(), activator);
+    }
+    let metadata = table
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields = oracles
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect::<Vec<_>>();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    Some(TrackedTableOracle::new(schema, oracles, table.log_size()))
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
@@ -454,7 +536,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
                     .expect("Aggregate group column missing from payload schema");
                 group_indices.push(idx);
             }
-            let groups_table = current_table.tracked_subtable_by_indices(&group_indices);
+            let groups_table = if group_indices.is_empty() {
+                single_group_oracle(current_table)
+                    .expect("Aggregate inputs must have at least one tracked oracle")
+            } else {
+                current_table.tracked_subtable_by_indices(&group_indices)
+            };
 
             debug_assert_eq!(
                 aggregate.aggr_expr.len(),
@@ -535,9 +622,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
             }
         }
 
-            let input_groups_table = input_table.tracked_subtable_by_indices(&input_group_indices);
-            let output_groups_table =
-                output_table.tracked_subtable_by_indices(&output_group_indices);
+            let use_single_group = aggregate.group_expr.is_empty();
+            let input_groups_table = if use_single_group {
+                single_group_oracle(input_table)
+                    .expect("Aggregate inputs must have at least one tracked oracle")
+            } else {
+                input_table.tracked_subtable_by_indices(&input_group_indices)
+            };
+            let output_groups_table = if use_single_group {
+                single_group_oracle(output_table)
+                    .expect("Aggregate outputs must have at least one tracked oracle")
+            } else {
+                output_table.tracked_subtable_by_indices(&output_group_indices)
+            };
 
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget_id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -660,7 +757,12 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
             .expect("Aggregate group column missing from payload schema");
         group_indices.push(idx);
     }
-    let groups_table = current_table.tracked_subtable_by_indices(&group_indices);
+    let groups_table = if group_indices.is_empty() {
+        single_group_table(current_table)
+            .expect("Aggregate inputs must have at least one tracked column")
+    } else {
+        current_table.tracked_subtable_by_indices(&group_indices)
+    };
 
     debug_assert_eq!(
         aggregate.aggr_expr.len(),
@@ -739,8 +841,19 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
         }
     }
 
-    let input_groups_table = input_table.tracked_subtable_by_indices(&input_group_indices);
-    let output_groups_table = output_table.tracked_subtable_by_indices(&output_group_indices);
+    let use_single_group = aggregate.group_expr.is_empty();
+    let input_groups_table = if use_single_group {
+        single_group_table(input_table)
+            .expect("Aggregate inputs must have at least one tracked column")
+    } else {
+        input_table.tracked_subtable_by_indices(&input_group_indices)
+    };
+    let output_groups_table = if use_single_group {
+        single_group_table(output_table)
+            .expect("Aggregate outputs must have at least one tracked column")
+    } else {
+        output_table.tracked_subtable_by_indices(&output_group_indices)
+    };
 
     let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
