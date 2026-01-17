@@ -4,5 +4,5 @@ pub mod between;
 pub mod binary_expr;
 pub mod cast;
 pub mod column;
-pub mod in_subquery;
+pub mod in_list;
 pub mod literal;

@@ -3,6 +3,8 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use datafusion_common::Statistics;
 use datafusion_expr::Between;
+use datafusion_expr::Expr;
+use datafusion_expr::expr::InList;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -12,23 +14,21 @@ use crate::irs::tree::Tree;
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
     pub expr: Arc<Node<B>>,
-    pub low: Arc<Node<B>>,
-    pub high: Arc<Node<B>>,
+    pub list: Vec<Arc<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
-    pub between: Between,
+    pub in_list: InList,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
-        "Between".to_string()
+        "InList".to_string()
     }
 
     fn display(&self) -> String {
         format!(
-            "Between\nInput: {}, low: {}, high: {}",
+            "InList\nInput: {}, List Length: {}",
             self.expr.name(),
-            self.low.name(),
-            self.high.name()
+            self.list.len()
         )
     }
 
@@ -77,7 +77,27 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        // Produce a virtual DataFrame with the IN-list result and scope metadata.
+        let scope_hint_df = match self.scope.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("InList scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("in-list row-id sort should succeed");
+
+        let mut exprs = vec![Expr::InList(self.in_list.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("in-list projection should succeed");
+
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("in-list output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 
@@ -109,29 +129,31 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        let between = match expr {
-            datafusion_expr::Expr::Between(col) => col,
+        let in_list = match expr {
+            datafusion_expr::Expr::InList(col) => col,
             _ => panic!("Expected Cast expression"),
         };
 
-        let expr_node = Tree::<B>::from_expr(&between.expr, Some(self_ref.clone()), scope.clone())
+        let expr_node = Tree::<B>::from_expr(&in_list.expr, Some(self_ref.clone()), scope.clone())
             .root()
             .clone();
 
-        let low_node = Tree::<B>::from_expr(&between.low, Some(self_ref.clone()), scope.clone())
-            .root()
-            .clone();
+        let list_nodes = in_list
+            .list
+            .iter()
+            .map(|expr| {
+                Tree::<B>::from_expr(expr, Some(self_ref.clone()), scope.clone())
+                    .root()
+                    .clone()
+            })
+            .collect();
 
-        let high_node = Tree::<B>::from_expr(&between.high, Some(self_ref.clone()), scope.clone())
-            .root()
-            .clone();
         Self {
-            between,
+            in_list,
             expr: expr_node,
             scope,
             parent,
-            low: low_node,
-            high: high_node,
+            list: list_nodes,
         }
     }
 

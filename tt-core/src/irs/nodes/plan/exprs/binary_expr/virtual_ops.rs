@@ -11,6 +11,11 @@ pub(super) fn output_virtual_table<B: SnarkBackend>(
 ) -> TrackedPoly<B> {
     match bin_expr.op {
         Operator::And => left * right,
+        Operator::Or => {
+            let sum = left + right;
+            let prod = left * right;
+            &sum - &prod
+        }
         Operator::Plus => left + right,
         Operator::Minus => left - right,
         Operator::Multiply => left * right,
@@ -25,6 +30,11 @@ pub(super) fn output_virtual_table_oracle<B: SnarkBackend>(
 ) -> TrackedOracle<B> {
     match bin_expr.op {
         Operator::And => left * right,
+        Operator::Or => {
+            let sum = left + right;
+            let prod = left * right;
+            &sum - &prod
+        }
         Operator::Plus => left + right,
         Operator::Minus => left - right,
         Operator::Multiply => left * right,

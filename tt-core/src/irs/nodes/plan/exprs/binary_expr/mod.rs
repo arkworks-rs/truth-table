@@ -77,6 +77,7 @@ impl<B: SnarkBackend> BinaryExprNode<B> {
             datafusion_expr::Operator::Plus => None,
             datafusion_expr::Operator::Minus => None,
             datafusion_expr::Operator::And => None,
+            datafusion_expr::Operator::Or => None,
             _ => panic!("Unsupported operator for binary expression gadget"),
         }
     }

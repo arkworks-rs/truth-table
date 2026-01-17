@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use datafusion::optimizer::{
     eliminate_cross_join::EliminateCrossJoin, extract_equijoin_predicate::ExtractEquijoinPredicate,
-    OptimizerRule,
+    simplify_expressions::SimplifyExpressions, OptimizerRule,
 };
 
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
@@ -23,5 +23,6 @@ pub fn rules() -> Vec<Arc<dyn OptimizerRule + Send + Sync>> {
     vec![
         Arc::new(ExtractEquijoinPredicate),
         Arc::new(EliminateCrossJoin),
+        Arc::new(SimplifyExpressions::new()),
     ]
 }

@@ -11,7 +11,7 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{
-                aggregate_function, alias, between, binary_expr, cast, column, in_subquery, literal,
+                aggregate_function, alias, between, binary_expr, cast, column, in_list, literal,
             },
             lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
         },
@@ -273,8 +273,8 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
-            Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
-                let node = in_subquery::ProverNode::from_expr(
+            Expr::InList(_) => Arc::new_cyclic(|weak_self| {
+                let node = in_list::ProverNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
