@@ -5,7 +5,7 @@ use crate::prover::trees::{
 use ark_piop::{
     pcs::{kzg10::KZG10, pst13::PST13},
     prover::Prover,
-    test_utils::{init_tracing_for_tests, test_prelude},
+    test_utils::{init_subscriber, test_prelude},
 };
 use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::SessionContext;
@@ -15,7 +15,7 @@ type MvPCS = PST13<Bls12_381>;
 type UvPCS = KZG10<Bls12_381>;
 
 pub async fn display_prover_proof_tree(proof_tree: &ProverProofTree<B>) {
-    init_tracing_for_tests();
+    init_subscriber();
     proof_tree
         .arena()
         .values()
@@ -28,7 +28,7 @@ pub async fn display_prover_hint_tree(
     ctx: &SessionContext,
     proof_tree: ProverProofTree<B>,
 ) {
-    init_tracing_for_tests();
+    init_subscriber();
 
     let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
@@ -73,7 +73,7 @@ pub async fn display_prover_piop_tree(
     ctx: &SessionContext,
     proof_tree: ProverProofTree<B>,
 ) {
-    init_tracing_for_tests();
+    init_subscriber();
     let hint_tree = ProverHintTree::from_proof_tree(ctx, proof_tree)
         .await
         .unwrap();

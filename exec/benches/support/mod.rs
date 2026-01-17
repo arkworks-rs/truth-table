@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ark_piop::{DefaultSnarkBackend, prover::structs::proof::SNARKProof, test_utils::init_tracing_for_tests, verifier::ArgVerifier};
+use ark_piop::{DefaultSnarkBackend, prover::structs::proof::SNARKProof, test_utils::init_subscriber, verifier::ArgVerifier};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use datafusion::{config::ConfigOptions, optimizer::{Analyzer, Optimizer, OptimizerContext}, prelude::{ParquetReadOptions, SessionContext}};
 use front_end::{shared::TTSharedConfig, structs::{Artifact, TTProof, TTVk}, verifier::{TTVerifier, TTVerifierConfig}};
@@ -60,7 +60,7 @@ static PROOF_SIZE_LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new
 
 pub fn init_bench_tracing() {
     // Keep bench logging consistent with the test harness.
-    init_tracing_for_tests();
+    init_subscriber();
 }
 
 pub fn prepare_assets(case: BenchCase) -> BenchAssets {

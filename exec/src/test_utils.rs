@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use ark_piop::test_utils::init_tracing_for_tests;
+use ark_piop::test_utils::init_subscriber;
 
 use crate::{
     commit::CommitBuilder,
@@ -21,7 +21,7 @@ pub async fn prove_and_verify_query(
     table_names: &[&str],
     proof_output_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_tracing_for_tests();
+    init_subscriber();
     let parquet_paths = table_names
         .iter()
         .map(|name| resolve_parquet_path(name))
