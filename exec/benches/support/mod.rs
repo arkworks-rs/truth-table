@@ -17,7 +17,7 @@ use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
 
-use exec::{prove::ProveBuilder, setup::DEFAULT_BENCH_LOG_SIZE, test_utils::{resolve_key_paths, resolve_oracle_path_blocking, resolve_parquet_path}};
+use exec::{prove::ProveBuilder, setup::DEFAULT_BENCH_LOG_SIZE, test_utils::{resolve_key_paths, resolve_oracle_path_blocking}};
 
 pub type B = DefaultSnarkBackend;
 
@@ -73,7 +73,9 @@ pub fn prepare_assets(case: BenchCase) -> BenchAssets {
     let parquet_paths = case
         .tables
         .iter()
-        .map(|name| resolve_parquet_path(name).expect("resolve parquet path"))
+        .map(|name| {
+            tpch_data::bench_data_path(format!("{name}.parquet"))
+        })
         .collect::<Vec<_>>();
 
     let (pk_path, vk_path) =
