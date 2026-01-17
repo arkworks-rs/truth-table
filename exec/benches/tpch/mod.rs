@@ -5,7 +5,7 @@ use tpch_data::query_spec;
 
 use crate::support::{
     BenchCase, build_verifier_state, ensure_proof, log_proof_size_once, prepare_assets,
-    run_prover_once, run_verifier_once,
+    run_prover_once, run_verifier_once, warmup_proof,
 };
 
 fn tpch_cases() -> &'static [BenchCase] {
@@ -49,10 +49,11 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
 fn bench_tpch_verifier(bencher: Bencher, case: BenchCase) {
-    // Verifier benchmark: reuse cached proof bytes (or create once on demand).
+    // Verifier benchmark: require a warm cache, then reuse cached proof bytes.
     bencher
         .with_inputs(|| {
             let assets = prepare_assets(case);
+            let _ = warmup_proof(&assets);
             let bench_proof = ensure_proof(&assets);
             log_proof_size_once(case.name, bench_proof.proof_bytes.len());
             build_verifier_state(&assets, bench_proof.proof_bytes.clone())

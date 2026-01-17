@@ -123,7 +123,23 @@ pub fn run_prover_once(assets: &BenchAssets) -> TTProof<B> {
 }
 
 pub fn ensure_proof(assets: &BenchAssets) -> Arc<BenchProof> {
-    // Cache the last proof so verifier benchmarks can reuse it.
+    // Fetch a cached proof; callers should warm the cache first.
+    let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    cache
+        .lock()
+        .expect("bench proof cache poisoned")
+        .get(assets.case.name)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "missing cached proof for {}; run warmup_proof first",
+                assets.case.name
+            )
+        })
+}
+
+pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
+    // Precompute and cache a proof outside the timed verifier benchmark.
     let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(existing) = cache
         .lock()
