@@ -20,13 +20,13 @@ use tt_core::{
             ArithmetizedIr, CommittedIr, GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr,
             TrackedIr, VirtualizedIr as ProverVirtualizedIr,
         },
-        payloads::ArithPayload,
         passes::{
             arithmetization::ArithmetizationPass, commitment::CommitmentPass,
             gadget_initialization::GadgetInitializationPass, honest_prover::HonestProverPass,
             materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
             virtualization::VirtualizationPass,
         },
+        payloads::ArithPayload,
     },
 };
 
@@ -167,19 +167,18 @@ impl<B: SnarkBackend> TTProver<B> {
         // );
 
         let arg_prover = self.arg_prover().clone();
-        let committed_ir = arithmetized_ir.apply_local_pass_parallel(
-            &self.prover_config().commitment_pass(
+        let committed_ir =
+            arithmetized_ir.apply_local_pass_parallel(&self.prover_config().commitment_pass(
                 arg_prover.mv_pcs_prover_param(),
                 self.shared_config().ctx_oracles().clone(),
-            ),
-        );
+            ));
         // debug!("committed ir:\n{}", committed_ir.display_graphviz(true));
 
-        let tracked_ir =
-            committed_ir.apply_local_pass_sequential(&self.prover_config().tracking_pass(
-                arg_prover.clone(),
-                arithmetized_ir.payloads().clone(),
-            ));
+        let tracked_ir = committed_ir.apply_local_pass_sequential(
+            &self
+                .prover_config()
+                .tracking_pass(arg_prover.clone(), arithmetized_ir.payloads().clone()),
+        );
         // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);

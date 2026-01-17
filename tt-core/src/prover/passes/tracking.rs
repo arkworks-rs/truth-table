@@ -41,7 +41,7 @@ impl<B: SnarkBackend> Drop for TrackingPass<B> {
     fn drop(&mut self) {
         info!(
             committed = self.total_committed.get(),
-            "total committed polynomials after tracking pass"
+            "total tracked polynomials after tracking pass"
         );
     }
 }
@@ -62,14 +62,19 @@ where
         let arith_payload = self.arith_payloads.get(&id).and_then(|p| p.as_ref())?;
         match (payload?, arith_payload) {
             (CommittedPayload::PlanPayload(oracle), ArithPayload::PlanPayload(arith_table)) => {
-                Some(TrackedPayload::PlanPayload(arith_to_tracked_with_commitment(
-                    arith_table,
-                    oracle,
-                    &self.prover,
-                    &self.total_committed,
-                )))
+                Some(TrackedPayload::PlanPayload(
+                    arith_to_tracked_with_commitment(
+                        arith_table,
+                        oracle,
+                        &self.prover,
+                        &self.total_committed,
+                    ),
+                ))
             }
-            (CommittedPayload::GadgetPayload(commit_map), ArithPayload::GadgetPayload(arith_map)) => {
+            (
+                CommittedPayload::GadgetPayload(commit_map),
+                ArithPayload::GadgetPayload(arith_map),
+            ) => {
                 let mut out = IndexMap::new();
                 for (key, oracle) in commit_map {
                     let arith_table = arith_map

@@ -8,6 +8,7 @@ use crate::{
     prover::payloads::{MaterializedPayload, MaterializedTable},
 };
 use ark_piop::SnarkBackend;
+use datafusion::catalog::TableProvider;
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray},
@@ -61,26 +62,11 @@ where
         };
         match payload {
             PayloadStructure::PlanPayload(hint_df) => {
-                tracing::debug!(node = %node.name(),  payload = "plan", "start");
                 let materialized = materialize_hint_df(hint_df);
-                if materialized.is_some() {
-                    tracing::debug!(node = %node.name(),  payload = "plan", "finished (with payload)");
-                } else {
-                    tracing::debug!(
-                        node = %node.name(),
-
-                        payload = "plan",
-                        "finished (without pyload)"
-                    );
-                }
+                tracing::debug!( node = %node.name(), typ= "plan", num_cols= materialized.as_ref().map_or(0, |m| m.mem_table().schema().fields().len()), num_rows= materialized.as_ref().map_or(0, |m| m.row_count()), "materialized");
                 materialized.map(PayloadStructure::PlanPayload)
             }
             PayloadStructure::GadgetPayload(map) => {
-                tracing::debug!(
-                    node = %node.name(),
-                    payload = "gadget",
-                    "start"
-                );
                 #[cfg(feature = "parallel")]
                 let out: IndexMap<_, _> = map
                     .par_iter()
@@ -96,12 +82,10 @@ where
                         materialize_hint_df(hint_df).map(|mat| (k.clone(), mat))
                     })
                     .collect();
-                tracing::debug!(
-                    node = %node.name(),
-                    payload = "gadget",
-                    "finished"
-                );
-                tracing::debug!(node = %node.name(),  "finished materialization");
+
+                out.iter()
+                    .for_each(|(k, v)| tracing::debug!( node = %node.name(),typ= "gadget",  key=%k, num_cols = v.mem_table().schema().fields().len(), num_rows= v.row_count(), "materialized"));
+
                 Some(PayloadStructure::GadgetPayload(out))
             }
         }

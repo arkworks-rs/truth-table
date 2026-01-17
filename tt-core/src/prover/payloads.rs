@@ -34,6 +34,9 @@ impl MaterializedTable {
     pub fn mem_table(&self) -> &MemTable {
         &self.table
     }
+    pub fn row_count(&self) -> usize {
+        self.row_count
+    }
 
     pub fn mem_table_arc(&self) -> Arc<MemTable> {
         Arc::clone(&self.table)
