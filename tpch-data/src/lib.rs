@@ -248,8 +248,30 @@ fn fetch_tpch_query_sql(number: u8) -> String {
         .next()
         .expect("fetch tpch query row")
         .unwrap_or_else(|| panic!("TPC-H query {number} not found"));
-    row.get::<_, String>(0)
-        .expect("extract tpch query SQL text")
+    let sql = row
+        .get::<_, String>(0)
+        .expect("extract tpch query SQL text");
+    normalize_tpch_sql(number, sql)
+}
+
+fn normalize_tpch_sql(number: u8, sql: String) -> String {
+    if number == 8 || number == 9 {
+        // DataFusion does not plan EXTRACT(YEAR FROM ...) yet; rewrite to date_part.
+        let needle = "extract(year from";
+        let lower = sql.to_ascii_lowercase();
+        let mut out = String::with_capacity(sql.len());
+        let mut i = 0;
+        while let Some(pos) = lower[i..].find(needle) {
+            let start = i + pos;
+            out.push_str(&sql[i..start]);
+            out.push_str("date_part('year',");
+            i = start + needle.len();
+        }
+        out.push_str(&sql[i..]);
+        out
+    } else {
+        sql
+    }
 }
 
 static TPCH_Q1_SQL: OnceLock<&'static str> = OnceLock::new();

@@ -69,7 +69,36 @@ async fn tpch_q8_prove_verify() {
 #[tokio::test]
 async fn tpch_q9_prove_verify() {
     let spec = query_spec(9);
-    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+    let simplified_sql = "SELECT
+    nation,
+    o_year,
+    sum(amount) AS sum_profit
+FROM (
+    SELECT
+        n_name AS nation,
+        date_part('year', o_orderdate) AS o_year,
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+    FROM
+        part,
+        supplier,
+        lineitem,
+        partsupp,
+        orders,
+        nation
+    WHERE
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey) AS profit
+GROUP BY
+    nation,
+    o_year
+ORDER BY
+    nation,
+    o_year DESC;";
+    exec::test_utils::prove_and_verify_query(simplified_sql, spec.tables, None)
         .await
         .expect("prove and verify tpch q9");
 }

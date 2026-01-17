@@ -10,7 +10,9 @@ use crate::{
         cost::ProvingCost,
         hints::HintDF,
         plan::{
-            exprs::{aggregate_function, alias, binary_expr, cast, column, literal},
+            exprs::{
+                aggregate_function, alias, between, binary_expr, cast, column, in_subquery, literal,
+            },
             lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
         },
     },
@@ -22,7 +24,7 @@ use crate::{
 use ark_piop::{SnarkBackend, errors::SnarkResult};
 use arrow_schema::SchemaRef;
 use datafusion_common::Statistics;
-use datafusion_expr::{Expr, LogicalPlan, builder::subquery_alias};
+use datafusion_expr::{Expr, LogicalPlan, builder::subquery_alias, in_subquery};
 use derivative::Derivative;
 use indexmap::IndexMap;
 pub mod cost;
@@ -205,6 +207,7 @@ impl<B: SnarkBackend> Node<B> {
         parent: Option<Weak<Node<B>>>,
         scope: Arc<Node<B>>,
     ) -> Arc<Self> {
+        dbg!(expr);
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node = column::ProverNode::from_expr(
@@ -254,6 +257,24 @@ impl<B: SnarkBackend> Node<B> {
             }),
             Expr::AggregateFunction(_) => Arc::new_cyclic(|weak_self| {
                 let node = aggregate_function::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::Between(_) => Arc::new_cyclic(|weak_self| {
+                let node = between::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
+                let node = in_subquery::ProverNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
