@@ -34,12 +34,9 @@ tpch-data = { path = "../tpch-data" }
 tempfile = { workspace = true }
 
 [[bench]]
-name = "prover"
+name = "benches"
 harness = false
 
-# [[bench]]
-# name = "verifier"
-# harness = false
 
 [features]
 default = ["std", "parallel"]
