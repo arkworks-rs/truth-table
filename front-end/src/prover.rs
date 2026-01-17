@@ -22,13 +22,14 @@ use tt_core::{
         },
         passes::{
             arithmetization::ArithmetizationPass, commitment::CommitmentPass,
-            gadget_initialization::GadgetInitializationPass, honest_prover::HonestProverPass,
-            materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
-            virtualization::VirtualizationPass,
+            gadget_initialization::GadgetInitializationPass, materialization::MaterializationPass,
+            proving::ProvingPass, tracking::TrackingPass, virtualization::VirtualizationPass,
         },
         payloads::ArithPayload,
     },
 };
+#[cfg(feature = "honest-prover")]
+use tt_core::prover::passes::honest_prover::HonestProverPass;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
@@ -199,13 +200,18 @@ impl<B: SnarkBackend> TTProver<B> {
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
         );
-        let honest_ir_view = ProverGadgetReadyIr::new(
-            gadget_ready_ir.tree().clone(),
-            gadget_ready_ir.payloads().clone(),
-        );
-        let honest_prover_pass = HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
-        let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
-        honest_prover_pass.take_result()?;
+        #[cfg(feature = "honest-prover")]
+        {
+            // Run the honest prover pass only when the feature is enabled.
+            let honest_ir_view = ProverGadgetReadyIr::new(
+                gadget_ready_ir.tree().clone(),
+                gadget_ready_ir.payloads().clone(),
+            );
+            let honest_prover_pass =
+                HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
+            let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
+            honest_prover_pass.take_result()?;
+        }
         let proving_pass = ProvingPass::<B>::new(arg_prover.clone(), proving_ir_view);
         let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&proving_pass);
         proving_pass.take_result()?;

@@ -25,6 +25,10 @@ datafusion-expr = { workspace = true }
 tokio = { workspace = true }
 indexmap = { workspace = true }
 tracing = { workspace = true }
+
+[features]
+honest-prover = ["tt-core/honest-prover"]
+
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }

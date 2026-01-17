@@ -50,5 +50,9 @@ parallel = [
     "arithmetic/parallel",
     "tt-core/parallel",
 ]
-honest-prover = ["ark-piop/honest-prover", "tt-core/honest-prover"]
+honest-prover = [
+    "ark-piop/honest-prover",
+    "front-end/honest-prover",
+    "tt-core/honest-prover",
+]
 test-utils = ["tt-core/test-utils"]
