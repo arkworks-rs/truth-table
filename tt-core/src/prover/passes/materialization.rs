@@ -7,7 +7,6 @@ use crate::{
     },
     prover::payloads::{MaterializedPayload, MaterializedTable},
 };
-use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 use datafusion::{
     arrow::{
