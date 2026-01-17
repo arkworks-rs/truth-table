@@ -145,8 +145,10 @@ mod test {
         let planning_pass = OutputPlanningPass::<Backend>::new();
         let materialization_pass = MaterializationPass::<Backend>::new();
         let arithmetization_pass = ArithmetizationPass::<Backend>::new();
-        let prover_tracking_pass =
-            ProverTrackingPass::<Backend>::new(arg_prover.clone(), CtxOracles::default());
+        let commitment_pass = crate::prover::passes::commitment::CommitmentPass::<Backend>::new(
+            arg_prover.mv_pcs_prover_param(),
+            CtxOracles::default(),
+        );
 
         let df = ctx.sql(query).await.unwrap();
         let lp = df.into_unoptimized_plan();
@@ -156,7 +158,12 @@ mod test {
         let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
         let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-        let tracked_ir_prover = arithmetized_ir.apply_local_pass_sequential(&prover_tracking_pass);
+        let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
+        let prover_tracking_pass = ProverTrackingPass::<Backend>::new(
+            arg_prover.clone(),
+            arithmetized_ir.payloads().clone(),
+        );
+        let tracked_ir_prover = committed_ir.apply_local_pass_sequential(&prover_tracking_pass);
         let prover_virtualization_pass =
             ProverVirtualizationPass::<Backend>::new(&tracked_ir_prover);
         let virtualized_ir =

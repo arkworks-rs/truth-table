@@ -2,32 +2,37 @@ use ark_piop::{SnarkBackend, prover::ArgProver};
 
 use crate::irs::nodes::IsNode;
 use crate::{
-    ctx_oracles::CtxOracles,
     irs::{
         ir::LocalPass,
         nodes::{Node, NodeId},
     },
-    prover::payloads::{ArithPayload, TrackedPayload},
+    prover::payloads::{ArithPayload, CommittedPayload, TrackedPayload},
 };
 use arithmetic::table::TrackedTable;
+use arithmetic::table_oracle::ArithTableOracle;
 use indexmap::IndexMap;
 use std::cell::{Cell, RefCell};
 use tracing::{debug, info};
-/// A tracking pass that tracks and commits the prover's arithmetized tables
+/// A tracking pass that tracks the prover's arithmetized tables using commitments.
 ///
-/// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK prover with an associated id. Note that this pass is stateful, as it requires access to the prover instance to perform the tracking and committing.
+/// This pass converts an IR with committed table oracles into an IR with tracked tables; i.e.
+/// tables that are tracked by the SNARK prover with an associated id. Commitments are supplied
+/// by the commitment pass, so this pass stays sequential and only tracks.
 pub struct TrackingPass<B: SnarkBackend> {
     prover: RefCell<ArgProver<B>>,
     total_committed: Cell<usize>, // Track committed polynomial count across the entire pass.
-    ctx_oracles: CtxOracles<B>,
+    arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
-    pub fn new(prover: ArgProver<B>, ctx_oracles: CtxOracles<B>) -> Self {
+    pub fn new(
+        prover: ArgProver<B>,
+        arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
+    ) -> Self {
         Self {
             prover: RefCell::new(prover),
             total_committed: Cell::new(0),
-            ctx_oracles,
+            arith_payloads,
         }
     }
 }
@@ -41,7 +46,7 @@ impl<B: SnarkBackend> Drop for TrackingPass<B> {
     }
 }
 
-impl<B> LocalPass<B, ArithPayload<B::F>, TrackedPayload<B>> for TrackingPass<B>
+impl<B> LocalPass<B, CommittedPayload<B>, TrackedPayload<B>> for TrackingPass<B>
 where
     B: SnarkBackend,
 {
@@ -51,35 +56,33 @@ where
     fn transform(
         &self,
         node: &Node<B>,
-        _id: NodeId,
-        payload: Option<&ArithPayload<B::F>>,
+        id: NodeId,
+        payload: Option<&CommittedPayload<B>>,
     ) -> Option<TrackedPayload<B>> {
-        match payload? {
-            ArithPayload::PlanPayload(arith_table) => {
-                if node.name() == "TableScan"
-                    && let Some(schema) = arith_table.schema()
-                    && let Some(oracle) = self.ctx_oracles.table_oracle(&schema)
-                {
-                    debug!("using ctx_oracle for table scan in tracking pass");
-                    // Table scans can reuse pre-committed ctx_oracles instead of committing.
-                    return Some(TrackedPayload::PlanPayload(arith_to_tracked_from_oracle(
-                        arith_table,
-                        oracle,
-                        &self.prover,
-                    )));
-                }
-                Some(TrackedPayload::PlanPayload(arith_to_tracked(
+        let arith_payload = self.arith_payloads.get(&id).and_then(|p| p.as_ref())?;
+        match (payload?, arith_payload) {
+            (CommittedPayload::PlanPayload(oracle), ArithPayload::PlanPayload(arith_table)) => {
+                Some(TrackedPayload::PlanPayload(arith_to_tracked_with_commitment(
                     arith_table,
+                    oracle,
                     &self.prover,
                     &self.total_committed,
                 )))
             }
-            ArithPayload::GadgetPayload(map) => {
+            (CommittedPayload::GadgetPayload(commit_map), ArithPayload::GadgetPayload(arith_map)) => {
                 let mut out = IndexMap::new();
-                for (k, arith_table) in map {
+                for (key, oracle) in commit_map {
+                    let arith_table = arith_map
+                        .get(key)
+                        .expect("commitment payload missing arith table entry");
                     out.insert(
-                        k.clone(),
-                        arith_to_tracked(arith_table, &self.prover, &self.total_committed),
+                        key.clone(),
+                        arith_to_tracked_with_commitment(
+                            arith_table,
+                            oracle,
+                            &self.prover,
+                            &self.total_committed,
+                        ),
                     );
                 }
 
@@ -89,56 +92,47 @@ where
                     Some(TrackedPayload::GadgetPayload(out))
                 }
             }
+            _ => {
+                debug!(
+                    node = node.name(),
+                    "tracking pass payload mismatch for node"
+                );
+                None
+            }
         }
     }
 }
-fn arith_to_tracked<B: SnarkBackend>(
+
+fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     arith_table: &arithmetic::table::ArithTable<B::F>,
+    oracle: &ArithTableOracle<B>,
     prover: &RefCell<ArgProver<B>>,
     total_committed: &Cell<usize>,
 ) -> TrackedTable<B> {
     debug!(
         poly_count = arith_table.polynomials().len(),
         log_size = arith_table.log_size(),
-        "tracking arithmetized polynomials"
+        "tracking arithmetized polynomials with commitments"
     );
-    let mut tracked_polys = IndexMap::with_capacity(arith_table.polynomials().len());
-    for (field_ref, mle_arc) in arith_table.polynomials() {
-        let tracked_poly = prover
-            .borrow_mut()
-            .track_and_commit_mat_mv_poly(mle_arc)
-            .expect("failed to track and commit polynomial");
-        tracked_polys.insert(field_ref.clone(), tracked_poly);
-        total_committed.set(total_committed.get() + 1);
-    }
-
-    TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
-}
-
-fn arith_to_tracked_from_oracle<B: SnarkBackend>(
-    arith_table: &arithmetic::table::ArithTable<B::F>,
-    oracle: &arithmetic::table_oracle::ArithTableOracle<B>,
-    prover: &RefCell<ArgProver<B>>,
-) -> TrackedTable<B> {
     let mut tracked_polys = IndexMap::with_capacity(arith_table.polynomials().len());
     let mut prover = prover.borrow_mut();
     for (field_ref, mle_arc) in arith_table.polynomials() {
         let commitment = oracle
             .comitments()
             .get(field_ref)
-            .expect("ctx_oracle missing commitment for table scan field")
+            .expect("commitment oracle missing field")
             .clone();
-        // Preserve prover tracking while skipping an extra commitment.
         let tracked_poly = prover
             .track_mat_mv_poly_with_commitment(mle_arc, commitment)
-            .expect("failed to track polynomial with ctx_oracle commitment");
+            .expect("failed to track polynomial with commitment");
         tracked_polys.insert(field_ref.clone(), tracked_poly);
+        total_committed.set(total_committed.get() + 1);
     }
 
     debug_assert_eq!(
         arith_table.log_size(),
         oracle.log_size(),
-        "ctx_oracle log_size should match arith table"
+        "commitment oracle log_size should match arith table"
     );
     TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
 }

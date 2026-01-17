@@ -13,7 +13,7 @@ use datafusion::{
         array::{ArrayRef, BooleanArray},
         compute::{concat, concat_batches},
         datatypes::{FieldRef, Schema},
-        record_batch::RecordBatch,
+        record_batch::{RecordBatch, RecordBatchOptions},
     },
     datasource::MemTable,
     prelude::DataFrame,
@@ -184,6 +184,12 @@ fn pad_batches_to_power_of_two(
     }
 
     let schema_ref = Arc::new(schema.clone());
+    if schema_ref.fields().is_empty() {
+        // Arrow requires an explicit row count when constructing a zero-column batch.
+        let options = RecordBatchOptions::new().with_row_count(Some(target));
+        let out_batch = RecordBatch::try_new_with_options(schema_ref, vec![], &options)?;
+        return Ok((vec![out_batch], target));
+    }
     let combined = if batches.is_empty() {
         None
     } else {

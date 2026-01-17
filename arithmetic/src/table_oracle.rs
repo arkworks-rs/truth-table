@@ -369,6 +369,15 @@ pub struct ArithTableOracle<B: SnarkBackend> {
     log_size: usize,
 }
 
+impl<B: SnarkBackend> Display for ArithTableOracle<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArithTableOracle")
+            .field("num_total_cols", &self.num_total_cols())
+            .field("log_size", &self.log_size())
+            .finish()
+    }
+}
+
 impl<B: SnarkBackend> ArithTableOracle<B> {
     /// Constructs a new `ArithTableOracle`
     pub fn new(

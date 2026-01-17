@@ -1,4 +1,5 @@
 use arithmetic::table::{ArithTable, TrackedTable};
+use arithmetic::table_oracle::ArithTableOracle;
 use datafusion::datasource::TableProvider;
 use datafusion::{
     arrow::array::RecordBatch,
@@ -12,6 +13,7 @@ use crate::irs::payloads::PayloadStructure;
 
 pub type MaterializedPayload = PayloadStructure<MaterializedTable>;
 pub type ArithPayload<F> = PayloadStructure<ArithTable<F>>;
+pub type CommittedPayload<B> = PayloadStructure<ArithTableOracle<B>>;
 pub type TrackedPayload<B> = PayloadStructure<TrackedTable<B>>;
 pub type VirtualizedPayload<B> = PayloadStructure<TrackedTable<B>>;
 pub type GadgetReadyPayload<B> = PayloadStructure<TrackedTable<B>>;

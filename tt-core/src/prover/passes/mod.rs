@@ -3,6 +3,7 @@
 //! This module contains transformation passes that operate on the prover's IRs, facilitating the progression from  dataframes (or logical plans) all the way to the arithmetized and tracked representations suitable for feeding to a SNARK prover.
 
 pub mod arithmetization;
+pub mod commitment;
 pub mod gadget_initialization;
 pub mod honest_prover;
 pub mod materialization;

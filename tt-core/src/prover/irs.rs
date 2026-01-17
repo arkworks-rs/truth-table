@@ -5,7 +5,8 @@
 use crate::{
     irs::ir::Ir,
     prover::payloads::{
-        ArithPayload, GadgetReadyPayload, MaterializedPayload, TrackedPayload, VirtualizedPayload,
+        ArithPayload, CommittedPayload, GadgetReadyPayload, MaterializedPayload, TrackedPayload,
+        VirtualizedPayload,
     },
 };
 use ark_piop::SnarkBackend;
@@ -18,6 +19,10 @@ pub type MaterializedIr<B> = Ir<B, MaterializedPayload>;
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain arithmetized polynomials derived from the materialized tables.
 pub type ArithmetizedIr<B> = Ir<B, ArithPayload<<B as SnarkBackend>::F>>;
+/// The committed Intermediate Representation with table oracle payloads.
+///
+/// This IR represents the stage in the prover's pipeline where each arithmetized table has been committed and serialized into an oracle (commitments only).
+pub type CommittedIr<B> = Ir<B, CommittedPayload<B>>;
 /// The tracked Intermediate Representation with tracked table payloads.
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain tracked tables; i.e. tables that have commited polynomials and already appended to the prover's transcript.
@@ -35,6 +40,7 @@ mod test {
     use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
     use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
+    use crate::prover::passes::commitment::CommitmentPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
@@ -177,8 +183,10 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass =
-                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
+            let commitment_pass = CommitmentPass::<DefaultSnarkBackend>::new(
+                arg_prover.mv_pcs_prover_param(),
+                CtxOracles::default(),
+            );
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -188,7 +196,12 @@ mod test {
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
+                arg_prover,
+                arithmetized_ir.payloads().clone(),
+            );
+            let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
         }
@@ -203,8 +216,10 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass =
-                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
+            let commitment_pass = CommitmentPass::<DefaultSnarkBackend>::new(
+                arg_prover.mv_pcs_prover_param(),
+                CtxOracles::default(),
+            );
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -214,7 +229,12 @@ mod test {
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
+                arg_prover,
+                arithmetized_ir.payloads().clone(),
+            );
+            let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
             println!("Planned Query: {query}");
@@ -231,8 +251,10 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass =
-                TrackingPass::<DefaultSnarkBackend>::new(arg_prover, CtxOracles::default());
+            let commitment_pass = CommitmentPass::<DefaultSnarkBackend>::new(
+                arg_prover.mv_pcs_prover_param(),
+                CtxOracles::default(),
+            );
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -242,7 +264,12 @@ mod test {
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
+                arg_prover,
+                arithmetized_ir.payloads().clone(),
+            );
+            let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
 
@@ -269,8 +296,10 @@ mod test {
             let planning_pass = OutputPlanningPass::<DefaultSnarkBackend>::new();
             let materialization_pass = MaterializationPass::<DefaultSnarkBackend>::new();
             let arithmetization_pass = ArithmetizationPass::<DefaultSnarkBackend>::new();
-            let tracking_pass =
-                TrackingPass::<DefaultSnarkBackend>::new(arg_prover.clone(), CtxOracles::default());
+            let commitment_pass = CommitmentPass::<DefaultSnarkBackend>::new(
+                arg_prover.mv_pcs_prover_param(),
+                CtxOracles::default(),
+            );
 
             let df = ctx.sql(query).await.unwrap();
             let lp = df.into_unoptimized_plan();
@@ -279,7 +308,12 @@ mod test {
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
-            let tracked_ir = arithmetized_ir.apply_local_pass_sequential(&tracking_pass);
+            let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
+            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
+                arg_prover.clone(),
+                arithmetized_ir.payloads().clone(),
+            );
+            let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
             let gadget_ir_view = crate::prover::irs::VirtualizedIr::new(

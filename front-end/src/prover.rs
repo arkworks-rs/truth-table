@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use ark_piop::{prover::ArgProver, SnarkBackend};
+use ark_piop::{pcs::PCS, prover::ArgProver, SnarkBackend};
 use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
+use indexmap::IndexMap;
 use tracing::debug;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::{
-        nodes::Node,
+        nodes::{Node, NodeId},
         payloads::PayloadStructure,
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
         shared_passes::{GadgetPlanningPass, OutputPlanningPass},
@@ -16,13 +17,15 @@ use tt_core::{
     },
     prover::{
         irs::{
-            ArithmetizedIr, GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr, TrackedIr,
-            VirtualizedIr as ProverVirtualizedIr,
+            ArithmetizedIr, CommittedIr, GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr,
+            TrackedIr, VirtualizedIr as ProverVirtualizedIr,
         },
+        payloads::ArithPayload,
         passes::{
-            arithmetization::ArithmetizationPass, gadget_initialization::GadgetInitializationPass,
-            honest_prover::HonestProverPass, materialization::MaterializationPass,
-            proving::ProvingPass, tracking::TrackingPass, virtualization::VirtualizationPass,
+            arithmetization::ArithmetizationPass, commitment::CommitmentPass,
+            gadget_initialization::GadgetInitializationPass, honest_prover::HonestProverPass,
+            materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
+            virtualization::VirtualizationPass,
         },
     },
 };
@@ -35,6 +38,7 @@ pub struct ProverIrStages<B: SnarkBackend> {
     pub gadget_planned: GadgetPlannedIr<B>,
     pub materialized: MaterializedIr<B>,
     pub arithmetized: ArithmetizedIr<B>,
+    pub committed: CommittedIr<B>,
     pub tracked: TrackedIr<B>,
     pub virtualized: ProverVirtualizedIr<B>,
     pub gadget_ready: ProverGadgetReadyIr<B>,
@@ -61,12 +65,19 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn arithmetization_pass(&self) -> ArithmetizationPass<B> {
         ArithmetizationPass::new()
     }
+    pub fn commitment_pass(
+        &self,
+        mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
+        ctx_oracles: CtxOracles<B>,
+    ) -> CommitmentPass<B> {
+        CommitmentPass::new(mv_pcs_param, ctx_oracles)
+    }
     pub fn tracking_pass(
         &self,
         arg_prover: ArgProver<B>,
-        ctx_oracles: CtxOracles<B>,
+        arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
     ) -> TrackingPass<B> {
-        TrackingPass::new(arg_prover, ctx_oracles)
+        TrackingPass::new(arg_prover, arith_payloads)
     }
 }
 
@@ -156,10 +167,18 @@ impl<B: SnarkBackend> TTProver<B> {
         // );
 
         let arg_prover = self.arg_prover().clone();
-        let tracked_ir =
-            arithmetized_ir.apply_local_pass_sequential(&self.prover_config().tracking_pass(
-                arg_prover.clone(),
+        let committed_ir = arithmetized_ir.apply_local_pass_parallel(
+            &self.prover_config().commitment_pass(
+                arg_prover.mv_pcs_prover_param(),
                 self.shared_config().ctx_oracles().clone(),
+            ),
+        );
+        // debug!("committed ir:\n{}", committed_ir.display_graphviz(true));
+
+        let tracked_ir =
+            committed_ir.apply_local_pass_sequential(&self.prover_config().tracking_pass(
+                arg_prover.clone(),
+                arithmetized_ir.payloads().clone(),
             ));
         // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
@@ -199,6 +218,7 @@ impl<B: SnarkBackend> TTProver<B> {
                 gadget_planned: gadget_planned_ir,
                 materialized: materialized_ir,
                 arithmetized: arithmetized_ir,
+                committed: committed_ir,
                 tracked: tracked_ir,
                 virtualized: virtualized_ir,
                 gadget_ready: gadget_ready_ir,
