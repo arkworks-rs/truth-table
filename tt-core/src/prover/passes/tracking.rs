@@ -104,7 +104,6 @@ fn arith_to_tracked<B: SnarkBackend>(
     );
     let mut tracked_polys = IndexMap::with_capacity(arith_table.polynomials().len());
     for (field_ref, mle_arc) in arith_table.polynomials() {
-        debug!(field = ?field_ref, "tracking polynomial");
         let tracked_poly = prover
             .borrow_mut()
             .track_and_commit_mat_mv_poly(mle_arc)
