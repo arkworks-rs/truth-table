@@ -9,14 +9,16 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::One;
-use ark_piop::{SnarkBackend, piop::PIOP};
-use col_toolbox::no_zeros_check::{
-    NoZerosCheck, NoZerosCheckProverInput, NoZerosCheckVerifierInput,
-};
+use ark_ff::{One, batch_inversion};
+use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use indexmap::IndexMap;
+
+/// Label for the left input to the neq gadget
 pub const LEFT_LABEL: &str = "left";
+/// Label for the right input to the neq gadget
 pub const RIGHT_LABEL: &str = "right";
+
+/// A gadget node that enforces that two tables are not equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -25,8 +27,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn display(&self) -> String {
-        let name = self.name();
-        crate::irs::nodes::display_with_inputs(&name, &self.children())
+        self.name()
     }
 
     fn cost(
@@ -117,10 +118,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let right_col = right_input.tracked_col_by_ind(*right_data_ind);
             let non_zero_poly =
                 &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
-            let nozercheck_piop_prover_input = NoZerosCheckProverInput {
-                col: TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None),
+            let col = TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None);
+            let col_poly = col.data_tracked_poly().clone();
+            let col_sel = col.activator_tracked_poly();
+            let col_poly_evals = col_poly.evaluations();
+            let mut eval_inverses: Vec<B::F> = col_poly_evals.clone();
+            batch_inversion(&mut eval_inverses);
+            let inverses_mle = MLE::from_evaluations_vec(col.log_size(), eval_inverses);
+
+            // Commit the inverse polynomial and add a zerocheck claim.
+            let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
+            let no_zeros_check_poly = match col_sel {
+                Some(col_sel) => {
+                    let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                    &prod - &col_sel
+                }
+                None => (&col_poly * &inverses_poly) - B::F::one(),
             };
-            NoZerosCheck::prove(prover, nozercheck_piop_prover_input)?;
+
+            prover.add_mv_zerocheck_claim(no_zeros_check_poly.id())?;
         }
         Ok(())
     }
@@ -160,10 +176,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             for (row_idx, (left_val, right_val)) in
                 left_vals.iter().zip(right_vals.iter()).enumerate()
             {
-                if let Some(act) = activator.as_ref() {
-                    if act[row_idx] != B::F::one() {
-                        continue;
-                    }
+                if let Some(act) = activator.as_ref()
+                    && act[row_idx] != B::F::one()
+                {
+                    continue;
                 }
                 if left_val == right_val {
                     // Activated rows must differ on the checked column.
@@ -207,14 +223,20 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let right_col = right_input.tracked_col_oracle_by_ind(*right_data_ind);
             let non_zero_oracle = &left_col.activated_data_tracked_oracle()
                 - &right_col.activated_data_tracked_oracle();
-            let nozercheck_piop_verifier_input = NoZerosCheckVerifierInput {
-                tracked_col_oracle: TrackedColOracle::new(
-                    non_zero_oracle,
-                    left_col.activator_tracked_oracle(),
-                    None,
-                ),
+            let tracked_col_oracle =
+                TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
+            let col_poly = tracked_col_oracle.data_tracked_oracle().clone();
+            let col_sel = tracked_col_oracle.activator_tracked_oracle().clone();
+            let inverses_poly_id = verifier.peek_next_id();
+            let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
+            let no_zeros_check_poly = match col_sel {
+                Some(col_sel) => {
+                    let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                    &prod - &col_sel
+                }
+                None => (&col_poly * &inverses_poly) - B::F::one(),
             };
-            NoZerosCheck::verify(verifier, nozercheck_piop_verifier_input)?;
+            verifier.add_zerocheck_claim(no_zeros_check_poly.id());
         }
         Ok(())
     }
