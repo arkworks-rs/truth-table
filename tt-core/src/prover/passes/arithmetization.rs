@@ -7,6 +7,7 @@ use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
+use crate::irs::nodes::IsNode;
 use crate::{
     irs::{
         ir::LocalPass,
@@ -37,18 +38,22 @@ where
 {
     fn transform(
         &self,
-        _node: &Node<B>,
+        node: &Node<B>,
         _id: NodeId,
         payload: Option<&MaterializedPayload>,
     ) -> Option<ArithPayload<B::F>> {
         match payload? {
-            MaterializedPayload::PlanPayload(mat) => Some(ArithPayload::PlanPayload(
-                arithmetize_materialized_table(mat),
-            )),
+            MaterializedPayload::PlanPayload(mat) => {
+                let arithmetized_table = arithmetize_materialized_table(mat);
+                tracing::debug!( node = %node.name(), typ= "plan", num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), "Arithmetized");
+                Some(ArithPayload::PlanPayload(arithmetized_table))
+            }
             MaterializedPayload::GadgetPayload(map) => {
                 let mut out = IndexMap::new();
                 for (k, mat) in map {
-                    out.insert(k.clone(), arithmetize_materialized_table(mat));
+                    let arithmetized_table = arithmetize_materialized_table(mat);
+                    tracing::debug!( node = %node.name(), typ= "plan", key = %k, num_cols= arithmetized_table.num_total_cols(), log_size= arithmetized_table.log_size(), "Arithmetized");
+                    out.insert(k.clone(), arithmetized_table);
                 }
                 Some(ArithPayload::GadgetPayload(out))
             }

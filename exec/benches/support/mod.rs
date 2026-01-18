@@ -10,14 +10,27 @@ use std::{
 use anyhow::{Context, Result};
 use ark_piop::{DefaultSnarkBackend, prover::structs::proof::SNARKProof, verifier::ArgVerifier};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use datafusion::{config::ConfigOptions, optimizer::{Analyzer, Optimizer, OptimizerContext}, prelude::{ParquetReadOptions, SessionContext}};
-use front_end::{shared::TTSharedConfig, structs::{Artifact, TTProof, TTVk}, verifier::{TTVerifier, TTVerifierConfig}};
+use datafusion::{
+    config::ConfigOptions,
+    optimizer::{Analyzer, Optimizer, OptimizerContext},
+    prelude::{ParquetReadOptions, SessionContext},
+};
+use front_end::{
+    prover::TTProver,
+    shared::TTSharedConfig,
+    structs::{Artifact, TTProof, TTVk},
+    verifier::{TTVerifier, TTVerifierConfig},
+};
 use indexmap::IndexMap;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
 
-use exec::{prove::ProveBuilder, setup::DEFAULT_BENCH_LOG_SIZE, test_utils::{resolve_key_paths, resolve_oracle_path_blocking}};
+use exec::{
+    prove::ProveBuilder,
+    setup::DEFAULT_BENCH_LOG_SIZE,
+    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
+};
 
 pub type B = DefaultSnarkBackend;
 
@@ -55,6 +68,11 @@ pub struct VerifierBenchState {
     pub proof_bytes: Vec<u8>,
 }
 
+pub struct ProverBenchIteration {
+    pub prover: TTProver<B>,
+    pub query: String,
+}
+
 static PROOF_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<BenchProof>>>> = OnceLock::new();
 static PROOF_SIZE_LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
 
@@ -63,21 +81,50 @@ pub fn init_bench_tracing() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
         use tracing_subscriber::EnvFilter;
+        use tracing_subscriber::filter::filter_fn;
+        use tracing_subscriber::fmt::format::FmtSpan;
+        use tracing_subscriber::prelude::*;
 
         // Default to info, and always suppress DataFusion unless explicitly requested.
         let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
-        let mut filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        let mut filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("off"));
         if !rust_log.contains("datafusion") {
-            filter = filter.add_directive("datafusion=off".parse().expect("parse datafusion directive"));
-            filter = filter.add_directive("datafusion_=off".parse().expect("parse datafusion directive"));
+            filter = filter.add_directive(
+                "datafusion=off"
+                    .parse()
+                    .expect("parse datafusion directive"),
+            );
+            filter = filter.add_directive(
+                "datafusion_=off"
+                    .parse()
+                    .expect("parse datafusion directive"),
+            );
         }
         if !rust_log.contains("sqlparser") {
-            filter = filter.add_directive("sqlparser=off".parse().expect("parse sqlparser directive"));
+            filter =
+                filter.add_directive("sqlparser=off".parse().expect("parse sqlparser directive"));
         }
 
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_target(true)
+        // Use tracing-tree for hierarchical spans in bench logs.
+        let tree_layer = tracing_tree::HierarchicalLayer::default()
+            .with_targets(false)
+            .with_timer(tracing_tree::time::Uptime::default())
+            .with_indent_lines(true)
+            .with_deferred_spans(true)
+            .with_writer(std::io::stdout);
+
+        // Emit span close events with elapsed time so span durations are visible.
+        let span_timing_layer = tracing_subscriber::fmt::layer()
+            .with_span_events(FmtSpan::CLOSE)
+            .with_timer(tracing_subscriber::fmt::time::Uptime::default())
+            .with_target(false)
+            .with_filter(filter_fn(|metadata| metadata.is_span()));
+
+        let _ = tracing_subscriber::registry()
+            .with(filter)
+            .with(tree_layer)
+            .with(span_timing_layer)
             .try_init();
     });
 }
@@ -92,9 +139,7 @@ pub fn prepare_assets(case: BenchCase) -> BenchAssets {
     let parquet_paths = case
         .tables
         .iter()
-        .map(|name| {
-            tpch_data::bench_data_path(format!("{name}.parquet"))
-        })
+        .map(|name| tpch_data::bench_data_path(format!("{name}.parquet")))
         .collect::<Vec<_>>();
 
     let (pk_path, vk_path) =
@@ -118,7 +163,13 @@ pub fn prepare_assets(case: BenchCase) -> BenchAssets {
 }
 
 pub fn run_prover_once(assets: &BenchAssets) -> TTProof<B> {
-    // Build a fresh prover per bench iteration to avoid stateful reuse.
+    // Build the prover and run proof generation once (used for warmup/caching).
+    let iteration = prepare_prover_iteration(assets);
+    run_prover_iteration(iteration)
+}
+
+pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
+    // Build a fresh prover instance outside the timed region.
     let runner = ProveBuilder::new()
         .with_query(assets.case.query.to_string())
         .with_parquet_paths(assets.parquet_paths.clone())
@@ -128,8 +179,17 @@ pub fn run_prover_once(assets: &BenchAssets) -> TTProof<B> {
         .expect("prepare prover runner for bench");
 
     let prover = block_on(runner.build_tt_prover()).expect("build prover for bench");
+
+    ProverBenchIteration {
+        prover,
+        query: assets.case.query.to_string(),
+    }
+}
+
+pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
+    // Time only the proving call to avoid counting setup.
     let (_table, snark_proof) =
-        block_on(prover.prove(assets.case.query)).expect("prove for bench");
+        block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
     snark_proof
 }
 
@@ -211,11 +271,7 @@ pub fn log_proof_size_once(case_name: &'static str, byte_len: usize) {
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
     if guard.insert(case_name) {
-        println!(
-            "proof size ({}): {}",
-            case_name,
-            format_bytes(byte_len)
-        );
+        println!("proof size ({}): {}", case_name, format_bytes(byte_len));
     }
 }
 
@@ -244,15 +300,11 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
             .to_string_lossy()
             .to_string();
 
-        block_on(
-            ctx.register_parquet(
-                &table_name,
-                parquet_path
-                    .to_str()
-                    .expect("parquet path must be UTF-8"),
-                ParquetReadOptions::default(),
-            ),
-        )
+        block_on(ctx.register_parquet(
+            &table_name,
+            parquet_path.to_str().expect("parquet path must be UTF-8"),
+            ParquetReadOptions::default(),
+        ))
         .expect("register parquet for bench");
     }
 
@@ -264,8 +316,7 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
         .expect("load oracles for bench");
     let ctx_oracles = ctx_oracles_from_oracles(&oracles).expect("build ctx oracles for bench");
 
-    let tt_vk =
-        TTVk::<B>::load(&assets.vk_path).expect("load verifying key for bench");
+    let tt_vk = TTVk::<B>::load(&assets.vk_path).expect("load verifying key for bench");
     let arg_verifier = ArgVerifier::new_from_vk(tt_vk.into_inner());
 
     let shared_config = build_shared_config(ctx, ctx_oracles);

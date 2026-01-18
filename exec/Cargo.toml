@@ -33,6 +33,7 @@ divan = { workspace = true }
 tpch-data = { path = "../tpch-data" }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-tree = "0.4"
 
 [[bench]]
 name = "benches"

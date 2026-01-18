@@ -4,7 +4,7 @@ use divan::Bencher;
 
 use crate::support::{
     BenchCase, build_verifier_state, ensure_proof, log_proof_size_once, prepare_assets,
-    run_prover_once, run_verifier_once, warmup_proof,
+    prepare_prover_iteration, run_prover_iteration, run_verifier_once, warmup_proof,
 };
 
 fn aggregate_cases() -> &'static [BenchCase] {
@@ -39,11 +39,14 @@ fn aggregate_cases() -> &'static [BenchCase] {
 
 #[divan::bench(args = aggregate_cases(), max_time = 1)]
 fn bench_aggregate_prover(bencher: Bencher, case: BenchCase) {
-    // Prover benchmark: run a single prove per Divan iteration.
+    // Prover benchmark: build a new prover per iteration, time only prove().
     bencher
-        .with_inputs(|| prepare_assets(case))
-        .bench_local_values(|assets| {
-            let _proof = run_prover_once(&assets);
+        .with_inputs(|| {
+            let assets = prepare_assets(case);
+            prepare_prover_iteration(&assets)
+        })
+        .bench_local_values(|iteration| {
+            let _proof = run_prover_iteration(iteration);
         });
 }
 
