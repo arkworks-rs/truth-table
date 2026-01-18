@@ -4,7 +4,10 @@ use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use indexmap::IndexMap;
 
 use crate::{
-    irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+    irs::{
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        payloads::PayloadStructure,
+    },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
@@ -48,9 +51,30 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Gadgets::SortNoDup(sort_gadgets) = &self.gadgets else {
+            return Ok(());
+        };
+        let Some(PayloadStructure::GadgetPayload(payload)) = planned_ir.payload_for_node(&id)
+        else {
+            panic!("No gadget payload found for node {:?}", id);
+        };
+        let Some(input_hint) = payload.get(INPUT_LABEL).cloned() else {
+            panic!("No input hint found for NoDup gadget at node {:?}", id);
+        };
+        let sort_id = sort_gadgets.sort.id();
+        let mut sort_payload = match planned_ir.payload_for_node(&sort_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        sort_payload.insert(
+            crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
+            input_hint,
+        );
+        planned_ir
+            .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
         Ok(())
     }
 
