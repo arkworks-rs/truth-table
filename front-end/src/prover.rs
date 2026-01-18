@@ -5,6 +5,8 @@ use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
 use indexmap::IndexMap;
 use tracing::debug;
+#[cfg(feature = "honest-prover")]
+use tt_core::prover::passes::honest_prover::HonestProverPass;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
@@ -28,8 +30,6 @@ use tt_core::{
         payloads::ArithPayload,
     },
 };
-#[cfg(feature = "honest-prover")]
-use tt_core::prover::passes::honest_prover::HonestProverPass;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
@@ -150,10 +150,10 @@ impl<B: SnarkBackend> TTProver<B> {
                 .prover_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
-        // debug!(
-        //     "gadget planned ir:\n{}",
-        //     gadget_planned_ir.display_graphviz(true)
-        // );
+        debug!(
+            "gadget planned ir:\n{}",
+            gadget_planned_ir.display_graphviz(true)
+        );
         let materialized_ir = gadget_planned_ir
             .apply_local_pass_parallel(&self.prover_config().materialization_pass());
         // debug!(
@@ -207,8 +207,7 @@ impl<B: SnarkBackend> TTProver<B> {
                 gadget_ready_ir.tree().clone(),
                 gadget_ready_ir.payloads().clone(),
             );
-            let honest_prover_pass =
-                HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
+            let honest_prover_pass = HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
             let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
             honest_prover_pass.take_result()?;
         }
