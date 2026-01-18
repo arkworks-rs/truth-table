@@ -550,7 +550,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort_specs: Vec<(String, bool, bool)>, strict: bool) -> Self {
         let sign_gadget_names: Vec<String> = sort_specs
@@ -593,7 +592,7 @@ fn build_sign_gadgets<B: SnarkBackend>(asc: &[bool], strict: bool) -> Vec<Arc<No
         .map(|(idx, &is_asc)| {
             let strict_for_col = strict && idx == last_idx;
             let sign = sign_for_column(is_asc, strict_for_col);
-            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(sign))))
+            Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(vec![sign]))))
         })
         .collect()
 }

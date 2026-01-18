@@ -102,19 +102,41 @@ fn run_sign_lookup_roundtrip(
     data_type: DataType,
     evals: Vec<<Backend as SnarkBackend>::F>,
 ) -> SnarkResult<()> {
+    run_sign_lookup_roundtrip_multi(vec![sign], vec![(data_type, evals)])
+}
+
+fn run_sign_lookup_roundtrip_multi(
+    signs: Vec<Sign>,
+    columns: Vec<(DataType, Vec<<Backend as SnarkBackend>::F>)>,
+) -> SnarkResult<()> {
     let (mut prover, mut verifier) = test_prelude::<Backend>().unwrap();
 
-    let mle = MLE::from_evaluations_vec(LOG_SIZE, evals);
-    let tracked_poly = prover.track_and_commit_mat_mv_poly(&mle).unwrap();
-    let tracked_poly_id = tracked_poly.id();
+    assert_eq!(
+        signs.len(),
+        columns.len(),
+        "signs and columns must have matching lengths"
+    );
 
-    let schema = Schema::new(vec![Field::new("input", data_type, false)]);
-    let field_ref = schema.fields()[0].clone();
     let mut tracked_polys = IndexMap::new();
-    tracked_polys.insert(field_ref.clone(), tracked_poly);
+    let mut tracked_poly_ids = Vec::with_capacity(columns.len());
+    let mut fields = Vec::with_capacity(columns.len());
+    for (idx, (data_type, evals)) in columns.into_iter().enumerate() {
+        assert_eq!(
+            evals.len(),
+            1_usize << LOG_SIZE,
+            "test evals must match LOG_SIZE"
+        );
+        let mle = MLE::from_evaluations_vec(LOG_SIZE, evals);
+        let tracked_poly = prover.track_and_commit_mat_mv_poly(&mle).unwrap();
+        tracked_poly_ids.push(tracked_poly.id());
+        let field = Arc::new(Field::new(format!("input_{idx}"), data_type, false));
+        tracked_polys.insert(field.clone(), tracked_poly);
+        fields.push(field);
+    }
+    let schema = Schema::new(fields);
     let tracked_table = TrackedTable::new(Some(schema.clone()), tracked_polys, LOG_SIZE);
 
-    let sign_node = Arc::new(SignNode::<Backend>::new(sign));
+    let sign_node = Arc::new(SignNode::<Backend>::new(signs));
     let root = Arc::new(Node::Gadget(sign_node.clone()));
     let tree = Tree::new_from_root(root.clone());
 
@@ -150,9 +172,12 @@ fn run_sign_lookup_roundtrip(
     let proof = prover.build_proof()?;
     verifier.set_proof(proof);
 
-    let tracked_oracle = verifier.track_mv_com_by_id(tracked_poly_id).unwrap();
     let mut tracked_oracles = IndexMap::new();
-    tracked_oracles.insert(field_ref, tracked_oracle);
+    for (idx, tracked_poly_id) in tracked_poly_ids.into_iter().enumerate() {
+        let tracked_oracle = verifier.track_mv_com_by_id(tracked_poly_id).unwrap();
+        let field_ref = schema.fields()[idx].clone();
+        tracked_oracles.insert(field_ref, tracked_oracle);
+    }
     let table_oracle = TrackedTableOracle::new(Some(schema), tracked_oracles, LOG_SIZE);
 
     let gadget_payload = IndexMap::from([(INPUT_LABEL.to_string(), table_oracle)]);
@@ -294,4 +319,15 @@ fn gadget_sign_soundness_nonnegative_int32_rejects_negative() {
     let evals = evals_from_ints(&[-1_i32, 0, 2, 3]);
     let err = run_sign_lookup_roundtrip(Sign::NonNegative, DataType::Int32, evals).unwrap_err();
     assert_soundness_error(err);
+}
+
+#[test]
+fn gadget_sign_completeness_multi_column_mixed_signs() {
+    let col0 = evals_from_ints(&[1_i64, 2, 3, 4]);
+    let col1 = evals_from_ints(&[0_i64, -1, -2, 0]);
+    run_sign_lookup_roundtrip_multi(
+        vec![Sign::Positive, Sign::NonPositive],
+        vec![(DataType::Int64, col0), (DataType::Int64, col1)],
+    )
+    .unwrap();
 }

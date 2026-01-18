@@ -36,7 +36,7 @@ use crate::{
 pub const INPUT_LABEL: &str = "__input__";
 #[cfg(test)]
 mod tests;
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sign {
     NonNegative,
     Negative,
@@ -44,7 +44,8 @@ pub enum Sign {
     Positive,
 }
 pub struct SignNode<B: SnarkBackend> {
-    sign: Sign,
+    sign: Vec<Sign>,
+    has_zero_inds: Vec<usize>,
     neq_zero_gadget: Option<Arc<Node<B>>>,
 }
 
@@ -116,7 +117,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
         );
         let mut left_cols = IndexMap::new();
         let mut right_cols = IndexMap::new();
-        for data_ind in data_indices {
+        for &sign_idx in &self.has_zero_inds {
+            let data_ind = data_indices.get(sign_idx).copied().unwrap_or_else(|| {
+                panic!(
+                    "Sign gadget expects at least {} data columns, got {}",
+                    sign_idx + 1,
+                    data_indices.len()
+                );
+            });
             let input_col = input.tracked_col_by_ind(data_ind);
             let data_field = input_col
                 .field_ref()
@@ -185,7 +193,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
         );
         let mut left_cols = IndexMap::new();
         let mut right_cols = IndexMap::new();
-        for data_ind in data_indices {
+        for &sign_idx in &self.has_zero_inds {
+            let data_ind = data_indices.get(sign_idx).copied().unwrap_or_else(|| {
+                panic!(
+                    "Sign gadget expects at least {} data columns, got {}",
+                    sign_idx + 1,
+                    data_indices.len()
+                );
+            });
             let input_col = input.tracked_col_oracle_by_ind(data_ind);
             let data_field = input_col
                 .field_ref()
@@ -241,9 +256,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             !data_inds.is_empty(),
             "Sign gadget supports at least one data column per input."
         );
-        for data_ind in data_inds {
+        for (idx, data_ind) in data_inds.clone().into_iter().enumerate() {
             let input_col = input.tracked_col_by_ind(data_ind);
-            match self.sign {
+            let sign = self.sign_for_index(idx, data_inds.len());
+            match sign {
                 Sign::NonNegative => {
                     Self::prove_sign_inner(prover, &input_col, Sign::NonNegative)?;
                 }
@@ -287,12 +303,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         let activator = input
             .activator_tracked_poly()
             .map(|poly| poly.evaluations());
-        for data_ind in data_inds {
+        for (idx, data_ind) in data_inds.clone().into_iter().enumerate() {
             let input_col = input.tracked_col_by_ind(data_ind);
             let field_ref = input_col
                 .field_ref()
                 .expect("Expected field ref for Sign gadget");
             let data_type = field_ref.data_type();
+            let sign = self.sign_for_index(idx, data_inds.len());
             let evals = input_col.data_tracked_poly().evaluations();
             for (idx, eval) in evals.iter().enumerate() {
                 if let Some(act) = activator.as_ref() {
@@ -300,7 +317,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                         continue;
                     }
                 }
-                let (check_val, check_sign) = match self.sign {
+                let (check_val, check_sign) = match sign {
                     Sign::NonNegative => (*eval, Sign::NonNegative),
                     Sign::Positive => (*eval, Sign::Positive),
                     Sign::NonPositive => (-*eval, Sign::NonNegative),
@@ -314,7 +331,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                         gadget = "Sign",
                         row = idx,
                         data_type = %data_type,
-                        sign = ?self.sign,
+                        sign = ?sign,
                         effective_sign = ?check_sign,
                         bits = ?bit_width,
                         signed_val = ?signed_val,
@@ -352,9 +369,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             !data_inds.is_empty(),
             "Sign gadget supports at least one data column per input."
         );
-        for data_ind in data_inds {
+        for (idx, data_ind) in data_inds.clone().into_iter().enumerate() {
             let input_col = input.tracked_col_oracle_by_ind(data_ind);
-            match self.sign {
+            let sign = self.sign_for_index(idx, data_inds.len());
+            match sign {
                 Sign::NonNegative => {
                     Self::verify_sign_inner(verifier, &input_col, Sign::NonNegative)?;
                 }
@@ -380,12 +398,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
 }
 
 impl<B: SnarkBackend> SignNode<B> {
-    pub fn new(sign: Sign) -> Self {
-        let has_zero = match sign {
-            Sign::NonNegative | Sign::NonPositive => true,
-            Sign::Positive | Sign::Negative => false,
-        };
-        let neq_zero_gadget = if !has_zero {
+    pub fn new(sign: Vec<Sign>) -> Self {
+        let has_zero_inds = sign
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                if *s == Sign::Positive || *s == Sign::Negative {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let neq_zero_gadget = if !has_zero_inds.is_empty() {
             Some(Arc::new(Node::<B>::Gadget(
                 Arc::new(neq::GadgetNode::new()),
             )))
@@ -394,8 +419,22 @@ impl<B: SnarkBackend> SignNode<B> {
         };
         Self {
             sign,
+            has_zero_inds,
             neq_zero_gadget,
         }
+    }
+
+    fn sign_for_index(&self, idx: usize, total: usize) -> Sign {
+        if self.sign.len() == 1 {
+            return self.sign[0];
+        }
+        *self.sign.get(idx).unwrap_or_else(|| {
+            panic!(
+                "Sign gadget expects {} sign specs, got {}",
+                total,
+                self.sign.len()
+            )
+        })
     }
 
     fn sparse_range_poly_by_nv(nv: usize) -> SnarkResult<SparsePolynomial<B::F, SparseTerm>> {
