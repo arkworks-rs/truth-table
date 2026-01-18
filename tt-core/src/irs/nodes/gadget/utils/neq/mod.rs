@@ -9,7 +9,7 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{One, batch_inversion};
+use ark_ff::{One, PrimeField, batch_inversion};
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use indexmap::IndexMap;
 
@@ -20,6 +20,10 @@ pub const RIGHT_LABEL: &str = "right";
 
 /// A gadget node that enforces that two tables are not equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
+
+fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
+    (0..count).map(|i| F::from((i + 1) as u64)).collect()
+}
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -113,31 +117,37 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
-            let left_col = left_input.tracked_col_by_ind(*left_data_ind);
-            let right_col = right_input.tracked_col_by_ind(*right_data_ind);
-            let non_zero_poly =
-                &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
-            let col = TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None);
-            let col_poly = col.data_tracked_poly().clone();
-            let col_sel = col.activator_tracked_poly();
-            let col_poly_evals = col_poly.evaluations();
-            let mut eval_inverses: Vec<B::F> = col_poly_evals.clone();
-            batch_inversion(&mut eval_inverses);
-            let inverses_mle = MLE::from_evaluations_vec(col.log_size(), eval_inverses);
+        let (left_col, right_col) = if left_data_inds.len() == 1 {
+            let left_col = left_input.tracked_col_by_ind(left_data_inds[0]);
+            let right_col = right_input.tracked_col_by_ind(right_data_inds[0]);
+            (left_col, right_col)
+        } else {
+            let challenges = folding_challenges::<B::F>(left_data_inds.len());
+            let left_col = left_input.fold_all_data_columns(&challenges);
+            let right_col = right_input.fold_all_data_columns(&challenges);
+            (left_col, right_col)
+        };
+        let non_zero_poly =
+            &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+        let col = TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None);
+        let col_poly = col.data_tracked_poly().clone();
+        let col_sel = col.activator_tracked_poly();
+        let col_poly_evals = col_poly.evaluations();
+        let mut eval_inverses: Vec<B::F> = col_poly_evals.clone();
+        batch_inversion(&mut eval_inverses);
+        let inverses_mle = MLE::from_evaluations_vec(col.log_size(), eval_inverses);
 
-            // Commit the inverse polynomial and add a zerocheck claim.
-            let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
-            let no_zeros_check_poly = match col_sel {
-                Some(col_sel) => {
-                    let prod = &(&col_poly * &col_sel) * &inverses_poly;
-                    &prod - &col_sel
-                }
-                None => (&col_poly * &inverses_poly) - B::F::one(),
-            };
+        // Commit the inverse polynomial and add a zerocheck claim.
+        let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
+        let no_zeros_check_poly = match col_sel {
+            Some(col_sel) => {
+                let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                &prod - &col_sel
+            }
+            None => (&col_poly * &inverses_poly) - B::F::one(),
+        };
 
-            prover.add_mv_zerocheck_claim(no_zeros_check_poly.id())?;
-        }
+        prover.add_mv_zerocheck_claim(no_zeros_check_poly.id())?;
         Ok(())
     }
 
@@ -165,30 +175,36 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
-            let left_col = left_input.tracked_col_by_ind(*left_data_ind);
-            let right_col = right_input.tracked_col_by_ind(*right_data_ind);
-            let left_vals = left_col.data_tracked_poly().evaluations();
-            let right_vals = right_col.data_tracked_poly().evaluations();
-            let activator = left_col
-                .activator_tracked_poly()
-                .map(|poly| poly.evaluations());
-            for (row_idx, (left_val, right_val)) in
-                left_vals.iter().zip(right_vals.iter()).enumerate()
+        let (left_col, right_col) = if left_data_inds.len() == 1 {
+            let left_col = left_input.tracked_col_by_ind(left_data_inds[0]);
+            let right_col = right_input.tracked_col_by_ind(right_data_inds[0]);
+            (left_col, right_col)
+        } else {
+            let challenges = folding_challenges::<B::F>(left_data_inds.len());
+            let left_col = left_input.fold_all_data_columns(&challenges);
+            let right_col = right_input.fold_all_data_columns(&challenges);
+            (left_col, right_col)
+        };
+        let left_vals = left_col.data_tracked_poly().evaluations();
+        let right_vals = right_col.data_tracked_poly().evaluations();
+        let activator = left_col
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations());
+        for (row_idx, (left_val, right_val)) in
+            left_vals.iter().zip(right_vals.iter()).enumerate()
+        {
+            if let Some(act) = activator.as_ref()
+                && act[row_idx] != B::F::one()
             {
-                if let Some(act) = activator.as_ref()
-                    && act[row_idx] != B::F::one()
-                {
-                    continue;
-                }
-                if left_val == right_val {
-                    // Activated rows must differ on the checked column.
-                    return Err(ark_piop::errors::SnarkError::ProverError(
-                        ark_piop::prover::errors::ProverError::HonestProverError(
-                            ark_piop::prover::errors::HonestProverError::FalseClaim,
-                        ),
-                    ));
-                }
+                continue;
+            }
+            if left_val == right_val {
+                // Activated rows must differ on the checked column.
+                return Err(ark_piop::errors::SnarkError::ProverError(
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
             }
         }
         Ok(())
@@ -218,26 +234,32 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        for (left_data_ind, right_data_ind) in left_data_inds.iter().zip(right_data_inds.iter()) {
-            let left_col = left_input.tracked_col_oracle_by_ind(*left_data_ind);
-            let right_col = right_input.tracked_col_oracle_by_ind(*right_data_ind);
-            let non_zero_oracle = &left_col.activated_data_tracked_oracle()
-                - &right_col.activated_data_tracked_oracle();
-            let tracked_col_oracle =
-                TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
-            let col_poly = tracked_col_oracle.data_tracked_oracle().clone();
-            let col_sel = tracked_col_oracle.activator_tracked_oracle().clone();
-            let inverses_poly_id = verifier.peek_next_id();
-            let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
-            let no_zeros_check_poly = match col_sel {
-                Some(col_sel) => {
-                    let prod = &(&col_poly * &col_sel) * &inverses_poly;
-                    &prod - &col_sel
-                }
-                None => (&col_poly * &inverses_poly) - B::F::one(),
-            };
-            verifier.add_zerocheck_claim(no_zeros_check_poly.id());
-        }
+        let (left_col, right_col) = if left_data_inds.len() == 1 {
+            let left_col = left_input.tracked_col_oracle_by_ind(left_data_inds[0]);
+            let right_col = right_input.tracked_col_oracle_by_ind(right_data_inds[0]);
+            (left_col, right_col)
+        } else {
+            let challenges = folding_challenges::<B::F>(left_data_inds.len());
+            let left_col = left_input.fold_all_data_oracles(&challenges);
+            let right_col = right_input.fold_all_data_oracles(&challenges);
+            (left_col, right_col)
+        };
+        let non_zero_oracle = &left_col.activated_data_tracked_oracle()
+            - &right_col.activated_data_tracked_oracle();
+        let tracked_col_oracle =
+            TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
+        let col_poly = tracked_col_oracle.data_tracked_oracle().clone();
+        let col_sel = tracked_col_oracle.activator_tracked_oracle().clone();
+        let inverses_poly_id = verifier.peek_next_id();
+        let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
+        let no_zeros_check_poly = match col_sel {
+            Some(col_sel) => {
+                let prod = &(&col_poly * &col_sel) * &inverses_poly;
+                &prod - &col_sel
+            }
+            None => (&col_poly * &inverses_poly) - B::F::one(),
+        };
+        verifier.add_zerocheck_claim(no_zeros_check_poly.id());
         Ok(())
     }
 

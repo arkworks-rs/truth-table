@@ -9,7 +9,6 @@ use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
-    piop::PIOP,
     prover::ArgProver,
     prover::structs::polynomial::TrackedPoly,
     verifier::{
@@ -21,7 +20,6 @@ use ark_poly::{
     DenseMVPolynomial, Polynomial,
     multivariate::{SparsePolynomial, SparseTerm, Term},
 };
-use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::DataType;
 use either::Either;
 use indexmap::IndexMap;
@@ -286,7 +284,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             !data_inds.is_empty(),
             "Sign gadget supports at least one data column per input."
         );
-        let activator = input.activator_tracked_poly().map(|poly| poly.evaluations());
+        let activator = input
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations());
         for data_ind in data_inds {
             let input_col = input.tracked_col_by_ind(data_ind);
             let field_ref = input_col
@@ -422,14 +422,9 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
         nv: usize,
     ) -> SnarkResult<()> {
+        let col_activated_poly = col.activated_data_tracked_poly();
         let range_poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv));
-        let super_col = TrackedCol::new(range_poly, None, None);
-        let input = LookupProverInput {
-            included_cols: vec![col.clone()],
-            super_col,
-        };
-        LookupPIOP::<B>::prove(prover, input)?;
-        Ok(())
+        prover.add_mv_lookup_claim(range_poly.id(), col_activated_poly.id())
     }
 
     fn negated_col(col: &TrackedCol<B>) -> TrackedCol<B> {
@@ -459,14 +454,9 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedColOracle<B>,
         nv: usize,
     ) -> SnarkResult<()> {
-        let range_oracle = verifier.track_oracle(Self::range_oracle(nv));
-        let super_col = TrackedColOracle::new(range_oracle, None, None);
-        let input = LookupVerifierInput {
-            included_tracked_col_oracles: vec![col.clone()],
-            super_tracked_col_oracle: super_col,
-        };
-        LookupPIOP::<B>::verify(verifier, input)?;
-        Ok(())
+        let col_activated_oracle = col.activated_data_tracked_oracle();
+        let range_poly = verifier.track_oracle(Self::range_oracle(nv));
+        verifier.add_mv_lookup_claim(range_poly.id(), col_activated_oracle.id())
     }
 
     fn prove_sign_inner(
@@ -1161,20 +1151,44 @@ impl<B: SnarkBackend> SignNode<B> {
         }
     }
 
-    fn eval_debug_values(data_type: &DataType, value: B::F) -> (Option<i128>, Option<u128>, Option<usize>) {
+    fn eval_debug_values(
+        data_type: &DataType,
+        value: B::F,
+    ) -> (Option<i128>, Option<u128>, Option<usize>) {
         match data_type {
             DataType::UInt8 => (None, Some(Self::field_low_bits_unsigned(value, 8)), Some(8)),
-            DataType::UInt16 => (None, Some(Self::field_low_bits_unsigned(value, 16)), Some(16)),
-            DataType::UInt32 => (None, Some(Self::field_low_bits_unsigned(value, 32)), Some(32)),
-            DataType::UInt64 => (None, Some(Self::field_low_bits_unsigned(value, 64)), Some(64)),
+            DataType::UInt16 => (
+                None,
+                Some(Self::field_low_bits_unsigned(value, 16)),
+                Some(16),
+            ),
+            DataType::UInt32 => (
+                None,
+                Some(Self::field_low_bits_unsigned(value, 32)),
+                Some(32),
+            ),
+            DataType::UInt64 => (
+                None,
+                Some(Self::field_low_bits_unsigned(value, 64)),
+                Some(64),
+            ),
             DataType::Int8 => (Some(Self::field_low_bits_signed(value, 8)), None, Some(8)),
             DataType::Int16 => (Some(Self::field_low_bits_signed(value, 16)), None, Some(16)),
-            DataType::Int32 | DataType::Date32 => (Some(Self::field_low_bits_signed(value, 32)), None, Some(32)),
+            DataType::Int32 | DataType::Date32 => {
+                (Some(Self::field_low_bits_signed(value, 32)), None, Some(32))
+            }
             DataType::Int64 => (Some(Self::field_low_bits_signed(value, 64)), None, Some(64)),
-            DataType::Decimal128(..) => (Some(Self::field_low_bits_signed(value, 128)), None, Some(128)),
-            DataType::Utf8View => (None, Some(Self::field_low_bits_unsigned(value, 128)), Some(128)),
+            DataType::Decimal128(..) => (
+                Some(Self::field_low_bits_signed(value, 128)),
+                None,
+                Some(128),
+            ),
+            DataType::Utf8View => (
+                None,
+                Some(Self::field_low_bits_unsigned(value, 128)),
+                Some(128),
+            ),
             _ => (None, None, None),
         }
     }
-
 }
