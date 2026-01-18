@@ -1,29 +1,31 @@
 use std::sync::Arc;
 
-use arithmetic::{
-    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
-    table_oracle::TrackedTableOracle,
-};
-use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
-use col_toolbox::no_dup_check::{NoDupCheckProverInput, NoDupCheckVerifierInput, NoDupPIOP};
+use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use indexmap::IndexMap;
 
 use crate::{
-    irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
-        payloads::PayloadStructure,
-    },
+    irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
 pub const INPUT_LABEL: &str = "_input_";
 
+mod bezout;
 #[cfg(test)]
 mod tests;
 
+pub enum Gadgets<B: SnarkBackend> {
+    BezoutNoDup,
+    SortNoDup(SortNoDupGadgets<B>),
+}
+
+pub struct SortNoDupGadgets<B: SnarkBackend> {
+    pub sort: Arc<Node<B>>,
+}
+
 pub struct GadgetNode<B: SnarkBackend> {
-    phantom: std::marker::PhantomData<B>,
+    gadgets: Gadgets<B>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -53,7 +55,10 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        Vec::new()
+        match &self.gadgets {
+            Gadgets::BezoutNoDup => vec![],
+            Gadgets::SortNoDup(g) => vec![g.sort.clone()],
+        }
     }
 }
 
@@ -100,18 +105,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for NoDup gadget node");
-        };
-
-        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
-            panic!("Expected input table for NoDup gadget");
-        };
-        let col = Self::single_col_from_table(prover, &input_table)?;
-        let input = NoDupCheckProverInput { col };
-        NoDupPIOP::<B>::prove(prover, input)?;
-        Ok(())
+        Self::prove_nodup_bezout(prover, gadget_ready_ir, id)
     }
 
     fn honest_prover_check(
@@ -120,7 +114,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        Self::honest_check_no_dup_active(prover, gadget_ready_ir, id)
     }
 
     fn verify(
@@ -129,19 +123,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for NoDup gadget node");
-        };
-
-        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
-            panic!("Expected input table for NoDup gadget");
-        };
-
-        let tracked_col_oracle = Self::single_col_from_table_oracle(verifier, &input_table)?;
-        let input = NoDupCheckVerifierInput { tracked_col_oracle };
-        NoDupPIOP::<B>::verify(verifier, input)?;
-        Ok(())
+        Self::verify_nodup_bezout(verifier, gadget_ready_ir, id)
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -151,44 +133,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {
     fn default() -> Self {
-        Self::new()
+        Self::new(Gadgets::BezoutNoDup)
     }
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
-        Self {
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    fn single_col_from_table(
-        prover: &mut ArgProver<B>,
-        table: &TrackedTable<B>,
-    ) -> ark_piop::errors::SnarkResult<TrackedCol<B>> {
-        let data_indices = table.data_tracked_polys_indices();
-        if data_indices.len() == 1 {
-            return Ok(table.tracked_col_by_ind(data_indices[0]));
-        }
-        let mut challenges = Vec::with_capacity(data_indices.len());
-        for _ in 0..data_indices.len() {
-            challenges.push(prover.get_and_append_challenge(b"nodup_fold")?);
-        }
-        Ok(table.fold_all_data_columns(&challenges))
-    }
-
-    fn single_col_from_table_oracle(
-        verifier: &mut ArgVerifier<B>,
-        table: &TrackedTableOracle<B>,
-    ) -> ark_piop::errors::SnarkResult<TrackedColOracle<B>> {
-        let data_indices = table.data_tracked_oracles_indices();
-        if data_indices.len() == 1 {
-            return Ok(table.tracked_col_oracle_by_ind(data_indices[0]));
-        }
-        let mut challenges = Vec::with_capacity(data_indices.len());
-        for _ in 0..data_indices.len() {
-            challenges.push(verifier.get_and_append_challenge(b"nodup_fold")?);
-        }
-        Ok(table.fold_all_data_oracles(&challenges))
+    pub fn new(gadgets: Gadgets<B>) -> Self {
+        Self { gadgets }
     }
 }

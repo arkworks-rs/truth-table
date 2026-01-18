@@ -216,7 +216,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             crate::irs::nodes::gadget::utils::lookup::GadgetNode::new(),
         )));
         let nodup = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
+            crate::irs::nodes::gadget::utils::nodup::GadgetNode::default(),
         )));
         Self { lookup, nodup }
     }

@@ -9,8 +9,10 @@ use crate::{
 use ark_piop::{
     SnarkBackend,
     errors::{SnarkError, SnarkResult},
+    piop::DeepClone,
     prover::ArgProver,
 };
+use indexmap::IndexMap;
 use std::cell::RefCell;
 
 fn parent_name_for<B: SnarkBackend>(
@@ -23,6 +25,40 @@ fn parent_name_for<B: SnarkBackend>(
         }
     }
     None
+}
+
+fn deep_clone_payload<B: SnarkBackend>(
+    payload: &GadgetReadyPayload<B>,
+    prover: &ArgProver<B>,
+) -> GadgetReadyPayload<B> {
+    match payload {
+        GadgetReadyPayload::PlanPayload(table) => {
+            GadgetReadyPayload::PlanPayload(table.deep_clone(prover.clone()))
+        }
+        GadgetReadyPayload::GadgetPayload(map) => GadgetReadyPayload::GadgetPayload(
+            map.iter()
+                .map(|(key, table)| (key.clone(), table.deep_clone(prover.clone())))
+                .collect::<IndexMap<_, _>>(),
+        ),
+    }
+}
+
+fn deep_clone_gadget_ready_ir<B: SnarkBackend>(
+    ir: &GadgetReadyIr<B>,
+    prover: &ArgProver<B>,
+) -> GadgetReadyIr<B> {
+    // Deep-clone payload tables so honest checks don't mutate the main tracker.
+    let payloads = ir
+        .payloads()
+        .iter()
+        .map(|(id, payload)| {
+            (
+                *id,
+                payload.as_ref().map(|inner| deep_clone_payload(inner, prover)),
+            )
+        })
+        .collect::<IndexMap<_, _>>();
+    GadgetReadyIr::new(ir.tree().clone(), payloads)
 }
 
 /// A proving pass that runs honest prover checks for each gadget.
@@ -83,12 +119,10 @@ where
                 );
                 let result = {
                     let gadget_ready_ir = self.gadget_ready_ir.borrow();
-                    let mut gadget_ready_ir_clone = GadgetReadyIr::new(
-                        gadget_ready_ir.tree().clone(),
-                        gadget_ready_ir.payloads().clone(),
-                    );
                     let arg_prover = self.arg_prover.borrow();
                     let mut honest_prover = arg_prover.deep_copy();
+                    let mut gadget_ready_ir_clone =
+                        deep_clone_gadget_ready_ir(&gadget_ready_ir, &honest_prover);
                     gadget_node.honest_prover_check(
                         &mut honest_prover,
                         &mut gadget_ready_ir_clone,

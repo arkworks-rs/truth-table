@@ -112,7 +112,7 @@ fn run_nodup_roundtrip(
     let (mut prover, mut verifier) = test_prelude::<Backend>().unwrap();
     let input_table = build_tracked_table(&mut prover, "col", values, activator);
 
-    let gadget_node = Arc::new(GadgetNode::<Backend>::new());
+    let gadget_node = Arc::new(GadgetNode::<Backend>::default());
     let root = Arc::new(Node::Gadget(gadget_node));
     let tree = Tree::new_from_root(root.clone());
 

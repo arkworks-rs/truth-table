@@ -422,7 +422,7 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
+            crate::irs::nodes::gadget::utils::nodup::GadgetNode::default(),
         )));
         let left_lookup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::lookup::GadgetNode::new(),

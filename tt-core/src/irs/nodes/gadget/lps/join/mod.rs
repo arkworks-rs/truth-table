@@ -586,7 +586,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
         let nodup_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
+            crate::irs::nodes::gadget::utils::nodup::GadgetNode::default(),
         )));
         let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::match_pair_check::GadgetNode::new(),
