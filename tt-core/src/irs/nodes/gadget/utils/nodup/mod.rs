@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arithmetic::ROW_ID_COL_NAME;
 use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use indexmap::IndexMap;
 
@@ -13,8 +14,10 @@ use crate::{
 };
 
 pub const INPUT_LABEL: &str = "_input_";
+pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
 
 mod bezout;
+mod hints;
 #[cfg(test)]
 mod tests;
 
@@ -54,27 +57,30 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Gadgets::SortNoDup(sort_gadgets) = &self.gadgets else {
+        let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
         };
-        let Some(PayloadStructure::GadgetPayload(payload)) = planned_ir.payload_for_node(&id)
+        let Some(PayloadStructure::GadgetPayload(mut payload)) = planned_ir
+            .payload_for_node(&id)
+            .cloned()
         else {
             panic!("No gadget payload found for node {:?}", id);
         };
         let Some(input_hint) = payload.get(INPUT_LABEL).cloned() else {
             panic!("No input hint found for NoDup gadget at node {:?}", id);
         };
-        let sort_id = sort_gadgets.sort.id();
-        let mut sort_payload = match planned_ir.payload_for_node(&sort_id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        sort_payload.insert(
-            crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
-            input_hint,
-        );
-        planned_ir
-            .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
+        let lex_sorted_df = hints::lex_sort_contiguous(input_hint.data_frame().clone())
+            .expect("NoDup lex sort should succeed");
+        let should_materialize = lex_sorted_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+            .collect();
+        let lex_sorted_hint =
+            crate::irs::nodes::hints::HintDF::new(lex_sorted_df, should_materialize);
+        payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint);
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 
