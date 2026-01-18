@@ -29,10 +29,10 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
         if matches!(expr, Expr::Column(col) if is_system_column(&col.name)) {
             continue;
         }
-        order_by.push(expr.clone().sort(true, true));
+        order_by.push(expr.clone().sort(false, false));
     }
     if let Some(col_ref) = row_id_col {
-        order_by.push(Expr::Column(col_ref).sort(true, true));
+        order_by.push(Expr::Column(col_ref).sort(false, false));
     }
 
     let row_number_expr = row_number()
@@ -178,7 +178,7 @@ mod tests {
         let batch = collect_single_batch(sorted);
 
         assert_eq!(bool_column(&batch, "__activator__"), vec![true, true, false]);
-        assert_eq!(int64_column(&batch, "k1"), vec![1, 2, 3]);
+        assert_eq!(int64_column(&batch, "k1"), vec![2, 1, 3]);
         assert_eq!(int64_column(&batch, "__row_id__"), vec![0, 1, 2]);
     }
 }
