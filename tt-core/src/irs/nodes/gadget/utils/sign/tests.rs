@@ -136,7 +136,9 @@ fn run_sign_lookup_roundtrip_multi(
     let schema = Schema::new(fields);
     let tracked_table = TrackedTable::new(Some(schema.clone()), tracked_polys, LOG_SIZE);
 
-    let sign_node = Arc::new(SignNode::<Backend>::new(signs));
+    let sign_node = Arc::new(SignNode::<Backend>::new(
+        crate::irs::nodes::gadget::utils::sign::SignConfig::PerColumn(signs),
+    ));
     let root = Arc::new(Node::Gadget(sign_node.clone()));
     let tree = Tree::new_from_root(root.clone());
 

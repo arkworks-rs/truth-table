@@ -236,9 +236,9 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
-        let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(vec![
-            sign::Sign::NonNegative,
-        ]))));
+        let sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            sign::SignConfig::Uniform(sign::Sign::NonNegative),
+        ))));
         Self { sign: sign_gadget }
     }
 }

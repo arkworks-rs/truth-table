@@ -43,12 +43,12 @@ pub struct BinCmpNode<B: SnarkBackend> {
 impl<B: SnarkBackend> BinCmpNode<B> {
     pub fn new(op: BinCmpOp) -> Self {
         let (true_sign, false_sign) = Self::sign_pair(op);
-        let true_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(vec![
-            true_sign,
-        ]))));
-        let false_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(vec![
-            false_sign,
-        ]))));
+        let true_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            sign::SignConfig::Uniform(true_sign),
+        ))));
+        let false_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
+            sign::SignConfig::Uniform(false_sign),
+        ))));
         Self {
             op,
             true_sign: true_sign_gadget,

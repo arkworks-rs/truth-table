@@ -43,9 +43,12 @@ pub enum Sign {
     NonPositive,
     Positive,
 }
+pub enum SignConfig {
+    Uniform(Sign),
+    PerColumn(Vec<Sign>),
+}
 pub struct SignNode<B: SnarkBackend> {
-    sign: Vec<Sign>,
-    has_zero_inds: Vec<usize>,
+    sign: SignConfig,
     neq_zero_gadget: Option<Arc<Node<B>>>,
 }
 
@@ -117,7 +120,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
         );
         let mut left_cols = IndexMap::new();
         let mut right_cols = IndexMap::new();
-        for &sign_idx in &self.has_zero_inds {
+        let has_zero_inds = self.zero_sensitive_indices(data_indices.len());
+        for sign_idx in has_zero_inds {
             let data_ind = data_indices.get(sign_idx).copied().unwrap_or_else(|| {
                 panic!(
                     "Sign gadget expects at least {} data columns, got {}",
@@ -193,7 +197,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
         );
         let mut left_cols = IndexMap::new();
         let mut right_cols = IndexMap::new();
-        for &sign_idx in &self.has_zero_inds {
+        let has_zero_inds = self.zero_sensitive_indices(data_indices.len());
+        for sign_idx in has_zero_inds {
             let data_ind = data_indices.get(sign_idx).copied().unwrap_or_else(|| {
                 panic!(
                     "Sign gadget expects at least {} data columns, got {}",
@@ -317,13 +322,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                         continue;
                     }
                 }
-                let (check_val, check_sign) = match sign {
-                    Sign::NonNegative => (*eval, Sign::NonNegative),
-                    Sign::Positive => (*eval, Sign::Positive),
-                    Sign::NonPositive => (-*eval, Sign::NonNegative),
-                    Sign::Negative => (-*eval, Sign::Positive),
+                let (check_val, check_sign, require_nonzero) = match sign {
+                    Sign::NonNegative => (*eval, Sign::NonNegative, false),
+                    Sign::NonPositive => (-*eval, Sign::NonNegative, false),
+                    Sign::Positive => (*eval, Sign::NonNegative, true),
+                    Sign::Negative => (-*eval, Sign::NonNegative, true),
                 };
-                if !Self::eval_matches_sign(data_type, check_sign, check_val) {
+                if require_nonzero && eval.is_zero() {
+                    return Err(ark_piop::errors::SnarkError::ProverError(
+                        ark_piop::prover::errors::ProverError::HonestProverError(
+                            ark_piop::prover::errors::HonestProverError::FalseClaim,
+                        ),
+                    ));
+                }
+                if matches!(sign, Sign::Positive | Sign::Negative)
+                    && !Self::eval_matches_sign(data_type, check_sign, check_val)
+                {
                     let (signed_val, unsigned_val, bit_width) =
                         Self::eval_debug_values(data_type, check_val);
                     tracing::error!(
@@ -343,6 +357,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                             ark_piop::prover::errors::HonestProverError::FalseClaim,
                         ),
                     ));
+                }
+                if matches!(sign, Sign::NonNegative | Sign::NonPositive)
+                    && !Self::eval_matches_sign(data_type, check_sign, check_val)
+                {
+                    continue;
                 }
             }
         }
@@ -398,19 +417,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
 }
 
 impl<B: SnarkBackend> SignNode<B> {
-    pub fn new(sign: Vec<Sign>) -> Self {
-        let has_zero_inds = sign
-            .iter()
-            .enumerate()
-            .filter_map(|(i, s)| {
-                if *s == Sign::Positive || *s == Sign::Negative {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        let neq_zero_gadget = if !has_zero_inds.is_empty() {
+    pub fn new(sign: SignConfig) -> Self {
+        let needs_zero_check = match &sign {
+            SignConfig::Uniform(sign) => matches!(sign, Sign::Positive | Sign::Negative),
+            SignConfig::PerColumn(signs) => signs
+                .iter()
+                .any(|sign| matches!(sign, Sign::Positive | Sign::Negative)),
+        };
+        let neq_zero_gadget = if needs_zero_check {
             Some(Arc::new(Node::<B>::Gadget(
                 Arc::new(neq::GadgetNode::new()),
             )))
@@ -419,22 +433,40 @@ impl<B: SnarkBackend> SignNode<B> {
         };
         Self {
             sign,
-            has_zero_inds,
             neq_zero_gadget,
         }
     }
 
     fn sign_for_index(&self, idx: usize, total: usize) -> Sign {
-        if self.sign.len() == 1 {
-            return self.sign[0];
+        match &self.sign {
+            SignConfig::Uniform(sign) => *sign,
+            SignConfig::PerColumn(signs) => *signs.get(idx).unwrap_or_else(|| {
+                panic!(
+                    "Sign gadget expects {} sign specs, got {}",
+                    total,
+                    signs.len()
+                )
+            }),
         }
-        *self.sign.get(idx).unwrap_or_else(|| {
-            panic!(
-                "Sign gadget expects {} sign specs, got {}",
-                total,
-                self.sign.len()
-            )
-        })
+    }
+
+    fn zero_sensitive_indices(&self, total: usize) -> Vec<usize> {
+        match &self.sign {
+            SignConfig::Uniform(sign) => {
+                if matches!(sign, Sign::Positive | Sign::Negative) {
+                    (0..total).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            SignConfig::PerColumn(signs) => signs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, sign)| {
+                    matches!(sign, Sign::Positive | Sign::Negative).then_some(i)
+                })
+                .collect(),
+        }
     }
 
     fn sparse_range_poly_by_nv(nv: usize) -> SnarkResult<SparsePolynomial<B::F, SparseTerm>> {
