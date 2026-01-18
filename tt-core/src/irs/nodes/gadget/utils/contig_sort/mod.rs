@@ -11,7 +11,7 @@ use ark_piop::{
 };
 use ark_poly::Polynomial;
 use datafusion::arrow::{
-    array::{ArrayRef, BooleanArray, Int64Array, UInt64Array},
+    array::{ArrayRef, BooleanArray, Int64Array},
     compute::{concat, concat_batches},
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
@@ -127,18 +127,14 @@ fn pad_batches_to_power_of_two(
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
-                .unwrap_or_else(|| {
-                    Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef
-                });
+                .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.name() == ROW_ID_COL_NAME {
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
-                .unwrap_or_else(|| {
-                    Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef
-                });
+                .unwrap_or_else(|| Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef);
             let start = combined
                 .as_ref()
                 .and_then(|batch| {
@@ -218,11 +214,12 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
         let sorted_input_hint = {
-            let sorted_df = crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
-                &input_hint,
-                &self.sort_specs,
-            )
-            .expect("contig sort ordering should succeed");
+            let sorted_df =
+                crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
+                    &input_hint,
+                    &self.sort_specs,
+                )
+                .expect("contig sort ordering should succeed");
             let padded_df = pad_df_to_power_of_two(sorted_df)
                 .expect("contig sort input padding should succeed");
             let mut should_materialize = IndexMap::new();

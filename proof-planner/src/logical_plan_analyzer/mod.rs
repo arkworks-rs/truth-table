@@ -1,9 +1,11 @@
+mod add_avg_support;
 mod align_agg_input_to_output;
 mod align_binary_operands;
 mod common;
 
 use std::sync::Arc;
 
+use add_avg_support::AddAvgSupport;
 use align_agg_input_to_output::AlignAggInputToOutput;
 use align_binary_operands::AlignBinaryOperands;
 
@@ -28,6 +30,7 @@ pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
         Arc::new(ResolveGroupingFunction::new()),
         Arc::new(TypeCoercion::new()),
         Arc::new(AlignBinaryOperands::new()),
+        Arc::new(AddAvgSupport::new()),
         Arc::new(AlignAggInputToOutput::new()),
     ]
 }

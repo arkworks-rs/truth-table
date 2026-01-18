@@ -19,6 +19,7 @@ ark-serialize = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
+datafusion-functions-aggregate = { workspace = true }
 
 # other dependencies
 tokio = { workspace = true }
