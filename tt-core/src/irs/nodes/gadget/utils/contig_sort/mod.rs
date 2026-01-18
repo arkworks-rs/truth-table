@@ -550,6 +550,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
+
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort_specs: Vec<(String, bool, bool)>, strict: bool) -> Self {
         let sign_gadget_names: Vec<String> = sort_specs
