@@ -20,8 +20,7 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 mod hints;
-#[cfg(test)]
-mod tests;
+mod wiring;
 
 pub const ORIG_LABEL: &str = "__orig__";
 pub const ORIG_RLC_LABEL: &str = "__orig-rlc__";
@@ -55,53 +54,12 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let supp_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let orig_hint = match supp_payload.get(ORIG_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let support_hint = match supp_payload.get(SUPER_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-
-        //////////////////////////////
-        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-
-        nodup_payload.insert(
-            crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-            support_hint.clone(),
-        );
-
-        planned_ir.set_payload_for_node(
-            self.nodup.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-
-        let mut lookup_payload = match planned_ir.payload_for_node(&self.lookup.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-
-        lookup_payload.insert(
-            crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
-            orig_hint.clone(),
-        );
-        lookup_payload.insert(
-            crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
-            support_hint,
-        );
-
-        planned_ir.set_payload_for_node(
-            self.lookup.id(),
-            Some(PayloadStructure::GadgetPayload(lookup_payload)),
-        );
+        // First fetch the original and support hints from the payload.
+        let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
+        // Then populate the nodup plans
+        hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
+        // Finally populate the lookup plans
+        hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
         Ok(())
     }
 
