@@ -1,6 +1,7 @@
 pub mod bool;
 pub mod contig_sort;
 pub mod eq;
+pub mod gen_sort;
 pub mod geq;
 pub mod keyed_sumcheck;
 pub mod leq;

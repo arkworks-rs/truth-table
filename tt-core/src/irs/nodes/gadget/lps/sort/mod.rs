@@ -330,7 +330,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             ),
         )));
         let remat_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::remat::GadgetNode::new(),
+            crate::irs::nodes::gadget::utils::remat::GadgetNode::new(true),
         )));
         Self {
             sort_gadget,

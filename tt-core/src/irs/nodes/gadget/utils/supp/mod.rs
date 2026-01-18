@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_FIELD, col::TrackedCol, col_oracle::TrackedColOracle, is_system_column,
-    table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_FIELD, is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::bezout_based_multi_col_supp_check::{
@@ -20,7 +19,7 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-
+mod hints;
 #[cfg(test)]
 mod tests;
 
@@ -29,32 +28,18 @@ pub const ORIG_RLC_LABEL: &str = "__orig-rlc__";
 pub const SUPER_LABEL: &str = "__super__";
 pub const SUPER_RLC_LABEL: &str = "__super-rlc__";
 
-enum Gadgets<B: SnarkBackend> {
-    BezoutGadgets(BezoutGadgets<B>),
-    SortGadgets(SortGadgets<B>),
-}
-struct BezoutGadgets<B: SnarkBackend> {
+pub struct GadgetNode<B: SnarkBackend> {
     lookup: Arc<Node<B>>,
     nodup: Arc<Node<B>>,
-}
-struct SortGadgets<B: SnarkBackend> {
-    phantom: std::marker::PhantomData<B>,
-}
-pub struct GadgetNode<B: SnarkBackend> {
-    gadgets: Gadgets<B>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
-        match &self.gadgets {
-            Gadgets::BezoutGadgets(_) => "Supp(Bezout-Based)".to_string(),
-            Gadgets::SortGadgets(_) => "Supp(Sort-Based)".to_string(),
-        }
+        "Support".to_string()
     }
 
     fn display(&self) -> String {
-        let name = self.name();
-        crate::irs::nodes::display_with_inputs(&name, &self.children())
+        self.name()
     }
 
     fn cost(
@@ -83,49 +68,45 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
-            let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
+        //////////////////////////////
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
 
-            nodup_payload.insert(
-                crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-                support_hint.clone(),
-            );
+        nodup_payload.insert(
+            crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+            support_hint.clone(),
+        );
 
-            planned_ir.set_payload_for_node(
-                gadgets.nodup.id(),
-                Some(PayloadStructure::GadgetPayload(nodup_payload)),
-            );
+        planned_ir.set_payload_for_node(
+            self.nodup.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
 
-            let mut lookup_payload = match planned_ir.payload_for_node(&gadgets.lookup.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
+        let mut lookup_payload = match planned_ir.payload_for_node(&self.lookup.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
 
-            lookup_payload.insert(
-                crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
-                orig_hint.clone(),
-            );
-            lookup_payload.insert(
-                crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
-                support_hint,
-            );
+        lookup_payload.insert(
+            crate::irs::nodes::gadget::utils::lookup::INCLUDED_LABEL.to_string(),
+            orig_hint.clone(),
+        );
+        lookup_payload.insert(
+            crate::irs::nodes::gadget::utils::lookup::SUPER_LABEL.to_string(),
+            support_hint,
+        );
 
-            planned_ir.set_payload_for_node(
-                gadgets.lookup.id(),
-                Some(PayloadStructure::GadgetPayload(lookup_payload)),
-            );
-        }
+        planned_ir.set_payload_for_node(
+            self.lookup.id(),
+            Some(PayloadStructure::GadgetPayload(lookup_payload)),
+        );
         Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        match &self.gadgets {
-            Gadgets::BezoutGadgets(gadgets) => vec![gadgets.lookup.clone(), gadgets.nodup.clone()],
-            Gadgets::SortGadgets(_) => vec![],
-        }
+        vec![self.lookup.clone(), self.nodup.clone()]
     }
 }
 
@@ -155,32 +136,28 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
             panic!("Expected support table for Supp gadget");
         };
+        /////////////////////////
 
-        if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
-            let folding_challs = folding_challenges_from_table(&orig_table);
-            let orig_rlc =
-                fold_table_to_single_col_with_challs(&orig_table, ORIG_RLC_LABEL, &folding_challs);
-            let super_rlc = fold_table_to_single_col_with_challs(
-                &super_table,
-                SUPER_RLC_LABEL,
-                &folding_challs,
-            );
+        let folding_challs = folding_challenges_from_table(&orig_table);
+        let orig_rlc =
+            fold_table_to_single_col_with_challs(&orig_table, ORIG_RLC_LABEL, &folding_challs);
+        let super_rlc =
+            fold_table_to_single_col_with_challs(&super_table, SUPER_RLC_LABEL, &folding_challs);
 
-            populate_self_rlc_payload_prover(
-                id,
-                virtualized_ir,
-                payload,
-                orig_rlc.clone(),
-                super_rlc.clone(),
-            )?;
-            populate_nodup_payload_prover(virtualized_ir, gadgets.nodup.id(), super_rlc.clone())?;
-            populate_lookup_payload_prover(
-                virtualized_ir,
-                gadgets.lookup.id(),
-                orig_rlc.clone(),
-                super_rlc,
-            )?;
-        }
+        populate_self_rlc_payload_prover(
+            id,
+            virtualized_ir,
+            payload,
+            orig_rlc.clone(),
+            super_rlc.clone(),
+        )?;
+        populate_nodup_payload_prover(virtualized_ir, self.nodup.id(), super_table.clone())?;
+        populate_lookup_payload_prover(
+            virtualized_ir,
+            self.lookup.id(),
+            orig_rlc.clone(),
+            super_rlc,
+        )?;
         Ok(())
     }
 }
@@ -212,34 +189,34 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             panic!("Expected support table for Supp gadget");
         };
 
-        if let Gadgets::BezoutGadgets(gadgets) = &self.gadgets {
-            let folding_challs = folding_challenges_from_table_oracle(&orig_table);
-            let orig_rlc = fold_table_oracle_to_single_col_with_challs(
-                &orig_table,
-                ORIG_RLC_LABEL,
-                &folding_challs,
-            );
-            let super_rlc = fold_table_oracle_to_single_col_with_challs(
-                &super_table,
-                SUPER_RLC_LABEL,
-                &folding_challs,
-            );
+        //////////////////////////
+        let folding_challs = folding_challenges_from_table_oracle(&orig_table);
+        let orig_rlc = fold_table_oracle_to_single_col_with_challs(
+            &orig_table,
+            ORIG_RLC_LABEL,
+            &folding_challs,
+        );
+        let super_rlc = fold_table_oracle_to_single_col_with_challs(
+            &super_table,
+            SUPER_RLC_LABEL,
+            &folding_challs,
+        );
 
-            populate_self_rlc_payload_verifier(
-                id,
-                virtualized_ir,
-                payload,
-                orig_rlc.clone(),
-                super_rlc.clone(),
-            )?;
-            populate_nodup_payload_verifier(virtualized_ir, gadgets.nodup.id(), super_rlc.clone())?;
-            populate_lookup_payload_verifier(
-                virtualized_ir,
-                gadgets.lookup.id(),
-                orig_rlc.clone(),
-                super_rlc,
-            )?;
-        }
+        populate_self_rlc_payload_verifier(
+            id,
+            virtualized_ir,
+            payload,
+            orig_rlc.clone(),
+            super_rlc.clone(),
+        )?;
+        populate_nodup_payload_verifier(virtualized_ir, self.nodup.id(), super_table.clone())?;
+        populate_lookup_payload_verifier(
+            virtualized_ir,
+            self.lookup.id(),
+            orig_rlc.clone(),
+            super_rlc,
+        )?;
+
         Ok(())
     }
 }
@@ -325,9 +302,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let nodup = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::nodup::GadgetNode::new(),
         )));
-        Self {
-            gadgets: Gadgets::BezoutGadgets(BezoutGadgets { lookup, nodup }),
-        }
+        Self { lookup, nodup }
     }
 }
 
@@ -403,7 +378,7 @@ fn populate_self_rlc_payload_prover<B: SnarkBackend>(
 fn populate_nodup_payload_prover<B: SnarkBackend>(
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     nodup_id: crate::irs::nodes::NodeId,
-    super_rlc: TrackedTable<B>,
+    super_table: TrackedTable<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let mut nodup_payload = match virtualized_ir.payload_for_node(&nodup_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -411,7 +386,7 @@ fn populate_nodup_payload_prover<B: SnarkBackend>(
     };
     nodup_payload.insert(
         crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-        super_rlc,
+        super_table,
     );
     virtualized_ir.set_payload_for_node(
         nodup_id,
@@ -462,7 +437,7 @@ fn populate_self_rlc_payload_verifier<B: SnarkBackend>(
 fn populate_nodup_payload_verifier<B: SnarkBackend>(
     virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     nodup_id: crate::irs::nodes::NodeId,
-    super_rlc: TrackedTableOracle<B>,
+    super_table: TrackedTableOracle<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let mut nodup_payload = match virtualized_ir.payload_for_node(&nodup_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -470,7 +445,7 @@ fn populate_nodup_payload_verifier<B: SnarkBackend>(
     };
     nodup_payload.insert(
         crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-        super_rlc,
+        super_table,
     );
     virtualized_ir.set_payload_for_node(
         nodup_id,

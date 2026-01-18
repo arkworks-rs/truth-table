@@ -19,6 +19,7 @@ use crate::{
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
 pub struct GadgetNode<B: SnarkBackend> {
+    contigous: bool,
     bool_check_gadget: Arc<Node<B>>,
     perm_check_gadget: Arc<Node<B>>,
 }
@@ -160,14 +161,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self
+    pub fn new(contigous: bool) -> Self
     where
         Self: Sized,
     {
@@ -179,6 +174,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             crate::irs::nodes::gadget::utils::perm::GadgetNode::new(),
         )));
         Self {
+            contigous,
             bool_check_gadget,
             perm_check_gadget,
         }
