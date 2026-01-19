@@ -144,23 +144,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Supp gadget node");
-        };
-
-        let Some(orig_table) = payload.get(ORIG_LABEL).cloned() else {
-            panic!("Expected original table for Supp gadget");
-        };
-        let Some(supp_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected support table for Supp gadget");
-        };
-
-        let input = BezoutMultiColSuppCheckProverInput {
-            orig_tracked_table: orig_table,
-            supp_tracked_table: supp_table,
-        };
-        BezoutMultiColSuppCheckPIOP::<B>::prove(prover, input)?;
         Ok(())
     }
 
@@ -170,23 +153,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Supp gadget node");
-        };
-
-        let Some(orig_table) = payload.get(ORIG_LABEL).cloned() else {
-            panic!("Expected original table for Supp gadget");
-        };
-        let Some(supp_table) = payload.get(SUPER_LABEL).cloned() else {
-            panic!("Expected support table for Supp gadget");
-        };
-
-        let input = BezoutMultiColSuppCheckVerifierInput {
-            orig_tracked_table_oracle: orig_table,
-            supp_tracked_table_oracle: supp_table,
-        };
-        BezoutMultiColSuppCheckPIOP::<B>::verify(verifier, input)?;
         Ok(())
     }
 
