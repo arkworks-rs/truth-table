@@ -22,6 +22,10 @@ mod hints;
 #[cfg(test)]
 mod tests;
 
+pub enum Mode {
+    BezoutBased,
+    SortBased,
+}
 pub enum Gadgets<B: SnarkBackend> {
     BezoutNoDup,
     SortNoDup(SortNoDupGadgets<B>),
@@ -204,7 +208,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Self::prove_nodup_bezout(prover, gadget_ready_ir, id)
+        match self.gadgets {
+            Gadgets::BezoutNoDup => Self::prove_nodup_bezout(prover, gadget_ready_ir, id),
+            Gadgets::SortNoDup(_) => Ok(()),
+        }
     }
 
     fn honest_prover_check(
@@ -222,7 +229,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Self::verify_nodup_bezout(verifier, gadget_ready_ir, id)
+        match self.gadgets {
+            Gadgets::BezoutNoDup => Self::verify_nodup_bezout(verifier, gadget_ready_ir, id),
+            Gadgets::SortNoDup(_) => Ok(()),
+        }
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -232,12 +242,30 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> Default for GadgetNode<B> {
     fn default() -> Self {
-        Self::new(Gadgets::BezoutNoDup)
+        Self::new(Mode::SortBased)
     }
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(gadgets: Gadgets<B>) -> Self {
-        Self { gadgets }
+    pub fn new(mode: Mode) -> Self {
+        match mode {
+            Mode::BezoutBased => Self {
+                gadgets: Gadgets::BezoutNoDup,
+            },
+            Mode::SortBased => Self {
+                gadgets: Gadgets::SortNoDup(SortNoDupGadgets(Arc::new(Node::<B>::Gadget(
+                    Arc::new(
+                        crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(
+                            crate::irs::nodes::gadget::utils::contig_sort::SortConfig::Uniform(
+                                crate::irs::nodes::gadget::utils::contig_sort::UniformConfig {
+                                    asc: false,
+                                    strict: true,
+                                },
+                            ),
+                        ),
+                    ),
+                )))),
+            },
+        }
     }
 }
