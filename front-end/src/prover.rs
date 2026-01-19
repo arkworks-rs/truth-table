@@ -192,10 +192,10 @@ impl<B: SnarkBackend> TTProver<B> {
         let gadget_initialization_pass = GadgetInitializationPass::<B>::new(gadget_ir_view);
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        // debug!(
-        //     "gadget ready ir:\n{}",
-        //     gadget_ready_ir.display_graphviz(true)
-        // );
+        debug!(
+            "gadget ready ir:\n{}",
+            gadget_ready_ir.display_graphviz(true)
+        );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),

@@ -8,9 +8,7 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::gadget::utils::remat,
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
-        payloads::PayloadStructure,
+        self, nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::remat}, payloads::PayloadStructure
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
@@ -325,8 +323,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(
-                sort_specs.clone(),
-                strict,
+                crate::irs::nodes::gadget::utils::contig_sort::SortConfig::PerColumn(
+                    crate::irs::nodes::gadget::utils::contig_sort::PerColumnConfig{
+                        sort_specs: sort_specs.clone(),
+                        strict,
+                    }
+                ),
             ),
         )));
         let remat_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
