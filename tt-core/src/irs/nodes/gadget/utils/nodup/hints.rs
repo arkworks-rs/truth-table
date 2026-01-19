@@ -1,8 +1,8 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::functions_window::expr_fn::row_number;
+use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult};
 use datafusion_expr::{Expr, ExprFunctionExt, SortExpr, col, lit};
-use datafusion::prelude::DataFrame;
 
 pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
     let mut order_by: Vec<SortExpr> = Vec::new();
@@ -31,13 +31,13 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
         }
         order_by.push(expr.clone().sort(false, false));
     }
-    if let Some(col_ref) = row_id_col {
-        order_by.push(Expr::Column(col_ref).sort(false, false));
+    if let Some(col_ref) = row_id_col.clone() {
+        order_by.push(Expr::Column(col_ref).sort(true, true));
     }
 
     let row_number_expr = row_number()
         .partition_by(Vec::new())
-        .order_by(order_by)
+        .order_by(order_by.clone())
         .build()?
         .alias("__row_number__");
     projection_exprs.push(row_number_expr);
@@ -50,7 +50,50 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
         .filter_map(|field| (field.name() != "__row_number__").then_some(col(field.name())))
         .collect();
     final_exprs.push((col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME));
-    with_row_number.select(final_exprs)
+    let with_row_id = with_row_number.select(final_exprs)?;
+    let mut final_order_by: Vec<SortExpr> = Vec::new();
+    let schema = with_row_id.schema();
+    if schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME)
+    {
+        let activator_expr = schema
+            .iter()
+            .find_map(|(qualifier, field)| {
+                (field.name() == ACTIVATOR_COL_NAME).then(|| {
+                    Expr::Column(Column::new(qualifier.cloned(), field.name()))
+                        .sort(false, false)
+                })
+            })
+            .expect("activator column should exist");
+        final_order_by.push(activator_expr);
+    }
+    for (qualifier, field) in schema.iter() {
+        if is_system_column(field.name()) {
+            continue;
+        }
+        final_order_by.push(
+            Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(false, false),
+        );
+    }
+    if schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        let row_id_expr = schema
+            .iter()
+            .find_map(|(qualifier, field)| {
+                (field.name() == ROW_ID_COL_NAME).then(|| {
+                    Expr::Column(Column::new(qualifier.cloned(), field.name()))
+                        .sort(true, true)
+                })
+            })
+            .expect("row id column should exist");
+        final_order_by.push(row_id_expr);
+    }
+    with_row_id.sort(final_order_by)
 }
 
 #[cfg(test)]
@@ -64,19 +107,13 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use std::sync::Arc;
 
-    fn build_df(
-        schema: Schema,
-        columns: Vec<ArrayRef>,
-    ) -> datafusion::prelude::DataFrame {
-        let batch = RecordBatch::try_new(Arc::new(schema), columns)
-            .expect("record batch");
+    fn build_df(schema: Schema, columns: Vec<ArrayRef>) -> datafusion::prelude::DataFrame {
+        let batch = RecordBatch::try_new(Arc::new(schema), columns).expect("record batch");
         let ctx = SessionContext::new();
         ctx.read_batch(batch).expect("dataframe")
     }
 
-    fn collect_single_batch(
-        df: datafusion::prelude::DataFrame,
-    ) -> RecordBatch {
+    fn collect_single_batch(df: datafusion::prelude::DataFrame) -> RecordBatch {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -177,7 +214,10 @@ mod tests {
         let sorted = lex_sort_contiguous(df).expect("lex sort");
         let batch = collect_single_batch(sorted);
 
-        assert_eq!(bool_column(&batch, "__activator__"), vec![true, true, false]);
+        assert_eq!(
+            bool_column(&batch, "__activator__"),
+            vec![true, true, false]
+        );
         assert_eq!(int64_column(&batch, "k1"), vec![2, 1, 3]);
         assert_eq!(int64_column(&batch, "__row_id__"), vec![0, 1, 2]);
     }

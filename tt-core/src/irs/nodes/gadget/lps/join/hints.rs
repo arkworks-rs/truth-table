@@ -113,6 +113,111 @@ pub(crate) fn build_source_dfs(
     Ok((left_src, right_src))
 }
 
+pub(crate) fn build_nodup_input_df(
+    left: DataFrame,
+    right: DataFrame,
+    output: DataFrame,
+    join: &Join,
+) -> DataFusionResult<DataFrame> {
+    // Reuse the join mapping so nodup inputs align with the output rows.
+    let mut join_exprs: Vec<Expr> = join
+        .on
+        .iter()
+        .map(|(left_expr, right_expr)| left_expr.clone().eq(right_expr.clone()))
+        .collect();
+    for expr in join.on.iter().flat_map(|(l, r)| [l, r]) {
+        if expr_has_system_column(expr) {
+            return Err(DataFusionError::Plan(
+                "Join keys must not reference system columns".to_string(),
+            ));
+        }
+    }
+    if let Some(filter) = &join.filter {
+        if expr_has_system_column(filter) {
+            return Err(DataFusionError::Plan(
+                "Join filters must not reference system columns".to_string(),
+            ));
+        }
+        join_exprs.push(filter.clone());
+    }
+
+    let (left, left_row_id) = prepare_input(left, "left", "__left_row_id__")?;
+    let (right, right_row_id) = prepare_input(right, "right", "__right_row_id__")?;
+
+    let joined = left
+        .join_on(right, join.join_type, join_exprs)
+        .expect("join source mapping should succeed");
+    let row_id_sort_exprs = vec![
+        Expr::Column(left_row_id.clone()).sort(true, true),
+        Expr::Column(right_row_id.clone()).sort(true, true),
+    ];
+    let sorted = joined.sort(row_id_sort_exprs.clone())?;
+
+    let row_number_expr = row_number()
+        .partition_by(Vec::new())
+        .order_by(row_id_sort_exprs)
+        .build()?
+        .alias("__row_number__");
+    let indexed = sorted.select(vec![
+        Expr::Column(left_row_id).alias("left_row_id"),
+        Expr::Column(right_row_id).alias("right_row_id"),
+        row_number_expr,
+    ])?;
+    let mapping = indexed
+        .select(vec![
+            col("left_row_id"),
+            col("right_row_id"),
+            (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
+        ])?
+        .alias("__mapping__")?;
+
+    let output = output.alias("__output__")?;
+    let output = output.filter(
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ACTIVATOR_COL_NAME,
+        ))
+        .eq(lit(true)),
+    )?;
+    let join_on = vec![Expr::Column(Column::new(
+        Some(TableReference::bare("__output__")),
+        ROW_ID_COL_NAME,
+    ))
+    .eq(Expr::Column(Column::new(
+        Some(TableReference::bare("__mapping__")),
+        ROW_ID_COL_NAME,
+    )))];
+    let aligned = output.join_on(mapping, JoinType::Inner, join_on)?;
+    let aligned = aligned.sort(vec![Expr::Column(Column::new(
+        Some(TableReference::bare("__output__")),
+        ROW_ID_COL_NAME,
+    ))
+    .sort(true, true)])?;
+
+    aligned.select(vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            "left_row_id",
+        ))
+        .alias(SRC_LEFT_COL_NAME),
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            "right_row_id",
+        ))
+        .alias(SRC_RIGHT_COL_NAME),
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ACTIVATOR_COL_NAME,
+        ))
+        .alias(ACTIVATOR_COL_NAME),
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ROW_ID_COL_NAME,
+        ))
+        .alias(ROW_ID_COL_NAME),
+    ])
+}
+
 fn prepare_input(
     df: DataFrame,
     side: &str,

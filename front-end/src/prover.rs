@@ -141,10 +141,10 @@ impl<B: SnarkBackend> TTProver<B> {
         // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
-        // debug!(
-        //     "output planned ir:\n{}",
-        //     output_planned_ir.display_graphviz(true)
-        // );
+        debug!(
+            "output planned ir:\n{}",
+            output_planned_ir.display_graphviz(true)
+        );
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .prover_config()

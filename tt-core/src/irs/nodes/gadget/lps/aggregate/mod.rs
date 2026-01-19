@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
+use datafusion_expr::Aggregate;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::gadget::utils::supp;
@@ -13,7 +14,8 @@ pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
 
 pub struct GadgetNode<B: SnarkBackend> {
-    supp_gadget: Arc<Node<B>>,
+    supp_gadget: Option<Arc<Node<B>>>,
+    aggregate: Aggregate,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -39,6 +41,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.has_groups() {
+            return Ok(());
+        }
         let aggregate_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
@@ -53,23 +58,28 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let mut supp_payload = match planned_ir.payload_for_node(&self.supp_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut supp_payload =
+            match planned_ir.payload_for_node(&self.supp_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
         supp_payload.insert(supp::ORIG_LABEL.to_string(), input_hint);
         supp_payload.insert(supp::SUPER_LABEL.to_string(), output_hint);
 
         planned_ir.set_payload_for_node(
-            self.supp_gadget.id(),
+            self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),
         );
         Ok(())
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.supp_gadget.clone()]
+        if self.has_groups() {
+            vec![self.supp_gadget.as_ref().unwrap().clone()]
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -87,6 +97,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.has_groups() {
+            return Ok(());
+        }
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => panic!("Expected gadget payload for aggregate node"),
@@ -100,16 +113,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             _ => panic!("Expected aggregate input and output tables"),
         };
 
-        let mut supp_payload = match virtualized_ir.payload_for_node(&self.supp_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut supp_payload =
+            match virtualized_ir.payload_for_node(&self.supp_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
         supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
         supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
 
         virtualized_ir.set_payload_for_node(
-            self.supp_gadget.id(),
+            self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),
         );
         Ok(())
@@ -130,6 +144,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.has_groups() {
+            return Ok(());
+        }
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => panic!("Expected gadget payload for aggregate node"),
@@ -143,16 +160,17 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             _ => panic!("Expected aggregate input and output tables"),
         };
 
-        let mut supp_payload = match virtualized_ir.payload_for_node(&self.supp_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut supp_payload =
+            match virtualized_ir.payload_for_node(&self.supp_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
 
         supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
         supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
 
         virtualized_ir.set_payload_for_node(
-            self.supp_gadget.id(),
+            self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),
         );
         Ok(())
@@ -192,18 +210,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         IndexMap::new()
     }
 }
-
-impl<B: SnarkBackend> Default for GadgetNode<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new() -> Self {
-        let supp_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
-            crate::irs::nodes::gadget::utils::supp::GadgetNode::new(),
-        )));
-        Self { supp_gadget }
+    pub fn new(aggregate: Aggregate) -> Self {
+        let supp_gadget = if aggregate.group_expr.is_empty() {
+            None
+        } else {
+            Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                crate::irs::nodes::gadget::utils::supp::GadgetNode::new(),
+            ))))
+        };
+        Self {
+            supp_gadget,
+            aggregate,
+        }
+    }
+
+    fn has_groups(&self) -> bool {
+        !self.aggregate.group_expr.is_empty()
     }
 }

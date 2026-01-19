@@ -84,6 +84,13 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             &self.join,
         )
         .expect("join source dataframe derivation should succeed");
+        let nodup_input_df = hints::build_nodup_input_df(
+            left_hint.data_frame().clone(),
+            right_hint.data_frame().clone(),
+            output_hint.data_frame().clone(),
+            &self.join,
+        )
+        .expect("join nodup dataframe derivation should succeed");
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
@@ -97,6 +104,19 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         );
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(
+            crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
+        );
+        planned_ir.set_payload_for_node(
+            self.nodup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
 
         let (match_left, match_right, match_out) =
             build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)

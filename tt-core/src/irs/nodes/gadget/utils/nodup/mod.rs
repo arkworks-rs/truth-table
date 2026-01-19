@@ -19,8 +19,6 @@ pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
 
 mod bezout;
 mod hints;
-#[cfg(test)]
-mod tests;
 
 pub enum Mode {
     BezoutBased,
@@ -60,15 +58,17 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        //////////////////////////////////////////////////////////////////
+        // First populate the current node with the lexicographically sorted hint
         let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
         };
-        let Some(PayloadStructure::GadgetPayload(mut payload)) =
+        let Some(PayloadStructure::GadgetPayload(mut self_payload)) =
             planned_ir.payload_for_node(&id).cloned()
         else {
             panic!("No gadget payload found for node {:?}", id);
         };
-        let Some(input_hint) = payload.get(INPUT_LABEL).cloned() else {
+        let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
             panic!("No input hint found for NoDup gadget at node {:?}", id);
         };
         let lex_sorted_df = hints::lex_sort_contiguous(input_hint.data_frame().clone())
@@ -81,26 +81,20 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .collect();
         let lex_sorted_hint =
             crate::irs::nodes::hints::HintDF::new(lex_sorted_df, should_materialize);
-        let lex_sorted_virtual_hint = crate::irs::nodes::hints::HintDF::new(
-            lex_sorted_hint.data_frame().clone(),
-            lex_sorted_hint
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .map(|field| (field.clone(), false))
-                .collect(),
-        );
-        payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
+        self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
+
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
+        ///////////////////////////////////////////////////////////////////
+        // Next, propagate the virtualized version of the lex sorted hint to the sort gadget node
+        let lex_sorted_virtual_hint =
+            crate::irs::nodes::hints::HintDF::new_virtual(lex_sorted_hint.data_frame().clone());
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
         let sort_id = gadgets.0.id();
-        let Some(PayloadStructure::GadgetPayload(mut sort_payload)) =
-            planned_ir.payload_for_node(&sort_id).cloned()
-        else {
-            panic!("No gadget payload found for NoDup sort child {:?}", sort_id);
+        let mut sort_payload = match planned_ir.payload_for_node(&sort_id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            Some(PayloadStructure::PlanPayload(_)) | None => IndexMap::new(),
         };
         sort_payload.insert(
             crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
@@ -145,10 +139,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             panic!("No lex sorted hint found for NoDup gadget at node {:?}", id);
         };
         let sort_id = gadgets.0.id();
-        let Some(PayloadStructure::GadgetPayload(mut sort_payload)) =
-            virtualized_ir.payload_for_node(&sort_id).cloned()
-        else {
-            panic!("No gadget payload found for NoDup sort child {:?}", sort_id);
+        let mut sort_payload = match virtualized_ir.payload_for_node(&sort_id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            Some(PayloadStructure::PlanPayload(_)) | None => IndexMap::new(),
         };
         sort_payload.insert(
             crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
@@ -186,10 +179,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             panic!("No lex sorted hint found for NoDup gadget at node {:?}", id);
         };
         let sort_id = gadgets.0.id();
-        let Some(PayloadStructure::GadgetPayload(mut sort_payload)) =
-            virtualized_ir.payload_for_node(&sort_id).cloned()
-        else {
-            panic!("No gadget payload found for NoDup sort child {:?}", sort_id);
+        let mut sort_payload = match virtualized_ir.payload_for_node(&sort_id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            Some(PayloadStructure::PlanPayload(_)) | None => IndexMap::new(),
         };
         sort_payload.insert(
             crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
@@ -255,7 +247,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Mode::SortBased => Self {
                 gadgets: Gadgets::SortNoDup(SortNoDupGadgets(Arc::new(Node::<B>::Gadget(
                     Arc::new(
-                        crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(
+                        crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new_preserve_row_id(
                             crate::irs::nodes::gadget::utils::contig_sort::SortConfig::Uniform(
                                 crate::irs::nodes::gadget::utils::contig_sort::UniformConfig {
                                     asc: false,

@@ -261,18 +261,21 @@ fn append_perm_col_prover<B: SnarkBackend>(
 }
 
 fn append_index_col_prover<B: SnarkBackend>(right: &TrackedTable<B>) -> TrackedTable<B> {
-    let data_col = right
-        .data_tracked_polys_indices()
-        .first()
-        .copied()
-        .map(|idx| right.tracked_col_by_ind(idx))
-        .unwrap_or_else(|| panic!("Prescribed Permutation expects data columns on right table"));
-    let log_size = data_col.data_tracked_poly().log_size();
+    let data_poly = if let Some(idx) = right.data_tracked_polys_indices().first().copied() {
+        right.tracked_col_by_ind(idx).data_tracked_poly()
+    } else if let Some(activator) = right.activator_tracked_poly() {
+        activator
+    } else if let Some(col) = right.all_tracked_cols().first() {
+        col.data_tracked_poly()
+    } else {
+        panic!("Prescribed Permutation expects at least one column on right table");
+    };
+    let log_size = data_poly.log_size();
     let index_mle = MLE::from_evaluations_vec(
         log_size,
         (0..(1 << log_size)).map(|i| B::F::from(i as u64)).collect(),
     );
-    let tracker = data_col.data_tracked_poly().tracker();
+    let tracker = data_poly.tracker();
     let index_id = tracker.borrow_mut().track_mat_mv_poly(index_mle);
     let index_tracked_poly = TrackedPoly::new(Either::Left(index_id), log_size, tracker);
 
@@ -325,15 +328,19 @@ fn append_perm_col_verifier<B: SnarkBackend>(
 fn append_index_col_verifier<B: SnarkBackend>(
     right: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
-    let data_col = right
-        .data_tracked_oracles_indices()
-        .first()
-        .copied()
-        .map(|idx| right.tracked_col_oracle_by_ind(idx))
-        .unwrap_or_else(|| panic!("Prescribed Permutation expects data columns on right table"));
-    let log_size = data_col.data_tracked_oracle().log_size();
+    let data_oracle = if let Some(idx) = right.data_tracked_oracles_indices().first().copied() {
+        right.tracked_col_oracle_by_ind(idx)
+            .data_tracked_oracle()
+    } else if let Some(activator) = right.activator_tracked_poly() {
+        activator
+    } else if let Some(col) = right.all_tracked_col_oracles().first() {
+        col.data_tracked_oracle()
+    } else {
+        panic!("Prescribed Permutation expects at least one column on right table");
+    };
+    let log_size = data_oracle.log_size();
     let index_oracle = shift_permutation_oracle::<B::F>(log_size, 0, true);
-    let tracker = data_col.data_tracked_oracle().tracker();
+    let tracker = data_oracle.tracker();
     let index_id = tracker.borrow_mut().track_oracle(index_oracle);
     let index_tracked_oracle = TrackedOracle::new(Either::Left(index_id), tracker, log_size);
 

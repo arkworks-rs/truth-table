@@ -195,8 +195,16 @@ pub(crate) fn diff_input(
             })
             .alias(name.to_string())
         } else {
-            // Non-numeric types cannot be differenced in DataFusion; feed a zero diff for sign checks.
-            lit(0_i64).alias(name.to_string())
+            // For non-numeric types, emit a sign-only diff via comparisons.
+            let (left, right) = if is_asc {
+                (rotated_expr.clone(), col(name))
+            } else {
+                (col(name), rotated_expr.clone())
+            };
+            when(left.clone().gt(right.clone()), lit(1_i64))
+                .when(left.lt(right), lit(-1_i64))
+                .otherwise(lit(0_i64))?
+                .alias(name.to_string())
         };
         diff_cols.push(diff_expr);
     }

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use arithmetic::{
     ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_ff::Zero;
 use ark_ff::One;
+use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
 use ark_piop::verifier::structs::oracle::Oracle;
@@ -72,6 +73,7 @@ pub struct GadgetNode<B: SnarkBackend> {
     sign_gadget: Arc<Node<B>>,
     neq_gadget: Arc<Node<B>>,
     sort_config: SortConfig,
+    strip_row_id: bool,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -130,9 +132,13 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        // Strip row-id before storing to avoid exposing it in gadget payloads.
-        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint);
-        gadget_payload.insert(TABLE_LABEL.to_string(), sanitized_input);
+        let input_hint = if self.strip_row_id {
+            // Strip row-id before storing to avoid exposing it in gadget payloads.
+            crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
+        } else {
+            sorted_input_hint.clone()
+        };
+        gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
@@ -148,15 +154,18 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 }
 
 fn build_perm_table_prover<B: SnarkBackend>(left: &TrackedTable<B>) -> TrackedTable<B> {
-    let data_idx = left
-        .data_tracked_polys_indices()
-        .first()
-        .copied()
-        .unwrap_or_else(|| panic!("Sort permutation expects data columns in input table"));
-    let data_col = left.tracked_col_by_ind(data_idx);
-    let log_size = data_col.data_tracked_poly().log_size();
+    let data_poly = if let Some(data_idx) = left.data_tracked_polys_indices().first().copied() {
+        left.tracked_col_by_ind(data_idx).data_tracked_poly()
+    } else if let Some(activator) = left.activator_tracked_poly() {
+        activator
+    } else if let Some(col) = left.all_tracked_cols().first() {
+        col.data_tracked_poly()
+    } else {
+        panic!("Sort permutation expects at least one column in input table");
+    };
+    let log_size = data_poly.log_size();
     let perm_mle = prescr_perm::shift_permutation_mle::<B::F>(log_size, 1, true);
-    let tracker = data_col.data_tracked_poly().tracker();
+    let tracker = data_poly.tracker();
     let perm_id = tracker.borrow_mut().track_mat_mv_poly(perm_mle);
     let perm_poly = TrackedPoly::new(Either::Left(perm_id), log_size, tracker);
     let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
@@ -166,15 +175,19 @@ fn build_perm_table_prover<B: SnarkBackend>(left: &TrackedTable<B>) -> TrackedTa
 fn build_perm_table_verifier<B: SnarkBackend>(
     left: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
-    let data_idx = left
-        .data_tracked_oracles_indices()
-        .first()
-        .copied()
-        .unwrap_or_else(|| panic!("Sort permutation expects data columns in input table"));
-    let data_col = left.tracked_col_oracle_by_ind(data_idx);
-    let log_size = data_col.data_tracked_oracle().log_size();
+    let data_oracle = if let Some(data_idx) = left.data_tracked_oracles_indices().first().copied() {
+        left.tracked_col_oracle_by_ind(data_idx)
+            .data_tracked_oracle()
+    } else if let Some(activator) = left.activator_tracked_poly() {
+        activator
+    } else if let Some(col) = left.all_tracked_col_oracles().first() {
+        col.data_tracked_oracle()
+    } else {
+        panic!("Sort permutation expects at least one column in input table");
+    };
+    let log_size = data_oracle.log_size();
     let perm_oracle = prescr_perm::shift_permutation_oracle::<B::F>(log_size, 1, true);
-    let tracker = data_col.data_tracked_oracle().tracker();
+    let tracker = data_oracle.tracker();
     let perm_id = tracker.borrow_mut().track_oracle(perm_oracle);
     let perm_tracked_oracle = TrackedOracle::new(Either::Left(perm_id), tracker, log_size);
     let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
@@ -425,10 +438,159 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // use ark_piop::errors::SnarkError::ProverError;
+        // use ark_piop::prover::errors::HonestProverError::FalseClaim;
+        // use ark_piop::prover::errors::ProverError as ProverErr;
+
+        // let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        // else {
+        //     return Ok(());
+        // };
+        // let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
+        //     return Ok(());
+        // };
+        // let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
+
+        // let active_len = if let Some(activator_poly) = input_table.activator_tracked_poly() {
+        //     let activator = activator_poly.evaluations();
+        //     let mut seen_inactive = false;
+        //     let mut count = 0usize;
+        //     for value in activator.iter() {
+        //         let active = !value.is_zero();
+        //         if active {
+        //             if seen_inactive {
+        //                 return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
+        //             }
+        //             count += 1;
+        //         } else {
+        //             seen_inactive = true;
+        //         }
+        //     }
+        //     count
+        // } else {
+        //     input_table.size()
+        // };
+        // if active_len <= 1 {
+        //     return Ok(());
+        // }
+
+        // let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
+        // let data_indices = input_table.data_tracked_polys_indices();
+        // let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
+        // if ordered_indices.is_empty() {
+        //     return Ok(());
+        // }
+        // let mut asc_by_name = IndexMap::new();
+        // for (name, asc, _) in sort_specs.iter() {
+        //     asc_by_name.insert(normalize_sort_name(name), *asc);
+        // }
+        // let spec_covers_all = data_indices.iter().all(|idx| {
+        //     let col = input_table.tracked_col_by_ind(*idx);
+        //     col.field_ref()
+        //         .map(|field| asc_by_name.contains_key(&normalize_sort_name(field.name())))
+        //         .unwrap_or(false)
+        // });
+        // if !spec_covers_all {
+        //     asc_by_name.clear();
+        // }
+
+        // let strict_last = match &self.sort_config {
+        //     SortConfig::Uniform(config) => config.strict,
+        //     SortConfig::PerColumn(config) => config.strict,
+        // };
+
+        // if let Some(diff_table) = diff_table {
+        //     let diff_indices = ordered_data_indices_prover(&diff_table, &sort_specs);
+        //     if !diff_indices.is_empty() {
+        //         let mut diff_columns = Vec::with_capacity(diff_indices.len());
+        //         let mut diff_types = Vec::with_capacity(diff_indices.len());
+        //         for idx in diff_indices {
+        //             let diff_col = diff_table.tracked_col_by_ind(idx);
+        //             let Some(field) = diff_col.field_ref() else {
+        //                 diff_columns.clear();
+        //                 break;
+        //             };
+        //             diff_columns.push(diff_col.data_tracked_poly().evaluations());
+        //             diff_types.push(field.data_type().clone());
+        //         }
+        //         if !diff_columns.is_empty() {
+        //             for row_idx in 0..(active_len - 1) {
+        //                 let mut all_zero = true;
+        //                 for (col_idx, data_type) in diff_types.iter().enumerate() {
+        //                     let diff_val = diff_columns[col_idx][row_idx];
+        //                     if diff_val.is_zero() {
+        //                         continue;
+        //                     }
+        //                     all_zero = false;
+        //                     let expected_sign = if strict_last && col_idx + 1 == diff_types.len() {
+        //                         sign::Sign::Positive
+        //                     } else {
+        //                         sign::Sign::NonNegative
+        //                     };
+        //                     if !sign::SignNode::<B>::eval_matches_sign(
+        //                         data_type,
+        //                         expected_sign,
+        //                         diff_val,
+        //                     ) {
+        //                         return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
+        //                     }
+        //                     break;
+        //                 }
+        //                 if all_zero && strict_last {
+        //                     return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
+        //                 }
+        //             }
+        //             return Ok(());
+        //         }
+        //     }
+        // }
+
+        // let mut columns = Vec::with_capacity(ordered_indices.len());
+        // let mut ordering = Vec::with_capacity(ordered_indices.len());
+        // for idx in ordered_indices {
+        //     let column = input_table.tracked_col_by_ind(idx);
+        //     let name = column
+        //         .field_ref()
+        //         .map(|field| field.name().to_string())
+        //         .unwrap_or_default();
+        //     let asc = asc_by_name
+        //         .get(&normalize_sort_name(&name))
+        //         .copied()
+        //         .unwrap_or(true);
+        //     columns.push(column.data_tracked_poly().evaluations());
+        //     ordering.push(asc);
+        // }
+
+        // for row_idx in 0..(active_len - 1) {
+        //     let mut all_equal = true;
+        //     for (col_idx, asc) in ordering.iter().enumerate() {
+        //         let left = &columns[col_idx][row_idx];
+        //         let right = &columns[col_idx][row_idx + 1];
+        //         if left == right {
+        //             continue;
+        //         }
+        //         all_equal = false;
+        //         let ordering = left.into_bigint().cmp(&right.into_bigint());
+        //         let valid = if *asc {
+        //             ordering == std::cmp::Ordering::Less
+        //         } else {
+        //             ordering == std::cmp::Ordering::Greater
+        //         };
+        //         if !valid {
+        //             return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
+        //         }
+        //         break;
+        //     }
+
+        //     if all_equal && strict_last {
+        //         return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
+        //     }
+        // }
+
         Ok(())
     }
 
@@ -451,6 +613,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(sort_config: SortConfig) -> Self {
+        Self::new_internal(sort_config, true)
+    }
+
+    pub fn new_preserve_row_id(sort_config: SortConfig) -> Self {
+        Self::new_internal(sort_config, false)
+    }
+
+    fn new_internal(sort_config: SortConfig, strip_row_id: bool) -> Self {
         let prescr_perm = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::prescr_perm::GadgetNode::new(),
         )));
@@ -467,6 +637,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             sign_gadget,
             neq_gadget,
             sort_config,
+            strip_row_id,
         }
     }
 }
@@ -483,8 +654,11 @@ fn sign_for_column(_is_asc: bool, strict_for_col: bool) -> sign::Sign {
 fn build_sign_gadget<B: SnarkBackend>(sort_config: &SortConfig) -> Arc<Node<B>> {
     let sign_config = match sort_config {
         SortConfig::Uniform(config) => {
-            let sign = sign_for_column(config.asc, config.strict);
-            sign::SignConfig::Uniform(sign)
+            if config.strict {
+                sign::SignConfig::SemiUniform(sign::Sign::NonNegative, sign::Sign::Positive)
+            } else {
+                sign::SignConfig::Uniform(sign::Sign::NonNegative)
+            }
         }
         SortConfig::PerColumn(config) => {
             let last_idx = config.sort_specs.len().saturating_sub(1);
@@ -1354,11 +1528,12 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
         return table.clone();
     }
 
-    let data_idx = table
-        .data_tracked_polys_indices()
-        .first()
-        .copied()
-        .unwrap_or_else(|| panic!("Tie indicator table must have data columns"));
+    let data_idx = match table.data_tracked_polys_indices().first().copied() {
+        Some(idx) => idx,
+        None => {
+            return table.clone();
+        }
+    };
     let data_col = table.tracked_col_by_ind(data_idx);
     let num_vars = data_col.data_tracked_poly().log_size();
     let tracker = data_col.data_tracked_poly().tracker();
@@ -1409,11 +1584,12 @@ fn prepend_first_tie_indicator_verifier<B: SnarkBackend>(
         return table.clone();
     }
 
-    let data_idx = table
-        .data_tracked_oracles_indices()
-        .first()
-        .copied()
-        .unwrap_or_else(|| panic!("Tie indicator table must have data columns"));
+    let data_idx = match table.data_tracked_oracles_indices().first().copied() {
+        Some(idx) => idx,
+        None => {
+            return table.clone();
+        }
+    };
     let data_col = table.tracked_col_oracle_by_ind(data_idx);
     let num_vars = data_col.data_tracked_oracle().log_size();
     let tracker = data_col.data_tracked_oracle().tracker();

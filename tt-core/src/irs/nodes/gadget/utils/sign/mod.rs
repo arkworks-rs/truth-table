@@ -45,6 +45,7 @@ pub enum Sign {
 }
 pub enum SignConfig {
     Uniform(Sign),
+    SemiUniform(Sign, Sign),
     PerColumn(Vec<Sign>),
 }
 pub struct SignNode<B: SnarkBackend> {
@@ -420,6 +421,10 @@ impl<B: SnarkBackend> SignNode<B> {
     pub fn new(sign: SignConfig) -> Self {
         let needs_zero_check = match &sign {
             SignConfig::Uniform(sign) => matches!(sign, Sign::Positive | Sign::Negative),
+            SignConfig::SemiUniform(sign, last) => {
+                matches!(sign, Sign::Positive | Sign::Negative)
+                    || matches!(last, Sign::Positive | Sign::Negative)
+            }
             SignConfig::PerColumn(signs) => signs
                 .iter()
                 .any(|sign| matches!(sign, Sign::Positive | Sign::Negative)),
@@ -440,6 +445,13 @@ impl<B: SnarkBackend> SignNode<B> {
     fn sign_for_index(&self, idx: usize, total: usize) -> Sign {
         match &self.sign {
             SignConfig::Uniform(sign) => *sign,
+            SignConfig::SemiUniform(sign, last) => {
+                if idx + 1 == total {
+                    *last
+                } else {
+                    *sign
+                }
+            }
             SignConfig::PerColumn(signs) => *signs.get(idx).unwrap_or_else(|| {
                 panic!(
                     "Sign gadget expects {} sign specs, got {}",
@@ -458,6 +470,16 @@ impl<B: SnarkBackend> SignNode<B> {
                 } else {
                     Vec::new()
                 }
+            }
+            SignConfig::SemiUniform(sign, last) => {
+                let mut out = Vec::new();
+                if matches!(sign, Sign::Positive | Sign::Negative) {
+                    out.extend(0..total.saturating_sub(1));
+                }
+                if total > 0 && matches!(last, Sign::Positive | Sign::Negative) {
+                    out.push(total - 1);
+                }
+                out
             }
             SignConfig::PerColumn(signs) => signs
                 .iter()
@@ -1181,7 +1203,7 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     // Interpret the field element using the column's bit-width/signing rules.
-    fn eval_matches_sign(data_type: &DataType, sign: Sign, value: B::F) -> bool {
+    pub(crate) fn eval_matches_sign(data_type: &DataType, sign: Sign, value: B::F) -> bool {
         match data_type {
             DataType::UInt8 => Self::eval_unsigned_sign(value, 8, sign),
             DataType::UInt16 => Self::eval_unsigned_sign(value, 16, sign),

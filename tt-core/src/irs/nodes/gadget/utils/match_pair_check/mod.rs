@@ -112,6 +112,16 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         gadget_payload.insert(UNION_LABEL.to_string(), key_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
+        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union_hint.clone());
+        planned_ir.set_payload_for_node(
+            self.nodup_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(nodup_payload)),
+        );
+
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
         let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
         let mut left_lookup_payload =
