@@ -62,6 +62,9 @@ where
         let arith_payload = self.arith_payloads.get(&id).and_then(|p| p.as_ref())?;
         match (payload?, arith_payload) {
             (CommittedPayload::PlanPayload(oracle), ArithPayload::PlanPayload(arith_table)) => {
+                if arith_table.polynomials().is_empty() {
+                    return None;
+                }
                 Some(TrackedPayload::PlanPayload(
                     arith_to_tracked_with_commitment(
                         arith_table,
@@ -80,6 +83,9 @@ where
                     let arith_table = arith_map
                         .get(key)
                         .expect("commitment payload missing arith table entry");
+                    if arith_table.polynomials().is_empty() {
+                        continue;
+                    }
                     out.insert(
                         key.clone(),
                         arith_to_tracked_with_commitment(
