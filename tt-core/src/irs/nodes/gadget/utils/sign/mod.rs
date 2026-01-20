@@ -510,13 +510,25 @@ impl<B: SnarkBackend> SignNode<B> {
         MLE::from_evaluations_vec(nv, evals)
     }
 
+    fn range_poly_label(nv: usize) -> String {
+        format!("range_{}", nv)
+    }
+
     fn add_range_inclusion(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
         nv: usize,
     ) -> SnarkResult<()> {
         let col_activated_poly = col.activated_data_tracked_poly();
-        let range_poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv));
+        let label = Self::range_poly_label(nv);
+        let range_poly = match prover.indexed_tracked_poly(label.clone()) {
+            Ok(poly) => poly,
+            Err(_) => {
+                let poly = prover.track_mat_mv_poly(Self::dense_range_poly_by_nv(nv));
+                prover.add_indexed_tracked_poly(label, poly.clone());
+                poly
+            }
+        };
         prover.add_mv_lookup_claim(range_poly.id(), col_activated_poly.id())
     }
 
@@ -548,8 +560,16 @@ impl<B: SnarkBackend> SignNode<B> {
         nv: usize,
     ) -> SnarkResult<()> {
         let col_activated_oracle = col.activated_data_tracked_oracle();
-        let range_poly = verifier.track_oracle(Self::range_oracle(nv));
-        verifier.add_mv_lookup_claim(range_poly.id(), col_activated_oracle.id())
+        let label = Self::range_poly_label(nv);
+        let range_oracle = match verifier.indexed_oracle(label.clone()) {
+            Ok(oracle) => oracle,
+            Err(_) => {
+                let oracle = verifier.track_oracle(Self::range_oracle(nv));
+                verifier.add_indexed_tracked_oracle(label, oracle.clone());
+                oracle
+            }
+        };
+        verifier.add_mv_lookup_claim(range_oracle.id(), col_activated_oracle.id())
     }
 
     fn prove_sign_inner(
