@@ -266,7 +266,7 @@ mod test {
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
             let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
-                arg_prover,
+                arg_prover.clone(),
                 arithmetized_ir.payloads().clone(),
             );
             let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
@@ -277,8 +277,10 @@ mod test {
                 virtualized_ir.tree().clone(),
                 virtualized_ir.payloads().clone(),
             );
-            let gadget_initialization_pass =
-                GadgetInitializationPass::<DefaultSnarkBackend>::new(gadget_ir_view);
+            let gadget_initialization_pass = GadgetInitializationPass::<DefaultSnarkBackend>::new(
+                gadget_ir_view,
+                arg_prover.clone(),
+            );
             let gadget_ready_ir =
                 virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
@@ -320,8 +322,10 @@ mod test {
                 virtualized_ir.tree().clone(),
                 virtualized_ir.payloads().clone(),
             );
-            let gadget_initialization_pass =
-                GadgetInitializationPass::<DefaultSnarkBackend>::new(gadget_ir_view);
+            let gadget_initialization_pass = GadgetInitializationPass::<DefaultSnarkBackend>::new(
+                gadget_ir_view,
+                arg_prover.clone(),
+            );
             let gadget_ready_ir =
                 virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
             let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(

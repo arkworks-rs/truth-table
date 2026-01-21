@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::{
-    is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_FIELD,
+    ACTIVATOR_FIELD, is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
@@ -14,7 +14,11 @@ use super::{ORIG_LABEL, ORIG_RLC_LABEL, SUPER_LABEL, SUPER_RLC_LABEL};
 pub(super) fn io_tables_prover<B: SnarkBackend>(
     virtualized_ir: &crate::prover::irs::VirtualizedIr<B>,
     id: NodeId,
-) -> (IndexMap<String, TrackedTable<B>>, TrackedTable<B>, TrackedTable<B>) {
+) -> (
+    IndexMap<String, TrackedTable<B>>,
+    TrackedTable<B>,
+    TrackedTable<B>,
+) {
     let Some(PayloadStructure::GadgetPayload(payload)) =
         virtualized_ir.payload_for_node(&id).cloned()
     else {
@@ -65,10 +69,7 @@ pub(super) fn populate_self_rlc_payload_prover<B: SnarkBackend>(
     let mut updated_payload = payload;
     updated_payload.insert(ORIG_RLC_LABEL.to_string(), orig_rlc);
     updated_payload.insert(SUPER_RLC_LABEL.to_string(), super_rlc);
-    virtualized_ir.set_payload_for_node(
-        id,
-        Some(PayloadStructure::GadgetPayload(updated_payload)),
-    );
+    virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(updated_payload)));
     Ok(())
 }
 
@@ -127,10 +128,7 @@ pub(super) fn populate_self_rlc_payload_verifier<B: SnarkBackend>(
     let mut updated_payload = payload;
     updated_payload.insert(ORIG_RLC_LABEL.to_string(), orig_rlc);
     updated_payload.insert(SUPER_RLC_LABEL.to_string(), super_rlc);
-    virtualized_ir.set_payload_for_node(
-        id,
-        Some(PayloadStructure::GadgetPayload(updated_payload)),
-    );
+    virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(updated_payload)));
     Ok(())
 }
 
@@ -179,9 +177,7 @@ pub(super) fn populate_lookup_payload_verifier<B: SnarkBackend>(
     Ok(())
 }
 
-pub(super) fn folding_challenges_from_table<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-) -> Vec<B::F> {
+pub(super) fn folding_challenges_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B::F> {
     let num_data = table.num_data_tracked_cols();
     if num_data == 0 {
         return Vec::new();
@@ -240,16 +236,10 @@ pub(super) fn io_rlc_verifier<B: SnarkBackend>(
     super_table: &TrackedTableOracle<B>,
 ) -> (TrackedTableOracle<B>, TrackedTableOracle<B>) {
     let folding_challs = folding_challenges_from_table_oracle(orig_table);
-    let orig_rlc = fold_table_oracle_to_single_col_with_challs(
-        orig_table,
-        ORIG_RLC_LABEL,
-        &folding_challs,
-    );
-    let super_rlc = fold_table_oracle_to_single_col_with_challs(
-        super_table,
-        SUPER_RLC_LABEL,
-        &folding_challs,
-    );
+    let orig_rlc =
+        fold_table_oracle_to_single_col_with_challs(orig_table, ORIG_RLC_LABEL, &folding_challs);
+    let super_rlc =
+        fold_table_oracle_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs);
     (orig_rlc, super_rlc)
 }
 

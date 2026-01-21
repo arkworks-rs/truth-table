@@ -54,7 +54,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -62,7 +62,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -76,10 +77,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())

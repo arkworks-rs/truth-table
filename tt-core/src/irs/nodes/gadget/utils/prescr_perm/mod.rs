@@ -64,7 +64,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -72,6 +72,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) =
@@ -94,7 +95,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
 
         let padded_left = append_perm_col_prover(&left, &perm);
-        let padded_right = append_index_col_prover(&right);
+        let padded_right = append_index_col_prover(prover, &right);
 
         let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -124,10 +125,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(payload)) =
@@ -150,7 +151,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
 
         let padded_left = append_perm_col_verifier(&left, &perm);
-        let padded_right = append_index_col_verifier(&right);
+        let padded_right = append_index_col_verifier(verifier, &right);
 
         let mut perm_payload = match virtualized_ir.payload_for_node(&self.perm.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -260,7 +261,10 @@ fn append_perm_col_prover<B: SnarkBackend>(
     append_tracked_col(left, perm_field.clone(), perm_poly.clone())
 }
 
-fn append_index_col_prover<B: SnarkBackend>(right: &TrackedTable<B>) -> TrackedTable<B> {
+fn append_index_col_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    right: &TrackedTable<B>,
+) -> TrackedTable<B> {
     let data_poly = if let Some(idx) = right.data_tracked_polys_indices().first().copied() {
         right.tracked_col_by_ind(idx).data_tracked_poly()
     } else if let Some(activator) = right.activator_tracked_poly() {
@@ -271,13 +275,19 @@ fn append_index_col_prover<B: SnarkBackend>(right: &TrackedTable<B>) -> TrackedT
         panic!("Prescribed Permutation expects at least one column on right table");
     };
     let log_size = data_poly.log_size();
-    let index_mle = MLE::from_evaluations_vec(
-        log_size,
-        (0..(1 << log_size)).map(|i| B::F::from(i as u64)).collect(),
-    );
-    let tracker = data_poly.tracker();
-    let index_id = tracker.borrow_mut().track_mat_mv_poly(index_mle);
-    let index_tracked_poly = TrackedPoly::new(Either::Left(index_id), log_size, tracker);
+    let label = format!("index_{}", log_size);
+    let index_tracked_poly = match prover.indexed_tracked_poly(label.clone()) {
+        Ok(poly) => poly,
+        Err(_) => {
+            let index_mle = MLE::from_evaluations_vec(
+                log_size,
+                (0..(1 << log_size)).map(|i| B::F::from(i as u64)).collect(),
+            );
+            let poly = prover.track_mat_mv_poly(index_mle);
+            prover.add_indexed_tracked_poly(label, poly.clone());
+            poly
+        }
+    };
 
     let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
     append_tracked_col(right, index_field, index_tracked_poly)
@@ -326,11 +336,11 @@ fn append_perm_col_verifier<B: SnarkBackend>(
 }
 
 fn append_index_col_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     right: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
     let data_oracle = if let Some(idx) = right.data_tracked_oracles_indices().first().copied() {
-        right.tracked_col_oracle_by_ind(idx)
-            .data_tracked_oracle()
+        right.tracked_col_oracle_by_ind(idx).data_tracked_oracle()
     } else if let Some(activator) = right.activator_tracked_poly() {
         activator
     } else if let Some(col) = right.all_tracked_col_oracles().first() {
@@ -339,10 +349,16 @@ fn append_index_col_verifier<B: SnarkBackend>(
         panic!("Prescribed Permutation expects at least one column on right table");
     };
     let log_size = data_oracle.log_size();
-    let index_oracle = shift_permutation_oracle::<B::F>(log_size, 0, true);
-    let tracker = data_oracle.tracker();
-    let index_id = tracker.borrow_mut().track_oracle(index_oracle);
-    let index_tracked_oracle = TrackedOracle::new(Either::Left(index_id), tracker, log_size);
+    let label = format!("index_{}", log_size);
+    let index_tracked_oracle = match verifier.indexed_oracle(label.clone()) {
+        Ok(oracle) => oracle,
+        Err(_) => {
+            let index_oracle = shift_permutation_oracle::<B::F>(log_size, 0, true);
+            let oracle = verifier.track_oracle(index_oracle);
+            verifier.add_indexed_tracked_oracle(label, oracle.clone());
+            oracle
+        }
+    };
 
     let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
     append_tracked_oracle(right, index_field, index_tracked_oracle)

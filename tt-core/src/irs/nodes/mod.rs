@@ -123,6 +123,7 @@ where
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 }
@@ -141,6 +142,7 @@ where
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()>;
 }
@@ -355,14 +357,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => {
-                ProverNodeOps::initialize_gadgets(plan_node, id, virtualized_ir)
+                ProverNodeOps::initialize_gadgets(plan_node, id, prover, virtualized_ir)
             }
             Node::Gadget(gadget_node) => {
-                ProverNodeOps::initialize_gadgets(gadget_node.as_ref(), id, virtualized_ir)
+                ProverNodeOps::initialize_gadgets(gadget_node.as_ref(), id, prover, virtualized_ir)
             }
         }
     }
@@ -387,14 +390,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => {
-                VerifierNodeOps::initialize_gadgets(plan_node, id, virtualized_ir)
+                VerifierNodeOps::initialize_gadgets(plan_node, id, verifier, virtualized_ir)
             }
             Node::Gadget(gadget_node) => {
-                VerifierNodeOps::initialize_gadgets(gadget_node.as_ref(), id, virtualized_ir)
+                VerifierNodeOps::initialize_gadgets(gadget_node.as_ref(), id, verifier, virtualized_ir)
             }
         }
     }
@@ -514,14 +518,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => {
-                ProverNodeOps::initialize_gadgets(lp_node.as_ref(), id, virtualized_ir)
+                ProverNodeOps::initialize_gadgets(lp_node.as_ref(), id, prover, virtualized_ir)
             }
             PlanNode::ExprBased(expr_node) => {
-                ProverNodeOps::initialize_gadgets(expr_node.as_ref(), id, virtualized_ir)
+                ProverNodeOps::initialize_gadgets(expr_node.as_ref(), id, prover, virtualized_ir)
             }
         }
     }
@@ -546,14 +551,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => {
-                VerifierNodeOps::initialize_gadgets(lp_node.as_ref(), id, virtualized_ir)
+                VerifierNodeOps::initialize_gadgets(lp_node.as_ref(), id, verifier, virtualized_ir)
             }
             PlanNode::ExprBased(expr_node) => {
-                VerifierNodeOps::initialize_gadgets(expr_node.as_ref(), id, virtualized_ir)
+                VerifierNodeOps::initialize_gadgets(expr_node.as_ref(), id, verifier, virtualized_ir)
             }
         }
     }

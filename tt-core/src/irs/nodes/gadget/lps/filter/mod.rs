@@ -54,7 +54,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -62,6 +62,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the gadget payload populated by the parent plan node.
@@ -130,10 +131,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the gadget payload populated by the parent plan node.

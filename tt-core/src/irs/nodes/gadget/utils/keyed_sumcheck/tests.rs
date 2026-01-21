@@ -152,7 +152,8 @@ fn run_keyed_sumcheck_roundtrip(
         virtualized_ir.tree().clone(),
         virtualized_ir.payloads().clone(),
     );
-    let gadget_initialization_pass = ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+    let gadget_initialization_pass =
+        ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view, prover.clone());
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
     let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
@@ -203,7 +204,7 @@ fn run_keyed_sumcheck_roundtrip(
         virtualized_ir.payloads().clone(),
     );
     let gadget_initialization_pass =
-        VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+        VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view, verifier.clone());
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
     let verify_ir_view = crate::verifier::irs::GadgetReadyIr::new(

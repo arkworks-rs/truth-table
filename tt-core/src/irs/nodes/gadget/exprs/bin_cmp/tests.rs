@@ -213,7 +213,8 @@ fn end_to_end_bin_geq_prove_and_verify<T: IntoField + Copy>(
         virtualized_ir.tree().clone(),
         virtualized_ir.payloads().clone(),
     );
-    let gadget_initialization_pass = ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+    let gadget_initialization_pass =
+        ProverGadgetInitializationPass::<Backend>::new(gadget_ir_view, prover.clone());
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
     // Run the proving pass to invoke every gadget in post-order.
@@ -295,7 +296,7 @@ fn end_to_end_bin_geq_prove_and_verify<T: IntoField + Copy>(
         virtualized_ir.payloads().clone(),
     );
     let gadget_initialization_pass =
-        VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+        VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view, verifier.clone());
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
     // Run the verifier pass to invoke every gadget against the proof transcript.

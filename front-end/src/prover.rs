@@ -189,7 +189,8 @@ impl<B: SnarkBackend> TTProver<B> {
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
-        let gadget_initialization_pass = GadgetInitializationPass::<B>::new(gadget_ir_view);
+        let gadget_initialization_pass =
+            GadgetInitializationPass::<B>::new(gadget_ir_view, arg_prover.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
         debug!(

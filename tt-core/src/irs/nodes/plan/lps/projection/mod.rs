@@ -159,7 +159,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -274,10 +275,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         _id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())

@@ -143,7 +143,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
-        let gadget_initialization_pass = VerifierGadgetInitializationPass::<B>::new(gadget_ir_view);
+        let gadget_initialization_pass =
+            VerifierGadgetInitializationPass::<B>::new(gadget_ir_view, arg_verifier.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
         // debug!(

@@ -338,6 +338,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let current_table = match virtualized_ir.payload_for_node(&id) {
@@ -509,10 +510,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         fn populate_aggregate_function_exprs<B: SnarkBackend>(
@@ -740,7 +741,8 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
     aggregate: &Aggregate,
     aggr_exprs: &[Arc<Node<B>>],
     current_table: &TrackedTable<B>,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    prover: &mut ark_piop::prover::ArgProver<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let schema = match current_table.schema_ref() {
         Some(schema) => schema,
@@ -804,7 +806,7 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     input_table: &TrackedTable<B>,
     output_table: &TrackedTable<B>,
     gadget_id: crate::irs::nodes::NodeId,
-    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let input_schema = match input_table.schema_ref() {
         Some(schema) => schema,

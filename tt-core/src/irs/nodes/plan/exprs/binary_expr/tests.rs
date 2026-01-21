@@ -189,6 +189,7 @@ fn end_to_end_binary_expr(expr: Expr, output_evals: &[u64]) -> SnarkResult<()> {
     let gadget_initialization_pass =
         crate::prover::passes::gadget_initialization::GadgetInitializationPass::<Backend>::new(
             gadget_ir_view,
+            prover.clone(),
         );
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 
@@ -248,6 +249,7 @@ fn end_to_end_binary_expr(expr: Expr, output_evals: &[u64]) -> SnarkResult<()> {
     let gadget_initialization_pass =
         crate::verifier::passes::gadget_initialization::GadgetInitializationPass::<Backend>::new(
             gadget_ir_view,
+            verifier.clone(),
         );
     let gadget_ready_ir = virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
 

@@ -133,6 +133,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let output_table = match virtualized_ir.payload_for_node(&id) {
@@ -206,10 +207,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let output_table = match virtualized_ir.payload_for_node(&id) {

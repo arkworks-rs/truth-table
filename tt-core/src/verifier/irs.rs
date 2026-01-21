@@ -172,7 +172,8 @@ mod test {
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
-        let gadget_initialization_pass = GadgetInitializationPass::<Backend>::new(gadget_ir_view);
+        let gadget_initialization_pass =
+            GadgetInitializationPass::<Backend>::new(gadget_ir_view, arg_prover.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
         let proving_ir_view = crate::prover::irs::GadgetReadyIr::new(
@@ -266,7 +267,7 @@ mod test {
             let planned_ir = initial_ir.apply_local_pass_parallel(&planning_pass);
 
             let verifier_tracking_pass =
-                VerifierTrackingPass::<Backend>::new(arg_verifier, CtxOracles::default());
+                VerifierTrackingPass::<Backend>::new(arg_verifier.clone(), CtxOracles::default());
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             let verifier_virtualization_pass =
                 VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
@@ -276,8 +277,10 @@ mod test {
                 virtualized_ir.tree().clone(),
                 virtualized_ir.payloads().clone(),
             );
-            let gadget_initialization_pass =
-                VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+            let gadget_initialization_pass = VerifierGadgetInitializationPass::<Backend>::new(
+                gadget_ir_view,
+                arg_verifier.clone(),
+            );
             let gadget_ready_ir =
                 virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
             println!("Planned Query: {query}");
@@ -316,8 +319,10 @@ mod test {
                 virtualized_ir.tree().clone(),
                 virtualized_ir.payloads().clone(),
             );
-            let gadget_initialization_pass =
-                VerifierGadgetInitializationPass::<Backend>::new(gadget_ir_view);
+            let gadget_initialization_pass = VerifierGadgetInitializationPass::<Backend>::new(
+                gadget_ir_view,
+                arg_verifier.clone(),
+            );
             let gadget_ready_ir =
                 virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
             let verify_ir_view = crate::verifier::irs::GadgetReadyIr::new(

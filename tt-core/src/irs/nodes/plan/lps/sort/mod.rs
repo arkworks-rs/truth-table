@@ -136,6 +136,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         _id: NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // 1) Gather the input/output tables for this sort node.
@@ -193,10 +194,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // 1) Gather the input/output table oracles for this sort node.

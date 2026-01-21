@@ -91,7 +91,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -99,6 +99,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(neq_gadget) = self.neq_zero_gadget.as_ref() else {
@@ -172,10 +173,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(neq_gadget) = self.neq_zero_gadget.as_ref() else {

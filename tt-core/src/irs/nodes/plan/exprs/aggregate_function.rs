@@ -253,6 +253,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let parent_node = self
@@ -441,10 +442,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             column_name, parent_id
         );
     }
-
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let parent_node = self

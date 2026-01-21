@@ -150,6 +150,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     fn initialize_gadgets(
         &self,
         _id: NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.
@@ -283,10 +284,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
-
     fn initialize_gadgets(
         &self,
         id: NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper to extract a table containing only the activator column.

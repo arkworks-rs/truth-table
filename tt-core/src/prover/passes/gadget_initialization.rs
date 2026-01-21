@@ -13,12 +13,14 @@ use crate::prover::payloads::{GadgetReadyPayload, VirtualizedPayload};
 /// A pass that lets parent plan nodes initialize their gadget payloads in pre-order.
 pub struct GadgetInitializationPass<B: SnarkBackend> {
     virtualized_ir: RefCell<VirtualizedIr<B>>,
+    prover: ark_piop::prover::ArgProver<B>,
 }
 
 impl<B: SnarkBackend> GadgetInitializationPass<B> {
-    pub fn new(virtualized_ir: VirtualizedIr<B>) -> Self {
+    pub fn new(virtualized_ir: VirtualizedIr<B>, prover: ark_piop::prover::ArgProver<B>) -> Self {
         Self {
             virtualized_ir: RefCell::new(virtualized_ir),
+            prover,
         }
     }
 }
@@ -56,7 +58,8 @@ where
             node_kind = node_kind,
             "starting gadget initialization"
         );
-        node.initialize_gadgets(id, &mut ir)
+        let mut prover = self.prover.clone();
+        node.initialize_gadgets(id, &mut prover, &mut ir)
             .expect("gadget initialization should succeed");
         tracing::debug!(
             node = %node_name,
