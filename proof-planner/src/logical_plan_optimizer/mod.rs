@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use datafusion::optimizer::{
+    decorrelate_predicate_subquery::DecorrelatePredicateSubquery,
     eliminate_cross_join::EliminateCrossJoin, extract_equijoin_predicate::ExtractEquijoinPredicate,
     simplify_expressions::SimplifyExpressions, OptimizerRule,
 };

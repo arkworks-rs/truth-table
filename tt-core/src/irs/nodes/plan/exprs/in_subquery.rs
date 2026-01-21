@@ -1,0 +1,157 @@
+use std::sync::Arc;
+
+use ark_piop::SnarkBackend;
+use datafusion_common::Statistics;
+use datafusion_expr::expr::InSubquery;
+
+use crate::irs::nodes::{
+    IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
+};
+use crate::irs::tree::Tree;
+
+pub struct ProverNode<B: SnarkBackend> {
+    pub scope: Arc<Node<B>>,
+    pub expr: Arc<Node<B>>,
+    pub subquery: Arc<Node<B>>,
+    pub parent: Option<std::sync::Weak<Node<B>>>,
+    pub in_subquery: InSubquery,
+}
+
+impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+    fn name(&self) -> String {
+        "InSubquery".to_string()
+    }
+
+    fn display(&self) -> String {
+        format!(
+            "InSubquery\nExpr: {}, subquery: {}",
+            self.expr.name(),
+            self.subquery.name()
+        )
+    }
+
+    fn cost(
+        &self,
+        _statistics: Statistics,
+        _schema: arrow_schema::SchemaRef,
+    ) -> crate::irs::nodes::cost::ProvingCost {
+        todo!()
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
+        vec![self.expr.clone(), self.subquery.clone()]
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+    fn gadget(&self) -> Option<Node<B>> {
+        None
+    }
+
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
+    }
+}
+
+impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+    fn add_virtual_witness(
+        &self,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+    fn initialize_gadgets(
+        &self,
+        _id: NodeId,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+}
+
+impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+    fn from_expr(
+        expr: datafusion_expr::Expr,
+        self_ref: std::sync::Weak<Node<B>>,
+        parent: Option<std::sync::Weak<Node<B>>>,
+        scope: std::sync::Arc<Node<B>>,
+    ) -> Self
+    where
+        Self: Sized,
+    {
+        let in_subquery = match expr {
+            datafusion_expr::Expr::InSubquery(expr) => expr,
+            _ => panic!("Expected InSubquery expression"),
+        };
+
+        let expr_node =
+            Tree::<B>::from_expr(&in_subquery.expr, Some(self_ref.clone()), scope.clone())
+                .root()
+                .clone();
+        let subquery_node = Tree::<B>::from_logical_plan(&in_subquery.subquery.subquery)
+            .root()
+            .clone();
+
+        Self {
+            in_subquery,
+            expr: expr_node,
+            subquery: subquery_node,
+            scope,
+            parent,
+        }
+    }
+
+    fn expr(&self) -> datafusion_expr::Expr {
+        todo!()
+    }
+
+    fn parent(&self) -> crate::irs::nodes::PlanNode<B>
+    where
+        Self: Sized,
+    {
+        self.parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .map(|arc_node| match arc_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.clone(),
+                Node::Gadget(_) => panic!("InSubquery parent cannot be a gadget node"),
+            })
+            .expect("InSubquery node must have a parent")
+    }
+
+    fn scope(&self) -> std::sync::Arc<Node<B>>
+    where
+        Self: Sized,
+    {
+        self.scope.clone()
+    }
+}
