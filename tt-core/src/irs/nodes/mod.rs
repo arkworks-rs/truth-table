@@ -210,6 +210,7 @@ impl<B: SnarkBackend> Node<B> {
         parent: Option<Weak<Node<B>>>,
         scope: Arc<Node<B>>,
     ) -> Arc<Self> {
+        dbg!(expr);
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node = column::ProverNode::from_expr(

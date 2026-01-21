@@ -57,7 +57,46 @@ async fn tpch_q5_prove_verify() {
         .await
         .expect("prove and verify tpch q5");
 }
-
+// TPCH Q8
+//
+// SELECT
+//     o_year,
+//     sum(
+//         CASE WHEN nation = 'BRAZIL' THEN
+//             volume
+//         ELSE
+//             0
+//         END) / sum(volume) AS mkt_share
+// FROM (
+//     SELECT
+//         date_part('year', o_orderdate) AS o_year,
+//         l_extendedprice * (1 - l_discount) AS volume,
+//         n2.n_name AS nation
+//     FROM
+//         part,
+//         supplier,
+//         lineitem,
+//         orders,
+//         customer,
+//         nation n1,
+//         nation n2,
+//         region
+//     WHERE
+//         p_partkey = l_partkey
+//         AND s_suppkey = l_suppkey
+//         AND l_orderkey = o_orderkey
+//         AND o_custkey = c_custkey
+//         AND c_nationkey = n1.n_nationkey
+//         AND n1.n_regionkey = r_regionkey
+//         AND r_name = 'AMERICA'
+//         AND s_nationkey = n2.n_nationkey
+//         AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+//         AND CAST('1996-12-31' AS date)
+//         AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+// GROUP BY
+//     o_year
+// ORDER BY
+//     o_year;
 #[tokio::test]
 async fn tpch_q8_prove_verify() {
     let spec = query_spec(8);
@@ -66,9 +105,8 @@ async fn tpch_q8_prove_verify() {
     o_year
 FROM (
     SELECT
-         o_orderdate AS o_year,
-        l_extendedprice * (1 - l_discount) AS volume,
-        n2.n_name AS nation
+        o_orderdate AS o_year,
+        l_extendedprice * (1 - l_discount) AS volume
     FROM
         part,
         supplier,
@@ -76,7 +114,6 @@ FROM (
         orders,
         customer,
         nation n1,
-        nation n2,
         region
     WHERE
         p_partkey = l_partkey
@@ -86,7 +123,6 @@ FROM (
         AND c_nationkey = n1.n_nationkey
         AND n1.n_regionkey = r_regionkey
         AND r_name = 'AMERICA'
-        AND s_nationkey = n2.n_nationkey
         AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
         AND CAST('1996-12-31' AS date)
         AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
@@ -100,10 +136,9 @@ ORDER BY
         .expect("prove and verify tpch q8");
 }
 
-// #[tokio::test]
-// async fn tpch_q9_prove_verify() {
-//     let spec = query_spec(9);
-//     let simplified_sql = "SELECT
+// TPCH Q9
+//
+// SELECT
 //     nation,
 //     o_year,
 //     sum(amount) AS sum_profit
@@ -125,25 +160,90 @@ ORDER BY
 //         AND ps_partkey = l_partkey
 //         AND p_partkey = l_partkey
 //         AND o_orderkey = l_orderkey
-//         AND s_nationkey = n_nationkey) AS profit
+//         AND s_nationkey = n_nationkey
+//         AND p_name LIKE '%green%') AS profit
 // GROUP BY
 //     nation,
 //     o_year
 // ORDER BY
 //     nation,
-//     o_year DESC;";
-//     exec::test_utils::prove_and_verify_query(simplified_sql, spec.tables, None)
-//         .await
-//         .expect("prove and verify tpch q9");
-// }
+//     o_year DESC;
 
-// #[tokio::test]
-// async fn tpch_q18_prove_verify() {
-//     let spec = query_spec(18);
-//     exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
-//         .await
-//         .expect("prove and verify tpch q18");
-// }
+#[tokio::test]
+async fn tpch_q9_prove_verify() {
+    let spec = query_spec(9);
+    println!("TPCH Q9 SQL:\n{}", spec.sql);
+    let simplified_sql = "SELECT
+    nation,
+    o_year
+FROM (
+    SELECT
+        n_name AS nation,
+        o_orderdate AS o_year,
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+    FROM
+        part,
+        supplier,
+        lineitem,
+        partsupp,
+        orders,
+        nation
+    WHERE
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey) AS profit
+";
+    exec::test_utils::prove_and_verify_query(simplified_sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q9");
+}
+
+// TPCH Q18
+//
+// SELECT
+//     c_name,
+//     c_custkey,
+//     o_orderkey,
+//     o_orderdate,
+//     o_totalprice,
+//     sum(l_quantity)
+// FROM
+//     customer,
+//     orders,
+//     lineitem
+// WHERE
+//     o_orderkey IN (
+//         SELECT
+//             l_orderkey
+//         FROM
+//             lineitem
+//         GROUP BY
+//             l_orderkey
+//         HAVING
+//             sum(l_quantity) > 300)
+//     AND c_custkey = o_custkey
+//     AND o_orderkey = l_orderkey
+// GROUP BY
+//     c_name,
+//     c_custkey,
+//     o_orderkey,
+//     o_orderdate,
+//     o_totalprice
+// ORDER BY
+//     o_totalprice DESC,
+//     o_orderdate
+// LIMIT 100;
+#[tokio::test]
+async fn tpch_q18_prove_verify() {
+    let spec = query_spec(18);
+    println!("TPCH Q18 SQL:\n{}", spec.sql);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q18");
+}
 
 #[tokio::test]
 async fn tpch_q19_prove_verify() {
