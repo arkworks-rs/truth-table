@@ -294,6 +294,23 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
             LogicalPlan::Projection(p) => p,
             _ => panic!("expected projection logical plan"),
         };
+        let filtered_exprs: Vec<_> = projection
+            .expr
+            .iter()
+            .filter(|expr| match expr {
+                datafusion_expr::Expr::Column(col) => {
+                    col.name != ROW_ID_COL_NAME && col.name != ACTIVATOR_COL_NAME
+                }
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        let projection = if filtered_exprs.len() == projection.expr.len() {
+            projection
+        } else {
+            Projection::try_new(filtered_exprs, projection.input.clone())
+                .expect("filtered projection should be valid")
+        };
 
         // Recurse into the input subtree and fetch the logical plan that feeds this
         // projection.

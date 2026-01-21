@@ -63,16 +63,10 @@ async fn tpch_q8_prove_verify() {
     let spec = query_spec(8);
     let simplified_sql = "
     SELECT
-    o_year,
-    sum(
-        CASE WHEN nation = 'BRAZIL' THEN
-            volume
-        ELSE
-            0
-        END) AS mkt_share_nominator, sum(volume) AS mkt_share_denominator
+    o_year
 FROM (
     SELECT
-        date_part('year', o_orderdate) AS o_year,
+         o_orderdate AS o_year,
         l_extendedprice * (1 - l_discount) AS volume,
         n2.n_name AS nation
     FROM
