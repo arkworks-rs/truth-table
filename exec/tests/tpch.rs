@@ -58,13 +58,13 @@ async fn tpch_q5_prove_verify() {
         .expect("prove and verify tpch q5");
 }
 
-// #[tokio::test]
-// async fn tpch_q8_prove_verify() {
-//     let spec = query_spec(8);
-//     exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
-//         .await
-//         .expect("prove and verify tpch q8");
-// }
+#[tokio::test]
+async fn tpch_q8_prove_verify() {
+    let spec = query_spec(8);
+    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+        .await
+        .expect("prove and verify tpch q8");
+}
 
 // #[tokio::test]
 // async fn tpch_q9_prove_verify() {
