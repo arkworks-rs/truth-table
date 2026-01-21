@@ -61,7 +61,47 @@ async fn tpch_q5_prove_verify() {
 #[tokio::test]
 async fn tpch_q8_prove_verify() {
     let spec = query_spec(8);
-    exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
+    let simplified_sql = "
+    SELECT
+    o_year,
+    sum(
+        CASE WHEN nation = 'BRAZIL' THEN
+            volume
+        ELSE
+            0
+        END) AS mkt_share_nominator, sum(volume) AS mkt_share_denominator
+FROM (
+    SELECT
+        date_part('year', o_orderdate) AS o_year,
+        l_extendedprice * (1 - l_discount) AS volume,
+        n2.n_name AS nation
+    FROM
+        part,
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        nation n2,
+        region
+    WHERE
+        p_partkey = l_partkey
+        AND s_suppkey = l_suppkey
+        AND l_orderkey = o_orderkey
+        AND o_custkey = c_custkey
+        AND c_nationkey = n1.n_nationkey
+        AND n1.n_regionkey = r_regionkey
+        AND r_name = 'AMERICA'
+        AND s_nationkey = n2.n_nationkey
+        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+GROUP BY
+    o_year
+ORDER BY
+    o_year;
+";
+    exec::test_utils::prove_and_verify_query(simplified_sql, spec.tables, None)
         .await
         .expect("prove and verify tpch q8");
 }

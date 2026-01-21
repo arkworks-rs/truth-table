@@ -138,7 +138,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
         debug!(

@@ -11,7 +11,8 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{
-                aggregate_function, alias, between, binary_expr, cast, column, in_list, literal,
+                aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
+                literal, scalar_function,
             },
             lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
         },
@@ -283,6 +284,24 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
+            Expr::ScalarFunction(_) => Arc::new_cyclic(|weak_self| {
+                let node = scalar_function::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
+            Expr::Case(_) => Arc::new_cyclic(|weak_self| {
+                let node = case::ProverNode::from_expr(
+                    expr.clone(),
+                    weak_self.clone(),
+                    parent.clone(),
+                    scope.clone(),
+                );
+                Node::Plan(PlanNode::ExprBased(Arc::new(node)))
+            }),
             _ => todo!(),
         }
     }
@@ -397,9 +416,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
             Node::Plan(plan_node) => {
                 VerifierNodeOps::initialize_gadgets(plan_node, id, verifier, virtualized_ir)
             }
-            Node::Gadget(gadget_node) => {
-                VerifierNodeOps::initialize_gadgets(gadget_node.as_ref(), id, verifier, virtualized_ir)
-            }
+            Node::Gadget(gadget_node) => VerifierNodeOps::initialize_gadgets(
+                gadget_node.as_ref(),
+                id,
+                verifier,
+                virtualized_ir,
+            ),
         }
     }
 }
@@ -558,9 +580,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
             PlanNode::LpBased(lp_node) => {
                 VerifierNodeOps::initialize_gadgets(lp_node.as_ref(), id, verifier, virtualized_ir)
             }
-            PlanNode::ExprBased(expr_node) => {
-                VerifierNodeOps::initialize_gadgets(expr_node.as_ref(), id, verifier, virtualized_ir)
-            }
+            PlanNode::ExprBased(expr_node) => VerifierNodeOps::initialize_gadgets(
+                expr_node.as_ref(),
+                id,
+                verifier,
+                virtualized_ir,
+            ),
         }
     }
 }
