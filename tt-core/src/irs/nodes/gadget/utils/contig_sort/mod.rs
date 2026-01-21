@@ -8,7 +8,9 @@ use ark_ff::PrimeField;
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
+use ark_piop::prover::structs::polynomial::get_or_insert_shift_poly;
 use ark_piop::verifier::structs::oracle::Oracle;
+use ark_piop::verifier::structs::oracle::get_or_insert_shift_oracle;
 use ark_piop::{
     prover::ArgProver, prover::structs::polynomial::TrackedPoly, verifier::ArgVerifier,
     verifier::structs::oracle::TrackedOracle,
@@ -153,7 +155,10 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 }
 
-fn build_perm_table_prover<B: SnarkBackend>(left: &TrackedTable<B>) -> TrackedTable<B> {
+fn build_perm_table_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    left: &TrackedTable<B>,
+) -> TrackedTable<B> {
     let data_poly = if let Some(data_idx) = left.data_tracked_polys_indices().first().copied() {
         left.tracked_col_by_ind(data_idx).data_tracked_poly()
     } else if let Some(activator) = left.activator_tracked_poly() {
@@ -164,15 +169,13 @@ fn build_perm_table_prover<B: SnarkBackend>(left: &TrackedTable<B>) -> TrackedTa
         panic!("Sort permutation expects at least one column in input table");
     };
     let log_size = data_poly.log_size();
-    let perm_mle = prescr_perm::shift_permutation_mle::<B::F>(log_size, 1, true);
-    let tracker = data_poly.tracker();
-    let perm_id = tracker.borrow_mut().track_mat_mv_poly(perm_mle);
-    let perm_poly = TrackedPoly::new(Either::Left(perm_id), log_size, tracker);
+    let perm_poly = get_or_insert_shift_poly(prover, log_size, 1, true);
     let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
     TrackedTable::single_column_with_activator(perm_field, perm_poly, None)
 }
 
 fn build_perm_table_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     left: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
     let data_oracle = if let Some(data_idx) = left.data_tracked_oracles_indices().first().copied() {
@@ -186,21 +189,19 @@ fn build_perm_table_verifier<B: SnarkBackend>(
         panic!("Sort permutation expects at least one column in input table");
     };
     let log_size = data_oracle.log_size();
-    let perm_oracle = prescr_perm::shift_permutation_oracle::<B::F>(log_size, 1, true);
-    let tracker = data_oracle.tracker();
-    let perm_id = tracker.borrow_mut().track_oracle(perm_oracle);
-    let perm_tracked_oracle = TrackedOracle::new(Either::Left(perm_id), tracker, log_size);
+    let perm_tracked_oracle = get_or_insert_shift_oracle(verifier, log_size, 1, true);
     let perm_field = Arc::new(Field::new(prescr_perm::PERM_LABEL, DataType::UInt64, false));
     TrackedTableOracle::single_column_with_activator(perm_field, perm_tracked_oracle, None)
 }
 
 fn populate_prescr_perm_payloads_prover<B: SnarkBackend>(
     prescr_perm: &Arc<Node<B>>,
+    prover: &mut ark_piop::prover::ArgProver<B>,
     left: &TrackedTable<B>,
     right: &TrackedTable<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let perm_table = build_perm_table_prover(left);
+    let perm_table = build_perm_table_prover(prover, left);
     let mut perm_payload = match virtualized_ir.payload_for_node(&prescr_perm.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
@@ -217,11 +218,12 @@ fn populate_prescr_perm_payloads_prover<B: SnarkBackend>(
 
 fn populate_prescr_perm_payloads_verifier<B: SnarkBackend>(
     prescr_perm: &Arc<Node<B>>,
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     left: &TrackedTableOracle<B>,
     right: &TrackedTableOracle<B>,
     virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let perm_table = build_perm_table_verifier(left);
+    let perm_table = build_perm_table_verifier(verifier, left);
     let mut perm_payload = match virtualized_ir.payload_for_node(&prescr_perm.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
@@ -263,7 +265,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             payload.get(TABLE_LABEL).cloned(),
             payload.get(ROTATED_INPUT_LABEL).cloned(),
         ) {
-            populate_prescr_perm_payloads_prover(&self.prescr_perm, &left, &right, virtualized_ir)?;
+            populate_prescr_perm_payloads_prover(
+                &self.prescr_perm,
+                prover,
+                &left,
+                &right,
+                virtualized_ir,
+            )?;
         }
         if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
             let tie_table = prepend_first_tie_indicator_prover(&tie_table);
@@ -340,7 +348,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(PayloadStructure::GadgetPayload(mut payload)) =
@@ -357,6 +365,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         ) {
             populate_prescr_perm_payloads_verifier(
                 &self.prescr_perm,
+                verifier,
                 &left,
                 &right,
                 virtualized_ir,

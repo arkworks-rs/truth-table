@@ -5,8 +5,8 @@ use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
-    prover::structs::polynomial::TrackedPoly,
-    verifier::structs::oracle::{Oracle, TrackedOracle},
+    prover::structs::polynomial::{TrackedPoly, get_or_insert_shift_poly},
+    verifier::structs::oracle::{Oracle, TrackedOracle, get_or_insert_shift_oracle},
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use either::Either;
@@ -275,19 +275,7 @@ fn append_index_col_prover<B: SnarkBackend>(
         panic!("Prescribed Permutation expects at least one column on right table");
     };
     let log_size = data_poly.log_size();
-    let label = format!("index_{}", log_size);
-    let index_tracked_poly = match prover.indexed_tracked_poly(label.clone()) {
-        Ok(poly) => poly,
-        Err(_) => {
-            let index_mle = MLE::from_evaluations_vec(
-                log_size,
-                (0..(1 << log_size)).map(|i| B::F::from(i as u64)).collect(),
-            );
-            let poly = prover.track_mat_mv_poly(index_mle);
-            prover.add_indexed_tracked_poly(label, poly.clone());
-            poly
-        }
-    };
+    let index_tracked_poly = get_or_insert_shift_poly(prover, log_size, 0, true);
 
     let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
     append_tracked_col(right, index_field, index_tracked_poly)
@@ -349,16 +337,7 @@ fn append_index_col_verifier<B: SnarkBackend>(
         panic!("Prescribed Permutation expects at least one column on right table");
     };
     let log_size = data_oracle.log_size();
-    let label = format!("index_{}", log_size);
-    let index_tracked_oracle = match verifier.indexed_oracle(label.clone()) {
-        Ok(oracle) => oracle,
-        Err(_) => {
-            let index_oracle = shift_permutation_oracle::<B::F>(log_size, 0, true);
-            let oracle = verifier.track_oracle(index_oracle);
-            verifier.add_indexed_tracked_oracle(label, oracle.clone());
-            oracle
-        }
-    };
+    let index_tracked_oracle = get_or_insert_shift_oracle(verifier, log_size, 0, true);
 
     let index_field = Arc::new(Field::new(INDEX_LABEL, DataType::UInt64, false));
     append_tracked_oracle(right, index_field, index_tracked_oracle)
