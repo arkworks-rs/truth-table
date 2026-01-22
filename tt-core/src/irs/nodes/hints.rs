@@ -208,6 +208,7 @@ pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) 
     exprs.extend(to_insert);
 }
 
+
 pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
     let df = hint.data_frame().clone();
     let has_row_id = df

@@ -213,7 +213,9 @@ fn build_shared_config(
 ) -> TTSharedConfig<B> {
     TTSharedConfig::new(
         Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
+        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(
+            &session_ctx,
+        )),
         ctx_oracles,
         session_ctx,
         ConfigOptions::new(),

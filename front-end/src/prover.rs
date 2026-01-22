@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
-use ark_piop::{pcs::PCS, prover::ArgProver, SnarkBackend};
+use ark_piop::{
+    pcs::PCS,
+    prover::{structs::proof, ArgProver},
+    SnarkBackend,
+};
 use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::DFSchema;
 use indexmap::IndexMap;
+use proof_planner::proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer};
 use tracing::debug;
 #[cfg(feature = "honest-prover")]
 use tt_core::prover::passes::honest_prover::HonestProverPass;
@@ -135,12 +140,17 @@ impl<B: SnarkBackend> TTProver<B> {
             .shared_config()
             .analyze_and_optimize_lp(initial_lp)
             .await;
-        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
 
+        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
+        let optimized_ir = proof_plan_optimizer.optimize(initial_ir);
+        debug!(
+            "optimized initial ir:\n{}",
+            optimized_ir.display_graphviz(true)
+        );
         let output_planned_ir =
-            initial_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
+            optimized_ir.apply_local_pass_parallel(&self.prover_config().output_planning_pass());
         debug!(
             "output planned ir:\n{}",
             output_planned_ir.display_graphviz(true)
@@ -218,7 +228,7 @@ impl<B: SnarkBackend> TTProver<B> {
 
         Ok((
             ProverIrStages {
-                initial: initial_ir,
+                initial: optimized_ir,
                 output_planned: output_planned_ir,
                 gadget_planned: gadget_planned_ir,
                 materialized: materialized_ir,

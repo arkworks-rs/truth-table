@@ -42,7 +42,9 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
     pub fn with_defaults(session_ctx: SessionContext) -> Self {
         Self::new(
             Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules()),
+            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(
+                &session_ctx,
+            )),
             CtxOracles::default(),
             session_ctx,
             ConfigOptions::new(),
