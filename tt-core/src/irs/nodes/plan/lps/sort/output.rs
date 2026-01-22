@@ -43,7 +43,7 @@ mod tests {
         record_batch::RecordBatch,
     };
     use datafusion::prelude::SessionContext;
-    use datafusion_expr::{LogicalPlan, Sort, col, expr::Sort as SortExpr};
+    use datafusion_expr::{Sort, col, expr::Sort as SortExpr};
     use std::sync::Arc;
 
     async fn run_sort_test(

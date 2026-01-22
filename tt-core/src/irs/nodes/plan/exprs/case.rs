@@ -12,6 +12,7 @@ use crate::irs::tree::Tree;
 pub struct ProverNode<B: SnarkBackend> {
     pub scope: Arc<Node<B>>,
     pub expr: Option<Arc<Node<B>>>,
+    #[allow(clippy::type_complexity)]
     pub when_then: Vec<(Arc<Node<B>>, Arc<Node<B>>)>,
     pub else_expr: Option<Arc<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
