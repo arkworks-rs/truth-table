@@ -8,6 +8,8 @@ Cargo.lock
 # Test coverage (grcov)
 default.profraw
 /.pre-commit-config.yaml
+.venv/
+venv/
 
 *.pi
 *.oracle

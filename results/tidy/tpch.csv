@@ -1,0 +1,7 @@
+﻿Q,System,scale-factor,prover time (s),verifier time (ms),proof size (KB),pk size (GB),vk size (KB),committed-data (KB)
+1,tt,0.01,10,10,10,1,10,1
+3,tt,0.01,100,30,20,2,20,4
+5,tt,0.01,200,70,40,4,40,9
+1,vsql,0.01,1000,20,20,2,20,2
+3,vsql,0.01,10000,40,30,3,30,5
+5,vsql,0.01,20000,80,50,5,50,10

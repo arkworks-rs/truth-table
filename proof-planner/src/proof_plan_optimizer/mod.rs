@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
 use ark_piop::SnarkBackend;
-use tt_core::irs::shared_ir::InitialIr;
+use tt_core::irs::{
+    shared_ir::InitialIr,
+};
+
+mod rematerialize;
+
+use rematerialize::RematerializeRule;
 
 pub trait ProofPlanOptimizerRule<B: SnarkBackend>: Send + Sync {
     fn name(&self) -> &'static str;
@@ -26,5 +32,5 @@ impl<B: SnarkBackend> ProofPlanOptimizer<B> {
 }
 
 pub fn rules<B: SnarkBackend>() -> Vec<Arc<dyn ProofPlanOptimizerRule<B>>> {
-    Vec::new()
+    vec![Arc::new(RematerializeRule::new())]
 }

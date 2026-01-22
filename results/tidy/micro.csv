@@ -1,0 +1,7 @@
+﻿Q,System,table size,prover time (s),verifier time (ms),proof size (KB),pk size (GB),vk size (KB),committed-data (KB)
+Filter,tt,1000000,10,10,10,1,10,1
+Aggregate,tt,1000000,100,30,20,2,20,4
+Join,tt,1000000,200,70,40,4,40,9
+Filter,vsql,1000000,1000,20,20,2,20,2
+Aggregate,vsql,1000000,10000,40,30,3,30,5
+Join,vsql,1000000,20000,80,50,5,50,10
