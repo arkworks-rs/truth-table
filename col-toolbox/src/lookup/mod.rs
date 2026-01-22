@@ -12,7 +12,6 @@ use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::{ArgProver, structs::polynomial::TrackedPoly},
     verifier::{

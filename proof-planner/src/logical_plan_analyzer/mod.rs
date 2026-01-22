@@ -34,7 +34,7 @@ pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
         Arc::new(AlignAggInputToOutput::new()),
     ]
 }
-
+#[allow(unused)]
 pub(crate) fn analyze_logical_plan(
     plan: LogicalPlan,
     analyzer_rules: Vec<Arc<dyn AnalyzerRule + Send + Sync>>,

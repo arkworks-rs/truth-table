@@ -17,7 +17,6 @@ use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
     SnarkBackend,
     errors::SnarkResult,
-    pcs::PCS,
     piop::{DeepClone, PIOP},
     prover::ArgProver,
     verifier::ArgVerifier,

@@ -737,6 +737,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
         LogicalPlan::Aggregate(self.aggregate.clone())
     }
 }
+#[allow(unused)]
 fn populate_aggregate_function_exprs<B: SnarkBackend>(
     aggregate: &Aggregate,
     aggr_exprs: &[Arc<Node<B>>],

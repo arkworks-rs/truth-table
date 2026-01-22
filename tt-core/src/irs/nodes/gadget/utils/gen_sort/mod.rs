@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub const TABLE_LABEL: &str = "__input__";
+#[allow(unused)]
 pub struct GadgetNode<B: SnarkBackend> {
     contig_remat_gadget: Arc<Node<B>>,
     contig_sort_gadget: Arc<Node<B>>,

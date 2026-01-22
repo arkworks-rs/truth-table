@@ -1,9 +1,6 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-
 use crate::irs::{
     nodes::{IsNode, Node, NodeId, PlanNode},
     tree::{Payload, Tree},

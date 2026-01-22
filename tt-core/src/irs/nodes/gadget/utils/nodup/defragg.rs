@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
-    SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult, pcs::PCS, piop::PIOP,
+    SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult, piop::PIOP,
     prover::ArgProver, verifier::ArgVerifier,
 };
 use ark_std::log2;

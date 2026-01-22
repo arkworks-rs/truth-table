@@ -3,6 +3,7 @@ use datafusion_expr::Distinct;
 
 use crate::irs::nodes::Node;
 
+#[allow(unused)]
 pub struct ProverDistinctNode<B>
 where
     B: SnarkBackend,
