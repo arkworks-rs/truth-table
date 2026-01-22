@@ -6,6 +6,7 @@ use tt_core::irs::shared_ir::InitialIr;
 
 pub mod logical_plan_analyzer;
 pub mod logical_plan_optimizer;
+pub mod proof_plan_optimizer;
 
 pub struct ProofPlanner<B: SnarkBackend> {
     _marker: std::marker::PhantomData<B>,
