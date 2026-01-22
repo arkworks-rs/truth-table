@@ -20,8 +20,8 @@ pub(crate) fn populate_rotated(
     sort_specs: &[(String, bool, bool)],
 ) {
     let order_by = sort_order_from_hint(input_hint, sort_specs);
-    let rotated_df =
-        rotate(input_hint.data_frame().clone(), order_by).expect("sort rotate planning should succeed");
+    let rotated_df = rotate(input_hint.data_frame().clone(), order_by)
+        .expect("sort rotate planning should succeed");
     let should_materialize = rotated_df
         .schema()
         .fields()
@@ -148,8 +148,7 @@ pub(crate) fn diff_input(
             .order_by(order_by.clone())
             .build()?;
         let first_expr = first_value(col(name)).order_by(order_by.clone()).build()?;
-        let rotated_expr = when(lead_expr.clone().is_null(), first_expr)
-            .otherwise(lead_expr)?;
+        let rotated_expr = when(lead_expr.clone().is_null(), first_expr).otherwise(lead_expr)?;
         let is_asc = sort_is_asc(sort_specs, name);
         // Date32 subtraction yields a duration, so cast to Int32 before subtracting.
         let diff_expr = if field.data_type() == &datafusion::arrow::datatypes::DataType::Date32 {

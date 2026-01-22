@@ -139,9 +139,21 @@ mod tests {
         let analyzed = analyze_logical_plan(plan, rules());
         let agg = expect_aggregate(&analyzed);
 
-        let avg_count = agg.aggr_expr.iter().filter(|expr| **expr == avg(col("a"))).count();
-        let sum_count = agg.aggr_expr.iter().filter(|expr| **expr == sum(col("a"))).count();
-        let count_count = agg.aggr_expr.iter().filter(|expr| **expr == count(col("a"))).count();
+        let avg_count = agg
+            .aggr_expr
+            .iter()
+            .filter(|expr| **expr == avg(col("a")))
+            .count();
+        let sum_count = agg
+            .aggr_expr
+            .iter()
+            .filter(|expr| **expr == sum(col("a")))
+            .count();
+        let count_count = agg
+            .aggr_expr
+            .iter()
+            .filter(|expr| **expr == count(col("a")))
+            .count();
 
         assert_eq!(avg_count, 1);
         assert_eq!(sum_count, 1);

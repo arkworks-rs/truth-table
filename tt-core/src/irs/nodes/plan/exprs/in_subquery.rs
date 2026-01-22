@@ -117,8 +117,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             }
         };
 
-        let updated_table =
-            arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
@@ -282,11 +281,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             }
         };
 
-        let updated_table = arithmetic::table_oracle::TrackedTableOracle::new(
-            schema,
-            merged_oracles,
-            log_size,
-        );
+        let updated_table =
+            arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }

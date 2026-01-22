@@ -261,13 +261,19 @@ fn normalize_hint_df(
         .collect();
 
     let already_normalized = match data_fram.logical_plan() {
-        LogicalPlan::Projection(proj) => proj.expr.len() == projection.len()
-            && proj.expr.iter().zip(projection.iter()).all(|(expr, expected)| {
-                matches!(
-                    (expr, expected),
-                    (Expr::Column(actual), Expr::Column(expected)) if actual == expected
-                )
-            }),
+        LogicalPlan::Projection(proj) => {
+            proj.expr.len() == projection.len()
+                && proj
+                    .expr
+                    .iter()
+                    .zip(projection.iter())
+                    .all(|(expr, expected)| {
+                        matches!(
+                            (expr, expected),
+                            (Expr::Column(actual), Expr::Column(expected)) if actual == expected
+                        )
+                    })
+        }
         _ => false,
     };
 

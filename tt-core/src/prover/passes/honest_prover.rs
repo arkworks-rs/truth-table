@@ -54,7 +54,9 @@ fn deep_clone_gadget_ready_ir<B: SnarkBackend>(
         .map(|(id, payload)| {
             (
                 *id,
-                payload.as_ref().map(|inner| deep_clone_payload(inner, prover)),
+                payload
+                    .as_ref()
+                    .map(|inner| deep_clone_payload(inner, prover)),
             )
         })
         .collect::<IndexMap<_, _>>();

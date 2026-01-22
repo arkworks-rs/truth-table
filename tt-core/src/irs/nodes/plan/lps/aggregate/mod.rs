@@ -742,7 +742,7 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
     aggr_exprs: &[Arc<Node<B>>],
     current_table: &TrackedTable<B>,
     prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let schema = match current_table.schema_ref() {
         Some(schema) => schema,
@@ -806,7 +806,7 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     input_table: &TrackedTable<B>,
     output_table: &TrackedTable<B>,
     gadget_id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let input_schema = match input_table.schema_ref() {
         Some(schema) => schema,

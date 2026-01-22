@@ -179,20 +179,24 @@ pub(crate) fn build_nodup_input_df(
         ))
         .eq(lit(true)),
     )?;
-    let join_on = vec![Expr::Column(Column::new(
-        Some(TableReference::bare("__output__")),
-        ROW_ID_COL_NAME,
-    ))
-    .eq(Expr::Column(Column::new(
-        Some(TableReference::bare("__mapping__")),
-        ROW_ID_COL_NAME,
-    )))];
+    let join_on = vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ROW_ID_COL_NAME,
+        ))
+        .eq(Expr::Column(Column::new(
+            Some(TableReference::bare("__mapping__")),
+            ROW_ID_COL_NAME,
+        ))),
+    ];
     let aligned = output.join_on(mapping, JoinType::Inner, join_on)?;
-    let aligned = aligned.sort(vec![Expr::Column(Column::new(
-        Some(TableReference::bare("__output__")),
-        ROW_ID_COL_NAME,
-    ))
-    .sort(true, true)])?;
+    let aligned = aligned.sort(vec![
+        Expr::Column(Column::new(
+            Some(TableReference::bare("__output__")),
+            ROW_ID_COL_NAME,
+        ))
+        .sort(true, true),
+    ])?;
 
     aligned.select(vec![
         Expr::Column(Column::new(

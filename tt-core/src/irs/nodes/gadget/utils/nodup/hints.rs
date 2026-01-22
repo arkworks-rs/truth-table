@@ -62,8 +62,7 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
             .iter()
             .find_map(|(qualifier, field)| {
                 (field.name() == ACTIVATOR_COL_NAME).then(|| {
-                    Expr::Column(Column::new(qualifier.cloned(), field.name()))
-                        .sort(false, false)
+                    Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(false, false)
                 })
             })
             .expect("activator column should exist");
@@ -73,9 +72,8 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
         if is_system_column(field.name()) {
             continue;
         }
-        final_order_by.push(
-            Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(false, false),
-        );
+        final_order_by
+            .push(Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(false, false));
     }
     if schema
         .fields()
@@ -86,8 +84,7 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
             .iter()
             .find_map(|(qualifier, field)| {
                 (field.name() == ROW_ID_COL_NAME).then(|| {
-                    Expr::Column(Column::new(qualifier.cloned(), field.name()))
-                        .sort(true, true)
+                    Expr::Column(Column::new(qualifier.cloned(), field.name())).sort(true, true)
                 })
             })
             .expect("row id column should exist");

@@ -191,8 +191,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let activator = left_col
             .activator_tracked_poly()
             .map(|poly| poly.evaluations());
-        for (row_idx, (left_val, right_val)) in
-            left_vals.iter().zip(right_vals.iter()).enumerate()
+        for (row_idx, (left_val, right_val)) in left_vals.iter().zip(right_vals.iter()).enumerate()
         {
             if let Some(act) = activator.as_ref()
                 && act[row_idx] != B::F::one()
@@ -245,8 +244,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let right_col = right_input.fold_all_data_oracles(&challenges);
             (left_col, right_col)
         };
-        let non_zero_oracle = &left_col.activated_data_tracked_oracle()
-            - &right_col.activated_data_tracked_oracle();
+        let non_zero_oracle =
+            &left_col.activated_data_tracked_oracle() - &right_col.activated_data_tracked_oracle();
         let tracked_col_oracle =
             TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
         let col_poly = tracked_col_oracle.data_tracked_oracle().clone();

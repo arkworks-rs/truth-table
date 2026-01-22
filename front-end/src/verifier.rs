@@ -133,7 +133,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(proof.into_inner());
 
-        let verifier_tracking_pass = self.verifier_config().tracking_pass(arg_verifier.clone(),self.shared_config().ctx_oracles().clone());
+        let verifier_tracking_pass = self.verifier_config().tracking_pass(
+            arg_verifier.clone(),
+            self.shared_config().ctx_oracles().clone(),
+        );
         let tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);

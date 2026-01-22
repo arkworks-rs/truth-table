@@ -6,6 +6,6 @@ pub mod case;
 pub mod cast;
 pub mod column;
 pub mod in_list;
+pub mod in_subquery;
 pub mod literal;
 pub mod scalar_function;
-pub mod in_subquery;

@@ -76,7 +76,7 @@ where
                 };
                 tracing::debug!(
                     gadget = %gadget_node.name(),
-                    
+
                     parent = %parent_name,
                     "starting to prove gadget"
                 );
@@ -91,7 +91,7 @@ where
                 } else {
                     tracing::info!(
                         gadget = %gadget_node.name(),
-                        
+
                         parent = %parent_name,
                         "gadget was proved"
                     );

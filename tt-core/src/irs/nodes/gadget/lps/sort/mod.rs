@@ -8,7 +8,9 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        self, nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::remat}, payloads::PayloadStructure
+        self,
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::remat},
+        payloads::PayloadStructure,
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
@@ -318,17 +320,23 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let sort_specs: Vec<(String, bool, bool)> = sort
             .expr
             .iter()
-            .map(|expr| (expr.expr.schema_name().to_string(), expr.asc, expr.nulls_first))
+            .map(|expr| {
+                (
+                    expr.expr.schema_name().to_string(),
+                    expr.asc,
+                    expr.nulls_first,
+                )
+            })
             .collect();
         // DataFusion sort expressions do not encode strictness, so default to true.
         let strict: bool = false;
         let sort_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new(
                 crate::irs::nodes::gadget::utils::contig_sort::SortConfig::PerColumn(
-                    crate::irs::nodes::gadget::utils::contig_sort::PerColumnConfig{
+                    crate::irs::nodes::gadget::utils::contig_sort::PerColumnConfig {
                         sort_specs: sort_specs.clone(),
                         strict,
-                    }
+                    },
                 ),
             ),
         )));

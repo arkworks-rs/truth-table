@@ -82,8 +82,7 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
 
         for (id, node) in self.tree.arena().iter() {
             let display = node.display();
-            let display_html =
-                escape_html(&display).replace('\n', "<BR ALIGN=\"LEFT\"/>");
+            let display_html = escape_html(&display).replace('\n', "<BR ALIGN=\"LEFT\"/>");
             let label = if show_payload {
                 if let Some(Some(payload)) = self.payloads.get(id) {
                     let payload_str =

@@ -67,10 +67,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .activator_tracked_poly()
             .expect("Literal scope should carry an activator column");
         let tracker = activator_poly.tracker();
-        let literal_value = arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(
-            &self.literal,
-        )
-            .expect("Unsupported literal type for virtual witness");
+        let literal_value =
+            arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(&self.literal)
+                .expect("Unsupported literal type for virtual witness");
         let literal_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
             Either::Right(literal_value),
             log_size,
@@ -168,10 +167,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let tracker = activator_oracle.tracker();
         let log_size = activator_oracle.log_size();
 
-        let literal_value = arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(
-            &self.literal,
-        )
-            .expect("Unsupported literal type for virtual witness");
+        let literal_value =
+            arithmetic::encoding::scalar_to_field::<<B as SnarkBackend>::F>(&self.literal)
+                .expect("Unsupported literal type for virtual witness");
         let literal_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
             Either::Right(literal_value),
             tracker.clone(),
