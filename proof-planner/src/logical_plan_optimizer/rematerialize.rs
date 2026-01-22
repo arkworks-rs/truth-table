@@ -5,9 +5,9 @@ use datafusion::{
 };
 use datafusion_common::{
     tree_node::{Transformed, TreeNode, TreeNodeRecursion},
-    Column, DataFusionError, Result as DataFusionResult,
+    DataFusionError, Result as DataFusionResult,
 };
-use datafusion_expr::{Expr, LogicalPlan};
+use datafusion_expr::LogicalPlan;
 use tokio::runtime::RuntimeFlavor;
 use tt_core::irs::nodes::plan::rematerialize::{
     RematerializeLogicalNode, wrap_logical_plan,
@@ -57,7 +57,9 @@ impl OptimizerRule for RematerializeRule {
                         return Ok(Transformed::no(filtered_plan));
                     }
                     let active_rows = row_count(&self.session_state, &filtered_plan)?;
-                    if active_rows * 2 <= total_rows {
+                    let a = next_power_of_two_strict(total_rows);
+                    let b = next_power_of_two_strict(active_rows);
+                    if b < a {
                         Ok(Transformed::new(
                             wrap_logical_plan(filtered_plan),
                             true,
@@ -71,11 +73,6 @@ impl OptimizerRule for RematerializeRule {
             }
         })?;
 
-        if transformed.transformed {
-            let plan = strip_unresolvable_qualifiers(transformed.data)?;
-            return Ok(Transformed::yes(plan));
-        }
-
         Ok(transformed)
     }
 }
@@ -84,6 +81,17 @@ fn row_count(session_state: &SessionState, plan: &LogicalPlan) -> DataFusionResu
     let df = DataFrame::new(session_state.clone(), plan.clone());
     let batches = collect_blocking(df)?;
     Ok(batches.iter().map(|batch| batch.num_rows()).sum())
+}
+
+fn next_power_of_two_strict(value: usize) -> usize {
+    if value <= 1 {
+        return 2.min(1.max(value + 1));
+    }
+    if value.is_power_of_two() {
+        value.saturating_mul(2)
+    } else {
+        value.next_power_of_two()
+    }
 }
 
 fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<datafusion::arrow::record_batch::RecordBatch>> {
@@ -116,29 +124,4 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<datafusion::arrow::re
             rt.block_on(df.collect())
         }
     }
-}
-
-fn strip_unresolvable_qualifiers(plan: LogicalPlan) -> DataFusionResult<LogicalPlan> {
-    let transformed = plan.transform_down(|node| {
-        let qualifiers: Vec<_> = node
-            .schema()
-            .iter()
-            .filter_map(|(qualifier, _)| qualifier.cloned())
-            .collect();
-        node.map_expressions(|expr| {
-            expr.transform(|inner| {
-                if let Expr::Column(col) = &inner {
-                    if let Some(relation) = col.relation.as_ref() {
-                        if !qualifiers.iter().any(|q| q == relation) {
-                            return Ok(Transformed::yes(Expr::Column(
-                                Column::new_unqualified(col.name.clone()),
-                            )));
-                        }
-                    }
-                }
-                Ok(Transformed::no(inner))
-            })
-        })
-    })?;
-    Ok(transformed.data)
 }

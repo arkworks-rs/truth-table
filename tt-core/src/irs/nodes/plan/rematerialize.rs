@@ -84,15 +84,10 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let input_hint_df = match self.input.as_ref() {
+        match self.input.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
-        };
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("rematerialize row-id sort should succeed");
-        let remat = build_output_dataframe(input_df, None);
-        crate::irs::nodes::hints::HintDF::new_materialized(remat)
+        }
     }
 }
 
