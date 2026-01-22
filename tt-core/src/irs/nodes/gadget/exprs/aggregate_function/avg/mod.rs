@@ -1,4 +1,3 @@
-
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
