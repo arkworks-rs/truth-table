@@ -118,7 +118,6 @@ fn write_parquet<P: AsRef<Path>>(
         for offset in 0..pad {
             row_id_builder.append_value(next_row_id + offset as i64);
         }
-        next_row_id += pad as i64;
         let pad_row_id = Arc::new(row_id_builder.finish());
         pad_cols.push(pad_row_id);
 
