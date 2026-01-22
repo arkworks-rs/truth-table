@@ -838,10 +838,10 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     {
         input_group_indices.push(input_idx);
     }
-    if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME) {
-        if !output_group_indices.contains(&output_idx) {
-            &&output_group_indices.push(output_idx);
-        }
+    if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME)
+        && !output_group_indices.contains(&output_idx)
+    {
+        output_group_indices.push(output_idx);
     }
     let use_single_group = aggregate.group_expr.is_empty();
     let input_groups_table = if use_single_group {
