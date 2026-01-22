@@ -34,6 +34,7 @@ fn tracked_poly_from_evals(prover: &mut ArgProver<Backend>, evals: &[u64]) -> Tr
     prover.track_and_commit_mat_mv_poly(&mle).unwrap()
 }
 
+#[allow(clippy::complexity)]
 fn build_projection_tree(
     expr: Expr,
 ) -> (

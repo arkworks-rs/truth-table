@@ -35,7 +35,6 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
     use crate::irs::shared_passes::OutputPlanningPass;
@@ -47,8 +46,8 @@ mod test {
     use crate::prover::passes::virtualization::VirtualizationPass;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use arithmetic::ACTIVATOR_FIELD;
+    use ark_piop::DefaultSnarkBackend;
     use ark_piop::test_utils::test_prelude;
-    use ark_piop::{DefaultSnarkBackend, prover};
     use datafusion::arrow::array::BooleanArray;
     use datafusion::{
         arrow::{

@@ -319,10 +319,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             let sign = self.sign_for_index(idx, data_inds.len());
             let evals = input_col.data_tracked_poly().evaluations();
             for (idx, eval) in evals.iter().enumerate() {
-                if let Some(act) = activator.as_ref() {
-                    if act[idx] != B::F::one() {
-                        continue;
-                    }
+                if let Some(act) = activator.as_ref()
+                    && act[idx] != B::F::one()
+                {
+                    continue;
                 }
                 let (check_val, check_sign, require_nonzero) = match sign {
                     Sign::NonNegative => (*eval, Sign::NonNegative, false),

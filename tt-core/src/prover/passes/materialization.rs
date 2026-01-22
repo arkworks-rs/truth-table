@@ -211,12 +211,12 @@ fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {
     if let Some((qualifier, _)) = schema.iter().find(|(_, f)| f.name() == name) {
         return Expr::Column(Column::new(qualifier.cloned(), name));
     }
-    if let Some((relation, col_name)) = name.split_once('.') {
-        if let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
+    if let Some((relation, col_name)) = name.split_once('.')
+        && let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
             f.name() == col_name && q.map(|q| q.to_string()) == Some(relation.to_string())
-        }) {
-            return Expr::Column(Column::new(qualifier.cloned(), col_name));
-        }
+        })
+    {
+        return Expr::Column(Column::new(qualifier.cloned(), col_name));
     }
     Expr::Column(Column::new_unqualified(name))
 }

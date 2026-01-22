@@ -89,7 +89,7 @@ fn build_aggregate_expr(udf: Arc<AggregateUDF>, params: &AggregateFunctionParams
         params.distinct,
         params.filter.clone(),
         params.order_by.clone(),
-        params.null_treatment.clone(),
+        params.null_treatment,
     ))
 }
 

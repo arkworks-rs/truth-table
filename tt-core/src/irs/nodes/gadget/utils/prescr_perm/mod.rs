@@ -399,9 +399,8 @@ fn prescribed_perm_honest_check<B: SnarkBackend>(
 
     let mut used = vec![false; size];
 
-    for row in 0..size {
-        let perm_val = perm_vals[row];
-        let target = (0..size).find(|idx| perm_val == B::F::from(*idx as u64));
+    for (row, perm_val) in perm_vals.iter().enumerate() {
+        let target = (0..size).find(|idx| *perm_val == B::F::from(*idx as u64));
         let Some(target) = target else {
             return false;
         };

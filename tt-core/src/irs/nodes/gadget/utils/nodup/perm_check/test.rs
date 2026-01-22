@@ -1,13 +1,8 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
-use ark_ff::{Field, PrimeField};
+use ark_ff::Field;
 use ark_piop::{
-    DefaultSnarkBackend, SnarkBackend,
-    arithmetic::mat_poly::{lde::LDE, mle::MLE},
-    errors::SnarkResult,
-    pcs::PCS,
-    piop::PIOP,
-    test_utils::test_prelude,
-    to_field_vec,
+    DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult,
+    piop::PIOP, test_utils::test_prelude, to_field_vec,
 };
 
 use ark_test_curves::bls12_381::Fr;

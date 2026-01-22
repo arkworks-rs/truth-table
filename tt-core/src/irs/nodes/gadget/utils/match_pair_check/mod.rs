@@ -644,7 +644,7 @@ fn build_lookup_keys_df(
     crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted_input, &mut exprs);
     let sorted = sorted_input.select(exprs)?;
 
-    let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    let mut final_exprs: Vec<Expr> = key_names.iter().map(col).collect();
     crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted, &mut final_exprs);
     let final_df = sorted.select(final_exprs)?;
     if final_df.schema().fields().len() == key_names.len() {
@@ -686,7 +686,7 @@ fn build_key_union_df(
     let right_keys = build_key_df(right, &right_cols, &key_names, &right_row_ids)?;
 
     let unioned = left_keys.union(right_keys)?;
-    let key_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    let key_exprs: Vec<Expr> = key_names.iter().map(col).collect();
     let aggregated = unioned.aggregate(
         key_exprs.clone(),
         vec![min(col(arithmetic::ROW_ID_COL_NAME)).alias(arithmetic::ROW_ID_COL_NAME)],
@@ -732,7 +732,7 @@ fn build_key_df(
     exprs.push(row_number_expr);
     let with_row_number = df.clone().select(exprs)?;
 
-    let mut final_exprs: Vec<Expr> = key_names.iter().map(|name| col(name)).collect();
+    let mut final_exprs: Vec<Expr> = key_names.iter().map(col).collect();
     final_exprs.push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
     sort_by_row_id_if_present(with_row_number.select(final_exprs)?)
 }
@@ -779,8 +779,8 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
     }
 
     let mut activator_vals = Vec::with_capacity(target);
-    activator_vals.extend(std::iter::repeat(true).take(row_count));
-    activator_vals.extend(std::iter::repeat(false).take(pad));
+    activator_vals.extend(std::iter::repeat_n(true, row_count));
+    activator_vals.extend(std::iter::repeat_n(false, pad));
     output_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
     output_arrays.push(Arc::new(BooleanArray::from(activator_vals)) as _);
 

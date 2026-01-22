@@ -1,16 +1,12 @@
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{Field, PrimeField, UniformRand};
 use ark_piop::{
-    DefaultSnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
-    errors::SnarkResult,
-    pcs::{kzg10::KZG10, pst13::PST13},
-    piop::PIOP,
+    DefaultSnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult, piop::PIOP,
     test_utils::test_prelude,
 };
 use ark_poly::MultilinearExtension;
 use ark_std::test_rng;
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
+use ark_test_curves::bls12_381::Fr;
 
 use super::{FoldCheckPIOP, FoldCheckProverInput, FoldCheckVerifierInput};
 

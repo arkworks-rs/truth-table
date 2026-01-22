@@ -136,8 +136,8 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
     }
     let mut qualified: Vec<Expr> = row_id_exprs
         .iter()
+        .filter(|&expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
         .cloned()
-        .filter(|expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
         .collect();
     let row_expr = if !qualified.is_empty() {
         qualified.remove(0)

@@ -1,3 +1,5 @@
+![dbsnark logo](docs/assets/logo.png)
+
 # Rust Workspace: DB-SNARK
 
 Welcome to the **DB-SNARK** Rust workspace! This repository contains multiple Rust crates organized in a Cargo workspace to provide a modular, maintainable codebase.

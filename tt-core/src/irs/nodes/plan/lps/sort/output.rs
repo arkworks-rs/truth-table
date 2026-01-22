@@ -74,7 +74,7 @@ mod tests {
         // Apply sorting with provided expressions (activator-first is injected inside sort_df).
         let sort = Sort {
             expr: sort_exprs,
-            input: Arc::new(LogicalPlan::from(input_df.logical_plan().clone())),
+            input: Arc::new(input_df.logical_plan().clone()),
             fetch: None,
         };
 

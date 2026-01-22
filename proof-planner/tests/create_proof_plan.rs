@@ -1,11 +1,4 @@
-use ark_piop::{
-    pcs::{kzg10::KZG10, pst13::PST13},
-    DefaultSnarkBackend,
-};
-use ark_test_curves::bls12_381::{Bls12_381, Fr};
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-type MvPCS = PST13<Bls12_381>;
-type UvPCS = KZG10<Bls12_381>;
 #[tokio::test]
 #[ignore = "For visualization purposes"]
 async fn create_prover_proof_tree_panics_until_implemented() {
@@ -21,7 +14,7 @@ async fn create_prover_proof_tree_panics_until_implemented() {
     .await
     .expect("register lineitem table");
 
-    let query = "SELECT
+    let _query = "SELECT
     l_returnflag,
     l_linestatus,
     SUM(l_discount + 2) AS sum_disc_price

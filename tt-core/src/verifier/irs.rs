@@ -95,6 +95,7 @@ mod test {
         ]
     }
 
+    #[allow(unused)]
     fn verifier_with_dummy_proof(num_commitments: usize) -> ArgVerifier<Backend> {
         let (_, mut verifier) = test_prelude::<Backend>().unwrap();
         let mut proof = SNARKProof::<Backend>::default();
@@ -110,6 +111,7 @@ mod test {
         verifier
     }
 
+    #[allow(unused)]
     fn count_materialized_columns(ir: &Ir<Backend, HintDFPayload>) -> usize {
         ir.payloads()
             .values()
@@ -239,7 +241,7 @@ mod test {
             let tracked_ir = planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
             let verifier_virtualization_pass =
                 VerifierVirtualizationPass::<Backend>::new(&tracked_ir);
-            let virtualized_ir =
+            let _virtualized_ir =
                 tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));

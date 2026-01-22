@@ -5,7 +5,6 @@ use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_ff::PrimeField;
-use ark_ff::Zero;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::errors::{SnarkError, SnarkResult};
 use ark_piop::test_utils::test_prelude;
@@ -183,7 +182,7 @@ fn run_lookup_roundtrip(
     let super_table = build_tracked_table(
         &mut prover,
         "sup",
-        &[super_col.clone()],
+        std::slice::from_ref(&super_col),
         super_activator.clone(),
     );
 

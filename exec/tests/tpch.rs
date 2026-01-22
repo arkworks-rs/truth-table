@@ -8,9 +8,11 @@ use exec::test_utils::{resolve_key_paths, resolve_oracle_path, resolve_parquet_p
 use front_end::prover::ProverIrStages;
 use tpch_data::query_spec;
 
-type B = DefaultSnarkBackend;
-
-async fn build_prover_stages(query: &str, table_names: &[&str]) -> Result<ProverIrStages<B>> {
+#[allow(dead_code)]
+async fn build_prover_stages(
+    query: &str,
+    table_names: &[&str],
+) -> Result<ProverIrStages<DefaultSnarkBackend>> {
     let parquet_paths = table_names
         .iter()
         .map(|name| resolve_parquet_path(name))

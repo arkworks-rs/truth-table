@@ -83,7 +83,7 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
     type VerifierInput = KeyedSumcheckVerifierInput<B>;
 
     #[cfg(feature = "honest-prover")]
-    fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
+    fn honest_prover_check(_input: Self::ProverInput) -> SnarkResult<Self::ProverOutput> {
         Ok(())
     }
 

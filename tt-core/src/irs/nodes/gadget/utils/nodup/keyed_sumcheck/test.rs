@@ -2,8 +2,8 @@ use super::{KeyedSumcheck, KeyedSumcheckProverInput, KeyedSumcheckVerifierInput}
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
     DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult,
-    pcs::PCS, piop::PIOP, prover::structs::polynomial::TrackedPoly, test_utils::test_prelude,
-    to_field_vec, verifier::structs::oracle::TrackedOracle,
+    piop::PIOP, prover::structs::polynomial::TrackedPoly, test_utils::test_prelude, to_field_vec,
+    verifier::structs::oracle::TrackedOracle,
 };
 use ark_test_curves::bls12_381::Fr;
 use std::str::FromStr;

@@ -813,6 +813,7 @@ fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
         .unwrap_or(true)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn populate_sign_payloads_prover<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
@@ -837,7 +838,6 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
         "Sort sign gadget expects matching input and rotated column counts."
     );
 
-    let diff_table = diff_table;
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
     let rotated_activator = rotated_table.activator_tracked_poly();
@@ -944,6 +944,7 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn populate_sign_payloads_verifier<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
@@ -968,7 +969,6 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         "Sort sign gadget expects matching input and rotated column counts."
     );
 
-    let diff_table = diff_table;
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
     let rotated_activator = rotated_table.activator_tracked_poly();

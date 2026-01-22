@@ -356,10 +356,10 @@ fn active_row_multiset<B: SnarkBackend>(
 
     let mut counts = std::collections::HashMap::new();
     for row in 0..size {
-        if let Some(act) = activator.as_ref() {
-            if act[row] != B::F::one() {
-                continue;
-            }
+        if let Some(act) = activator.as_ref()
+            && act[row] != B::F::one()
+        {
+            continue;
         }
         let key = if data_evals.is_empty() {
             String::new()
