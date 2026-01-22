@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
-use datafusion_common::{Column, Statistics};
+use datafusion_common::{Column, DFSchema, Statistics};
 
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
@@ -118,7 +118,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("column row-id sort should succeed");
 
-        let mut exprs = vec![datafusion_expr::Expr::Column(self.column.clone())];
+        let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
         if self.column.name() != ACTIVATOR_COL_NAME {
             crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         }
@@ -132,6 +132,24 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             .expect("column output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
+}
+
+fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::Expr {
+    let name = column.name();
+    if let Some(relation) = column.relation.as_ref() {
+        if schema
+            .iter()
+            .any(|(qualifier, field)| field.name() == name && qualifier.as_ref() == Some(&relation))
+        {
+            return datafusion_expr::Expr::Column(column.clone());
+        }
+    }
+
+    if let Some((qualifier, _)) = schema.iter().find(|(_, field)| field.name() == name) {
+        return datafusion_expr::Expr::Column(Column::new(qualifier.cloned(), name));
+    }
+
+    datafusion_expr::Expr::Column(Column::new_unqualified(name))
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {

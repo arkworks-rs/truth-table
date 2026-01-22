@@ -8,12 +8,17 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use ark_piop::{DefaultSnarkBackend, prover::structs::proof::SNARKProof, verifier::ArgVerifier};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
+use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
     optimizer::{Analyzer, Optimizer, OptimizerContext},
     prelude::{ParquetReadOptions, SessionContext},
+};
+use exec::{
+    prove::ProveBuilder,
+    setup::DEFAULT_BENCH_LOG_SIZE,
+    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
 };
 use front_end::{
     prover::TTProver,
@@ -25,12 +30,6 @@ use indexmap::IndexMap;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
-
-use exec::{
-    prove::ProveBuilder,
-    setup::DEFAULT_BENCH_LOG_SIZE,
-    test_utils::{resolve_key_paths, resolve_oracle_path_blocking},
-};
 
 pub type B = DefaultSnarkBackend;
 
@@ -238,11 +237,7 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     let temp_dir = TempDir::new().expect("create temp dir for bench proof");
     let proof_path = temp_dir.path().join(format!("{case_name}.proof.pi"));
 
-    let mut proof_bytes = Vec::new();
-    proof
-        .as_inner()
-        .serialize_uncompressed(&mut proof_bytes)
-        .expect("serialize proof for bench");
+    let proof_bytes = proof.to_bytes().expect("serialize proof for bench");
 
     let file = File::create(&proof_path).expect("create proof file for bench");
     let mut writer = BufWriter::new(file);
@@ -326,11 +321,7 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
 }
 
 fn proof_from_bytes(bytes: &[u8]) -> TTProof<B> {
-    // Deserialize proof bytes into the front-end wrapper.
-    let mut reader = std::io::Cursor::new(bytes);
-    let proof =
-        SNARKProof::<B>::deserialize_uncompressed(&mut reader).expect("deserialize proof bytes");
-    TTProof::new(proof)
+    TTProof::from_bytes(bytes).expect("deserialize proof bytes")
 }
 
 fn load_oracle(path: &PathBuf) -> Result<arithmetic::table_oracle::ArithTableOracle<B>> {
@@ -363,9 +354,7 @@ fn build_shared_config(
     // Use the same planner/optimizer wiring as production verification.
     TTSharedConfig::new(
         Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(
-            &session_ctx,
-        )),
+        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
         ctx_oracles,
         session_ctx,
         ConfigOptions::new(),

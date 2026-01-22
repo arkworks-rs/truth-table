@@ -5,7 +5,6 @@ use tt_core::{
     irs::{
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
         shared_passes::{GadgetPlanningPass, OutputPlanningPass},
-        tree::Tree,
     },
     verifier::{
         irs::{
@@ -104,14 +103,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        let initial_lp = self.shared_config().query_to_lp(query).await;
-        let analyzed_and_optimized_lp = self
-            .shared_config()
-            .analyze_and_optimize_lp(initial_lp)
-            .await;
-        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
-
-        let initial_ir = EmptyIr::<B>::new_empty(tree);
+        let (snark_proof, initial_ir) = proof.into_parts();
         // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
@@ -130,7 +122,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         // );
 
         let mut arg_verifier = self.arg_verifier().clone();
-        arg_verifier.set_proof(proof.into_inner());
+        arg_verifier.set_proof(snark_proof);
 
         let verifier_tracking_pass = self.verifier_config().tracking_pass(
             arg_verifier.clone(),

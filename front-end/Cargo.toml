@@ -20,6 +20,8 @@ ark-serialize = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
+datafusion-proto = { workspace = true }
+prost = { workspace = true }
 
 # other dependencies
 tokio = { workspace = true }

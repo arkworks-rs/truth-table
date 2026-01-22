@@ -1,9 +1,3 @@
-use std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
-
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
@@ -19,10 +13,14 @@ use front_end::{
     verifier::{TTVerifier, TTVerifierConfig},
 };
 use indexmap::IndexMap;
+use std::{
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 use tt_core::ctx_oracles::CtxOracles;
 
 type B = DefaultSnarkBackend;
-type Proof = ark_piop::prover::structs::proof::SNARKProof<B>;
 
 pub struct VerifyBuilder {
     query: Option<String>,
@@ -157,7 +155,7 @@ impl VerifyRunner {
             .with_context(|| format!("failed to register parquet {}", parquet_path.display()))?;
         }
 
-        let proof = load_proof(&self.proof_path)?;
+        let tt_proof = TTProof::<B>::load(&self.proof_path)?;
         let tt_vk = TTVk::<B>::load(&self.vk_path)
             .with_context(|| format!("failed to load verifying key {}", self.vk_path.display()))?;
         let arg_verifier = ArgVerifier::new_from_vk(tt_vk.into_inner());
@@ -172,7 +170,7 @@ impl VerifyRunner {
 
         let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
         verifier
-            .verify(&self.query, TTProof::new(proof))
+            .verify(&self.query, tt_proof)
             .await
             .map_err(|err| anyhow!(err))?;
 
@@ -187,13 +185,6 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
     let mut reader = BufReader::new(file);
     ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
         .context("failed to deserialize oracle")
-}
-
-fn load_proof(path: &Path) -> Result<Proof> {
-    let file = File::open(path)
-        .with_context(|| format!("failed to open proof file {}", path.display()))?;
-    let mut reader = BufReader::new(file);
-    Proof::deserialize_uncompressed(&mut reader).context("failed to deserialize proof")
 }
 
 fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracles<B>> {
@@ -213,9 +204,7 @@ fn build_shared_config(
 ) -> TTSharedConfig<B> {
     TTSharedConfig::new(
         Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(
-            &session_ctx,
-        )),
+        Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
         ctx_oracles,
         session_ctx,
         ConfigOptions::new(),

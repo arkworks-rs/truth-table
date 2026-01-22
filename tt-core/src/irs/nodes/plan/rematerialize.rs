@@ -10,9 +10,7 @@ use datafusion::arrow::{
 };
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::{
-    Column, DFSchema, DFSchemaRef, DataFusionError, Result as DataFusionResult, ScalarValue,
-};
+use datafusion_common::{Column, DFSchemaRef, DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::expr::Sort as SortExpr;
 use datafusion_expr::{
     Expr, ExprFunctionExt, LogicalPlan, Operator, Projection, binary_expr, col, lit,
@@ -90,14 +88,10 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
         };
-        let desired_schema = match self.input.as_ref() {
-            Node::Plan(PlanNode::LpBased(plan_node)) => Some(plan_node.lp().schema().clone()),
-            _ => Some(Arc::new(input_hint_df.data_frame().schema().clone())),
-        };
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
                 .expect("rematerialize row-id sort should succeed");
-        let remat = build_output_dataframe(input_df, desired_schema);
+        let remat = build_output_dataframe(input_df, None);
         crate::irs::nodes::hints::HintDF::new_materialized(remat)
     }
 }
@@ -262,10 +256,9 @@ fn pad_to_power_of_two(df: DataFrame) -> DataFrame {
 }
 
 fn pad_to_power_of_two_inner(df: DataFrame) -> DataFusionResult<DataFrame> {
-    let desired_schema = df.schema().clone();
     let batches = collect_blocking(df.clone())?;
     if batches.is_empty() {
-        return pad_empty_df(df, desired_schema.into());
+        return pad_empty_df(df);
     }
     let schema_ref = batches[0].schema();
     let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
@@ -274,7 +267,7 @@ fn pad_to_power_of_two_inner(df: DataFrame) -> DataFusionResult<DataFrame> {
     let target = row_count.next_power_of_two();
     let pad = target - row_count;
     if pad == 0 {
-        return Ok(apply_desired_schema(df, desired_schema.into()));
+        return Ok(df);
     }
 
     let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
@@ -297,11 +290,10 @@ fn pad_to_power_of_two_inner(df: DataFrame) -> DataFusionResult<DataFrame> {
 
     let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
     let ctx = SessionContext::new();
-    let padded_df = ctx.read_batch(out_batch)?;
-    Ok(apply_desired_schema(padded_df, desired_schema.into()))
+    ctx.read_batch(out_batch)
 }
 
-fn pad_empty_df(df: DataFrame, desired_schema: DFSchemaRef) -> DataFusionResult<DataFrame> {
+fn pad_empty_df(df: DataFrame) -> DataFusionResult<DataFrame> {
     let schema_ref = df.schema().as_arrow();
     let target = 1;
     let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
@@ -322,30 +314,7 @@ fn pad_empty_df(df: DataFrame, desired_schema: DFSchemaRef) -> DataFusionResult<
 
     let out_batch = RecordBatch::try_new(Arc::new(schema_ref.clone()), output_arrays)?;
     let ctx = SessionContext::new();
-    let padded_df = ctx.read_batch(out_batch)?;
-    Ok(apply_desired_schema(padded_df, desired_schema))
-}
-
-fn apply_desired_schema(df: DataFrame, desired_schema: DFSchemaRef) -> DataFrame {
-    let projection_exprs: Vec<Expr> = desired_schema
-        .iter()
-        .map(|(_, field)| Expr::Column(Column::new_unqualified(field.name())))
-        .collect();
-    let qualifiers: Vec<Option<datafusion_common::TableReference>> = desired_schema
-        .iter()
-        .map(|(qualifier, _)| qualifier.cloned())
-        .collect();
-    let output_schema =
-        DFSchema::from_field_specific_qualified_schema(qualifiers, df.schema().inner())
-            .expect("rematerialize schema rebuild should succeed");
-    let (session_state, _) = df.clone().into_parts();
-    let projection = Projection::try_new_with_schema(
-        projection_exprs,
-        Arc::new(df.logical_plan().clone()),
-        output_schema.into(),
-    )
-    .expect("rematerialize schema projection should succeed");
-    DataFrame::new(session_state, LogicalPlan::Projection(projection))
+    ctx.read_batch(out_batch)
 }
 
 fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
@@ -373,26 +342,12 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
     }
 }
 
-fn build_output_dataframe(input: DataFrame, desired_schema: Option<DFSchemaRef>) -> DataFrame {
+fn build_output_dataframe(input: DataFrame, _desired_schema: Option<DFSchemaRef>) -> DataFrame {
     let filtered = input
         .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
         .expect("rematerialize activator filter should succeed");
     let filtered_schema = filtered.schema().clone();
-    let output_schema = desired_schema
-        .map(|desired| {
-            let mut qualifiers = Vec::new();
-            for (current_qualifier, field) in filtered_schema.iter() {
-                let desired_qualifier = desired
-                    .iter()
-                    .find(|(_, desired_field)| desired_field.name() == field.name())
-                    .map(|(qualifier, _)| qualifier.cloned())
-                    .unwrap_or_else(|| current_qualifier.cloned());
-                qualifiers.push(desired_qualifier);
-            }
-            DFSchema::from_field_specific_qualified_schema(qualifiers, filtered_schema.inner())
-                .expect("rematerialize schema rebuild should succeed")
-        })
-        .unwrap_or(filtered_schema);
+    let output_schema = filtered_schema;
 
     let mut row_id_sort_exprs: Vec<SortExpr> = filtered
         .schema()

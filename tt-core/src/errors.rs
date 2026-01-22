@@ -1,6 +1,7 @@
 //! Error utilities for the TruthTable core crate.
 
 use ark_piop::errors::SnarkError;
+use datafusion_common::DataFusionError;
 use thiserror::Error;
 
 /// Error type used across the TruthTable codebase.
@@ -14,6 +15,9 @@ pub enum TTError {
 
     #[error("serialization error: {0}")]
     Serialization(#[from] ark_serialize::SerializationError),
+
+    #[error("datafusion error: {0}")]
+    DataFusion(#[from] DataFusionError),
 }
 
 /// Convenient result alias for functions that return a `TTError`.

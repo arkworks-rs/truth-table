@@ -2,7 +2,7 @@ use crate::setup::{DEFAULT_LOG_SIZE, default_pk_filename};
 use anyhow::{Context, Result, anyhow};
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
     optimizer::{Analyzer, Optimizer, OptimizerContext},
@@ -269,10 +269,10 @@ impl ProveRunner {
             format!("failed to create proof file {}", self.output_path.display())
         })?;
         let mut writer = BufWriter::new(file);
-        proof
-            .as_inner()
-            .serialize_uncompressed(&mut writer)
-            .context("failed to serialize proof")?;
+        let proof_bytes = proof.to_bytes().context("failed to serialize proof")?;
+        writer
+            .write_all(&proof_bytes)
+            .context("failed to write proof bytes")?;
         writer
             .flush()
             .with_context(|| format!("failed to flush {}", self.output_path.display()))?;
