@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
-use col_toolbox::bezout_based_multi_col_supp_check::{
-    BezoutMultiColSuppCheckPIOP, BezoutMultiColSuppCheckProverInput,
-    BezoutMultiColSuppCheckVerifierInput,
-};
+
 use indexmap::IndexMap;
 
 use crate::{
