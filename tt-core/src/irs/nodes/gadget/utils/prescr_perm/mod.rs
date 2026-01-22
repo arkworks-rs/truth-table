@@ -5,11 +5,10 @@ use ark_ff::PrimeField;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
-    prover::structs::polynomial::{TrackedPoly, get_or_insert_shift_poly},
-    verifier::structs::oracle::{Oracle, TrackedOracle, get_or_insert_shift_oracle},
+    prover::structs::polynomial::get_or_insert_shift_poly,
+    verifier::structs::oracle::{Oracle, get_or_insert_shift_oracle},
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use either::Either;
 use indexmap::IndexMap;
 
 use crate::{
@@ -64,7 +63,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

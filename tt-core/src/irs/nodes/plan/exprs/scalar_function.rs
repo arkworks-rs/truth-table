@@ -1,17 +1,12 @@
 use std::sync::Arc;
 
-use arithmetic::table::TrackedTable;
-use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
 use datafusion_common::Statistics;
 use datafusion_expr::expr::ScalarFunction;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
 };
-use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
@@ -27,7 +22,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn display(&self) -> String {
-        let args = if self.exprs.is_empty() {
+        let _args = if self.exprs.is_empty() {
             "none".to_string()
         } else {
             self.exprs
@@ -63,8 +58,8 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
-        id: NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -73,7 +68,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         &self,
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -92,8 +87,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
-        id: NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        _id: NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

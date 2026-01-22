@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::array::ArrayRef;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};

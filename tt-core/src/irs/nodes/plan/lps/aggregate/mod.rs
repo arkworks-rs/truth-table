@@ -338,7 +338,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let current_table = match virtualized_ir.payload_for_node(&id) {
@@ -741,7 +741,7 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
     aggregate: &Aggregate,
     aggr_exprs: &[Arc<Node<B>>],
     current_table: &TrackedTable<B>,
-    prover: &mut ark_piop::prover::ArgProver<B>,
+    _prover: &mut ark_piop::prover::ArgProver<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
     let schema = match current_table.schema_ref() {

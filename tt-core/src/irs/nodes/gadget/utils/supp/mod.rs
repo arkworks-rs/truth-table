@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
-use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
+use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 
 use indexmap::IndexMap;
 
 use crate::{
-    irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
-        payloads::PayloadStructure,
-    },
+    irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
@@ -71,7 +68,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -79,7 +76,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // First fetch the original and support hints from the payload.
@@ -138,18 +135,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn prove(
         &self,
-        prover: &mut ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _prover: &mut ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 
     fn verify(
         &self,
-        verifier: &mut ArgVerifier<B>,
-        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _verifier: &mut ArgVerifier<B>,
+        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

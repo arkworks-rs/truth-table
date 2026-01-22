@@ -33,7 +33,7 @@ fn add_avg_support(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
     match plan {
         LogicalPlan::Aggregate(mut aggregate) => {
             let mut changed = false;
-            let mut aggr_expr = std::mem::take(&mut aggregate.aggr_expr);
+            let aggr_expr = std::mem::take(&mut aggregate.aggr_expr);
             let mut existing = aggr_expr.clone();
             let mut new_aggr_expr = Vec::with_capacity(aggregate.aggr_expr.len() + 2);
 

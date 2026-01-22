@@ -25,7 +25,7 @@ use crate::{
 use ark_piop::{SnarkBackend, errors::SnarkResult};
 use arrow_schema::SchemaRef;
 use datafusion_common::Statistics;
-use datafusion_expr::{Expr, LogicalPlan, builder::subquery_alias, in_subquery};
+use datafusion_expr::{Expr, LogicalPlan};
 use derivative::Derivative;
 use indexmap::IndexMap;
 pub mod cost;

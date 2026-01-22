@@ -83,7 +83,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         &self,
         _id: crate::irs::nodes::NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -148,9 +148,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

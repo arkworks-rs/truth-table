@@ -134,7 +134,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the payload for this gadget node.
@@ -379,9 +379,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
 
     fn honest_prover_check(
         &self,
-        prover: &mut ark_piop::prover::ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

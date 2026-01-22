@@ -349,7 +349,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for LimitNode<B> {
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for LimitNode<B> {
-    fn from_lp(_plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
+    fn from_lp(_plan: LogicalPlan, _self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,
     {

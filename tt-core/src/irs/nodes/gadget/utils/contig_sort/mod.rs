@@ -4,7 +4,6 @@ use arithmetic::{
     ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::One;
-use ark_ff::PrimeField;
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
@@ -242,7 +241,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -449,8 +448,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // use ark_piop::errors::SnarkError::ProverError;
         // use ark_piop::prover::errors::HonestProverError::FalseClaim;
@@ -1648,7 +1647,7 @@ fn pad_df_to_power_of_two(
     let schema_ref = df.schema();
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema_ref).clone();
     let batches = collect_blocking(df)?;
-    let (batches, row_count) = pad_batches_to_power_of_two(&arrow_schema, batches)?;
+    let (batches, _row_count) = pad_batches_to_power_of_two(&arrow_schema, batches)?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
             "contig sort padding produced empty batches".to_string(),

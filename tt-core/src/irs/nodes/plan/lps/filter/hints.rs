@@ -4,7 +4,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::tree_node::{Transformed, TreeNode};
 use datafusion_common::{Column, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::expr::{InList, InSubquery};
+use datafusion_expr::expr::InList;
 use datafusion_expr::{Expr, Filter, lit};
 use tokio::runtime::RuntimeFlavor;
 

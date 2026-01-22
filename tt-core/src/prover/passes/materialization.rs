@@ -53,7 +53,7 @@ where
     fn transform(
         &self,
         node: &Node<B>,
-        id: NodeId,
+        _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<MaterializedPayload> {
         let Some(payload) = payload else {

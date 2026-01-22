@@ -70,7 +70,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SubqueryAliasNode<B> {
         &self,
         _id: crate::irs::nodes::NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -123,7 +123,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SubqueryAliasNode<B> {
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for SubqueryAliasNode<B> {
-    fn from_lp(plan: datafusion_expr::LogicalPlan, self_ref: Weak<Node<B>>) -> Self
+    fn from_lp(plan: datafusion_expr::LogicalPlan, _self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized,
     {

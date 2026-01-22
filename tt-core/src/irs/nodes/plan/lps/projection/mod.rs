@@ -160,7 +160,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         &self,
         _id: crate::irs::nodes::NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

@@ -8,9 +8,8 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::ROW_ID_COL_NAME;
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
 mod hints;
@@ -124,8 +123,8 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -133,7 +132,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let output_table = match virtualized_ir.payload_for_node(&id) {
@@ -202,8 +201,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
     fn add_virtual_witness(
         &self,
-        id: crate::irs::nodes::NodeId,
-        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

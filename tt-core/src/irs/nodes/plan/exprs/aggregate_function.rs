@@ -253,7 +253,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     fn initialize_gadgets(
         &self,
         id: NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let parent_node = self

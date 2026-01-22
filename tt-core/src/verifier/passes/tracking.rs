@@ -135,7 +135,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
 
-    let mut verifier = verifier.borrow_mut();
+    let verifier = verifier.borrow_mut();
     for (field, should_mat) in hint_df.field_materialization_iter() {
         if !*should_mat {
             continue;

@@ -1,7 +1,6 @@
 use ark_piop::{verifier::ArgVerifier, SnarkBackend};
-use tracing::debug;
 use tt_core::{
-    ctx_oracles::{self, CtxOracles},
+    ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::{
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
