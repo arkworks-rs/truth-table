@@ -58,6 +58,7 @@ pub struct BenchAssets {
 
 #[derive(Debug)]
 pub struct BenchProof {
+    #[allow(unused)]
     pub proof_path: PathBuf,
     pub proof_bytes: Vec<u8>,
     _temp_dir: TempDir,
@@ -257,6 +258,7 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     })
 }
 
+#[allow(unused)]
 pub fn cache_proof(case_name: &'static str, proof: Arc<BenchProof>) {
     // Store a proof in the global bench cache.
     let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -311,7 +313,7 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
     let oracles = assets
         .oracle_paths
         .iter()
-        .map(|path| load_oracle(path))
+        .map(load_oracle)
         .collect::<Result<Vec<_>>>()
         .expect("load oracles for bench");
     let ctx_oracles = ctx_oracles_from_oracles(&oracles).expect("build ctx oracles for bench");
