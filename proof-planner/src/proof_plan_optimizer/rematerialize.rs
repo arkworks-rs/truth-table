@@ -170,8 +170,12 @@ mod tests {
             .expect("plan should build");
         let tree = Tree::<Backend>::from_logical_plan(&plan);
         let initial_ir = InitialIr::<Backend>::new_empty(tree);
+        // Uncomment to visualize the initial IR
+        // println!("{}", initial_ir.display_graphviz(true));
 
         let optimized = RematerializeRule::new().optimize(initial_ir);
+        // Uncomment to visualize the optimized IR
+        // println!("{}", optimized.display_graphviz(true));
         let remat_count = optimized
             .tree()
             .arena()

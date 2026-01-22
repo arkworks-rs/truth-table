@@ -18,8 +18,8 @@ use crate::{
             rematerialize,
         },
     },
-    prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
     irs::tree::Tree,
+    prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
     verifier::irs::{
         GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
     },
