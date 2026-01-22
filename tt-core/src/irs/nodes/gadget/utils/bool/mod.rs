@@ -1,11 +1,5 @@
 use std::marker::PhantomData;
 
-use ark_piop::SnarkBackend;
-use col_toolbox::binary_check::{
-    BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput,
-};
-use indexmap::IndexMap;
-
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -14,7 +8,10 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use ark_piop::piop::PIOP;
+use ark_ff::One;
+use ark_piop::SnarkBackend;
+use indexmap::IndexMap;
+use std::ops::Neg;
 pub const TABLE_LABEL: &str = "__table__";
 
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
@@ -106,8 +103,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let col = table.tracked_col_by_ind(idx);
             // BinaryCheck only needs the predicate polynomial, so we pass the activated column.
             let predicate = col.activated_data_tracked_poly();
-            let input = BinaryCheckProverInput { predicate };
-            BinaryCheckPIOP::<B>::prove(prover, input)?;
+            let one_minus_sel = predicate
+                .mul_scalar_poly(B::F::one().neg())
+                .add_scalar_poly(B::F::one());
+            let check_poly = &predicate * &one_minus_sel;
+            prover.add_mv_zerocheck_claim(check_poly.id())?;
         }
         Ok(())
     }
@@ -139,8 +139,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let col = table.tracked_col_oracle_by_ind(idx);
             // BinaryCheck only needs the predicate oracle, so we pass the activated column.
             let predicate_oracle = col.activated_data_tracked_oracle();
-            let input = BinaryCheckVerifierInput { predicate_oracle };
-            BinaryCheckPIOP::<B>::verify(verifier, input)?;
+            let one_minus_sel = predicate_oracle
+                .mul_scalar_oracle(B::F::one().neg())
+                .add_scalar_oracle(B::F::one());
+            let check_poly = &predicate_oracle * &one_minus_sel;
+            verifier.add_zerocheck_claim(check_poly.id());
         }
         Ok(())
     }

@@ -1,10 +1,5 @@
 use std::sync::Arc;
 
-use arithmetic::ROW_ID_COL_NAME;
-use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
-use indexmap::IndexMap;
-use rayon::vec;
-
 use crate::{
     irs::{
         nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
@@ -13,12 +8,20 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
+use arithmetic::ROW_ID_COL_NAME;
+use ark_piop::{SnarkBackend, prover::ArgProver, verifier::ArgVerifier};
+use indexmap::IndexMap;
 
 pub const INPUT_LABEL: &str = "_input_";
 pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
 
 mod bezout;
+mod binary_check;
+mod defragg;
 mod hints;
+mod keyed_sumcheck;
+mod perm_check;
+mod rematerialize_check;
 
 pub enum Mode {
     BezoutBased,

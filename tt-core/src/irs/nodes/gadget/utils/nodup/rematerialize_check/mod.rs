@@ -6,9 +6,13 @@
 //! (1) checking the new activator is Boolean and (2) proving a multiset
 //! equality between the old and new data.  This module implements that two-step
 //! PIOP for one column in the column toolbox.
-#[cfg(test)]
-mod test;
 
+use crate::irs::nodes::gadget::utils::nodup::binary_check::BinaryCheckPIOP;
+use crate::irs::nodes::gadget::utils::nodup::binary_check::BinaryCheckProverInput;
+use crate::irs::nodes::gadget::utils::nodup::binary_check::BinaryCheckVerifierInput;
+use crate::irs::nodes::gadget::utils::nodup::perm_check::PermPIOP;
+use crate::irs::nodes::gadget::utils::nodup::perm_check::PermPIOPProverInput;
+use crate::irs::nodes::gadget::utils::nodup::perm_check::PermPIOPVerifierInput;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_piop::{
     SnarkBackend,
@@ -20,11 +24,6 @@ use ark_piop::{
 };
 use derivative::Derivative;
 use std::marker::PhantomData;
-
-use crate::{
-    binary_check::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput},
-    perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
-};
 pub struct RematerializeCheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
 
 #[derive(Derivative)]

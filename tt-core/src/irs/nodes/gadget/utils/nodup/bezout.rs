@@ -1,5 +1,6 @@
 use super::GadgetNode;
 use crate::irs::nodes::ProverGadgetReadyIr;
+use crate::irs::nodes::gadget::utils::nodup::defragg::Defragmenter;
 use crate::irs::payloads::PayloadStructure;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
@@ -22,7 +23,6 @@ use ark_poly::Polynomial;
 use ark_poly::univariate::DenseOrSparsePolynomial;
 use ark_std::cfg_iter;
 use ark_std::rand::RngCore;
-use col_toolbox::defragger::Defragmenter;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 impl<B: SnarkBackend> GadgetNode<B> {
