@@ -178,10 +178,10 @@ impl<B: SnarkBackend> TTProver<B> {
         // );
         let arithmetized_ir =
             materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
-        debug!(
-            "arithmetized ir:\n{}",
-            arithmetized_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "arithmetized ir:\n{}",
+        //     arithmetized_ir.display_graphviz(true)
+        // );
 
         let arg_prover = self.arg_prover().clone();
         let committed_ir =
@@ -200,7 +200,7 @@ impl<B: SnarkBackend> TTProver<B> {
 
         let virtualization_pass = VirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
-        // debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
+        debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
         let gadget_ir_view = ProverVirtualizedIr::new(
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),

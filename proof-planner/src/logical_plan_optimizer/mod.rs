@@ -3,7 +3,7 @@ use std::sync::Arc;
 use datafusion::{
     optimizer::{
         eliminate_cross_join::EliminateCrossJoin,
-        extract_equijoin_predicate::ExtractEquijoinPredicate,
+        extract_equijoin_predicate::ExtractEquijoinPredicate, push_down_filter::PushDownFilter,
         simplify_expressions::SimplifyExpressions, OptimizerRule,
     },
     prelude::SessionContext,
@@ -30,6 +30,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(ExtractEquijoinPredicate),
         Arc::new(EliminateCrossJoin),
         Arc::new(SimplifyExpressions::new()),
-        Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
+        Arc::new(PushDownFilter::new()),
+        // Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
     ]
 }

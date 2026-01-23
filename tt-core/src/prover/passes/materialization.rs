@@ -157,11 +157,10 @@ fn pad_batches_to_power_of_two(
     batches: Vec<RecordBatch>,
 ) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
     let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
-    let target = if row_count == 0 {
-        1
-    } else {
-        row_count.next_power_of_two()
-    };
+    if row_count == 0 {
+        return Ok((batches, row_count));
+    }
+    let target = row_count.next_power_of_two();
     let pad = target - row_count;
     if pad == 0 {
         return Ok((batches, row_count));

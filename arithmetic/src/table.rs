@@ -48,6 +48,7 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedTable<B> {
             .field("num_total_cols", &self.num_total_tracked_cols())
             .field("num_data_cols", &self.num_data_tracked_cols())
             .field("log_size", &self.log_size())
+            .field("degrees", &self.degrees())
             .finish()
     }
 }
@@ -75,9 +76,10 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
                 .collect();
             write!(
                 f,
-                "TrackedTable cols=({}), log_size={}",
+                "TrackedTable cols=({}), log_size={}, degrees={:?}",
                 cols.join(","),
-                self.log_size
+                self.log_size,
+                self.degrees()
             )
         }
     }
@@ -259,6 +261,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
         indices
             .iter()
             .map(|&i| self.tracked_col_by_ind(i))
+            .collect()
+    }
+
+    pub fn degrees(&self) -> Vec<usize> {
+        self.tracked_polys
+            .values()
+            .map(|poly| poly.degree())
             .collect()
     }
 
