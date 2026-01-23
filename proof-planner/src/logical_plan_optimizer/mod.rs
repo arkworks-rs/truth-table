@@ -30,6 +30,6 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(ExtractEquijoinPredicate),
         Arc::new(EliminateCrossJoin),
         Arc::new(SimplifyExpressions::new()),
-        Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
+        // Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
     ]
 }
