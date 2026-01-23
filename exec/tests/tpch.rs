@@ -241,12 +241,40 @@ FROM (
 #[tokio::test]
 async fn tpch_q18_prove_verify() {
     let spec = query_spec(18);
-    println!("TPCH Q18 SQL:\n{}", spec.sql);
     exec::test_utils::prove_and_verify_query(spec.sql, spec.tables, None)
         .await
         .expect("prove and verify tpch q18");
 }
 
+// SELECT
+//     sum(l_extendedprice * (1 - l_discount)) AS revenue
+// FROM
+//     lineitem,
+//     part
+// WHERE (p_partkey = l_partkey
+//     AND p_brand = 'Brand#12'
+//     AND p_container IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG')
+//     AND l_quantity >= 1
+//     AND l_quantity <= 1 + 10
+//     AND p_size BETWEEN 1 AND 5
+//     AND l_shipmode IN ('AIR', 'AIR REG')
+//     AND l_shipinstruct = 'DELIVER IN PERSON')
+//     OR (p_partkey = l_partkey
+//         AND p_brand = 'Brand#23'
+//         AND p_container IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK')
+//         AND l_quantity >= 10
+//         AND l_quantity <= 10 + 10
+//         AND p_size BETWEEN 1 AND 10
+//         AND l_shipmode IN ('AIR', 'AIR REG')
+//         AND l_shipinstruct = 'DELIVER IN PERSON')
+//     OR (p_partkey = l_partkey
+//         AND p_brand = 'Brand#34'
+//         AND p_container IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')
+//         AND l_quantity >= 20
+//         AND l_quantity <= 20 + 10
+//         AND p_size BETWEEN 1 AND 15
+//         AND l_shipmode IN ('AIR', 'AIR REG')
+//         AND l_shipinstruct = 'DELIVER IN PERSON');
 #[tokio::test]
 async fn tpch_q19_prove_verify() {
     let spec = query_spec(19);
