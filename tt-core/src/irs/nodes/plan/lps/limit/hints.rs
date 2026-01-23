@@ -88,12 +88,9 @@ pub(super) fn build_output_dataframe(input: &DataFrame, limit: &Limit) -> DataFr
         .with_column(ACTIVATOR_COL_NAME, new_activator_expr)
         .expect("limit activator update should succeed");
 
-    let trimmed = with_new_activator
+    with_new_activator
         .drop_columns(&["__row_number__", "__activator_orig__"])
-        .expect("limit helper columns should be dropped");
-
-    // pad_to_power_of_two(trimmed)
-    trimmed
+        .expect("limit helper columns should be dropped")
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use datafusion::{
     functions_window::expr_fn::row_number,
     prelude::{DataFrame, SessionContext},
 };
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, ExprFunctionExt, Join, LogicalPlan, col, lit};
 use datafusion_functions_aggregate::expr_fn::min;
 use indexmap::IndexMap;
@@ -749,9 +749,6 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
     let combined = concat_batches(&schema_ref, batch_refs)?;
     let row_count = combined.num_rows();
 
-    let target = row_count.next_power_of_two();
-    let pad = target - row_count;
-
     let mut output_fields = Vec::with_capacity(key_names.len() + 1);
     let mut output_arrays = Vec::with_capacity(key_names.len() + 1);
 
@@ -767,20 +764,12 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
                 DataFusionError::Plan(format!("match-pair key column missing: {key}"))
             })?;
         let base = combined.column(idx).clone();
-        let padded = if pad > 0 {
-            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
-            let pad_arr = last.to_array_of_size(pad)?;
-            datafusion::arrow::compute::concat(&[base.as_ref(), pad_arr.as_ref()])?
-        } else {
-            base
-        };
         output_fields.push(field.as_ref().clone());
-        output_arrays.push(padded);
+        output_arrays.push(base);
     }
 
-    let mut activator_vals = Vec::with_capacity(target);
+    let mut activator_vals = Vec::with_capacity(row_count);
     activator_vals.extend(std::iter::repeat_n(true, row_count));
-    activator_vals.extend(std::iter::repeat_n(false, pad));
     output_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
     output_arrays.push(Arc::new(BooleanArray::from(activator_vals)) as _);
 
