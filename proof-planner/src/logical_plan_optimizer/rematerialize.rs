@@ -69,6 +69,26 @@ impl OptimizerRule for RematerializeRule {
                         Ok(Transformed::no(filtered_plan))
                     }
                 }
+                LogicalPlan::Aggregate(aggregate) => {
+                    let input_plan = aggregate.input.as_ref().clone();
+                    let aggregate_plan = LogicalPlan::Aggregate(aggregate.clone());
+                    let total_rows = row_count(&self.session_state, &input_plan)?;
+                    if total_rows == 0 {
+                        return Ok(Transformed::no(aggregate_plan));
+                    }
+                    let output_rows = row_count(&self.session_state, &aggregate_plan)?;
+                    let a = next_power_of_two_strict(total_rows);
+                    let b = next_power_of_two_strict(output_rows);
+                    if b < a {
+                        Ok(Transformed::new(
+                            wrap_logical_plan(aggregate_plan),
+                            true,
+                            TreeNodeRecursion::Stop,
+                        ))
+                    } else {
+                        Ok(Transformed::no(aggregate_plan))
+                    }
+                }
                 _ => Ok(Transformed::no(node)),
             }
         })?;
@@ -125,4 +145,3 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<datafusion::arrow::re
         }
     }
 }
-

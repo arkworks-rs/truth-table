@@ -1,12 +1,13 @@
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 
 use datafusion::prelude::DataFrame;
 use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
-    Expr, LogicalPlan,
+    Expr, LogicalPlan, col, lit,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
 use std::any::Any;
@@ -82,7 +83,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
         };
 
         let output_df = build_output_dataframe(input_hint_df.data_frame().clone());
-        crate::irs::nodes::hints::HintDF::new_virtual(output_df)
+        crate::irs::nodes::hints::HintDF::new_materialized(output_df)
     }
 }
 
@@ -244,5 +245,15 @@ pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
 }
 
 fn build_output_dataframe(input: DataFrame) -> DataFrame {
+    let has_activator = input
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    if !has_activator {
+        return input;
+    }
     input
+        .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
+        .expect("rematerialize activator filter should succeed")
 }

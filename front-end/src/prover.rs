@@ -137,39 +137,39 @@ impl<B: SnarkBackend> TTProver<B> {
         query: &str,
     ) -> TTResult<(ProverIrStages<B>, ArgProver<B>)> {
         let initial_lp = self.shared_config().query_to_lp(query).await;
-        debug!("Initial Logical plan{}", initial_lp.display_graphviz());
+        // debug!("Initial Logical plan{}", initial_lp.display_graphviz());
         let analyzed_and_optimized_lp = self
             .shared_config()
             .analyze_and_optimize_lp(initial_lp)
             .await;
 
-        debug!(
-            "optimized and analyzed logical plan:\n{}",
-            analyzed_and_optimized_lp.display_graphviz()
-        );
+        // debug!(
+        //     "optimized and analyzed logical plan:\n{}",
+        //     analyzed_and_optimized_lp.display_graphviz()
+        // );
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
-        debug!(
-            "optimized initial ir:\n{}",
-            optimized_initial_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "optimized initial ir:\n{}",
+        //     optimized_initial_ir.display_graphviz(true)
+        // );
         let output_planned_ir = optimized_initial_ir
             .apply_local_pass_parallel(&self.prover_config().output_planning_pass());
-        debug!(
-            "output planned ir:\n{}",
-            output_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "output planned ir:\n{}",
+        //     output_planned_ir.display_graphviz(true)
+        // );
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .prover_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
-        debug!(
-            "gadget planned ir:\n{}",
-            gadget_planned_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget planned ir:\n{}",
+        //     gadget_planned_ir.display_graphviz(true)
+        // );
         let materialized_ir = gadget_planned_ir
             .apply_local_pass_parallel(&self.prover_config().materialization_pass());
         // debug!(
@@ -178,10 +178,10 @@ impl<B: SnarkBackend> TTProver<B> {
         // );
         let arithmetized_ir =
             materialized_ir.apply_local_pass_parallel(&self.prover_config().arithmetization_pass());
-        // debug!(
-        //     "arithmetized ir:\n{}",
-        //     arithmetized_ir.display_graphviz(true)
-        // );
+        debug!(
+            "arithmetized ir:\n{}",
+            arithmetized_ir.display_graphviz(true)
+        );
 
         let arg_prover = self.arg_prover().clone();
         let committed_ir =
@@ -209,10 +209,10 @@ impl<B: SnarkBackend> TTProver<B> {
             GadgetInitializationPass::<B>::new(gadget_ir_view, arg_prover.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        debug!(
-            "gadget ready ir:\n{}",
-            gadget_ready_ir.display_graphviz(true)
-        );
+        // debug!(
+        //     "gadget ready ir:\n{}",
+        //     gadget_ready_ir.display_graphviz(true)
+        // );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
