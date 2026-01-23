@@ -11,6 +11,7 @@ use crate::{
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::{One, PrimeField, batch_inversion};
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
+use datafusion::functions::unicode::left;
 use indexmap::IndexMap;
 
 /// Label for the left input to the neq gadget
@@ -128,8 +129,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let right_col = right_input.fold_all_data_columns(&challenges);
             (left_col, right_col)
         };
-        let non_zero_poly =
-            &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+        let non_zero_poly = &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
         let col = TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None);
         let col_poly = col.data_tracked_poly().clone();
         let col_sel = col.activator_tracked_poly();
@@ -244,8 +244,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let right_col = right_input.fold_all_data_oracles(&challenges);
             (left_col, right_col)
         };
-        let non_zero_oracle =
-            &left_col.activated_data_tracked_oracle() - &right_col.activated_data_tracked_oracle();
+        let non_zero_oracle = &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
         let tracked_col_oracle =
             TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
         let col_poly = tracked_col_oracle.data_tracked_oracle().clone();
