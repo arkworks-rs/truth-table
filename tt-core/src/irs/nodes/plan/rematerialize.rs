@@ -245,15 +245,19 @@ pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
 }
 
 fn build_output_dataframe(input: DataFrame) -> DataFrame {
+    // input
     let has_activator = input
         .schema()
         .fields()
         .iter()
         .any(|field| field.name() == ACTIVATOR_COL_NAME);
     if !has_activator {
-        return input;
+        return crate::irs::nodes::hints::sort_by_row_id_if_present(input)
+            .expect("rematerialize output sort should succeed");
     }
-    input
+    let filtered = input
         .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
-        .expect("rematerialize activator filter should succeed")
+        .expect("rematerialize activator filter should succeed");
+    crate::irs::nodes::hints::sort_by_row_id_if_present(filtered)
+        .expect("rematerialize output sort should succeed")
 }

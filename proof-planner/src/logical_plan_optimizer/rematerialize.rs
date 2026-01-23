@@ -98,9 +98,32 @@ impl OptimizerRule for RematerializeRule {
 }
 
 fn row_count(session_state: &SessionState, plan: &LogicalPlan) -> DataFusionResult<usize> {
-    let df = DataFrame::new(session_state.clone(), plan.clone());
+    let plan = strip_rematerialize(plan)?;
+    let df = DataFrame::new(session_state.clone(), plan);
     let batches = collect_blocking(df)?;
     Ok(batches.iter().map(|batch| batch.num_rows()).sum())
+}
+
+fn strip_rematerialize(plan: &LogicalPlan) -> DataFusionResult<LogicalPlan> {
+    let transformed = plan.clone().transform_down(|node| {
+        let LogicalPlan::Extension(extension) = &node else {
+            return Ok(Transformed::no(node));
+        };
+        if !extension.node.as_any().is::<RematerializeLogicalNode>() {
+            return Ok(Transformed::no(node));
+        }
+        let remat = extension
+            .node
+            .as_any()
+            .downcast_ref::<RematerializeLogicalNode>()
+            .expect("rematerialize extension node");
+        Ok(Transformed::new(
+            remat.input().clone(),
+            true,
+            TreeNodeRecursion::Continue,
+        ))
+    })?;
+    Ok(transformed.data)
 }
 
 fn next_power_of_two_strict(value: usize) -> usize {
