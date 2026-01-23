@@ -15,6 +15,10 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q1 = query_spec(1);
         let q3 = query_spec(3);
         let q5 = query_spec(5);
+        let q8 = query_spec(8);
+        let q9 = query_spec(9);
+        let q18 = query_spec(18);
+        let q19 = query_spec(19);
 
         let cases = vec![
             BenchCase {
@@ -31,6 +35,26 @@ fn tpch_cases() -> &'static [BenchCase] {
                 name: "tpch_q5",
                 query: q5.sql,
                 tables: q5.tables,
+            },
+            BenchCase {
+                name: "tpch_q8",
+                query: q8.sql,
+                tables: q8.tables,
+            },
+            BenchCase {
+                name: "tpch_q9",
+                query: q9.sql,
+                tables: q9.tables,
+            },
+            BenchCase {
+                name: "tpch_q18",
+                query: q18.sql,
+                tables: q18.tables,
+            },
+            BenchCase {
+                name: "tpch_q19_repeat",
+                query: q19.sql,
+                tables: q19.tables,
             },
         ];
         Box::leak(cases.into_boxed_slice())
