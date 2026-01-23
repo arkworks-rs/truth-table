@@ -1,29 +1,18 @@
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::{
-    array::{Array, ArrayRef, BooleanArray, Int64Array},
-    compute::{concat, concat_batches},
-    datatypes::{DataType, TimeUnit},
-    record_batch::RecordBatch,
-};
-use datafusion::functions_window::expr_fn::row_number;
-use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::{
-    Column, DFSchema, DFSchemaRef, DataFusionError, Result as DataFusionResult, ScalarValue,
-};
-use datafusion_expr::expr::Sort as SortExpr;
+
+use datafusion::prelude::DataFrame;
+use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
-    Expr, ExprFunctionExt, LogicalPlan, Operator, Projection, binary_expr, col, lit,
+    Expr, LogicalPlan,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
 use std::any::Any;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 use std::sync::Arc;
-use tokio::runtime::RuntimeFlavor;
 
 pub struct ProverNode<B>
 where
@@ -87,7 +76,13 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
+        };
+
+        let output_df = build_output_dataframe(input_hint_df.data_frame().clone());
+        crate::irs::nodes::hints::HintDF::new_virtual(output_df)
     }
 }
 
@@ -144,6 +139,8 @@ impl<B: SnarkBackend> ProverNode<B> {
     }
 }
 
+/// A logical plan node that indicates that its input should be rematerialized.
+/// On the logical plan level, this node behaves like an identity operation.
 #[derive(Debug, Clone)]
 pub struct RematerializeLogicalNode {
     input: Arc<LogicalPlan>,
@@ -247,5 +244,5 @@ pub fn wrap_logical_plan(input: LogicalPlan) -> LogicalPlan {
 }
 
 fn build_output_dataframe(input: DataFrame) -> DataFrame {
-    todo!()
+    input
 }

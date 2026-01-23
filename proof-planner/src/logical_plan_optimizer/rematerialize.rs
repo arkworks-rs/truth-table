@@ -125,3 +125,4 @@ fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<datafusion::arrow::re
         }
     }
 }
+
