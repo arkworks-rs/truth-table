@@ -9,6 +9,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
+mod normalize_table_scan;
 mod rematerialize;
 
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
@@ -31,6 +32,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(EliminateCrossJoin),
         Arc::new(SimplifyExpressions::new()),
         Arc::new(PushDownFilter::new()),
+        Arc::new(normalize_table_scan::NormalizeTableScanPushdown::new()),
         // Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
     ]
 }

@@ -461,6 +461,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
+        dbg!(self.binary_expression.clone());
+        dbg!(
+            "BinaryExprNode output schema: {:?}",
+            scope_hint_df.data_frame().schema()
+        );
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("binary expr row-id sort should succeed");
