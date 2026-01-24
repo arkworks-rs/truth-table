@@ -2,8 +2,8 @@ use std::sync::{Arc, Weak};
 
 use crate::irs::{
     nodes::{
-        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::lps::join as join_gadget,
+        gadget::lps::join as join_gadget, IsLpNode, IsNode, IsPlanNode, Node, NodeId,
+        ProverNodeOps, VerifierNodeOps,
     },
     payloads::PayloadStructure,
     tree::Tree,
@@ -253,21 +253,24 @@ impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
         };
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
+        let join_scope_node = self_ref.clone();
         let on = join
             .on
             .iter()
             .map(|(l, r)| {
-                let left_node = Tree::<B>::from_expr(l, Some(self_ref.clone()), left.clone())
-                    .root()
-                    .clone();
-                let right_node = Tree::<B>::from_expr(r, Some(self_ref.clone()), right.clone())
-                    .root()
-                    .clone();
+                let left_node =
+                    Tree::<B>::from_expr(l, Some(self_ref.clone()), join_scope_node.clone())
+                        .root()
+                        .clone();
+                let right_node =
+                    Tree::<B>::from_expr(r, Some(self_ref.clone()), join_scope_node.clone())
+                        .root()
+                        .clone();
                 (left_node, right_node)
             })
             .collect();
         let filter = join.filter.as_ref().map(|expr| {
-            Tree::<B>::from_expr(expr, Some(self_ref.clone()), left.clone())
+            Tree::<B>::from_expr(expr, Some(self_ref.clone()), join_scope_node.clone())
                 .root()
                 .clone()
         });

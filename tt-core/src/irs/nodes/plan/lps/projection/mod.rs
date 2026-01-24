@@ -323,7 +323,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
             .expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(self_ref.clone()), input.clone())
+                Tree::<B>::from_expr(expr, Some(self_ref.clone()), Arc::downgrade(&input))
                     .root()
                     .clone()
             })

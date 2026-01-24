@@ -21,7 +21,7 @@ pub const OUTPUT_GROUPS_LABEL: &str = "__input-groups__";
 #[derive(Clone)]
 pub struct ProverNode<B: SnarkBackend> {
     pub aggregate_function: AggregateFunction,
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub args: Vec<Arc<Node<B>>>,
     pub gadget: Option<Arc<Node<B>>>,
@@ -70,7 +70,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         };
         format!(
             "AggregateFunction\nScope: {}, func: {}, args: {}",
-            self.scope.name(),
+            self.scope().name(),
             self.aggregate_function.func.name(),
             args
         )
@@ -632,7 +632,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: Arc<Node<B>>,
+        scope: std::sync::Weak<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -684,6 +684,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("AggregateFunction scope should be available")
     }
 }

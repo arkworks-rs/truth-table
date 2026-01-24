@@ -409,7 +409,8 @@ impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
 
         // Recurse into the input subtree and fetch the expr that feeds this
         // filter.
-        let predicate = Tree::<B>::from_expr(&filter.predicate, Some(self_ref), input.clone())
+        let predicate =
+            Tree::<B>::from_expr(&filter.predicate, Some(self_ref), Arc::downgrade(&input))
             .root()
             .clone();
 

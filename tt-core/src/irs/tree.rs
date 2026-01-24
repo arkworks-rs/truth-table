@@ -80,7 +80,7 @@ where
         Self { root, arena }
     }
 
-    pub fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>, scope: Arc<Node<B>>) -> Self {
+    pub fn from_expr(expr: &Expr, parent: Option<Weak<Node<B>>>, scope: Weak<Node<B>>) -> Self {
         let root = Node::<B>::from_expr(expr, parent, scope);
         let arena = build_arena(&root);
         Self { root, arena }

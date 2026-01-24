@@ -499,7 +499,11 @@ impl<B: SnarkBackend> IsLpNode<B> for GadgetNode<B> {
         let mut sort_exprs = vec![];
         for expr in &sort.expr {
             let expr_lp =
-                Tree::<B>::from_expr(&expr.expr.clone(), Some(self_ref.clone()), input.clone())
+                Tree::<B>::from_expr(
+                    &expr.expr.clone(),
+                    Some(self_ref.clone()),
+                    Arc::downgrade(&input),
+                )
                     .root()
                     .clone();
             sort_exprs.push(expr_lp);

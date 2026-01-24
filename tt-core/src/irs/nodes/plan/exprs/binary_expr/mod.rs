@@ -35,7 +35,7 @@ pub struct BinaryExprNode<B: SnarkBackend> {
     /// The right child node.
     pub right: Arc<Node<B>>,
     /// The scope node.
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
     /// The gadget node.
     pub gadget: Option<Arc<Node<B>>>,
 }
@@ -456,16 +456,15 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Project the binary expression result alongside the activator from the scope.
-        let scope_hint_df = match self.scope.as_ref() {
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("BinaryExpr scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
-        dbg!(self.binary_expression.clone());
-        dbg!(
-            "BinaryExprNode output schema: {:?}",
-            scope_hint_df.data_frame().schema()
-        );
         let input_df =
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("binary expr row-id sort should succeed");
@@ -507,7 +506,7 @@ impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         _parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: std::sync::Weak<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -560,6 +559,8 @@ impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("BinaryExpr scope should be available")
     }
 }

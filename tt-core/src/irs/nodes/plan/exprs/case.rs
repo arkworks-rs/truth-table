@@ -10,7 +10,7 @@ use crate::irs::nodes::{
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
     pub expr: Option<Arc<Node<B>>>,
     #[allow(clippy::type_complexity)]
     pub when_then: Vec<(Arc<Node<B>>, Arc<Node<B>>)>,
@@ -127,7 +127,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: std::sync::Weak<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -197,6 +197,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("Case scope should be available")
     }
 }

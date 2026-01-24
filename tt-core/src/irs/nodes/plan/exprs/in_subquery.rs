@@ -17,7 +17,7 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
     pub expr: Arc<Node<B>>,
     pub subquery: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
@@ -137,7 +137,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let scope_hint_df = match self.scope.as_ref() {
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("InSubquery scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("InSubquery scope cannot be a gadget node"),
         };
@@ -300,7 +304,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: std::sync::Weak<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -349,6 +353,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("InSubquery scope should be available")
     }
 }

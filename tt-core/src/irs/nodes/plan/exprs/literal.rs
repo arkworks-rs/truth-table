@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 use rayon::iter::Either;
 pub struct ProverNode<B: SnarkBackend> {
     pub literal: ScalarValue,
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
 }
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
@@ -23,7 +23,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn display(&self) -> String {
         format!(
             "Literal\nScope: {}, value: {}",
-            self.scope.name(),
+            self.scope().name(),
             self.literal
         )
     }
@@ -56,7 +56,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table to inherit activator and tracker.
-        let scope_id = self.scope.id();
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Literal scope should be available during witness generation");
+        let scope_id = scope.id();
         let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Literal scope missing tracked table payload"),
@@ -126,7 +130,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Produce a virtual DataFrame with the literal and activator columns from the scope.
-        let scope_hint_df = match self.scope().as_ref() {
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Literal scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
@@ -155,7 +163,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table oracle to inherit activator and tracker.
-        let scope_id = self.scope.id();
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Literal scope should be available during witness generation");
+        let scope_id = scope.id();
         let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => panic!("Literal scope missing tracked table payload"),
@@ -224,7 +236,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<crate::irs::nodes::Node<B>>,
         _parent: Option<std::sync::Weak<crate::irs::nodes::Node<B>>>,
-        scope: std::sync::Arc<crate::irs::nodes::Node<B>>,
+        scope: std::sync::Weak<crate::irs::nodes::Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -251,6 +263,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("Literal scope should be available")
     }
 }

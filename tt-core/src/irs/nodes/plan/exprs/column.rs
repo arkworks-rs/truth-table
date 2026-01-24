@@ -10,7 +10,7 @@ use crate::irs::{
 };
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Arc<Node<B>>,
+    pub scope: std::sync::Weak<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
 }
@@ -23,7 +23,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn display(&self) -> String {
         format!(
             "Column\nScope: {}, column: {}",
-            self.scope.name(),
+            self.scope().name(),
             self.column
         )
     }
@@ -55,12 +55,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Locate the scope node id using the shared helper.
-        let scope_id = self.scope.id();
-
-        // Fetch the scope payload to retrieve the tracked table.
-        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
-
         // Helper: try to pull the requested column (and activator) from a tracked table.
         let try_build_subtable =
             |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
@@ -68,6 +62,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                 let col_idx = schema.index_of(column_name).ok()?;
                 Some(table.tracked_subtable_by_indices(&[col_idx]))
             };
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Column scope should be available during witness generation");
+        dbg!(scope.name());
+        // Fetch the scope payload to retrieve the tracked table.
+        let scope_payload = virtualized_ir.payload_for_node(&scope.id());
+        dbg!(scope_payload);
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
@@ -87,8 +89,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         panic!(
             "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            scope_id,
-            parent_name
+            scope.id(),
+            parent_name,
         );
     }
 
@@ -109,7 +111,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Project just this column and the activator from the scoped DataFrame.
-        let scope_hint_df = match self.scope.as_ref() {
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Column scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Column scope cannot be a gadget node"),
         };
@@ -158,12 +164,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Locate the scope node id using the shared helper.
-        let scope_id = self.scope.id();
-
-        // Fetch the scope payload to retrieve the tracked table oracle.
-        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
-
         // Helper: try to pull the requested column (and activator) from a tracked table oracle.
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                                   column_name: &str| {
@@ -171,6 +171,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             let col_idx = schema.index_of(column_name).ok()?;
             Some(table.tracked_subtable_by_indices(&[col_idx]))
         };
+        let scope = self
+            .scope
+            .upgrade()
+            .expect("Column scope should be available during witness generation");
+        // Fetch the scope payload to retrieve the tracked table oracle.
+        let scope_payload = virtualized_ir.payload_for_node(&scope.id());
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
@@ -190,7 +196,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         panic!(
             "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            scope_id,
+            scope.id(),
             parent_name
         );
     }
@@ -209,7 +215,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: std::sync::Weak<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -247,6 +253,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
     where
         Self: Sized,
     {
-        self.scope.clone()
+        self.scope
+            .upgrade()
+            .expect("Column scope should be available")
     }
 }
