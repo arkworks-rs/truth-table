@@ -257,31 +257,19 @@ impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
             .on
             .iter()
             .map(|(l, r)| {
-                let left_node = Tree::<B>::from_expr(
-                    l,
-                    Some(self_ref.clone()),
-                    vec![left.clone(), right.clone()],
-                )
-                .root()
-                .clone();
-                let right_node = Tree::<B>::from_expr(
-                    r,
-                    Some(self_ref.clone()),
-                    vec![left.clone(), right.clone()],
-                )
-                .root()
-                .clone();
+                let left_node = Tree::<B>::from_expr(l, Some(self_ref.clone()), left.clone())
+                    .root()
+                    .clone();
+                let right_node = Tree::<B>::from_expr(r, Some(self_ref.clone()), right.clone())
+                    .root()
+                    .clone();
                 (left_node, right_node)
             })
             .collect();
         let filter = join.filter.as_ref().map(|expr| {
-            Tree::<B>::from_expr(
-                expr,
-                Some(self_ref.clone()),
-                vec![left.clone(), right.clone()],
-            )
-            .root()
-            .clone()
+            Tree::<B>::from_expr(expr, Some(self_ref.clone()), left.clone())
+                .root()
+                .clone()
         });
         let gadget = Arc::new(Node::Gadget(Arc::new(
             crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone()),

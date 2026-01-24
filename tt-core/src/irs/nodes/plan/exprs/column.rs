@@ -10,7 +10,7 @@ use crate::irs::{
 };
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Vec<Arc<Node<B>>>,
+    pub scope: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
 }
@@ -23,11 +23,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn display(&self) -> String {
         format!(
             "Column\nScope: {}, column: {}",
-            self.scope
-                .iter()
-                .map(|n| n.name())
-                .collect::<Vec<_>>()
-                .join(", "),
+            self.scope.name(),
             self.column
         )
     }
@@ -59,6 +55,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Locate the scope node id using the shared helper.
+        let scope_id = self.scope.id();
+
+        // Fetch the scope payload to retrieve the tracked table.
+        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
+
         // Helper: try to pull the requested column (and activator) from a tracked table.
         let try_build_subtable =
             |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
@@ -67,19 +69,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                 Some(table.tracked_subtable_by_indices(&[col_idx]))
             };
 
-        let mut last_scope_id = None;
-        for scope_node in &self.scope {
-            let scope_id = scope_node.id();
-            last_scope_id = Some(scope_id);
-            if let Some(PayloadStructure::PlanPayload(table)) =
-                virtualized_ir.payload_for_node(&scope_id)
-                && let Some(subtable) = try_build_subtable(table, self.column.name())
-            {
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
-                return Ok(());
-            }
-        }
+        // First try the scope payload itself.
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+            && let Some(subtable) = try_build_subtable(table, self.column.name())
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
+        };
 
         let parent_name = self
             .parent
@@ -89,9 +85,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .unwrap_or_else(|| "<none>".to_string());
 
         panic!(
-            "Column node could not find its column '{}' in any scope (last scope {:?}, parent={})",
+            "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            last_scope_id,
+            scope_id,
             parent_name
         );
     }
@@ -112,43 +108,25 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let mut projected = None;
-        let mut last_error = None;
-        for scope_node in &self.scope {
-            // Project just this column and the activator from the scoped DataFrame.
-            let scope_hint_df = match scope_node.as_ref() {
-                Node::Plan(plan_node) => plan_node.output(),
-                Node::Gadget(_) => panic!("Column scope cannot be a gadget node"),
-            };
+        // Project just this column and the activator from the scoped DataFrame.
+        let scope_hint_df = match self.scope.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Column scope cannot be a gadget node"),
+        };
 
-            let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-                scope_hint_df.data_frame().clone(),
-            )
-            .expect("column row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("column row-id sort should succeed");
 
-            let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
-            if self.column.name() != ACTIVATOR_COL_NAME {
-                crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-            }
-            crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-            match input_df.select(exprs) {
-                Ok(df) => {
-                    projected = Some(df);
-                    break;
-                }
-                Err(err) => {
-                    last_error = Some(err);
-                }
-            }
+        let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
+        if self.column.name() != ACTIVATOR_COL_NAME {
+            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         }
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 
-        let projected = projected.unwrap_or_else(|| {
-            panic!(
-                "column projection should succeed in some scope, last error: {:?}",
-                last_error
-            )
-        });
+        let projected = input_df
+            .select(exprs)
+            .expect("column projection should succeed");
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("column output sort should succeed");
@@ -180,6 +158,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Locate the scope node id using the shared helper.
+        let scope_id = self.scope.id();
+
+        // Fetch the scope payload to retrieve the tracked table oracle.
+        let scope_payload = virtualized_ir.payload_for_node(&scope_id);
+
         // Helper: try to pull the requested column (and activator) from a tracked table oracle.
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                                   column_name: &str| {
@@ -188,19 +172,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             Some(table.tracked_subtable_by_indices(&[col_idx]))
         };
 
-        let mut last_scope_id = None;
-        for scope_node in &self.scope {
-            let scope_id = scope_node.id();
-            last_scope_id = Some(scope_id);
-            if let Some(PayloadStructure::PlanPayload(table)) =
-                virtualized_ir.payload_for_node(&scope_id)
-                && let Some(subtable) = try_build_subtable(table, self.column.name())
-            {
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
-                return Ok(());
-            }
-        }
+        // First try the scope payload itself.
+        if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+            && let Some(subtable) = try_build_subtable(table, self.column.name())
+        {
+            virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+            return Ok(());
+        };
 
         let parent_name = self
             .parent
@@ -210,9 +188,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .unwrap_or_else(|| "<none>".to_string());
 
         panic!(
-            "Column node could not find its column '{}' in any scope (last scope {:?}, parent={})",
+            "Column node could not find its column '{}' in scope node {:?} (parent={})",
             self.column.name(),
-            last_scope_id,
+            scope_id,
             parent_name
         );
     }
@@ -231,7 +209,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: Vec<std::sync::Arc<Node<B>>>,
+        scope: std::sync::Arc<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -265,7 +243,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             .expect("Column node must have a parent")
     }
 
-    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
+    fn scope(&self) -> std::sync::Arc<Node<B>>
     where
         Self: Sized,
     {

@@ -15,8 +15,7 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: 
-Vec<Arc<Node<B>>>,
+    pub scope: Arc<Node<B>>,
     pub expr: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub cast: Cast,
@@ -132,39 +131,21 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let mut projected = None;
-        let mut last_error = None;
-        for scope_node in &self.scope {
-            let scope_hint_df = match scope_node.as_ref() {
-                Node::Plan(plan_node) => plan_node.output(),
-                Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
-            };
+        let scope_hint_df = match self.scope.as_ref() {
+            Node::Plan(plan_node) => plan_node.output(),
+            Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
+        };
 
-            let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-                scope_hint_df.data_frame().clone(),
-            )
-            .expect("cast row-id sort should succeed");
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("cast row-id sort should succeed");
 
-            let mut exprs = vec![datafusion_expr::Expr::Cast(self.cast.clone())];
-            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-            crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-            match input_df.select(exprs) {
-                Ok(df) => {
-                    projected = Some(df);
-                    break;
-                }
-                Err(err) => {
-                    last_error = Some(err);
-                }
-            }
-        }
-
-        let projected = projected.unwrap_or_else(|| {
-            panic!(
-                "cast projection should succeed in some scope, last error: {:?}",
-                last_error
-            )
-        });
+        let mut exprs = vec![datafusion_expr::Expr::Cast(self.cast.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let projected = input_df
+            .select(exprs)
+            .expect("cast projection should succeed");
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("cast output sort should succeed");
@@ -256,7 +237,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: Vec<std::sync::Arc<Node<B>>>,
+        scope: std::sync::Arc<Node<B>>,
     ) -> Self
     where
         Self: Sized,
@@ -296,7 +277,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             .expect("Cast node must have a parent")
     }
 
-    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
+    fn scope(&self) -> std::sync::Arc<Node<B>>
     where
         Self: Sized,
     {

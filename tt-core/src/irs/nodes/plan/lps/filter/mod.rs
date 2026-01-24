@@ -409,10 +409,9 @@ impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
 
         // Recurse into the input subtree and fetch the expr that feeds this
         // filter.
-        let predicate =
-            Tree::<B>::from_expr(&filter.predicate, Some(self_ref), vec![input.clone()])
-                .root()
-                .clone();
+        let predicate = Tree::<B>::from_expr(&filter.predicate, Some(self_ref), input.clone())
+            .root()
+            .clone();
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::FilterNode::new())));
 
