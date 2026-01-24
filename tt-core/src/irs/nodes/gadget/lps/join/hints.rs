@@ -2,7 +2,8 @@ use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, TableReference};
-use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, col, lit};
+use datafusion::arrow::datatypes::DataType;
+use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, col, expr_fn::try_cast, lit};
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
@@ -96,20 +97,22 @@ pub(crate) fn build_source_dfs(
         .sort(true, true),
     ])?;
 
-    let left_src = aligned.clone().select(vec![
+    let left_src = aligned.clone().select(vec![try_cast(
         Expr::Column(Column::new(
             Some(TableReference::bare("__mapping__")),
             "left_row_id",
-        ))
-        .alias(SRC_LEFT_COL_NAME),
-    ])?;
-    let right_src = aligned.select(vec![
+        )),
+        DataType::Int64,
+    )
+    .alias(SRC_LEFT_COL_NAME)])?;
+    let right_src = aligned.select(vec![try_cast(
         Expr::Column(Column::new(
             Some(TableReference::bare("__mapping__")),
             "right_row_id",
-        ))
-        .alias(SRC_RIGHT_COL_NAME),
-    ])?;
+        )),
+        DataType::Int64,
+    )
+    .alias(SRC_RIGHT_COL_NAME)])?;
     Ok((left_src, right_src))
 }
 
@@ -199,15 +202,21 @@ pub(crate) fn build_nodup_input_df(
     ])?;
 
     aligned.select(vec![
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__mapping__")),
-            "left_row_id",
-        ))
+        try_cast(
+            Expr::Column(Column::new(
+                Some(TableReference::bare("__mapping__")),
+                "left_row_id",
+            )),
+            DataType::Int64,
+        )
         .alias(SRC_LEFT_COL_NAME),
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__mapping__")),
-            "right_row_id",
-        ))
+        try_cast(
+            Expr::Column(Column::new(
+                Some(TableReference::bare("__mapping__")),
+                "right_row_id",
+            )),
+            DataType::Int64,
+        )
         .alias(SRC_RIGHT_COL_NAME),
         Expr::Column(Column::new(
             Some(TableReference::bare("__output__")),

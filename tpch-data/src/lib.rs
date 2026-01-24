@@ -137,6 +137,31 @@ fn write_parquet<P: AsRef<Path>>(
     writer.close().expect("close writer");
 }
 
+/// Write Parquet with the original schema and rows (no row_id/activator, no padding).
+fn write_parquet_raw<P: AsRef<Path>>(
+    path: P,
+    orig_schema: &arrow::datatypes::SchemaRef,
+    batches: impl Iterator<Item = RecordBatch>,
+) {
+    let path_ref = path.as_ref();
+    if let Some(parent) = path_ref.parent() {
+        create_dir_all(parent).expect("create output dir");
+    }
+
+    let out_schema = Arc::clone(orig_schema);
+    let file = File::create(path_ref).expect("create parquet file");
+    let mut writer = ArrowWriter::try_new(file, Arc::clone(&out_schema), None).expect("new writer");
+
+    for batch in batches {
+        if batch.num_rows() == 0 {
+            continue;
+        }
+        writer.write(&batch).expect("write batch");
+    }
+
+    writer.close().expect("close writer");
+}
+
 /// Generate TPC-H Parquet files at the given scale factor in the specified
 /// output directory (if it doesn't exist, it will be created).
 // Note that the tables are further preprocessed as follows:
@@ -155,6 +180,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = NationGenerator::new(scale, 1, 1);
         let mut it = NationArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = NationGenerator::new(scale, 1, 1);
+        let mut it_raw = NationArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("nation.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("nation.parquet"), &schema, &mut it);
     }
     // region
@@ -162,6 +194,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = RegionGenerator::new(scale, 1, 1);
         let mut it = RegionArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = RegionGenerator::new(scale, 1, 1);
+        let mut it_raw = RegionArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("region.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("region.parquet"), &schema, &mut it);
     }
     // part
@@ -169,6 +208,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = PartGenerator::new(scale, 1, 1);
         let mut it = PartArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = PartGenerator::new(scale, 1, 1);
+        let mut it_raw = PartArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("part.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("part.parquet"), &schema, &mut it);
     }
     // supplier
@@ -176,6 +222,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = SupplierGenerator::new(scale, 1, 1);
         let mut it = SupplierArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = SupplierGenerator::new(scale, 1, 1);
+        let mut it_raw = SupplierArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("supplier.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("supplier.parquet"), &schema, &mut it);
     }
     // partsupp
@@ -183,6 +236,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = PartSuppGenerator::new(scale, 1, 1);
         let mut it = PartSuppArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = PartSuppGenerator::new(scale, 1, 1);
+        let mut it_raw = PartSuppArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("partsupp.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("partsupp.parquet"), &schema, &mut it);
     }
     // customer
@@ -190,6 +250,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = CustomerGenerator::new(scale, 1, 1);
         let mut it = CustomerArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = CustomerGenerator::new(scale, 1, 1);
+        let mut it_raw = CustomerArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("customer.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("customer.parquet"), &schema, &mut it);
     }
     // orders
@@ -197,6 +264,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = OrderGenerator::new(scale, 1, 1);
         let mut it = OrderArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = OrderGenerator::new(scale, 1, 1);
+        let mut it_raw = OrderArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("orders.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("orders.parquet"), &schema, &mut it);
     }
     // lineitem
@@ -204,6 +278,13 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let generator = LineItemGenerator::new(scale, 1, 1);
         let mut it = LineItemArrow::new(generator).with_batch_size(DEFAULT_BATCH_SIZE);
         let schema = Arc::clone(it.schema());
+        let generator_raw = LineItemGenerator::new(scale, 1, 1);
+        let mut it_raw = LineItemArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let orig_out = out.with_file_name(format!(
+            "orig-{}",
+            out.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        write_parquet_raw(orig_out.join("lineitem.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("lineitem.parquet"), &schema, &mut it);
     }
 }

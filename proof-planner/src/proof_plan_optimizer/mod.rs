@@ -3,6 +3,8 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use tt_core::irs::shared_ir::InitialIr;
 
+mod truncate_empty_payload;
+
 pub trait ProofPlanOptimizerRule<B: SnarkBackend>: Send + Sync {
     fn name(&self) -> &'static str;
     fn optimize(&self, ir: InitialIr<B>) -> InitialIr<B>;
@@ -26,5 +28,5 @@ impl<B: SnarkBackend> ProofPlanOptimizer<B> {
 }
 
 pub fn rules<B: SnarkBackend>() -> Vec<Arc<dyn ProofPlanOptimizerRule<B>>> {
-    Vec::new()
+    vec![Arc::new(truncate_empty_payload::TruncateEmptyPayload)]
 }

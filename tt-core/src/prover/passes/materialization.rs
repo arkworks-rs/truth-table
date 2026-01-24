@@ -11,7 +11,7 @@ use ark_piop::SnarkBackend;
 use datafusion::catalog::TableProvider;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, BooleanArray},
+        array::{ArrayRef, BooleanArray, Int64Array},
         compute::{concat, concat_batches},
         datatypes::{FieldRef, Schema},
         record_batch::{RecordBatch, RecordBatchOptions},
@@ -158,7 +158,30 @@ fn pad_batches_to_power_of_two(
 ) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
     let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
     if row_count == 0 {
-        return Ok((batches, row_count));
+        let target = 2;
+        let schema_ref = Arc::new(schema.clone());
+        if schema_ref.fields().is_empty() {
+            let options = RecordBatchOptions::new().with_row_count(Some(target));
+            let out_batch = RecordBatch::try_new_with_options(schema_ref, vec![], &options)?;
+            return Ok((vec![out_batch], target));
+        }
+
+        let mut output_arrays = Vec::with_capacity(schema_ref.fields().len());
+        for field in schema_ref.fields().iter() {
+            let padded = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+                Arc::new(BooleanArray::from(vec![false; target])) as ArrayRef
+            } else if field.name() == arithmetic::ROW_ID_COL_NAME {
+                let vals: Vec<i64> = (0..target as i64).collect();
+                Arc::new(Int64Array::from(vals)) as ArrayRef
+            } else {
+                let null = ScalarValue::try_new_null(field.data_type())?;
+                null.to_array_of_size(target)?
+            };
+            output_arrays.push(padded);
+        }
+
+        let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
+        return Ok((vec![out_batch], target));
     }
     let target = row_count.next_power_of_two();
     let pad = target - row_count;

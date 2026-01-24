@@ -17,9 +17,9 @@ use once_cell::sync::Lazy;
 pub const ACTIVATOR_COL_NAME: &str = "__activator__";
 pub const ROW_ID_COL_NAME: &str = "__row_id__";
 pub static ACTIVATOR_FIELD: Lazy<FieldRef> =
-    Lazy::new(|| Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false)));
+    Lazy::new(|| Arc::new(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true)));
 pub static ROW_ID_FIELD: Lazy<FieldRef> =
-    Lazy::new(|| Arc::new(Field::new(ROW_ID_COL_NAME, DataType::Int64, false)));
+    Lazy::new(|| Arc::new(Field::new(ROW_ID_COL_NAME, DataType::Int64, true)));
 pub static ACTIVATOR_EXPR: Lazy<Expr> =
     Lazy::new(|| Expr::Column(Column::from_name(ACTIVATOR_COL_NAME)));
 pub static ROW_ID_EXPR: Lazy<Expr> = Lazy::new(|| Expr::Column(Column::from_name(ROW_ID_COL_NAME)));

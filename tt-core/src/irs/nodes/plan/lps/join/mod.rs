@@ -10,8 +10,12 @@ use crate::irs::{
 };
 use arithmetic::ROW_ID_COL_NAME;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::prelude::DataFrame;
+use datafusion_common::DataFusionError;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
+use tokio::runtime::RuntimeFlavor;
 mod hints;
 #[allow(clippy::type_complexity)]
 pub struct JoinNode<B>

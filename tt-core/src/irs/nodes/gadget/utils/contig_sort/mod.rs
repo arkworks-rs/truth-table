@@ -1646,6 +1646,17 @@ fn pad_df_to_power_of_two(
 ) -> datafusion_common::Result<datafusion::prelude::DataFrame> {
     let schema_ref = df.schema();
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema_ref).clone();
+    let arrow_schema = Schema::new_with_metadata(
+        arrow_schema
+            .fields()
+            .iter()
+            .map(|field| {
+                Field::new(field.name(), field.data_type().clone(), true)
+                    .with_metadata(field.metadata().clone())
+            })
+            .collect::<Vec<_>>(),
+        arrow_schema.metadata().clone(),
+    );
     let batches = collect_blocking(df)?;
     let (batches, _row_count) = pad_batches_to_power_of_two(&arrow_schema, batches)?;
     if batches.is_empty() {
@@ -1704,7 +1715,7 @@ fn pad_batches_to_power_of_two(
 ) -> datafusion_common::Result<(Vec<RecordBatch>, usize)> {
     let row_count: usize = batches.iter().map(|b| b.num_rows()).sum();
     let target = if row_count == 0 {
-        1
+        2
     } else {
         row_count.next_power_of_two()
     };

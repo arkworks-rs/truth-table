@@ -66,10 +66,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .scope
             .upgrade()
             .expect("Column scope should be available during witness generation");
-        dbg!(scope.name());
         // Fetch the scope payload to retrieve the tracked table.
         let scope_payload = virtualized_ir.payload_for_node(&scope.id());
-        dbg!(scope_payload);
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload

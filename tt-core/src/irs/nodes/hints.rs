@@ -2,7 +2,7 @@ use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
 use datafusion_common::{Column, Result as DataFusionResult};
-use datafusion_expr::{Expr, LogicalPlan, SortExpr, col};
+use datafusion_expr::{expr::Alias, Expr, LogicalPlan, SortExpr, col, expr_fn::try_cast};
 use indexmap::IndexMap;
 
 #[derive(Clone, Debug)]
@@ -253,11 +253,13 @@ fn normalize_hint_df(
     let projection: Vec<Expr> = schema
         .iter()
         .map(|(qualifier, field)| {
-            if let Some(qualifier) = qualifier {
+            let col_expr = if let Some(qualifier) = qualifier {
                 Expr::Column(Column::new(Some(qualifier.clone()), field.name()))
             } else {
                 Expr::Column(Column::new_unqualified(field.name()))
-            }
+            };
+            let cast_expr = try_cast(col_expr, field.data_type().clone());
+            Expr::Alias(Alias::new(cast_expr, qualifier.cloned(), field.name()))
         })
         .collect();
 
