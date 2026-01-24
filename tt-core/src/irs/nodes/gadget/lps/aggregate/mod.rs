@@ -120,9 +120,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 _ => IndexMap::new(),
             };
 
-        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
-        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
-
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table.clone());
+        println!("Input: {}", input_table.pretty_string());
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table.clone());
+        println!("Output: {}", output_table.pretty_string());
         virtualized_ir.set_payload_for_node(
             self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),

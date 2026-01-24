@@ -149,10 +149,7 @@ impl<B: SnarkBackend> TTProver<B> {
         );
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        debug!(
-            "initial ir:\n{}",
-            initial_ir.display_graphviz(true)
-        );
+        debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
         debug!(
@@ -213,10 +210,10 @@ impl<B: SnarkBackend> TTProver<B> {
             GadgetInitializationPass::<B>::new(gadget_ir_view, arg_prover.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        // debug!(
-        //     "gadget ready ir:\n{}",
-        //     gadget_ready_ir.display_graphviz(true)
-        // );
+        debug!(
+            "gadget ready ir:\n{}",
+            gadget_ready_ir.display_graphviz(true)
+        );
         let proving_ir_view = ProverGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
