@@ -149,6 +149,10 @@ impl<B: SnarkBackend> TTProver<B> {
         );
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
+        debug!(
+            "initial ir:\n{}",
+            initial_ir.display_graphviz(true)
+        );
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
         debug!(
