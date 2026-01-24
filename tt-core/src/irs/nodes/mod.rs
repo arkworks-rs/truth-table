@@ -225,7 +225,7 @@ impl<B: SnarkBackend> Node<B> {
     pub(crate) fn from_expr(
         expr: &Expr,
         parent: Option<Weak<Node<B>>>,
-        scope: Arc<Node<B>>,
+        scope: Vec<Arc<Node<B>>>,
     ) -> Arc<Self> {
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
@@ -670,7 +670,8 @@ where
         _expr: Expr,
         self_ref: Weak<Node<B>>,
         parent: Option<Weak<Node<B>>>,
-        scope: Arc<Node<B>>,
+        scope: 
+Vec<Arc<Node<B>>>,
     ) -> Self
     where
         Self: Sized;
@@ -681,7 +682,7 @@ where
     where
         Self: Sized;
 
-    fn scope(&self) -> Arc<Node<B>>
+    fn scope(&self) -> Vec<Arc<Node<B>>>
     where
         Self: Sized;
 

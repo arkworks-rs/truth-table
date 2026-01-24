@@ -35,7 +35,7 @@ pub struct BinaryExprNode<B: SnarkBackend> {
     /// The right child node.
     pub right: Arc<Node<B>>,
     /// The scope node.
-    pub scope: Arc<Node<B>>,
+    pub scope: Vec<Arc<Node<B>>>,
     /// The gadget node.
     pub gadget: Option<Arc<Node<B>>>,
 }
@@ -455,28 +455,41 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Project the binary expression result alongside the activator from the scope.
-        let scope_hint_df = match self.scope.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
-            Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
-        };
+        let mut projected = None;
+        let mut last_error = None;
+        for scope_node in &self.scope {
+            // Project the binary expression result alongside the activator from the scope.
+            let scope_hint_df = match scope_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.output(),
+                Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
+            };
 
-        dbg!(self.binary_expression.clone());
-        dbg!(
-            "BinaryExprNode output schema: {:?}",
-            scope_hint_df.data_frame().schema()
-        );
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("binary expr row-id sort should succeed");
+            let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+                scope_hint_df.data_frame().clone(),
+            )
+            .expect("binary expr row-id sort should succeed");
 
-        let mut exprs = vec![Expr::BinaryExpr(self.binary_expression.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+            let mut exprs = vec![Expr::BinaryExpr(self.binary_expression.clone())];
+            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+            crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 
-        let projected = input_df
-            .select(exprs)
-            .expect("binary expression projection should succeed");
+            match input_df.select(exprs) {
+                Ok(df) => {
+                    projected = Some(df);
+                    break;
+                }
+                Err(err) => {
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        let projected = projected.unwrap_or_else(|| {
+            panic!(
+                "binary expression projection should succeed in some scope, last error: {:?}",
+                last_error
+            )
+        });
 
         // Activator is always virtual; the expression column follows this node's
         // materialization policy.
@@ -507,7 +520,7 @@ impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         _parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: Vec<Arc<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -556,7 +569,7 @@ impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
         todo!()
     }
 
-    fn scope(&self) -> Arc<Node<B>>
+    fn scope(&self) -> Vec<Arc<Node<B>>>
     where
         Self: Sized,
     {

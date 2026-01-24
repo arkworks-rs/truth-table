@@ -705,7 +705,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
             .aggr_expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), input.clone())
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), vec![input.clone()])
                     .root()
                     .clone()
             })
@@ -714,7 +714,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
             .group_expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), input.clone())
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), vec![input.clone()])
                     .root()
                     .clone()
             })

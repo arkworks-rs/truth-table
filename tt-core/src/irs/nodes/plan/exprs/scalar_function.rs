@@ -10,7 +10,8 @@ use crate::irs::nodes::{
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Arc<Node<B>>,
+    pub scope: 
+Vec<Arc<Node<B>>>,
     pub exprs: Vec<Arc<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub scalar_function: ScalarFunction,
@@ -107,7 +108,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: Vec<std::sync::Arc<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -153,7 +154,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             .expect("Cast node must have a parent")
     }
 
-    fn scope(&self) -> std::sync::Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {

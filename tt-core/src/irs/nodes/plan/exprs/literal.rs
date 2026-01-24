@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 use rayon::iter::Either;
 pub struct ProverNode<B: SnarkBackend> {
     pub literal: ScalarValue,
-    pub scope: Arc<Node<B>>,
+    pub scope: Vec<Arc<Node<B>>>,
 }
 impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn name(&self) -> String {
@@ -23,7 +23,11 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     fn display(&self) -> String {
         format!(
             "Literal\nScope: {}, value: {}",
-            self.scope.name(),
+            self.scope
+                .iter()
+                .map(|n| n.name())
+                .collect::<Vec<_>>()
+                .join(", "),
             self.literal
         )
     }
@@ -56,10 +60,23 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table to inherit activator and tracker.
-        let scope_id = self.scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Literal scope missing tracked table payload"),
+        let mut scope_table = None;
+        let mut last_scope_id = None;
+        for scope_node in &self.scope {
+            let scope_id = scope_node.id();
+            last_scope_id = Some(scope_id);
+            if let Some(PayloadStructure::PlanPayload(table)) =
+                virtualized_ir.payload_for_node(&scope_id)
+            {
+                scope_table = Some(table.clone());
+                break;
+            }
+        }
+        let Some(scope_table) = scope_table else {
+            panic!(
+                "Literal scope missing tracked table payload (last scope {:?})",
+                last_scope_id
+            );
         };
 
         let log_size = scope_table.log_size();
@@ -125,22 +142,40 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a virtual DataFrame with the literal and activator columns from the scope.
-        let scope_hint_df = match self.scope().as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
-            Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
-        };
+        let mut projected = None;
+        let mut last_error = None;
+        for scope_node in &self.scope {
+            // Produce a virtual DataFrame with the literal and activator columns from the scope.
+            let scope_hint_df = match scope_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.output(),
+                Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
+            };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("literal row-id sort should succeed");
+            let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+                scope_hint_df.data_frame().clone(),
+            )
+            .expect("literal row-id sort should succeed");
 
-        let mut exprs = vec![lit(self.literal.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-        let projected = input_df
-            .select(exprs)
-            .expect("literal projection should succeed");
+            let mut exprs = vec![lit(self.literal.clone())];
+            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+            crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+            match input_df.select(exprs) {
+                Ok(df) => {
+                    projected = Some(df);
+                    break;
+                }
+                Err(err) => {
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        let projected = projected.unwrap_or_else(|| {
+            panic!(
+                "literal projection should succeed in some scope, last error: {:?}",
+                last_error
+            )
+        });
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("literal output sort should succeed");
@@ -155,10 +190,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table oracle to inherit activator and tracker.
-        let scope_id = self.scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Literal scope missing tracked table payload"),
+        let mut scope_table = None;
+        let mut last_scope_id = None;
+        for scope_node in &self.scope {
+            let scope_id = scope_node.id();
+            last_scope_id = Some(scope_id);
+            if let Some(PayloadStructure::PlanPayload(table)) =
+                virtualized_ir.payload_for_node(&scope_id)
+            {
+                scope_table = Some(table.clone());
+                break;
+            }
+        }
+        let Some(scope_table) = scope_table else {
+            panic!(
+                "Literal scope missing tracked table payload (last scope {:?})",
+                last_scope_id
+            );
         };
 
         let activator_oracle = scope_table
@@ -224,7 +272,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<crate::irs::nodes::Node<B>>,
         _parent: Option<std::sync::Weak<crate::irs::nodes::Node<B>>>,
-        scope: std::sync::Arc<crate::irs::nodes::Node<B>>,
+        scope: Vec<std::sync::Arc<crate::irs::nodes::Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -247,7 +295,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         todo!()
     }
 
-    fn scope(&self) -> Arc<Node<B>>
+    fn scope(&self) -> Vec<Arc<Node<B>>>
     where
         Self: Sized,
     {

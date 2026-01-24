@@ -17,7 +17,8 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ProverNode<B: SnarkBackend> {
-    pub scope: Arc<Node<B>>,
+    pub scope: 
+Vec<Arc<Node<B>>>,
     pub expr: Arc<Node<B>>,
     pub subquery: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
@@ -137,78 +138,96 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let scope_hint_df = match self.scope.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
-            Node::Gadget(_) => panic!("InSubquery scope cannot be a gadget node"),
-        };
+        let mut projected = None;
+        let mut last_error = None;
+        for scope_node in &self.scope {
+            let scope_hint_df = match scope_node.as_ref() {
+                Node::Plan(plan_node) => plan_node.output(),
+                Node::Gadget(_) => panic!("InSubquery scope cannot be a gadget node"),
+            };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("in-subquery row-id sort should succeed");
+            let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+                scope_hint_df.data_frame().clone(),
+            )
+            .expect("in-subquery row-id sort should succeed");
 
-        fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => match handle.runtime_flavor() {
-                    RuntimeFlavor::MultiThread => {
-                        tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => match handle.runtime_flavor() {
+                        RuntimeFlavor::MultiThread => {
+                            tokio::task::block_in_place(|| handle.block_on(df.collect()))
+                        }
+                        RuntimeFlavor::CurrentThread => {
+                            let handle = handle.clone();
+                            std::thread::spawn(move || handle.block_on(df.collect()))
+                                .join()
+                                .unwrap()
+                        }
+                        _ => handle.block_on(df.collect()),
+                    },
+                    Err(_) => tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(df.collect()),
+                }
+            }
+
+            let in_expr = if self.in_subquery.subquery.outer_ref_columns.is_empty() {
+                let (session_state, _) = input_df.clone().into_parts();
+                let subquery_plan = self.in_subquery.subquery.subquery.as_ref().clone();
+                let subquery_df = DataFrame::new(session_state, subquery_plan);
+                let batches: Vec<datafusion::arrow::record_batch::RecordBatch> =
+                    collect_blocking(subquery_df).expect("in-subquery should collect subquery");
+                let mut values = Vec::new();
+                for batch in batches.iter() {
+                    let batch: &datafusion::arrow::record_batch::RecordBatch = batch;
+                    let array: datafusion::arrow::array::ArrayRef = batch.column(0).clone();
+                    for idx in 0..batch.num_rows() {
+                        values.push(
+                            ScalarValue::try_from_array(array.as_ref(), idx)
+                                .expect("in-subquery should read subquery values"),
+                        );
                     }
-                    RuntimeFlavor::CurrentThread => {
-                        let handle = handle.clone();
-                        std::thread::spawn(move || handle.block_on(df.collect()))
-                            .join()
-                            .unwrap()
+                }
+                if values.is_empty() {
+                    if self.in_subquery.negated {
+                        lit(true)
+                    } else {
+                        lit(false)
                     }
-                    _ => handle.block_on(df.collect()),
-                },
-                Err(_) => tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .block_on(df.collect()),
+                } else {
+                    Expr::InList(InList::new(
+                        self.in_subquery.expr.clone(),
+                        values.into_iter().map(Expr::Literal).collect(),
+                        self.in_subquery.negated,
+                    ))
+                }
+            } else {
+                Expr::InSubquery(self.in_subquery.clone())
+            };
+
+            let mut exprs = vec![in_expr];
+            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+            crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+            match input_df.select(exprs) {
+                Ok(df) => {
+                    projected = Some(df);
+                    break;
+                }
+                Err(err) => {
+                    last_error = Some(err);
+                }
             }
         }
 
-        let in_expr = if self.in_subquery.subquery.outer_ref_columns.is_empty() {
-            let (session_state, _) = input_df.clone().into_parts();
-            let subquery_plan = self.in_subquery.subquery.subquery.as_ref().clone();
-            let subquery_df = DataFrame::new(session_state, subquery_plan);
-            let batches: Vec<datafusion::arrow::record_batch::RecordBatch> =
-                collect_blocking(subquery_df).expect("in-subquery should collect subquery");
-            let mut values = Vec::new();
-            for batch in batches.iter() {
-                let batch: &datafusion::arrow::record_batch::RecordBatch = batch;
-                let array: datafusion::arrow::array::ArrayRef = batch.column(0).clone();
-                for idx in 0..batch.num_rows() {
-                    values.push(
-                        ScalarValue::try_from_array(array.as_ref(), idx)
-                            .expect("in-subquery should read subquery values"),
-                    );
-                }
-            }
-            if values.is_empty() {
-                if self.in_subquery.negated {
-                    lit(true)
-                } else {
-                    lit(false)
-                }
-            } else {
-                Expr::InList(InList::new(
-                    self.in_subquery.expr.clone(),
-                    values.into_iter().map(Expr::Literal).collect(),
-                    self.in_subquery.negated,
-                ))
-            }
-        } else {
-            Expr::InSubquery(self.in_subquery.clone())
-        };
-
-        let mut exprs = vec![in_expr];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let projected = input_df
-            .select(exprs)
-            .expect("in-subquery projection should succeed");
+        let projected = projected.unwrap_or_else(|| {
+            panic!(
+                "in-subquery projection should succeed in some scope, last error: {:?}",
+                last_error
+            )
+        });
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("in-subquery output sort should succeed");
@@ -300,7 +319,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Arc<Node<B>>,
+        scope: Vec<std::sync::Arc<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -345,7 +364,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             .expect("InSubquery node must have a parent")
     }
 
-    fn scope(&self) -> std::sync::Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {
