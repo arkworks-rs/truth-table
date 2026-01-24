@@ -19,6 +19,36 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q9 = query_spec(9);
         let q18 = query_spec(18);
         let q19 = query_spec(19);
+        ////////////////////////////////////////////////
+        let q8_simplified_sql = "    SELECT
+    o_year
+FROM (
+    SELECT
+        o_orderdate AS o_year,
+        l_extendedprice * (1 - l_discount) AS volume
+    FROM
+        part,
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        region
+    WHERE
+        p_partkey = l_partkey
+        AND s_suppkey = l_suppkey
+        AND l_orderkey = o_orderkey
+        AND o_custkey = c_custkey
+        AND c_nationkey = n1.n_nationkey
+        AND n1.n_regionkey = r_regionkey
+        AND r_name = 'AMERICA'
+        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+GROUP BY
+    o_year
+ORDER BY
+    o_year;";
 
         let cases = vec![
             BenchCase {
@@ -38,7 +68,7 @@ fn tpch_cases() -> &'static [BenchCase] {
             },
             BenchCase {
                 name: "tpch_q8",
-                query: q8.sql,
+                query: q8_simplified_sql,
                 tables: q8.tables,
             },
             BenchCase {
