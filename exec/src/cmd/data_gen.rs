@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
-use serde::Serialize;
-use std::fs;
 
 use super::{Runnable, TimedCommand};
 
@@ -65,7 +63,6 @@ impl Runnable for DataGen {
         );
 
         tpch_data::generate_parquet_scale(scale, &out_dir);
-        write_tpch_constraints(&out_dir)?;
 
         println!("TPC-H data generation completed.");
         Ok(())
@@ -76,148 +73,4 @@ impl TimedCommand for DataGen {
     fn is_timed(&self) -> bool {
         self.timed
     }
-}
-
-#[derive(Serialize)]
-struct ForeignKey<'a> {
-    columns: &'a [&'a str],
-    ref_table: &'a str,
-    ref_columns: &'a [&'a str],
-}
-
-#[derive(Serialize)]
-struct TableConstraints<'a> {
-    primary_key: &'a [&'a str],
-    unique: &'a [&'a [&'a str]],
-    foreign_keys: &'a [ForeignKey<'a>],
-}
-
-#[derive(Serialize)]
-struct ConstraintsDump<'a> {
-    tables: std::collections::BTreeMap<&'a str, TableConstraints<'a>>,
-}
-
-fn write_tpch_constraints(out_dir: &PathBuf) -> Result<()> {
-    let mut tables = std::collections::BTreeMap::new();
-
-    tables.insert(
-        "region",
-        TableConstraints {
-            primary_key: &["r_regionkey"],
-            unique: &[],
-            foreign_keys: &[],
-        },
-    );
-    tables.insert(
-        "nation",
-        TableConstraints {
-            primary_key: &["n_nationkey"],
-            unique: &[],
-            foreign_keys: &[ForeignKey {
-                columns: &["n_regionkey"],
-                ref_table: "region",
-                ref_columns: &["r_regionkey"],
-            }],
-        },
-    );
-    tables.insert(
-        "supplier",
-        TableConstraints {
-            primary_key: &["s_suppkey"],
-            unique: &[],
-            foreign_keys: &[ForeignKey {
-                columns: &["s_nationkey"],
-                ref_table: "nation",
-                ref_columns: &["n_nationkey"],
-            }],
-        },
-    );
-    tables.insert(
-        "customer",
-        TableConstraints {
-            primary_key: &["c_custkey"],
-            unique: &[],
-            foreign_keys: &[ForeignKey {
-                columns: &["c_nationkey"],
-                ref_table: "nation",
-                ref_columns: &["n_nationkey"],
-            }],
-        },
-    );
-    tables.insert(
-        "part",
-        TableConstraints {
-            primary_key: &["p_partkey"],
-            unique: &[],
-            foreign_keys: &[],
-        },
-    );
-    tables.insert(
-        "partsupp",
-        TableConstraints {
-            primary_key: &["ps_partkey", "ps_suppkey"],
-            unique: &[],
-            foreign_keys: &[
-                ForeignKey {
-                    columns: &["ps_partkey"],
-                    ref_table: "part",
-                    ref_columns: &["p_partkey"],
-                },
-                ForeignKey {
-                    columns: &["ps_suppkey"],
-                    ref_table: "supplier",
-                    ref_columns: &["s_suppkey"],
-                },
-            ],
-        },
-    );
-    tables.insert(
-        "orders",
-        TableConstraints {
-            primary_key: &["o_orderkey"],
-            unique: &[],
-            foreign_keys: &[ForeignKey {
-                columns: &["o_custkey"],
-                ref_table: "customer",
-                ref_columns: &["c_custkey"],
-            }],
-        },
-    );
-    tables.insert(
-        "lineitem",
-        TableConstraints {
-            primary_key: &["l_orderkey", "l_linenumber"],
-            unique: &[],
-            foreign_keys: &[
-                ForeignKey {
-                    columns: &["l_orderkey"],
-                    ref_table: "orders",
-                    ref_columns: &["o_orderkey"],
-                },
-                ForeignKey {
-                    columns: &["l_partkey"],
-                    ref_table: "part",
-                    ref_columns: &["p_partkey"],
-                },
-                ForeignKey {
-                    columns: &["l_suppkey"],
-                    ref_table: "supplier",
-                    ref_columns: &["s_suppkey"],
-                },
-                ForeignKey {
-                    columns: &["l_partkey", "l_suppkey"],
-                    ref_table: "partsupp",
-                    ref_columns: &["ps_partkey", "ps_suppkey"],
-                },
-            ],
-        },
-    );
-
-    let dump = ConstraintsDump { tables };
-    let path = out_dir.join("tpch_constraints.json");
-    let payload =
-        serde_json::to_string_pretty(&dump).expect("tpch constraints serialization");
-    fs::write(&path, payload)?;
-    println!("Wrote TPC-H constraints to {}", path.display());
-    Ok(())
 }

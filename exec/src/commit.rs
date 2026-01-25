@@ -176,7 +176,6 @@ async fn commit_parquet_with_pk(
     let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_table_oracle);
 
     write_oracle(&serializable, output_path)?;
-    copy_constraints_json(parquet_path, output_path)?;
 
     Ok(output_path.to_path_buf())
 }
@@ -208,33 +207,6 @@ fn write_oracle(serializable: &ArithTableOracle<B>, output_path: &Path) -> Resul
     writer
         .flush()
         .with_context(|| format!("failed to flush {}", output_path.display()))?;
-    Ok(())
-}
-
-fn copy_constraints_json(parquet_path: &Path, output_path: &Path) -> Result<()> {
-    let Some(src_dir) = parquet_path.parent() else {
-        return Ok(());
-    };
-    let src = src_dir.join("tpch_constraints.json");
-    if !src.exists() {
-        return Ok(());
-    }
-
-    let dest_dir = output_path.parent().unwrap_or_else(|| Path::new("."));
-    let dest = dest_dir.join("tpch_constraints.json");
-    if let Some(parent) = dest.parent()
-        && !parent.exists()
-    {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-    fs::copy(&src, &dest).with_context(|| {
-        format!(
-            "failed to copy constraints from {} to {}",
-            src.display(),
-            dest.display()
-        )
-    })?;
     Ok(())
 }
 
