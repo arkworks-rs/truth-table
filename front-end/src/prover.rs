@@ -225,7 +225,8 @@ impl<B: SnarkBackend> TTProver<B> {
                 gadget_ready_ir.tree().clone(),
                 gadget_ready_ir.payloads().clone(),
             );
-            let honest_prover_pass = HonestProverPass::<B>::new(arg_prover.clone(), honest_ir_view);
+            let honest_prover_pass =
+                HonestProverPass::<B>::new(arg_prover.deep_copy(), honest_ir_view);
             let _honest_ir = gadget_ready_ir.apply_local_pass_sequential(&honest_prover_pass);
             honest_prover_pass.take_result()?;
         }
