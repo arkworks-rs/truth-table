@@ -222,7 +222,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
             .iter()
             .map(|field| (field.clone(), !is_system_column(field.name())))
             .collect();
-        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
+        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(projected, should_materialize)
     }
 }
 

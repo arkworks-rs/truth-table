@@ -12,6 +12,7 @@ use ark_serialize::{
     Write,
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion_common::Constraints;
 use derivative::Derivative;
 use indexmap::IndexMap;
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
@@ -25,6 +26,8 @@ use std::{convert::TryFrom, sync::Arc};
 pub struct TrackedTableOracle<B: SnarkBackend> {
     /// The schema of the table, if any
     schema: Option<Schema>,
+    /// Optional constraints for the table, if any
+    constraints: Option<Constraints>,
     /// The oracles representing the columns, stored in schema order
     tracked_oracles: IndexMap<FieldRef, TrackedOracle<B>>,
     /// The log size of the table
@@ -35,6 +38,7 @@ impl<B: SnarkBackend> Default for TrackedTableOracle<B> {
     fn default() -> Self {
         Self {
             schema: None,
+            constraints: None,
             tracked_oracles: IndexMap::new(),
             log_size: 0,
         }
@@ -53,6 +57,7 @@ impl<B: SnarkBackend> Display for TrackedTableOracle<B> {
                 &self.num_data_tracked_col_oracles(),
             )
             .field("log_size", &self.log_size())
+            .field("constraints", &self.constraints)
             .finish()
     }
 }
@@ -102,9 +107,21 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
         }
         Self {
             schema,
+            constraints: None,
             tracked_oracles,
             log_size,
         }
+    }
+
+    /// Attaches constraints to the tracked table oracle.
+    pub fn with_constraints(mut self, constraints: Option<Constraints>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    /// Returns the constraints for this table, if any.
+    pub fn constraints(&self) -> Option<&Constraints> {
+        self.constraints.as_ref()
     }
 
     #[cfg(debug_assertions)]
@@ -297,8 +314,13 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
                 .collect::<Vec<Field>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
+        let sub_constraints = self
+            .constraints
+            .as_ref()
+            .and_then(|constraints| constraints.project(indices));
 
         TrackedTableOracle::new(sub_schema, sub_oracles, self.log_size)
+            .with_constraints(sub_constraints)
     }
     /// Returns all the tracked column oracles in the table, including the
     /// activator column (if any)

@@ -1,7 +1,7 @@
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
-use datafusion_common::{Column, Result as DataFusionResult};
+use datafusion_common::{Column, Constraints, Result as DataFusionResult};
 use datafusion_expr::{expr::Alias, Expr, LogicalPlan, SortExpr, col, expr_fn::try_cast};
 use indexmap::IndexMap;
 
@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 pub struct HintDF {
     data_fram: DataFrame,
     should_materialize: IndexMap<FieldRef, bool>,
+    constraints: Option<Constraints>,
 }
 impl Display for HintDF {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,7 +27,12 @@ impl Display for HintDF {
 
         writeln!(f, "HintDF with {} columns", self.should_materialize.len())?;
         writeln!(f, "Materialized: ({})", materialized_cols.join(","))?;
-        write!(f, "Virtual: ({})", virtual_cols.join(","))
+        writeln!(f, "Virtual: ({})", virtual_cols.join(","))?;
+        if let Some(constraints) = &self.constraints {
+            write!(f, "Constraints: {constraints}")
+        } else {
+            write!(f, "Constraints: none")
+        }
     }
 }
 
@@ -36,6 +42,20 @@ impl HintDF {
         Self {
             data_fram,
             should_materialize,
+            constraints: None,
+        }
+    }
+
+    pub fn new_with_inferred_constraints(
+        data_fram: DataFrame,
+        should_materialize: IndexMap<FieldRef, bool>,
+    ) -> Self {
+        let (data_fram, should_materialize) = normalize_hint_df(data_fram, should_materialize);
+        let constraints = infer_constraints_from_plan(data_fram.logical_plan());
+        Self {
+            data_fram,
+            should_materialize,
+            constraints,
         }
     }
 
@@ -58,11 +78,21 @@ impl HintDF {
         Self {
             data_fram,
             should_materialize,
+            constraints: None,
         }
     }
 
     pub fn data_frame(&self) -> &DataFrame {
         &self.data_fram
+    }
+
+    pub fn with_constraints(mut self, constraints: Option<Constraints>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    pub fn constraints(&self) -> Option<&Constraints> {
+        self.constraints.as_ref()
     }
 
     pub fn should_materialize(&self, field: &FieldRef) -> Option<&bool> {
@@ -241,7 +271,32 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
         should_materialize.insert(field.clone(), materialized);
     }
 
-    HintDF::new(projected_df, should_materialize)
+    HintDF::new_with_inferred_constraints(projected_df, should_materialize)
+}
+
+pub fn infer_constraints_from_plan(plan: &LogicalPlan) -> Option<Constraints> {
+    match plan {
+        LogicalPlan::TableScan(scan) => scan.source.constraints().cloned(),
+        LogicalPlan::Projection(proj) => {
+            let input_constraints = infer_constraints_from_plan(&proj.input)?;
+            let input_schema = proj.input.schema();
+            let mut indices = Vec::with_capacity(proj.expr.len());
+            for expr in &proj.expr {
+                let col = match expr {
+                    Expr::Column(col) => col,
+                    Expr::Alias(alias) => match alias.expr.as_ref() {
+                        Expr::Column(col) => col,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                let idx = input_schema.index_of_column(col).ok()?;
+                indices.push(idx);
+            }
+            input_constraints.project(&indices)
+        }
+        _ => None,
+    }
 }
 
 fn normalize_hint_df(

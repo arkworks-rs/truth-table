@@ -135,4 +135,5 @@ fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> Ari
     let schema = Some(Schema::new(schema_fields));
 
     ArithTable::new(schema, tracked_polys, log_vars)
+        .with_constraints(mat.constraints().cloned())
 }

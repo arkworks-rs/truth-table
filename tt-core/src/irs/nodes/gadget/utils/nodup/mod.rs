@@ -83,7 +83,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
             .collect();
         let lex_sorted_hint =
-            crate::irs::nodes::hints::HintDF::new(lex_sorted_df, should_materialize);
+            crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(lex_sorted_df, should_materialize);
         self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
 
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));

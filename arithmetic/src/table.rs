@@ -15,8 +15,10 @@ use ark_serialize::{
     Write,
 };
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion_common::{Constraint, Constraints};
 use derivative::Derivative;
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
@@ -26,6 +28,8 @@ use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
 pub struct TrackedTable<B: SnarkBackend> {
     /// The schema of the table, if any
     schema: Option<Schema>,
+    /// Optional constraints for the table, if any
+    constraints: Option<Constraints>,
     /// The polynomials representing the columns, stored in schema order
     tracked_polys: IndexMap<FieldRef, TrackedPoly<B>>,
     /// The log size of the table
@@ -36,6 +40,7 @@ impl<B: SnarkBackend> Default for TrackedTable<B> {
     fn default() -> Self {
         Self {
             schema: None,
+            constraints: None,
             tracked_polys: IndexMap::new(),
             log_size: 0,
         }
@@ -49,6 +54,7 @@ impl<B: SnarkBackend> core::fmt::Debug for TrackedTable<B> {
             .field("num_data_cols", &self.num_data_tracked_cols())
             .field("log_size", &self.log_size())
             .field("degrees", &self.degrees())
+            .field("constraints", &self.constraints)
             .finish()
     }
 }
@@ -61,6 +67,7 @@ impl<B: SnarkBackend> DeepClone<B> for TrackedTable<B> {
             .map(|(field, poly)| (field.clone(), poly.deep_clone(prover.clone())))
             .collect::<IndexMap<_, _>>();
         Self::new(self.schema.clone(), tracked_polys, self.log_size)
+            .with_constraints(self.constraints.clone())
     }
 }
 
@@ -115,9 +122,21 @@ impl<B: SnarkBackend> TrackedTable<B> {
 
         Self {
             schema,
+            constraints: None,
             tracked_polys,
             log_size,
         }
+    }
+
+    /// Attaches constraints to the tracked table.
+    pub fn with_constraints(mut self, constraints: Option<Constraints>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    /// Returns the constraints for this table, if any.
+    pub fn constraints(&self) -> Option<&Constraints> {
+        self.constraints.as_ref()
     }
 
     #[cfg(debug_assertions)]
@@ -345,8 +364,13 @@ impl<B: SnarkBackend> TrackedTable<B> {
                 .collect::<Vec<Field>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
+        let sub_constraints = self
+            .constraints
+            .as_ref()
+            .and_then(|constraints| constraints.project(indices));
 
         TrackedTable::new(sub_schema, sub_polys, self.log_size)
+            .with_constraints(sub_constraints)
     }
 
     /// Returns all the tracked column polynomials in the table, including the
@@ -440,6 +464,7 @@ impl<B: SnarkBackend> TrackedTable<B> {
 /// deserialized
 pub struct ArithTable<F: PrimeField> {
     schema: Option<Schema>,
+    constraints: Option<Constraints>,
     polynomials: IndexMap<FieldRef, Arc<MLE<F>>>,
     log_size: usize,
 }
@@ -505,6 +530,45 @@ fn abbreviate_field_value(value: &str) -> String {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+enum SerializableConstraint {
+    PrimaryKey(Vec<usize>),
+    Unique(Vec<usize>),
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableConstraints {
+    inner: Vec<SerializableConstraint>,
+}
+
+impl SerializableConstraints {
+    fn from_constraints(constraints: &Constraints) -> Self {
+        let inner = constraints
+            .iter()
+            .map(|constraint| match constraint {
+                Constraint::PrimaryKey(indices) => {
+                    SerializableConstraint::PrimaryKey(indices.clone())
+                }
+                Constraint::Unique(indices) => SerializableConstraint::Unique(indices.clone()),
+            })
+            .collect();
+        Self { inner }
+    }
+
+    fn from_bytes(bytes: &[u8]) -> serde_json::Result<Constraints> {
+        let parsed: SerializableConstraints = serde_json::from_slice(bytes)?;
+        let constraints = parsed
+            .inner
+            .into_iter()
+            .map(|constraint| match constraint {
+                SerializableConstraint::PrimaryKey(indices) => Constraint::PrimaryKey(indices),
+                SerializableConstraint::Unique(indices) => Constraint::Unique(indices),
+            })
+            .collect::<Vec<_>>();
+        Ok(Constraints::new_unverified(constraints))
+    }
+}
+
 impl<F: PrimeField> ArithTable<F> {
     /// Constructs a new `ArithTable`
     pub fn new(
@@ -519,9 +583,21 @@ impl<F: PrimeField> ArithTable<F> {
 
         Self {
             schema,
+            constraints: None,
             polynomials,
             log_size,
         }
+    }
+
+    /// Attaches constraints to the arith table.
+    pub fn with_constraints(mut self, constraints: Option<Constraints>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    /// Returns the constraints for this table, if any.
+    pub fn constraints(&self) -> Option<&Constraints> {
+        self.constraints.as_ref()
     }
 
     #[cfg(debug_assertions)]
@@ -587,6 +663,7 @@ impl<F: PrimeField> ArithTable<F> {
         B: SnarkBackend,
     {
         let schema = table.schema();
+        let constraints = table.constraints().cloned();
         let size = table.size();
         let tracked_polys = table
             .tracked_polys
@@ -597,7 +674,7 @@ impl<F: PrimeField> ArithTable<F> {
                 (field.clone(), mle)
             })
             .collect::<IndexMap<_, _>>();
-        ArithTable::new(schema, tracked_polys, size)
+        ArithTable::new(schema, tracked_polys, size).with_constraints(constraints)
     }
 
     /// Returns the polynomial of the activator polynomial, if any
@@ -629,6 +706,15 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
             schema_bytes.serialize_with_mode(&mut writer, compress)?;
         }
 
+        let has_constraints = self.constraints.is_some();
+        has_constraints.serialize_with_mode(&mut writer, compress)?;
+        if let Some(constraints) = &self.constraints {
+            let constraint_bytes =
+                serde_json::to_vec(&SerializableConstraints::from_constraints(constraints))
+                    .map_err(|_| SerializationError::InvalidData)?;
+            constraint_bytes.serialize_with_mode(&mut writer, compress)?;
+        }
+
         (self.polynomials.len() as u64).serialize_with_mode(&mut writer, compress)?;
 
         for (field_ref, mle) in &self.polynomials {
@@ -655,6 +741,15 @@ impl<F: PrimeField> CanonicalSerialize for ArithTable<F> {
         if let Some(schema) = &self.schema {
             let schema_bytes = schema_to_vec(schema).expect("schema serialization should succeed");
             size += schema_bytes.serialized_size(compress);
+        }
+
+        size += self.constraints.is_some().serialized_size(compress);
+        if let Some(constraints) = &self.constraints {
+            let constraint_bytes = serde_json::to_vec(
+                &SerializableConstraints::from_constraints(constraints),
+            )
+            .expect("constraints serialization should succeed");
+            size += constraint_bytes.serialized_size(compress);
         }
 
         size += (self.polynomials.len() as u64).serialized_size(compress);
@@ -685,6 +780,18 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
             let schema_bytes = Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
             Some(
                 schema_from_slice::<Schema>(&schema_bytes)
+                    .map_err(|_| SerializationError::InvalidData)?,
+            )
+        } else {
+            None
+        };
+
+        let has_constraints = bool::deserialize_with_mode(&mut reader, compress, validate)?;
+        let constraints = if has_constraints {
+            let constraint_bytes =
+                Vec::<u8>::deserialize_with_mode(&mut reader, compress, validate)?;
+            Some(
+                SerializableConstraints::from_bytes(&constraint_bytes)
                     .map_err(|_| SerializationError::InvalidData)?,
             )
         } else {
@@ -723,7 +830,7 @@ impl<F: PrimeField> CanonicalDeserialize for ArithTable<F> {
         let size_raw = u64::deserialize_with_mode(&mut reader, compress, validate)?;
         let size = usize::try_from(size_raw).map_err(|_| SerializationError::InvalidData)?;
 
-        let table = Self::new(schema, polynomials, size);
+        let table = Self::new(schema, polynomials, size).with_constraints(constraints);
         table.check()?;
         Ok(table)
     }

@@ -118,7 +118,7 @@ fn populate_output_expr(
         should_materialize.insert(field.clone(), mat);
     }
     let output_sort_exprs =
-        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
+        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(output_hint.data_frame().clone(), should_materialize);
     gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
     output_hint
 }

@@ -497,7 +497,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("binary expr output sort should succeed");
-        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
+        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(projected, should_materialize)
     }
 }
 

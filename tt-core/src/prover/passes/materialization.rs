@@ -114,8 +114,15 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let (batches, row_count) =
         pad_batches_to_power_of_two(&arrow_schema, batches).expect("padding should succeed");
 
-    let mem_table =
+    let constraints = hint_df
+        .constraints()
+        .cloned()
+        .or_else(|| crate::irs::nodes::hints::infer_constraints_from_plan(df.logical_plan()));
+    let mut mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
+    if let Some(constraints) = constraints {
+        mem_table = mem_table.with_constraints(constraints);
+    }
     Some(MaterializedTable::new(mem_table, row_count))
 }
 

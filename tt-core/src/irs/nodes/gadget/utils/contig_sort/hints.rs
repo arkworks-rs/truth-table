@@ -28,7 +28,7 @@ pub(crate) fn populate_rotated(
         .iter()
         .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
         .collect();
-    let rotated_hint = crate::irs::nodes::hints::HintDF::new(rotated_df, should_materialize);
+    let rotated_hint = crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(rotated_df, should_materialize);
     gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
 }
 
@@ -46,7 +46,7 @@ pub(crate) fn populate_tie_indicator(
         .iter()
         .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
         .collect();
-    let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, should_materialize);
+    let tie_hint = crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(tie_df, should_materialize);
     gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
 }
 
@@ -65,7 +65,7 @@ pub(crate) fn populate_diff(
         .iter()
         .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
         .collect();
-    let diff_hint = crate::irs::nodes::hints::HintDF::new(diff_df, should_materialize);
+    let diff_hint = crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(diff_df, should_materialize);
     gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
 }
 

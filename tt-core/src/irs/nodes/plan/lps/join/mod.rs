@@ -198,7 +198,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
                 (field.clone(), mat)
             })
             .collect();
-        crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
+        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(joined, should_materialize)
     }
 }
 
