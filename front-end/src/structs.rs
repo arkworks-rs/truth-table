@@ -10,7 +10,7 @@ use ark_piop::{
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid};
 use datafusion_expr::LogicalPlan;
-use tracing::instrument;
+use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
 use tt_core::irs::{
     nodes::{Node, PlanNode},
@@ -175,12 +175,17 @@ where
         mut writer: W,
         compress: Compress,
     ) -> Result<(), SerializationError> {
-        let plan = optimized_ir_to_logical_plan(&self.optimized_ir)
-            .map_err(|_| SerializationError::InvalidData)?;
+        let plan = optimized_ir_to_logical_plan(&self.optimized_ir).map_err(|err| {
+            debug!(?err, "TTProof serialize: failed to build logical plan");
+            SerializationError::InvalidData
+        })?;
         let plan_bytes =
-            crate::logical_plan_codec::serialize_logical_plan(&plan)
-                .map_err(|_| SerializationError::InvalidData)?;
+            crate::logical_plan_codec::serialize_logical_plan(&plan).map_err(|err| {
+                debug!(?err, "TTProof serialize: failed to serialize logical plan");
+                SerializationError::InvalidData
+            })?;
         let ir_len = plan_bytes.len() as u64;
+        debug!(ir_len, "TTProof serialize: logical plan byte length");
         writer.write_all(&ir_len.to_le_bytes())?;
         writer.write_all(&plan_bytes)?;
         self.snark_proof.serialize_with_mode(&mut writer, compress)?;

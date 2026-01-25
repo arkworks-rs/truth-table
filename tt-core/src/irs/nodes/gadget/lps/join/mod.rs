@@ -621,6 +621,16 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 }
 
+fn expr_col_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Column(col) => col.to_string(),
+        Expr::Alias(alias) => expr_col_name(&alias.expr),
+        Expr::Cast(cast) => expr_col_name(&cast.expr),
+        Expr::TryCast(cast) => expr_col_name(&cast.expr),
+        _ => format!("{expr}"),
+    }
+}
+
 fn build_match_pair_hints(
     join: &datafusion_expr::Join,
     left_hint: &crate::irs::nodes::hints::HintDF,

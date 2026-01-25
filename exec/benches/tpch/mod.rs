@@ -20,32 +20,75 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q18 = query_spec(18);
         let q19 = query_spec(19);
         ////////////////////////////////////////////////
-        let q8_simplified_sql = "    SELECT
-    o_orderdate_year
+        let q8_simplified_sql = "
+WITH n2 AS (
+  SELECT n_nationkey AS n2_nationkey, n_name AS nation
+  FROM nation
+)
+SELECT
+  o_orderdate_year,
+  sum(CASE WHEN nation = 'BRAZIL' THEN volume ELSE 0 END) , sum(volume) AS mkt_share
+FROM (
+  SELECT
+  o_orderdate_year,
+    l_extendedprice * (1 - l_discount) AS volume,
+    n2.nation AS nation
+  FROM
+    part,
+    supplier,
+    lineitem,
+    orders,
+    customer,
+    nation n1,
+    n2,
+    region
+  WHERE
+    p_partkey = l_partkey
+    AND s_suppkey = l_suppkey
+    AND l_orderkey = o_orderkey
+    AND o_custkey = c_custkey
+    AND c_nationkey = n1.n_nationkey
+    AND n1.n_regionkey = r_regionkey
+    AND r_name = 'AMERICA'
+    AND s_nationkey = n2.n2_nationkey
+    AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+    AND CAST('1996-12-31' AS date)
+    AND p_type = 'ECONOMY ANODIZED STEEL'
+) AS all_nations
+GROUP BY o_orderdate_year
+ORDER BY o_orderdate_year;
+        ";
+        let q9_simplified_sql = "
+SELECT
+    nation,
+    o_orderdate_year,
+    sum(amount) AS sum_profit
 FROM (
     SELECT
+        n_name AS nation,
         o_orderdate_year,
-        l_extendedprice * (1 - l_discount) AS volume
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
     FROM
         part,
         supplier,
         lineitem,
+        partsupp,
         orders,
-        customer,
-        nation n1,
-        region
+        nation
     WHERE
-        p_partkey = l_partkey
-        AND s_suppkey = l_suppkey
-        AND l_orderkey = o_orderkey
-        AND o_custkey = c_custkey
-        AND c_nationkey = n1.n_nationkey
-        AND n1.n_regionkey = r_regionkey
-        AND r_name = 'AMERICA'
-        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
-        AND CAST('1996-12-31' AS date)
-        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations";
-
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey) AS profit
+GROUP BY
+    nation,
+    o_orderdate_year
+ORDER BY
+    nation,
+    o_orderdate_year DESC;
+";
         let cases = vec![
             BenchCase {
                 name: "tpch_q1",
@@ -69,7 +112,7 @@ FROM (
             },
             BenchCase {
                 name: "tpch_q9",
-                query: q9.sql,
+                query: q9_simplified_sql,
                 tables: q9.tables,
             },
             BenchCase {
@@ -78,7 +121,7 @@ FROM (
                 tables: q18.tables,
             },
             BenchCase {
-                name: "tpch_q19_repeat",
+                name: "tpch_q19",
                 query: q19.sql,
                 tables: q19.tables,
             },
