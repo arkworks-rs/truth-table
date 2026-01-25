@@ -89,7 +89,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
                 (field.clone(), mat)
             })
             .collect();
-        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(df, should_materialize)
+        crate::irs::nodes::hints::HintDF::new(df, should_materialize)
     }
 }
 

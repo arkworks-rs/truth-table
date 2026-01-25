@@ -389,7 +389,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
             })
             .collect();
 
-        crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(output_df, should_materialize)
+        crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
     }
 }
 

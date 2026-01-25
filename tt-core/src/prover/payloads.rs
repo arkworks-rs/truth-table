@@ -6,7 +6,7 @@ use datafusion::{
     datasource::MemTable,
     prelude::{DataFrame, SessionContext},
 };
-use datafusion_common::{Constraints, DataFusionError};
+use datafusion_common::DataFusionError;
 use std::sync::Arc;
 
 use crate::irs::payloads::PayloadStructure;
@@ -22,15 +22,12 @@ pub type GadgetReadyPayload<B> = PayloadStructure<TrackedTable<B>>;
 pub struct MaterializedTable {
     table: Arc<MemTable>,
     row_count: usize,
-    constraints: Option<Constraints>,
 }
 impl MaterializedTable {
     pub fn new(table: MemTable, row_count: usize) -> Self {
-        let constraints = table.constraints().cloned();
         Self {
             table: Arc::new(table),
             row_count,
-            constraints,
         }
     }
 
@@ -43,10 +40,6 @@ impl MaterializedTable {
 
     pub fn mem_table_arc(&self) -> Arc<MemTable> {
         Arc::clone(&self.table)
-    }
-
-    pub fn constraints(&self) -> Option<&Constraints> {
-        self.constraints.as_ref()
     }
 
     pub fn batches(&self) -> datafusion_common::Result<Vec<RecordBatch>> {

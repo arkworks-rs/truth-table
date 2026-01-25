@@ -344,7 +344,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for LimitNode<B> {
             })
             .collect();
 
-        HintDF::new_with_inferred_constraints(output_df, should_materialize)
+        HintDF::new(output_df, should_materialize)
     }
 }
 

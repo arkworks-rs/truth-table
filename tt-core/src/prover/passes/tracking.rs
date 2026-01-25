@@ -146,5 +146,4 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         "commitment oracle log_size should match arith table"
     );
     TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
-        .with_constraints(arith_table.constraints().cloned())
 }

@@ -83,7 +83,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .map(|field| (field.clone(), !is_system_column(field.name())))
             .collect();
         let multiplicities_hint =
-            crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(multiplicities_df, should_materialize);
+            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));

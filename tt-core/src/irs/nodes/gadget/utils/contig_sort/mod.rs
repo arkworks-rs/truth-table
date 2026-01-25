@@ -127,7 +127,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
                     .unwrap_or(true);
                 should_materialize.insert(field.clone(), materialized);
             }
-            crate::irs::nodes::hints::HintDF::new_with_inferred_constraints(padded_df, should_materialize)
+            crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
         };
 
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs);
