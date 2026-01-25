@@ -6,16 +6,260 @@ use std::{
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
-    array::{BooleanBuilder, Int64Builder, RecordBatch},
+    array::{
+        Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder, Int64Builder,
+        RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray,
+    },
     compute::concat as arrow_concat,
-    datatypes::{DataType, Field, Schema},
+    datatypes::{
+        DataType, Date64Type, Field, Schema, TimeUnit, TimestampMicrosecondType,
+        TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
+    },
+    temporal_conversions::{as_datetime, date32_to_datetime},
 };
+use chrono::{Datelike, Timelike};
 use duckdb::Connection;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tpchgen::generators::*;
 use tpchgen_arrow::*;
 
 const ROW_ID_COL_NAME: &str = "__row_id__";
+
+#[derive(Clone)]
+enum Expansion {
+    Original(usize),
+    Date32 { index: usize, name: String, nullable: bool },
+    Date64 { index: usize, name: String, nullable: bool },
+    Timestamp {
+        index: usize,
+        name: String,
+        nullable: bool,
+        unit: TimeUnit,
+    },
+}
+
+fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
+    let mut expansions = Vec::new();
+    let mut fields = Vec::new();
+    for (idx, field) in schema.fields().iter().enumerate() {
+        match field.data_type() {
+            DataType::Date32 => {
+                let name = field.name().to_string();
+                let nullable = field.is_nullable();
+                expansions.push(Expansion::Original(idx));
+                expansions.push(Expansion::Date32 { index: idx, name: name.clone(), nullable });
+                fields.push((**field).clone());
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
+            }
+            DataType::Date64 => {
+                let name = field.name().to_string();
+                let nullable = field.is_nullable();
+                expansions.push(Expansion::Original(idx));
+                expansions.push(Expansion::Date64 { index: idx, name: name.clone(), nullable });
+                fields.push((**field).clone());
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_time"), DataType::Int32, nullable));
+            }
+            DataType::Timestamp(unit, _) => {
+                let name = field.name().to_string();
+                let nullable = field.is_nullable();
+                expansions.push(Expansion::Original(idx));
+                expansions.push(Expansion::Timestamp {
+                    index: idx,
+                    name: name.clone(),
+                    nullable,
+                    unit: unit.clone(),
+                });
+                fields.push((**field).clone());
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
+                fields.push(Field::new(format!("{name}_time"), DataType::Int32, nullable));
+            }
+            _ => {
+                expansions.push(Expansion::Original(idx));
+                fields.push((**field).clone());
+            }
+        }
+    }
+    (expansions, fields)
+}
+
+fn expand_batch(
+    batch: &RecordBatch,
+    expansions: &[Expansion],
+    out_schema: &Arc<Schema>,
+) -> RecordBatch {
+    let mut cols: Vec<ArrayRef> = Vec::new();
+    for expansion in expansions {
+        match expansion {
+            Expansion::Original(idx) => cols.push(batch.column(*idx).clone()),
+            Expansion::Date32 { index, .. } => {
+                let array = batch
+                    .column(*index)
+                    .as_any()
+                    .downcast_ref::<Date32Array>()
+                    .expect("date32 downcast");
+                let mut year = Int32Builder::new();
+                let mut month = Int32Builder::new();
+                let mut day = Int32Builder::new();
+                for i in 0..array.len() {
+                    if array.is_null(i) {
+                        year.append_null();
+                        month.append_null();
+                        day.append_null();
+                        continue;
+                    }
+                    let dt = date32_to_datetime(array.value(i))
+                        .expect("date32 conversion");
+                    year.append_value(dt.year() as i32);
+                    month.append_value(dt.month() as i32);
+                    day.append_value(dt.day() as i32);
+                }
+                cols.push(Arc::new(year.finish()));
+                cols.push(Arc::new(month.finish()));
+                cols.push(Arc::new(day.finish()));
+            }
+            Expansion::Date64 { index, .. } => {
+                let array = batch
+                    .column(*index)
+                    .as_any()
+                    .downcast_ref::<Date64Array>()
+                    .expect("date64 downcast");
+                let mut year = Int32Builder::new();
+                let mut month = Int32Builder::new();
+                let mut day = Int32Builder::new();
+                let mut time = Int32Builder::new();
+                for i in 0..array.len() {
+                    if array.is_null(i) {
+                        year.append_null();
+                        month.append_null();
+                        day.append_null();
+                        time.append_null();
+                        continue;
+                    }
+                    let dt =
+                        as_datetime::<Date64Type>(array.value(i)).expect("date64 conversion");
+                    year.append_value(dt.year() as i32);
+                    month.append_value(dt.month() as i32);
+                    day.append_value(dt.day() as i32);
+                    time.append_value(dt.time().num_seconds_from_midnight() as i32);
+                }
+                cols.push(Arc::new(year.finish()));
+                cols.push(Arc::new(month.finish()));
+                cols.push(Arc::new(day.finish()));
+                cols.push(Arc::new(time.finish()));
+            }
+            Expansion::Timestamp { index, unit, .. } => {
+                let mut year = Int32Builder::new();
+                let mut month = Int32Builder::new();
+                let mut day = Int32Builder::new();
+                let mut time = Int32Builder::new();
+                match unit {
+                    TimeUnit::Second => {
+                        let array = batch
+                            .column(*index)
+                            .as_any()
+                            .downcast_ref::<TimestampSecondArray>()
+                            .expect("timestamp second downcast");
+                        for i in 0..array.len() {
+                            if array.is_null(i) {
+                                year.append_null();
+                                month.append_null();
+                                day.append_null();
+                                time.append_null();
+                                continue;
+                            }
+                            let dt = as_datetime::<TimestampSecondType>(array.value(i))
+                                .expect("timestamp second conversion");
+                            year.append_value(dt.year() as i32);
+                            month.append_value(dt.month() as i32);
+                            day.append_value(dt.day() as i32);
+                            time.append_value(dt.time().num_seconds_from_midnight() as i32);
+                        }
+                    }
+                    TimeUnit::Millisecond => {
+                        let array = batch
+                            .column(*index)
+                            .as_any()
+                            .downcast_ref::<TimestampMillisecondArray>()
+                            .expect("timestamp millisecond downcast");
+                        for i in 0..array.len() {
+                            if array.is_null(i) {
+                                year.append_null();
+                                month.append_null();
+                                day.append_null();
+                                time.append_null();
+                                continue;
+                            }
+                            let dt = as_datetime::<TimestampMillisecondType>(array.value(i))
+                                .expect("timestamp millisecond conversion");
+                            year.append_value(dt.year() as i32);
+                            month.append_value(dt.month() as i32);
+                            day.append_value(dt.day() as i32);
+                            time.append_value(dt.time().num_seconds_from_midnight() as i32);
+                        }
+                    }
+                    TimeUnit::Microsecond => {
+                        let array = batch
+                            .column(*index)
+                            .as_any()
+                            .downcast_ref::<TimestampMicrosecondArray>()
+                            .expect("timestamp microsecond downcast");
+                        for i in 0..array.len() {
+                            if array.is_null(i) {
+                                year.append_null();
+                                month.append_null();
+                                day.append_null();
+                                time.append_null();
+                                continue;
+                            }
+                            let dt = as_datetime::<TimestampMicrosecondType>(array.value(i))
+                                .expect("timestamp microsecond conversion");
+                            year.append_value(dt.year() as i32);
+                            month.append_value(dt.month() as i32);
+                            day.append_value(dt.day() as i32);
+                            time.append_value(dt.time().num_seconds_from_midnight() as i32);
+                        }
+                    }
+                    TimeUnit::Nanosecond => {
+                        let array = batch
+                            .column(*index)
+                            .as_any()
+                            .downcast_ref::<TimestampNanosecondArray>()
+                            .expect("timestamp nanosecond downcast");
+                        for i in 0..array.len() {
+                            if array.is_null(i) {
+                                year.append_null();
+                                month.append_null();
+                                day.append_null();
+                                time.append_null();
+                                continue;
+                            }
+                            let dt = as_datetime::<TimestampNanosecondType>(array.value(i))
+                                .expect("timestamp nanosecond conversion");
+                            year.append_value(dt.year() as i32);
+                            month.append_value(dt.month() as i32);
+                            day.append_value(dt.day() as i32);
+                            time.append_value(dt.time().num_seconds_from_midnight() as i32);
+                        }
+                    }
+                }
+                cols.push(Arc::new(year.finish()));
+                cols.push(Arc::new(month.finish()));
+                cols.push(Arc::new(day.finish()));
+                cols.push(Arc::new(time.finish()));
+            }
+        }
+    }
+
+    RecordBatch::try_new(Arc::clone(out_schema), cols).expect("expanded batch build")
+}
 
 /// Check if n is a power of two
 fn is_power_of_two(n: usize) -> bool {
@@ -44,8 +288,11 @@ fn write_parquet<P: AsRef<Path>>(
         create_dir_all(parent).expect("create output dir");
     }
 
-    // Build output schema = original fields + row_id: Int64 + __activator__: Boolean
-    let mut fields: Vec<Field> = orig_schema.fields().iter().map(|f| (**f).clone()).collect();
+    let (expansions, expanded_fields) = build_expansions(orig_schema.as_ref());
+    let expanded_schema = Arc::new(Schema::new(expanded_fields));
+
+    // Build output schema = expanded fields + row_id: Int64 + __activator__: Boolean
+    let mut fields: Vec<Field> = expanded_schema.fields().iter().map(|f| (**f).clone()).collect();
     fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, false));
     fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
     let out_schema = Arc::new(Schema::new(fields));
@@ -63,6 +310,7 @@ fn write_parquet<P: AsRef<Path>>(
         if n == 0 {
             continue;
         }
+        let batch = expand_batch(&batch, &expansions, &expanded_schema);
         total_rows += n;
         last_nonempty_batch = Some(batch.clone());
 
@@ -148,7 +396,8 @@ fn write_parquet_raw<P: AsRef<Path>>(
         create_dir_all(parent).expect("create output dir");
     }
 
-    let out_schema = Arc::clone(orig_schema);
+    let (expansions, expanded_fields) = build_expansions(orig_schema.as_ref());
+    let out_schema = Arc::new(Schema::new(expanded_fields));
     let file = File::create(path_ref).expect("create parquet file");
     let mut writer = ArrowWriter::try_new(file, Arc::clone(&out_schema), None).expect("new writer");
 
@@ -156,7 +405,8 @@ fn write_parquet_raw<P: AsRef<Path>>(
         if batch.num_rows() == 0 {
             continue;
         }
-        writer.write(&batch).expect("write batch");
+        let expanded = expand_batch(&batch, &expansions, &out_schema);
+        writer.write(&expanded).expect("write batch");
     }
 
     writer.close().expect("close writer");

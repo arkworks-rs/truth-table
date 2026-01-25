@@ -21,10 +21,10 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q19 = query_spec(19);
         ////////////////////////////////////////////////
         let q8_simplified_sql = "    SELECT
-    o_year
+    o_orderdate_year
 FROM (
     SELECT
-        o_orderdate AS o_year,
+        o_orderdate_year,
         l_extendedprice * (1 - l_discount) AS volume
     FROM
         part,
@@ -44,11 +44,7 @@ FROM (
         AND r_name = 'AMERICA'
         AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
         AND CAST('1996-12-31' AS date)
-        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
-GROUP BY
-    o_year
-ORDER BY
-    o_year;";
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations";
 
         let cases = vec![
             BenchCase {

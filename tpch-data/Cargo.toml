@@ -13,3 +13,4 @@ duckdb = { workspace = true }
 datafusion = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
+chrono = "0.4"
