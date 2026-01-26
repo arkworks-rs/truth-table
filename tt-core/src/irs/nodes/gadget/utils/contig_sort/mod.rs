@@ -1550,12 +1550,17 @@ fn prepend_first_tie_indicator_prover<B: SnarkBackend>(table: &TrackedTable<B>) 
 
     // Build the special first tie column: 1 - eq_x_r(1^n).
     let one_tracked_poly = prover.track_mat_mv_cnst_poly(num_vars, B::F::one());
-    let last_eq_poly =
-        build_eq_x_r(&vec![B::F::one(); num_vars]).expect("build_eq_x_r should succeed");
-    let last_eq_id = tracker
-        .borrow_mut()
-        .track_mat_mv_poly(last_eq_poly.as_ref().clone());
-    let tracked_last_eq_poly = TrackedPoly::new(Either::Left(last_eq_id), num_vars, tracker);
+    let tracked_last_eq_poly = if num_vars == 0 {
+        // For nv=0, eq_x_r is the constant 1; track it as a constant poly.
+        prover.track_mat_mv_cnst_poly(num_vars, B::F::one())
+    } else {
+        let last_eq_poly =
+            build_eq_x_r(&vec![B::F::one(); num_vars]).expect("build_eq_x_r should succeed");
+        let last_eq_id = tracker
+            .borrow_mut()
+            .track_mat_mv_poly(last_eq_poly.as_ref().clone());
+        TrackedPoly::new(Either::Left(last_eq_id), num_vars, tracker)
+    };
     let first_tie_poly = &one_tracked_poly - &tracked_last_eq_poly;
 
     let first_tie_field = Arc::new(Field::new(FIRST_TIE_LABEL, DataType::Boolean, false));
