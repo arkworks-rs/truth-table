@@ -12,16 +12,16 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Serializ
 use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
 use tt_core::irs::{
-    codec::{deserialize_empty_ir, serialize_empty_ir},
-    shared_ir::EmptyIr,
+    codec::{deserialize_gadget_planned_ir, serialize_gadget_planned_ir},
+    shared_ir::GadgetPlannedIr,
 };
 
 pub struct TTProof<B: SnarkBackend> {
     snark_proof: SNARKProof<B>,
-    optimized_ir: EmptyIr<B>,
+    optimized_ir: GadgetPlannedIr<B>,
 }
 impl<B: SnarkBackend> TTProof<B> {
-    pub fn new(snark_proof: SNARKProof<B>, optimized_ir: EmptyIr<B>) -> Self {
+    pub fn new(snark_proof: SNARKProof<B>, optimized_ir: GadgetPlannedIr<B>) -> Self {
         Self {
             snark_proof,
             optimized_ir,
@@ -32,7 +32,7 @@ impl<B: SnarkBackend> TTProof<B> {
         self.snark_proof
     }
 
-    pub fn into_parts(self) -> (SNARKProof<B>, EmptyIr<B>) {
+    pub fn into_parts(self) -> (SNARKProof<B>, GadgetPlannedIr<B>) {
         (self.snark_proof, self.optimized_ir)
     }
 
@@ -40,7 +40,7 @@ impl<B: SnarkBackend> TTProof<B> {
         &self.snark_proof
     }
 
-    pub fn optimized_ir(&self) -> &EmptyIr<B> {
+    pub fn optimized_ir(&self) -> &GadgetPlannedIr<B> {
         &self.optimized_ir
     }
 }
@@ -173,7 +173,7 @@ where
         mut writer: W,
         compress: Compress,
     ) -> Result<(), SerializationError> {
-        let ir_bytes = serialize_empty_ir(&self.optimized_ir).map_err(|err| {
+        let ir_bytes = serialize_gadget_planned_ir(&self.optimized_ir).map_err(|err| {
             debug!(?err, "TTProof serialize: failed to serialize IR");
             SerializationError::InvalidData
         })?;
@@ -186,7 +186,7 @@ where
     }
 
     fn serialized_size(&self, compress: Compress) -> usize {
-        let ir_len = serialize_empty_ir(&self.optimized_ir)
+        let ir_len = serialize_gadget_planned_ir(&self.optimized_ir)
             .map(|bytes| bytes.len())
             .unwrap_or(0);
         8 + ir_len + self.snark_proof.serialized_size(compress)
@@ -210,7 +210,7 @@ where
         if ir_len > 0 {
             reader.read_exact(&mut ir_bytes)?;
         }
-        let optimized_ir = deserialize_empty_ir::<B>(&ir_bytes)
+        let optimized_ir = deserialize_gadget_planned_ir::<B>(&ir_bytes)
             .map_err(|_| SerializationError::InvalidData)?;
         let snark_proof = SNARKProof::<B>::deserialize_with_mode(reader, compress, _validate)?;
         Ok(Self {

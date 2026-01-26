@@ -14,6 +14,7 @@ use indexmap::IndexMap;
 
 pub const INPUT_LABEL: &str = "_input_";
 pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
+pub const SINGLE_ENTRY_LABEL: &str = "_single_entry_";
 
 mod bezout;
 mod binary_check;
@@ -24,10 +25,12 @@ mod perm_check;
 mod rematerialize_check;
 
 pub enum Mode {
+    SingleEntry,
     BezoutBased,
     SortBased,
 }
 pub enum Gadgets<B: SnarkBackend> {
+    SingleEntryNoDup,
     BezoutNoDup,
     SortNoDup(SortNoDupGadgets<B>),
 }
@@ -110,6 +113,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
         match &self.gadgets {
+            Gadgets::SingleEntryNoDup => vec![],
             Gadgets::BezoutNoDup => vec![],
             Gadgets::SortNoDup(g) => vec![g.0.clone()],
         }
@@ -204,7 +208,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if payload_marks_single_entry(gadget_ready_ir, id) {
+            // Single-entry NoDup is a no-op; skip proving work.
+            return Ok(());
+        }
         match self.gadgets {
+            Gadgets::SingleEntryNoDup => Ok(()),
             Gadgets::BezoutNoDup => Self::prove_nodup_bezout(prover, gadget_ready_ir, id),
             Gadgets::SortNoDup(_) => Ok(()),
         }
@@ -216,6 +225,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if payload_marks_single_entry(gadget_ready_ir, id) {
+            // A single active row is always unique.
+            return Ok(());
+        }
         Self::honest_check_no_dup_active(prover, gadget_ready_ir, id)
     }
 
@@ -225,7 +238,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if payload_marks_single_entry_verifier(gadget_ready_ir, id) {
+            // Single-entry NoDup is a no-op; skip verification work.
+            return Ok(());
+        }
         match self.gadgets {
+            Gadgets::SingleEntryNoDup => Ok(()),
             Gadgets::BezoutNoDup => Self::verify_nodup_bezout(verifier, gadget_ready_ir, id),
             Gadgets::SortNoDup(_) => Ok(()),
         }
@@ -245,6 +263,9 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(mode: Mode) -> Self {
         match mode {
+            Mode::SingleEntry => Self {
+                gadgets: Gadgets::SingleEntryNoDup,
+            },
             Mode::BezoutBased => Self {
                 gadgets: Gadgets::BezoutNoDup,
             },
@@ -264,4 +285,28 @@ impl<B: SnarkBackend> GadgetNode<B> {
             },
         }
     }
+}
+
+fn payload_marks_single_entry<B: SnarkBackend>(
+    gadget_ready_ir: &crate::prover::irs::GadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> bool {
+    let Some(PayloadStructure::GadgetPayload(payload)) =
+        gadget_ready_ir.payload_for_node(&id)
+    else {
+        return false;
+    };
+    payload.contains_key(SINGLE_ENTRY_LABEL)
+}
+
+fn payload_marks_single_entry_verifier<B: SnarkBackend>(
+    gadget_ready_ir: &crate::verifier::irs::GadgetReadyIr<B>,
+    id: crate::irs::nodes::NodeId,
+) -> bool {
+    let Some(PayloadStructure::GadgetPayload(payload)) =
+        gadget_ready_ir.payload_for_node(&id)
+    else {
+        return false;
+    };
+    payload.contains_key(SINGLE_ENTRY_LABEL)
 }

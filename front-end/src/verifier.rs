@@ -22,7 +22,7 @@ use tt_core::{
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct VerifierIrStages<B: SnarkBackend> {
-    pub initial: EmptyIr<B>,
+    pub initial: GadgetPlannedIr<B>,
     pub output_planned: OutputPlannedIr<B>,
     pub gadget_planned: GadgetPlannedIr<B>,
     pub tracked: VerifierTrackedIr<B>,
@@ -103,23 +103,16 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        let (snark_proof, initial_ir) = proof.into_parts();
-        // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        let (snark_proof, optimized_gadget_ir) = proof.into_parts();
+        let initial_ir = EmptyIr::new_empty(optimized_gadget_ir.tree().clone());
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
-        // debug!(
-        //     "output planned ir:\n{}",
-        //     output_planned_ir.display_graphviz(true)
-        // );
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .verifier_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
-        // debug!(
-        //     "gadget planned ir:\n{}",
-        //     gadget_planned_ir.display_graphviz(true)
-        // );
+        // NOTE: verifier should not run proof plan optimizations; it must mirror prover state.
 
         let mut arg_verifier = self.arg_verifier().clone();
         arg_verifier.set_proof(snark_proof);
@@ -156,7 +149,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
 
         Ok((
             VerifierIrStages {
-                initial: initial_ir,
+                initial: optimized_gadget_ir,
                 output_planned: output_planned_ir,
                 gadget_planned: gadget_planned_ir,
                 tracked: tracked_ir,

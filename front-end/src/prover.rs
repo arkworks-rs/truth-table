@@ -127,8 +127,8 @@ impl<B: SnarkBackend> TTProver<B> {
         let (stages, mut arg_prover) = self.build_ir_stages(query).await?;
         let output_memtable = self.extract_output_memtable(&stages.materialized).await?;
         let arg_proof = arg_prover.build_proof().unwrap();
-        let optimized_ir = EmptyIr::<B>::new_empty(stages.initial.tree().clone());
-        let tt_proof = TTProof::new(arg_proof, optimized_ir);
+        let ProverIrStages { gadget_planned, .. } = stages;
+        let tt_proof = TTProof::new(arg_proof, gadget_planned);
         Ok((output_memtable, tt_proof))
     }
 
@@ -150,13 +150,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
-        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
-        let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
-        debug!(
-            "optimized initial ir:\n{}",
-            optimized_initial_ir.display_graphviz(true)
-        );
-        let output_planned_ir = optimized_initial_ir
+        let output_planned_ir = initial_ir
             .apply_local_pass_parallel(&self.prover_config().output_planning_pass());
         debug!(
             "output planned ir:\n{}",
@@ -169,6 +163,12 @@ impl<B: SnarkBackend> TTProver<B> {
         );
         debug!(
             "gadget planned ir:\n{}",
+            gadget_planned_ir.display_graphviz(true)
+        );
+        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
+        let gadget_planned_ir = proof_plan_optimizer.optimize(gadget_planned_ir);
+        debug!(
+            "optimized gadget planned ir:\n{}",
             gadget_planned_ir.display_graphviz(true)
         );
         let materialized_ir = gadget_planned_ir
@@ -236,7 +236,7 @@ impl<B: SnarkBackend> TTProver<B> {
 
         Ok((
             ProverIrStages {
-                initial: optimized_initial_ir,
+                initial: initial_ir,
                 output_planned: output_planned_ir,
                 gadget_planned: gadget_planned_ir,
                 materialized: materialized_ir,
