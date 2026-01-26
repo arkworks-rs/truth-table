@@ -11,6 +11,7 @@ use datafusion::{
 
 mod normalize_table_scan;
 mod rematerialize;
+mod lift_join_filter;
 
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
 //     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
@@ -33,6 +34,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(SimplifyExpressions::new()),
         Arc::new(PushDownFilter::new()),
         Arc::new(normalize_table_scan::NormalizeTableScanPushdown::new()),
+        Arc::new(lift_join_filter::LiftJoinFilter::new()),
         // Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
     ]
 }

@@ -20,6 +20,7 @@ use datafusion_expr::{Expr, ExprFunctionExt, Join, LogicalPlan, col, lit};
 use datafusion_functions_aggregate::expr_fn::min;
 use indexmap::IndexMap;
 use tokio::runtime::RuntimeFlavor;
+use tracing::error;
 
 use crate::irs::nodes::gadget::lps::join as join_gadget;
 use crate::irs::nodes::gadget::utils::{lookup, nodup};
@@ -364,8 +365,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let challenge = prover.get_and_append_challenge(b"match_pair_output_sum_key")?;
         let output_sum_key = format!("match_pair_output_sum_{challenge}");
         prover.add_miscellaneous_field_element(output_sum_key.clone(), output_sum)?;
-        dbg!(union_left.evaluations().clone());
-        dbg!(output_activator.evaluations().clone());
         prover.add_mv_sumcheck_claim(union_left.id(), output_sum)?;
         prover.add_mv_sumcheck_claim(output_activator.id(), output_sum)?;
         Ok(())
@@ -407,6 +406,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         if match_count == output_active {
             Ok(())
         } else {
+            error!(
+                "Match-Pair honest check failed: match_count={}, output_active={}",
+                match_count, output_active
+            );
             Err(ark_piop::errors::SnarkError::ProverError(
                 ark_piop::prover::errors::ProverError::HonestProverError(
                     ark_piop::prover::errors::HonestProverError::FalseClaim,
