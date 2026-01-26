@@ -2,8 +2,11 @@ use arithmetic::table::ArithTable;
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
+use datafusion::arrow::array::{ArrayRef, BooleanArray};
 use datafusion::arrow::compute::concat_batches;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::record_batch::RecordBatchOptions;
+use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -75,10 +78,51 @@ fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> Ari
 
     let schema_ref = batches[0].schema();
     let batch_refs: Vec<&datafusion::arrow::record_batch::RecordBatch> = batches.iter().collect();
-    let combined_batch = concat_batches(&schema_ref, batch_refs)
+    let mut combined_batch = concat_batches(&schema_ref, batch_refs)
         .expect("failed to concatenate record batches for arithmetization");
 
-    let total_rows = combined_batch.num_rows();
+    let mut total_rows = combined_batch.num_rows();
+    if total_rows == 1 {
+        if schema_ref.fields().is_empty() {
+            let options = RecordBatchOptions::new().with_row_count(Some(1));
+            let pad_batch = datafusion::arrow::record_batch::RecordBatch::try_new_with_options(
+                schema_ref.clone(),
+                vec![],
+                &options,
+            )
+            .expect("failed to build padding record batch for arithmetization");
+            combined_batch = concat_batches(&schema_ref, vec![&combined_batch, &pad_batch])
+                .expect("failed to pad record batches for arithmetization");
+        } else {
+            let pad_columns: Vec<ArrayRef> = schema_ref
+                .fields()
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+                        Arc::new(BooleanArray::from(vec![false])) as ArrayRef
+                    } else {
+                        let scalar = ScalarValue::try_from_array(
+                            combined_batch.column(idx).as_ref(),
+                            0,
+                        )
+                        .expect("failed to extract padding scalar for arithmetization");
+                        scalar
+                            .to_array_of_size(1)
+                            .expect("failed to build padding array for arithmetization")
+                    }
+                })
+                .collect();
+            let pad_batch = datafusion::arrow::record_batch::RecordBatch::try_new(
+                schema_ref.clone(),
+                pad_columns,
+            )
+            .expect("failed to build padding record batch for arithmetization");
+            combined_batch = concat_batches(&schema_ref, vec![&combined_batch, &pad_batch])
+                .expect("failed to pad record batches for arithmetization");
+        }
+        total_rows = combined_batch.num_rows();
+    }
     assert!(
         total_rows.is_power_of_two(),
         "Arithmetized tables must have power-of-two number of rows, got {}",
