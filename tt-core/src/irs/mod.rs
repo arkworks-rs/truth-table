@@ -1,4 +1,5 @@
 pub mod ir;
+pub mod codec;
 pub mod nodes;
 pub mod payloads;
 pub mod shared_ir;

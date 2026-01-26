@@ -9,13 +9,11 @@ use ark_piop::{
     SnarkBackend,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid};
-use datafusion_expr::LogicalPlan;
 use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
 use tt_core::irs::{
-    nodes::{Node, PlanNode},
+    codec::{deserialize_empty_ir, serialize_empty_ir},
     shared_ir::EmptyIr,
-    tree::Tree,
 };
 
 pub struct TTProof<B: SnarkBackend> {
@@ -175,30 +173,23 @@ where
         mut writer: W,
         compress: Compress,
     ) -> Result<(), SerializationError> {
-        let plan = optimized_ir_to_logical_plan(&self.optimized_ir).map_err(|err| {
-            debug!(?err, "TTProof serialize: failed to build logical plan");
+        let ir_bytes = serialize_empty_ir(&self.optimized_ir).map_err(|err| {
+            debug!(?err, "TTProof serialize: failed to serialize IR");
             SerializationError::InvalidData
         })?;
-        let plan_bytes =
-            crate::logical_plan_codec::serialize_logical_plan(&plan).map_err(|err| {
-                debug!(?err, "TTProof serialize: failed to serialize logical plan");
-                SerializationError::InvalidData
-            })?;
-        let ir_len = plan_bytes.len() as u64;
-        debug!(ir_len, "TTProof serialize: logical plan byte length");
+        let ir_len = ir_bytes.len() as u64;
+        debug!(ir_len, "TTProof serialize: IR byte length");
         writer.write_all(&ir_len.to_le_bytes())?;
-        writer.write_all(&plan_bytes)?;
+        writer.write_all(&ir_bytes)?;
         self.snark_proof.serialize_with_mode(&mut writer, compress)?;
         Ok(())
     }
 
     fn serialized_size(&self, compress: Compress) -> usize {
-        let plan_len = optimized_ir_to_logical_plan(&self.optimized_ir)
-            .ok()
-            .and_then(|plan| crate::logical_plan_codec::serialize_logical_plan(&plan).ok())
+        let ir_len = serialize_empty_ir(&self.optimized_ir)
             .map(|bytes| bytes.len())
             .unwrap_or(0);
-        8 + plan_len + self.snark_proof.serialized_size(compress)
+        8 + ir_len + self.snark_proof.serialized_size(compress)
     }
 }
 
@@ -219,23 +210,12 @@ where
         if ir_len > 0 {
             reader.read_exact(&mut ir_bytes)?;
         }
-        let plan = crate::logical_plan_codec::deserialize_logical_plan(&ir_bytes)
+        let optimized_ir = deserialize_empty_ir::<B>(&ir_bytes)
             .map_err(|_| SerializationError::InvalidData)?;
-        let optimized_ir = EmptyIr::<B>::new_empty(Tree::from_logical_plan(&plan));
         let snark_proof = SNARKProof::<B>::deserialize_with_mode(reader, compress, _validate)?;
         Ok(Self {
             snark_proof,
             optimized_ir,
         })
-    }
-}
-
-fn optimized_ir_to_logical_plan<B: SnarkBackend>(ir: &EmptyIr<B>) -> TTResult<LogicalPlan> {
-    let root = ir.tree().root();
-    match root.as_ref() {
-        Node::Plan(PlanNode::LpBased(node)) => Ok(node.lp()),
-        _ => Err(tt_core::errors::TTError::Serialization(
-            ark_serialize::SerializationError::InvalidData,
-        )),
     }
 }

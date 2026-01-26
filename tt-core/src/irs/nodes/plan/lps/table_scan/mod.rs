@@ -124,6 +124,6 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode {
     }
 
     fn lp(&self) -> datafusion_expr::LogicalPlan {
-        todo!()
+        datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone())
     }
 }

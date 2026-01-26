@@ -738,15 +738,18 @@ fn build_key_df(
 }
 
 fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
-    let batches = collect_blocking(df)?;
-    if batches.is_empty() {
-        return Err(DataFusionError::Plan(
-            "match-pair key union is empty".to_string(),
-        ));
-    }
-    let schema_ref = batches[0].schema();
-    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
-    let combined = concat_batches(&schema_ref, batch_refs)?;
+    let batches = collect_blocking(df.clone())?;
+    let schema_ref = if batches.is_empty() {
+        Arc::new(df.schema().as_arrow().clone())
+    } else {
+        batches[0].schema()
+    };
+    let combined = if batches.is_empty() {
+        RecordBatch::new_empty(schema_ref.clone())
+    } else {
+        let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+        concat_batches(&schema_ref, batch_refs)?
+    };
     let row_count = combined.num_rows();
 
     let mut output_fields = Vec::with_capacity(key_names.len() + 1);
