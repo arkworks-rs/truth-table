@@ -1324,17 +1324,3 @@ pub fn deserialize_empty_ir<B: SnarkBackend>(bytes: &[u8]) -> TTResult<EmptyIr<B
     let tree = deserialize_tree::<B>(bytes)?;
     Ok(EmptyIr::<B>::new_empty(tree))
 }
-
-pub fn serialize_gadget_planned_ir<B: SnarkBackend>(
-    ir: &crate::irs::shared_ir::GadgetPlannedIr<B>,
-) -> TTResult<Vec<u8>> {
-    // Gadget-planned payloads are not serialized; we persist the optimized tree only.
-    serialize_tree(ir.tree())
-}
-
-pub fn deserialize_gadget_planned_ir<B: SnarkBackend>(
-    bytes: &[u8],
-) -> TTResult<crate::irs::shared_ir::GadgetPlannedIr<B>> {
-    let tree = deserialize_tree::<B>(bytes)?;
-    Ok(crate::irs::shared_ir::GadgetPlannedIr::<B>::new_empty(tree))
-}

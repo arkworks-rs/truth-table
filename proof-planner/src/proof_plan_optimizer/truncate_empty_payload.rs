@@ -7,7 +7,7 @@ use datafusion_common::DataFusionError;
 use tokio::runtime::RuntimeFlavor;
 use tracing::debug;
 use tt_core::irs::nodes::{IsNode, Node};
-use tt_core::irs::shared_ir::GadgetPlannedIr;
+use tt_core::irs::shared_ir::InitialIr;
 use tt_core::irs::tree::Tree;
 
 use super::ProofPlanOptimizerRule;
@@ -19,18 +19,13 @@ impl<B: SnarkBackend> ProofPlanOptimizerRule<B> for TruncateEmptyPayload {
         "TruncateEmptyPayload"
     }
 
-    fn optimize(&self, ir: GadgetPlannedIr<B>) -> GadgetPlannedIr<B> {
+    fn optimize(&self, ir: InitialIr<B>) -> InitialIr<B> {
         let root = ir.tree().root().clone();
         // Walk the plan tree bottom-up and find the first node whose output is empty.
         if let Some(truncate_at) = find_first_empty_postorder(&root) {
             // Truncate the IR so the empty-output node becomes the new root.
             let tree = Tree::new_from_root(truncate_at);
-            let payloads = tree
-                .arena()
-                .keys()
-                .map(|id| (*id, ir.payload_for_node(id).cloned()))
-                .collect();
-            GadgetPlannedIr::<B>::new(tree, payloads)
+            InitialIr::new_empty(tree)
         } else {
             ir
         }
