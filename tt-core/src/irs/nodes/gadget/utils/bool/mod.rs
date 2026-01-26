@@ -8,8 +8,13 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use ark_ff::One;
-use ark_piop::SnarkBackend;
+use ark_ff::{One, Zero};
+use ark_piop::{
+    SnarkBackend,
+    errors::SnarkError,
+    prover::errors::{HonestProverError, ProverError},
+    verifier::errors::VerifierError,
+};
 use indexmap::IndexMap;
 use std::ops::Neg;
 pub const TABLE_LABEL: &str = "__table__";
@@ -107,7 +112,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 .mul_scalar_poly(B::F::one().neg())
                 .add_scalar_poly(B::F::one());
             let check_poly = &predicate * &one_minus_sel;
-            prover.add_mv_zerocheck_claim(check_poly.id())?;
+            match check_poly.id_or_const() {
+                either::Either::Left(id) => {
+                    prover.add_mv_zerocheck_claim(id)?;
+                }
+                either::Either::Right(cnst) => {
+                    if !cnst.is_zero() {
+                        return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                            HonestProverError::FalseClaim,
+                        )));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -143,7 +159,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 .mul_scalar_oracle(B::F::one().neg())
                 .add_scalar_oracle(B::F::one());
             let check_poly = &predicate_oracle * &one_minus_sel;
-            verifier.add_zerocheck_claim(check_poly.id());
+            match check_poly.id_or_const() {
+                either::Either::Left(id) => {
+                    verifier.add_zerocheck_claim(id);
+                }
+                either::Either::Right(cnst) => {
+                    if !cnst.is_zero() {
+                        return Err(SnarkError::VerifierError(VerifierError::VerifierCheckFailed(
+                            "Bool check failed: constant predicate is not boolean".to_string(),
+                        )));
+                    }
+                }
+            }
         }
         Ok(())
     }

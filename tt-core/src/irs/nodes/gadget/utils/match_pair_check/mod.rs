@@ -363,6 +363,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let challenge = prover.get_and_append_challenge(b"match_pair_output_sum_key")?;
         let output_sum_key = format!("match_pair_output_sum_{challenge}");
         prover.add_miscellaneous_field_element(output_sum_key.clone(), output_sum)?;
+        dbg!(union_left.evaluations().clone());
+        dbg!(output_activator.evaluations().clone());
         prover.add_mv_sumcheck_claim(union_left.id(), output_sum)?;
         prover.add_mv_sumcheck_claim(output_activator.id(), output_sum)?;
         Ok(())
