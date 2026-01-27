@@ -82,15 +82,19 @@ pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<
         .ok_or_else(|| anyhow!("parquet path must include a file name"))?
         .to_string_lossy()
         .to_string();
+    let parquet_oracle = parquet_path.with_extension("oracle");
+    if parquet_oracle.exists() {
+        return Ok(parquet_oracle);
+    }
+
     let default_oracle = std::env::current_dir()
         .context("failed to determine current directory")?
         .join(format!("{table_name}.oracle"));
-
     if default_oracle.exists() {
         return Ok(default_oracle);
     }
 
-    let output_root = default_oracle.parent().map(Path::to_path_buf);
+    let output_root = parquet_oracle.parent().map(Path::to_path_buf);
 
     let oracle_path = CommitBuilder::new()
         .with_parquet_path(parquet_path.to_path_buf())

@@ -47,3 +47,20 @@ WHERE
     AND l_orderkey = o_orderkey;
 "#,
 ]);
+
+end_to_end_tests!(&["orders", "lineitem"] => [
+    simple_self_join => r#"SELECT
+    l1.l_orderkey,
+    l1.l_linenumber,
+    l2.l_linenumber
+FROM
+    lineitem l1
+JOIN
+    lineitem l2
+ON
+    l1.l_orderkey = l2.l_orderkey
+WHERE
+    l1.l_linenumber < l2.l_linenumber;
+"#,
+
+]);

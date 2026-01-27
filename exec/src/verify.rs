@@ -13,11 +13,7 @@ use front_end::{
     verifier::{TTVerifier, TTVerifierConfig},
 };
 use indexmap::IndexMap;
-use std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
+use std::{fs::File, io::BufReader, path::{Path, PathBuf}};
 use tt_core::ctx_oracles::CtxOracles;
 
 type B = DefaultSnarkBackend;
