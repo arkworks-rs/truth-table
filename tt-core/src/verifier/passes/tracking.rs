@@ -1,6 +1,7 @@
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_common::DFSchema;
 use indexmap::IndexMap;
 
@@ -16,6 +17,9 @@ use crate::{
 };
 use std::cell::RefCell;
 use tracing::debug;
+use std::sync::Arc;
+
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 /// A tracking pass that tracks and commits the verifier's arithmetized tables
 ///
 /// This pass converts an IR with arithmetized tables into an IR with tracked tables; i.e. tables that are commited and added to the transcript, therefore tracked by the SNARK verifier with an associated id. Note that this pass is stateful, as it requires access to the verifier instance to perform the tracking and committing.
@@ -87,8 +91,9 @@ fn track_hint_df<B: SnarkBackend>(
     hint_df: &crate::irs::nodes::hints::HintDF,
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
-    let base_schema: Schema =
-        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+    let df_schema_ref = hint_df.data_frame().schema();
+    let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
+    let qualified_fields = qualify_fields(&df_schema_ref);
     // Initialize some variables
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
@@ -99,6 +104,7 @@ fn track_hint_df<B: SnarkBackend>(
         if !*should_mat {
             continue;
         }
+        let qualified_field = qualified_fields.get(field).cloned().unwrap_or_else(|| field.clone());
         // Use the next expected id so the verifier's tracker stays in sync with the proof
         let id = verifier.peek_next_id();
         let oracle = verifier
@@ -109,7 +115,7 @@ fn track_hint_df<B: SnarkBackend>(
         } else {
             debug_assert_eq!(log_size, oracle.log_size());
         }
-        tracked_oracles.insert(field.clone(), oracle);
+        tracked_oracles.insert(qualified_field, oracle);
     }
     // If there was no columns to be materialized, return None
     if tracked_oracles.is_empty() {
@@ -130,8 +136,9 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     oracle: &ArithTableOracle<B>,
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
-    let base_schema: Schema =
-        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+    let df_schema_ref = hint_df.data_frame().schema();
+    let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
+    let qualified_fields = qualify_fields(&df_schema_ref);
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
 
@@ -140,6 +147,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
         if !*should_mat {
             continue;
         }
+        let qualified_field = qualified_fields.get(field).cloned().unwrap_or_else(|| field.clone());
         let commitment = oracle
             .comitments()
             .get(field)
@@ -154,7 +162,7 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
         } else {
             debug_assert_eq!(log_size, tracked_oracle.log_size());
         }
-        tracked_oracles.insert(field.clone(), tracked_oracle);
+        tracked_oracles.insert(qualified_field, tracked_oracle);
     }
 
     if tracked_oracles.is_empty() {
@@ -168,4 +176,25 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
         let schema = Some(Schema::new_with_metadata(fields, metadata));
         Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
     }
+}
+
+fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {
+    let mut out = IndexMap::new();
+    for (qualifier, field) in df_schema.iter() {
+        let mut updated = field.as_ref().clone();
+        if updated.name() == arithmetic::ACTIVATOR_COL_NAME
+            || updated.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            out.insert(field.clone(), Arc::new(updated));
+            continue;
+        }
+        if let Some(qualifier) = qualifier {
+            // Mirror prover-side qualifier metadata to keep schemas aligned.
+            let mut metadata = updated.metadata().clone();
+            metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
+            updated = updated.with_metadata(metadata);
+        }
+        out.insert(field.clone(), Arc::new(updated));
+    }
+    out
 }

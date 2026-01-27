@@ -13,7 +13,7 @@ use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Int64Array},
         compute::{concat, concat_batches},
-        datatypes::{FieldRef, Schema},
+        datatypes::{Field, FieldRef, Schema},
         record_batch::{RecordBatch, RecordBatchOptions},
     },
     datasource::MemTable,
@@ -26,6 +26,8 @@ use indexmap::IndexMap;
 use rayon::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::RuntimeFlavor;
+
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
 /// A materialization pass that materializes the prover's hint DataFrames
 ///
@@ -110,13 +112,36 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
 
     let df_schema_ref = df.schema();
-    let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
+    let arrow_schema = arrow_schema_with_qualifiers(&df_schema_ref);
     let (batches, row_count) =
         pad_batches_to_power_of_two(&arrow_schema, batches).expect("padding should succeed");
 
     let mem_table =
         MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
     Some(MaterializedTable::new(mem_table, row_count))
+}
+
+fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
+    let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
+    let fields: Vec<Field> = df_schema
+        .iter()
+        .map(|(qualifier, field)| {
+            let mut updated = field.as_ref().clone();
+            if updated.name() == arithmetic::ACTIVATOR_COL_NAME
+                || updated.name() == arithmetic::ROW_ID_COL_NAME
+            {
+                return updated;
+            }
+            if let Some(qualifier) = qualifier {
+                // Preserve qualifiers so downstream lookups can disambiguate same-name columns.
+                let mut metadata = updated.metadata().clone();
+                metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
+                updated = updated.with_metadata(metadata);
+            }
+            updated
+        })
+        .collect();
+    Schema::new_with_metadata(fields, arrow_schema.metadata().clone())
 }
 
 fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
@@ -186,6 +211,7 @@ fn pad_batches_to_power_of_two(
     let target = row_count.next_power_of_two();
     let pad = target - row_count;
     if pad == 0 {
+        let batches = rewrap_batches_with_schema(schema, batches)?;
         return Ok((batches, row_count));
     }
 
@@ -226,6 +252,33 @@ fn pad_batches_to_power_of_two(
 
     let out_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
     Ok((vec![out_batch], target))
+}
+
+fn rewrap_batches_with_schema(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> datafusion_common::Result<Vec<RecordBatch>> {
+    if batches.is_empty() {
+        return Ok(batches);
+    }
+    let schema_ref = Arc::new(schema.clone());
+    let has_fields = !schema_ref.fields().is_empty();
+    batches
+        .into_iter()
+        .map(|batch| {
+            if has_fields {
+                let columns = (0..batch.num_columns())
+                    .map(|idx| batch.column(idx).clone())
+                    .collect::<Vec<_>>();
+                RecordBatch::try_new(schema_ref.clone(), columns)
+                    .map_err(|e| DataFusionError::Execution(e.to_string()))
+            } else {
+                let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
+                RecordBatch::try_new_with_options(schema_ref.clone(), vec![], &options)
+                    .map_err(|e| DataFusionError::Execution(e.to_string()))
+            }
+        })
+        .collect()
 }
 
 fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {

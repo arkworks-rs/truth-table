@@ -2,12 +2,17 @@ use std::sync::{Arc, Weak};
 
 use ark_piop::SnarkBackend;
 use datafusion_expr::{LogicalPlan, SubqueryAlias};
+use datafusion::arrow::datatypes::{Field, Schema};
+use indexmap::IndexMap;
 
 use crate::irs::{
     nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
     tree::Tree,
 };
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
 pub struct SubqueryAliasNode<B>
 where
@@ -62,7 +67,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SubqueryAliasNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
-        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+        let alias = self.subquery_alias.alias.to_string();
+        let aliased_table = qualify_tracked_table(input_table, &alias);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
 
@@ -109,7 +116,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SubqueryAliasNode<B> {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
-        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+        let alias = self.subquery_alias.alias.to_string();
+        let aliased_table = qualify_tracked_table_oracle(input_table, &alias);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
     fn initialize_gadgets(
@@ -120,6 +129,72 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SubqueryAliasNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
+}
+
+fn qualify_field(field: &Field, alias: &str) -> Field {
+    if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+        return field.clone();
+    }
+    let mut updated = field.clone();
+    // Record alias in metadata so self-joins can distinguish identical column names.
+    let mut metadata = updated.metadata().clone();
+    metadata.insert(QUALIFIER_METADATA_KEY.to_string(), alias.to_string());
+    updated.with_metadata(metadata)
+}
+
+fn qualify_tracked_table<B: SnarkBackend>(table: TrackedTable<B>, alias: &str) -> TrackedTable<B> {
+    let tracked_polys = table.tracked_polys();
+    let mut qualified = IndexMap::with_capacity(tracked_polys.len());
+    for (field, poly) in tracked_polys.into_iter() {
+        let updated = Arc::new(qualify_field(field.as_ref(), alias));
+        qualified.insert(updated, poly);
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|f| qualify_field(f.as_ref(), alias))
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        Some(Schema::new(
+            qualified
+                .keys()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ))
+    });
+    TrackedTable::new(schema, qualified, table.log_size())
+}
+
+fn qualify_tracked_table_oracle<B: SnarkBackend>(
+    table: TrackedTableOracle<B>,
+    alias: &str,
+) -> TrackedTableOracle<B> {
+    let tracked_oracles = table.tracked_oracles();
+    let mut qualified = IndexMap::with_capacity(tracked_oracles.len());
+    for (field, oracle) in tracked_oracles.into_iter() {
+        let updated = Arc::new(qualify_field(field.as_ref(), alias));
+        qualified.insert(updated, oracle);
+    }
+    let schema = table.schema_ref().map(|schema| {
+        let fields: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|f| qualify_field(f.as_ref(), alias))
+            .collect();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    let schema = schema.or_else(|| {
+        Some(Schema::new(
+            qualified
+                .keys()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ))
+    });
+    TrackedTableOracle::new(schema, qualified, table.log_size())
 }
 
 impl<B: SnarkBackend> IsLpNode<B> for SubqueryAliasNode<B> {

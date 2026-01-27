@@ -99,11 +99,16 @@ fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> Ari
                 let field_ref = if segment_idx == 0 {
                     base_field.clone()
                 } else {
-                    Arc::new(Field::new(
+                    let mut field = Field::new(
                         format!("{}__enc{}", base_field.name(), segment_idx),
                         base_field.data_type().clone(),
                         base_field.is_nullable(),
-                    ))
+                    );
+                    if !base_field.metadata().is_empty() {
+                        // Keep qualifiers on encoded segments so metadata-based matching still works.
+                        field = field.with_metadata(base_field.metadata().clone());
+                    }
+                    Arc::new(field)
                 };
                 segmented.push((field_ref, values));
             }

@@ -20,6 +20,8 @@ use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
 use either::Either;
 use indexmap::IndexMap;
+
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 mod hints;
 mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
@@ -370,7 +372,7 @@ fn index_tracked_oracle<B: SnarkBackend>(
     TrackedOracle::new(Either::Left(index_id), tracker, log_size)
 }
 
-fn output_left_from_output<B: SnarkBackend>(
+fn output_base_from_output<B: SnarkBackend>(
     output: &TrackedTable<B>,
     left: &TrackedTable<B>,
 ) -> TrackedTable<B> {
@@ -385,16 +387,18 @@ fn output_left_from_output<B: SnarkBackend>(
     };
 
     let mut filtered = IndexMap::new();
-    for left_field in &left_fields {
-        let maybe = output_cols
+    for (out_idx, (out_field, out_poly)) in output_cols.iter().enumerate() {
+        if out_field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || out_field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            continue;
+        }
+        if !left_fields
             .iter()
-            .find(|(field, _)| field.name() == left_field.name());
-        let Some((out_field, out_poly)) = maybe else {
-            if left_field.name() == arithmetic::ROW_ID_COL_NAME {
-                continue;
-            }
-            panic!("Join output missing left column {}", left_field.name());
-        };
+            .any(|left_field| field_matches(left_field, out_field))
+        {
+            continue;
+        }
         filtered.insert(out_field.clone(), out_poly.clone());
     }
 
@@ -410,7 +414,40 @@ fn output_left_from_output<B: SnarkBackend>(
     TrackedTable::new(schema, filtered, output.log_size())
 }
 
-fn output_left_from_output_oracle<B: SnarkBackend>(
+fn input_base_from_output<B: SnarkBackend>(
+    input: &TrackedTable<B>,
+    output: &TrackedTable<B>,
+) -> TrackedTable<B> {
+    let output_cols = output.tracked_polys();
+    let input_cols = input.tracked_polys();
+    let mut filtered = IndexMap::new();
+    for (field, poly) in input_cols.iter() {
+        if field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            continue;
+        }
+        if !output_cols
+            .keys()
+            .any(|out_field| field_matches(field, out_field))
+        {
+            continue;
+        }
+        filtered.insert(field.clone(), poly.clone());
+    }
+    let metadata = input
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    TrackedTable::new(schema, filtered, input.log_size())
+}
+
+fn output_base_from_output_oracle<B: SnarkBackend>(
     output: &TrackedTableOracle<B>,
     left: &TrackedTableOracle<B>,
 ) -> TrackedTableOracle<B> {
@@ -425,16 +462,18 @@ fn output_left_from_output_oracle<B: SnarkBackend>(
     };
 
     let mut filtered = IndexMap::new();
-    for left_field in &left_fields {
-        let maybe = output_cols
+    for (out_field, out_oracle) in output_cols.iter() {
+        if out_field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || out_field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            continue;
+        }
+        if !left_fields
             .iter()
-            .find(|(field, _)| field.name() == left_field.name());
-        let Some((out_field, out_oracle)) = maybe else {
-            if left_field.name() == arithmetic::ROW_ID_COL_NAME {
-                continue;
-            }
-            panic!("Join output missing left column {}", left_field.name());
-        };
+            .any(|left_field| field_matches(left_field, out_field))
+        {
+            continue;
+        }
         filtered.insert(out_field.clone(), out_oracle.clone());
     }
 
@@ -448,6 +487,65 @@ fn output_left_from_output_oracle<B: SnarkBackend>(
         .collect();
     let schema = Some(Schema::new_with_metadata(fields, metadata));
     TrackedTableOracle::new(schema, filtered, output.log_size())
+}
+
+fn input_base_from_output_oracle<B: SnarkBackend>(
+    input: &TrackedTableOracle<B>,
+    output: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let output_cols = output.tracked_oracles();
+    let input_cols = input.tracked_oracles();
+    let mut filtered = IndexMap::new();
+    for (field, oracle) in input_cols.iter() {
+        if field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            continue;
+        }
+        if !output_cols
+            .keys()
+            .any(|out_field| field_matches(field, out_field))
+        {
+            continue;
+        }
+        filtered.insert(field.clone(), oracle.clone());
+    }
+    let metadata = input
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    TrackedTableOracle::new(schema, filtered, input.log_size())
+}
+
+fn field_matches(left: &FieldRef, right: &FieldRef) -> bool {
+    if left.name() != right.name() {
+        return false;
+    }
+    if left.name() == arithmetic::ACTIVATOR_COL_NAME
+        || left.name() == arithmetic::ROW_ID_COL_NAME
+    {
+        return true;
+    }
+    // Use qualifier metadata to disambiguate when left/right share column names.
+    let left_qual = field_qualifier(left);
+    let right_qual = field_qualifier(right);
+    match (left_qual, right_qual) {
+        (Some(l), Some(r)) => l == r,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn field_qualifier(field: &FieldRef) -> Option<&str> {
+    field
+        .metadata()
+        .get(QUALIFIER_METADATA_KEY)
+        .map(|value| value.as_str())
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
@@ -478,12 +576,17 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected src-right table for Join gadget");
         };
 
+        // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
+        // Method: We look up table output_left in input_left
+        // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
+        // input left = [left activator | left keys + left data + normal index]
         let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
-        let output_left_base = output_left_from_output(&output, &left_table);
+        let output_left_base = output_base_from_output(&output, &left_table);
         let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
 
         let index_poly = index_tracked_poly(prover, &left_table);
-        let input_left = append_tracked_col(&left_table, src_field, index_poly);
+        let input_left_base = input_base_from_output(&left_table, &output);
+        let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
 
         let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_cols());
         let output_folded = output_left.fold_all_data_columns(&output_challs);
@@ -496,20 +599,25 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             output_folded.data_tracked_poly().id(),
         )?;
 
+        // Purpose: Every row in the output table must consist of columns that come from some row in the right table.
+        // Method: We look up table output_right in input_right
+        // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
+        // input right = [right activator | right keys + right data + normal index]
+
         let (right_src_field, right_src_poly) = single_data_col_from_table(&right_src, "src-right");
-        let output_right_base = output_left_from_output(&output, &right_table);
+        let output_right_base = output_base_from_output(&output, &right_table);
         let output_right =
             append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
 
         let right_index_poly = index_tracked_poly(prover, &right_table);
-        let input_right = append_tracked_col(&right_table, right_src_field, right_index_poly);
+        let input_right_base = input_base_from_output(&right_table, &output);
+        let input_right =
+            append_tracked_col(&input_right_base, right_src_field, right_index_poly);
 
         let output_right_challs = folding_challenges::<B::F>(output_right.num_data_tracked_cols());
         let output_right_folded = output_right.fold_all_data_columns(&output_right_challs);
         let input_right_challs = folding_challenges::<B::F>(input_right.num_data_tracked_cols());
         let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
-
-        // output_right is a subtable of input_right after folding, so add lookup claim.
         prover.add_mv_lookup_claim(
             input_right_folded.data_tracked_poly().id(),
             output_right_folded.data_tracked_poly().id(),
@@ -554,11 +662,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         };
 
         let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
-        let output_left_base = output_left_from_output_oracle(&output, &left_table);
+        let output_left_base = output_base_from_output_oracle(&output, &left_table);
         let output_left = append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
 
         let index_oracle = index_tracked_oracle(verifier, &left_table);
-        let input_left = append_tracked_oracle(&left_table, src_field, index_oracle);
+        let input_left_base = input_base_from_output_oracle(&left_table, &output);
+        let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
 
         let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_col_oracles());
         let output_folded = output_left.fold_all_data_oracles(&output_challs);
@@ -572,7 +681,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let (right_src_field, right_src_oracle) =
             single_data_col_from_table_oracle(&right_src, "src-right");
-        let output_right_base = output_left_from_output_oracle(&output, &right_table);
+        let output_right_base = output_base_from_output_oracle(&output, &right_table);
         let output_right = append_tracked_oracle(
             &output_right_base,
             right_src_field.clone(),
@@ -580,7 +689,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         );
 
         let right_index_oracle = index_tracked_oracle(verifier, &right_table);
-        let input_right = append_tracked_oracle(&right_table, right_src_field, right_index_oracle);
+        let input_right_base = input_base_from_output_oracle(&right_table, &output);
+        let input_right =
+            append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
 
         let output_right_challs =
             folding_challenges::<B::F>(output_right.num_data_tracked_col_oracles());
