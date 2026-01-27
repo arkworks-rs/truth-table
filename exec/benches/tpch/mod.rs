@@ -21,42 +21,44 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q19 = query_spec(19);
         ////////////////////////////////////////////////
         let q8_simplified_sql = "
-WITH n2 AS (
-  SELECT n_nationkey AS n2_nationkey, n_name AS nation
-  FROM nation
-)
 SELECT
-  o_orderdate_year,
-  sum(CASE WHEN nation = 'BRAZIL' THEN volume ELSE 0 END) , sum(volume) AS mkt_share
+    o_orderdate_year,
+    sum(
+        CASE WHEN nation = 'BRAZIL' THEN
+            volume
+        ELSE
+            0
+        END) AS mkt_share_num , sum(volume) AS mkt_share_denom
 FROM (
-  SELECT
-  o_orderdate_year,
-    l_extendedprice * (1 - l_discount) AS volume,
-    n2.nation AS nation
-  FROM
-    part,
-    supplier,
-    lineitem,
-    orders,
-    customer,
-    nation n1,
-    n2,
-    region
-  WHERE
-    p_partkey = l_partkey
-    AND s_suppkey = l_suppkey
-    AND l_orderkey = o_orderkey
-    AND o_custkey = c_custkey
-    AND c_nationkey = n1.n_nationkey
-    AND n1.n_regionkey = r_regionkey
-    AND r_name = 'AMERICA'
-    AND s_nationkey = n2.n2_nationkey
-    AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
-    AND CAST('1996-12-31' AS date)
-    AND p_type = 'ECONOMY ANODIZED STEEL'
-) AS all_nations
-GROUP BY o_orderdate_year
-ORDER BY o_orderdate_year;
+    SELECT
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) AS volume,
+        n2.n_name AS nation
+    FROM
+        part,
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        nation n2,
+        region
+    WHERE
+        p_partkey = l_partkey
+        AND s_suppkey = l_suppkey
+        AND l_orderkey = o_orderkey
+        AND o_custkey = c_custkey
+        AND c_nationkey = n1.n_nationkey
+        AND n1.n_regionkey = r_regionkey
+        AND r_name = 'AMERICA'
+        AND s_nationkey = n2.n_nationkey
+        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+GROUP BY
+    o_orderdate_year
+ORDER BY
+    o_orderdate_year;
         ";
         let q9_simplified_sql = "
 SELECT
