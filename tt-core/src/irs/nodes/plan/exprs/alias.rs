@@ -53,7 +53,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![]
+        vec![self.expr.clone()]
     }
 }
 
@@ -65,12 +65,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let alias_name = self.alias.name.clone();
 
-        let scope = self
-            .scope
-            .upgrade()
-            .expect("Alias scope should be available during witness generation");
-        let scope_id = scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
+        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
@@ -79,7 +74,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
         let mut schema_fields = Vec::new();
         let mut alias_applied = false;
 
-        for (field, poly) in scope_table.tracked_polys_iter() {
+        for (field, poly) in expr_table.tracked_polys_iter() {
+            // Apply alias to the first non-system column, preserving qualifier metadata.
             let new_field = if !alias_applied
                 && field.name() != ACTIVATOR_COL_NAME
                 && field.name() != ROW_ID_COL_NAME
@@ -106,12 +102,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .map(|field_ref| field_ref.as_ref().clone())
             .collect();
         // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
-        let new_schema = scope_table
+        let new_schema = expr_table
             .schema_ref()
             .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
             .or_else(|| Some(Schema::new(fields)));
 
-        let aliased_table = TrackedTable::new(new_schema, tracked_polys, scope_table.log_size());
+        let aliased_table = TrackedTable::new(new_schema, tracked_polys, expr_table.log_size());
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
@@ -166,12 +162,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let alias_name = self.alias.name.clone();
 
-        let scope = self
-            .scope
-            .upgrade()
-            .expect("Alias scope should be available during witness generation");
-        let scope_id = scope.id();
-        let scope_table = match virtualized_ir.payload_for_node(&scope_id) {
+        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
         };
@@ -180,7 +171,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
         let mut schema_fields = Vec::new();
         let mut alias_applied = false;
 
-        for (field, oracle) in scope_table.tracked_oracles_iter() {
+        for (field, oracle) in expr_table.tracked_oracles_iter() {
+            // Apply alias to the first non-system column, preserving qualifier metadata.
             let new_field = if !alias_applied
                 && field.name() != ACTIVATOR_COL_NAME
                 && field.name() != ROW_ID_COL_NAME
@@ -207,13 +199,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .map(|field_ref| field_ref.as_ref().clone())
             .collect();
         // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
-        let new_schema = scope_table
+        let new_schema = expr_table
             .schema_ref()
             .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
             .or_else(|| Some(Schema::new(fields)));
 
         let aliased_table =
-            TrackedTableOracle::new(new_schema, tracked_oracles, scope_table.log_size());
+            TrackedTableOracle::new(new_schema, tracked_oracles, expr_table.log_size());
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
@@ -241,7 +233,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
             datafusion_expr::Expr::Alias(alias) => alias,
             _ => panic!("Expected Alias expression"),
         };
-        let expr_gadget = Tree::<B>::from_expr(&alias.expr, None, scope.clone())
+        // Preserve parent so aggregate expressions resolve against the aggregate plan.
+        let expr_gadget = Tree::<B>::from_expr(&alias.expr, parent.clone(), scope.clone())
             .root()
             .clone();
         Self {

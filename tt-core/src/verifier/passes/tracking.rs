@@ -91,22 +91,6 @@ fn track_hint_df<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
-    dbg!(
-        "verifier tracking schema fields",
-        df_schema_ref
-            .iter()
-            .map(|(qualifier, field)| {
-                (
-                    field.name().to_string(),
-                    qualifier.as_ref().map(|q| q.to_string()),
-                    field
-                        .metadata()
-                        .get(QUALIFIER_METADATA_KEY)
-                        .map(|q| q.to_string()),
-                )
-            })
-            .collect::<Vec<_>>()
-    );
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(&df_schema_ref);
     // Initialize some variables
@@ -155,22 +139,6 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
-    dbg!(
-        "verifier tracking ctx_oracle schema fields",
-        df_schema_ref
-            .iter()
-            .map(|(qualifier, field)| {
-                (
-                    field.name().to_string(),
-                    qualifier.as_ref().map(|q| q.to_string()),
-                    field
-                        .metadata()
-                        .get(QUALIFIER_METADATA_KEY)
-                        .map(|q| q.to_string()),
-                )
-            })
-            .collect::<Vec<_>>()
-    );
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(&df_schema_ref);
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();

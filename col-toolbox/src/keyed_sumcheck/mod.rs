@@ -9,6 +9,7 @@ mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
 use ark_ff::Zero;
+use either::Either;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
@@ -156,6 +157,16 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
 
         // check that the values of claimed sums are equal
         if lhs_v != rhs_v {
+            tracing::debug!(
+                target: "col_toolbox::keyed_sumcheck",
+                f_ids = %format_tracked_col_oracle_ids(&input.fxs),
+                g_ids = %format_tracked_col_oracle_ids(&input.gxs),
+                mf_ids = %format_tracked_oracle_opt_ids(&input.mfxs),
+                mg_ids = %format_tracked_oracle_opt_ids(&input.mgxs),
+                lhs = %lhs_v,
+                rhs = %rhs_v,
+                "keyed sumcheck mismatch"
+            );
             let mut err_msg = "LHS and RHS have different sums".to_string();
             err_msg.push_str(&format!(" LHS: {}, RHS: {}", lhs_v, rhs_v));
             return Err(SnarkError::VerifierError(
@@ -165,6 +176,74 @@ impl<B: SnarkBackend> PIOP<B> for KeyedSumcheck<B> {
 
         Ok(())
     }
+}
+
+fn format_tracked_col_ids<B: SnarkBackend>(cols: &[TrackedCol<B>]) -> String {
+    let mut out = String::from("[");
+    for (i, col) in cols.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match &col.data_tracked_poly().id_or_const {
+            Either::Left(id) => out.push_str(&format!("{:?}", id)),
+            Either::Right(_c) => out.push_str("const"),
+        }
+    }
+    out.push(']');
+    out
+}
+
+fn format_tracked_col_oracle_ids<B: SnarkBackend>(cols: &[TrackedColOracle<B>]) -> String {
+    let mut out = String::from("[");
+    for (i, col) in cols.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match col.data_tracked_oracle().id_or_const() {
+            Either::Left(id) => out.push_str(&format!("{:?}", id)),
+            Either::Right(_c) => out.push_str("const"),
+        }
+    }
+    out.push(']');
+    out
+}
+
+fn format_tracked_poly_opt_ids<B: SnarkBackend>(polys: &[Option<TrackedPoly<B>>]) -> String {
+    let mut out = String::from("[");
+    for (i, poly) in polys.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match poly {
+            Some(p) => match &p.id_or_const {
+                Either::Left(id) => out.push_str(&format!("{:?}", id)),
+                Either::Right(_c) => out.push_str("const"),
+            },
+            None => out.push_str("none"),
+        }
+    }
+    out.push(']');
+    out
+}
+
+fn format_tracked_oracle_opt_ids<B: SnarkBackend>(
+    oracles: &[Option<TrackedOracle<B>>],
+) -> String {
+    let mut out = String::from("[");
+    for (i, oracle) in oracles.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match oracle {
+            Some(o) => match o.id_or_const() {
+                Either::Left(id) => out.push_str(&format!("{:?}", id)),
+                Either::Right(_c) => out.push_str("const"),
+            },
+            None => out.push_str("none"),
+        }
+    }
+    out.push(']');
+    out
 }
 
 impl<B: SnarkBackend> KeyedSumcheck<B> {

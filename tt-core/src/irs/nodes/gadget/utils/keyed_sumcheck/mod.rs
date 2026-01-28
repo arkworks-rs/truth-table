@@ -279,6 +279,10 @@ impl<B: SnarkBackend> GadgetNode<B> {
         match table {
             Some(table) => {
                 let data_indices = table.data_tracked_polys_indices();
+                if data_indices.is_empty() && expected_len > 0 {
+                    // Only system columns present; treat as missing multiplicities.
+                    return vec![None; expected_len];
+                }
                 debug_assert_eq!(
                     data_indices.len(),
                     expected_len,
@@ -308,6 +312,10 @@ impl<B: SnarkBackend> GadgetNode<B> {
         match table {
             Some(table) => {
                 let data_indices = table.data_tracked_oracles_indices();
+                if data_indices.is_empty() && expected_len > 0 {
+                    // Only system columns present; treat as missing multiplicities.
+                    return vec![None; expected_len];
+                }
                 debug_assert_eq!(
                     data_indices.len(),
                     expected_len,
@@ -321,6 +329,64 @@ impl<B: SnarkBackend> GadgetNode<B> {
             None => vec![None; expected_len],
         }
     }
+}
+
+fn format_tracked_col_oracle_ids<B: SnarkBackend>(cols: &[TrackedColOracle<B>]) -> String {
+    let mut out = String::from("[");
+    for (i, col) in cols.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match col.data_tracked_oracle().id_or_const() {
+            either::Either::Left(id) => out.push_str(&format!("{:?}", id)),
+            either::Either::Right(_c) => out.push_str("const"),
+        }
+    }
+    out.push(']');
+    out
+}
+
+fn format_tracked_oracle_opt_ids<B: SnarkBackend>(
+    oracles: &[Option<TrackedOracle<B>>],
+) -> String {
+    let mut out = String::from("[");
+    for (i, oracle) in oracles.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match oracle {
+            Some(o) => match o.id_or_const() {
+                either::Either::Left(id) => out.push_str(&format!("{:?}", id)),
+                either::Either::Right(_c) => out.push_str("const"),
+            },
+            None => out.push_str("none"),
+        }
+    }
+    out.push(']');
+    out
+}
+
+fn format_table_oracle_fields<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<String> {
+    table
+        .tracked_oracles_iter()
+        .enumerate()
+        .map(|(idx, (field, oracle))| {
+            let qualifier = field
+                .metadata()
+                .get("tt.qualifier")
+                .map(String::as_str)
+                .unwrap_or("<none>");
+            let id_str = match oracle.id_or_const() {
+                either::Either::Left(id) => format!("{:?}", id),
+                either::Either::Right(_c) => "const".to_string(),
+            };
+            format!(
+                "idx={idx} name={} qual={qualifier} type={:?} id={id_str}",
+                field.name(),
+                field.data_type()
+            )
+        })
+        .collect()
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {

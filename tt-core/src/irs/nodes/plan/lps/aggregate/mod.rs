@@ -6,6 +6,7 @@ use arithmetic::{
 use ark_ff::One;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion_common::Column;
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
 use either::Either;
 use indexmap::IndexMap;
@@ -35,6 +36,7 @@ where
 }
 
 const AGG_GROUP_KEY_COL_NAME: &str = "__agg_group_key__";
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
 fn agg_group_key_field() -> FieldRef {
     Arc::new(Field::new(
@@ -522,19 +524,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
             current_table: &TrackedTableOracle<B>,
             virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
         ) -> ark_piop::errors::SnarkResult<()> {
-            let schema = match current_table.schema_ref() {
-                Some(schema) => schema,
-                None => return Ok(()),
-            };
-
             let mut group_indices = Vec::with_capacity(aggregate.group_expr.len());
             for expr in &aggregate.group_expr {
                 let Expr::Column(col) = expr else {
                     panic!("Aggregate group expressions must be column references");
                 };
-                let idx = schema
-                    .index_of(&col.name)
-                    .expect("Aggregate group column missing from payload schema");
+                let idx = find_tracked_oracle_index_by_column(current_table, col);
                 group_indices.push(idx);
             }
             let groups_table = if group_indices.is_empty() {
@@ -552,9 +547,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
 
             for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
                 let column_name = expr.schema_name().to_string();
-                let col_idx = schema
-                    .index_of(&column_name)
-                    .expect("Aggregate result column missing from payload schema");
+                let col_idx = find_tracked_oracle_index_by_name(current_table, &column_name);
                 let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
 
                 let mut gadget_payload = match virtualized_ir.payload_for_node(&expr_node.id()) {
@@ -588,36 +581,25 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
             gadget_id: crate::irs::nodes::NodeId,
             virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
         ) -> ark_piop::errors::SnarkResult<()> {
-            let input_schema = match input_table.schema_ref() {
-                Some(schema) => schema,
-                None => return Ok(()),
-            };
-            let output_schema = match output_table.schema_ref() {
-                Some(schema) => schema,
-                None => return Ok(()),
-            };
-
             let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
             let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
             for expr in &aggregate.group_expr {
                 let Expr::Column(col) = expr else {
                     panic!("Aggregate group expressions must be column references");
                 };
-                let input_idx = input_schema
-                    .index_of(&col.name)
-                    .expect("Aggregate input group column missing from payload schema");
-                let output_idx = output_schema
-                    .index_of(&col.name)
-                    .expect("Aggregate output group column missing from payload schema");
+                let input_idx = find_tracked_oracle_index_by_column(input_table, col);
+                let output_idx = find_tracked_oracle_index_by_column(output_table, col);
                 input_group_indices.push(input_idx);
                 output_group_indices.push(output_idx);
             }
-            if let Ok(input_idx) = input_schema.index_of(ACTIVATOR_COL_NAME)
+            if let Some(input_idx) =
+                find_tracked_oracle_index_by_name_optional(input_table, ACTIVATOR_COL_NAME)
                 && !input_group_indices.contains(&input_idx)
             {
                 input_group_indices.push(input_idx);
             }
-            if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME)
+            if let Some(output_idx) =
+                find_tracked_oracle_index_by_name_optional(output_table, ACTIVATOR_COL_NAME)
                 && !output_group_indices.contains(&output_idx)
             {
                 output_group_indices.push(output_idx);
@@ -636,7 +618,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
             } else {
                 output_table.tracked_subtable_by_indices(&output_group_indices)
             };
-
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget_id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -745,19 +726,12 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
     _prover: &mut ark_piop::prover::ArgProver<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let schema = match current_table.schema_ref() {
-        Some(schema) => schema,
-        None => return Ok(()),
-    };
-
     let mut group_indices = Vec::with_capacity(aggregate.group_expr.len());
     for expr in &aggregate.group_expr {
         let Expr::Column(col) = expr else {
             panic!("Aggregate group expressions must be column references");
         };
-        let idx = schema
-            .index_of(&col.name)
-            .expect("Aggregate group column missing from payload schema");
+        let idx = find_tracked_index_by_column(current_table, col);
         group_indices.push(idx);
     }
     let groups_table = if group_indices.is_empty() {
@@ -775,9 +749,7 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
 
     for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
         let column_name = expr.schema_name().to_string();
-        let col_idx = schema
-            .index_of(&column_name)
-            .expect("Aggregate result column missing from payload schema");
+        let col_idx = find_tracked_index_by_name(current_table, &column_name);
         let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
 
         let mut gadget_payload = match virtualized_ir.payload_for_node(&expr_node.id()) {
@@ -809,36 +781,23 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     gadget_id: crate::irs::nodes::NodeId,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let input_schema = match input_table.schema_ref() {
-        Some(schema) => schema,
-        None => return Ok(()),
-    };
-    let output_schema = match output_table.schema_ref() {
-        Some(schema) => schema,
-        None => return Ok(()),
-    };
-
     let mut input_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
     let mut output_group_indices = Vec::with_capacity(aggregate.group_expr.len() + 1);
     for expr in &aggregate.group_expr {
         let Expr::Column(col) = expr else {
             panic!("Aggregate group expressions must be column references");
         };
-        let input_idx = input_schema
-            .index_of(&col.name)
-            .expect("Aggregate input group column missing from payload schema");
-        let output_idx = output_schema
-            .index_of(&col.name)
-            .expect("Aggregate output group column missing from payload schema");
+        let input_idx = find_tracked_index_by_column(input_table, col);
+        let output_idx = find_tracked_index_by_column(output_table, col);
         input_group_indices.push(input_idx);
         output_group_indices.push(output_idx);
     }
-    if let Ok(input_idx) = input_schema.index_of(ACTIVATOR_COL_NAME)
+    if let Some(input_idx) = find_tracked_index_by_name_optional(input_table, ACTIVATOR_COL_NAME)
         && !input_group_indices.contains(&input_idx)
     {
         input_group_indices.push(input_idx);
     }
-    if let Ok(output_idx) = output_schema.index_of(ACTIVATOR_COL_NAME)
+    if let Some(output_idx) = find_tracked_index_by_name_optional(output_table, ACTIVATOR_COL_NAME)
         && !output_group_indices.contains(&output_idx)
     {
         output_group_indices.push(output_idx);
@@ -856,7 +815,6 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     } else {
         output_table.tracked_subtable_by_indices(&output_group_indices)
     };
-
     let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
@@ -877,6 +835,106 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     );
     Ok(())
 }
+
+fn field_qualifier(field: &FieldRef) -> Option<&str> {
+    field
+        .metadata()
+        .get(QUALIFIER_METADATA_KEY)
+        .map(|value| value.as_str())
+}
+
+fn find_tracked_index_by_column<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    col: &Column,
+) -> usize {
+    let qualifier = col.relation.as_ref().map(|q| q.to_string());
+    find_tracked_index(table.tracked_polys().iter(), &col.name, qualifier.as_deref())
+}
+
+fn find_tracked_index_by_name<B: SnarkBackend>(table: &TrackedTable<B>, name: &str) -> usize {
+    find_tracked_index(table.tracked_polys().iter(), name, None)
+}
+
+fn find_tracked_index_by_name_optional<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    name: &str,
+) -> Option<usize> {
+    table
+        .tracked_polys()
+        .iter()
+        .position(|(field, _)| field.name() == name)
+}
+
+fn find_tracked_oracle_index_by_column<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    col: &Column,
+) -> usize {
+    let qualifier = col.relation.as_ref().map(|q| q.to_string());
+    find_tracked_index(table.tracked_oracles().iter(), &col.name, qualifier.as_deref())
+}
+
+fn find_tracked_oracle_index_by_name<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    name: &str,
+) -> usize {
+    find_tracked_index(table.tracked_oracles().iter(), name, None)
+}
+
+fn find_tracked_oracle_index_by_name_optional<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    name: &str,
+) -> Option<usize> {
+    table
+        .tracked_oracles()
+        .iter()
+        .position(|(field, _)| field.name() == name)
+}
+
+fn find_tracked_index<'a, T: 'a, I>(iter: I, name: &str, qualifier: Option<&str>) -> usize
+where
+    I: Iterator<Item = (&'a FieldRef, &'a T)>,
+{
+    let mut name_matches = Vec::new();
+    let mut qualifier_matches = Vec::new();
+
+    for (idx, (field, _)) in iter.enumerate() {
+        if field.name() != name {
+            continue;
+        }
+        name_matches.push(idx);
+        let field_qual = field_qualifier(field);
+        match (qualifier, field_qual) {
+            (Some(q), Some(fq)) if fq == q => qualifier_matches.push(idx),
+            (None, None) => qualifier_matches.push(idx),
+            _ => {}
+        }
+    }
+
+    if let Some(q) = qualifier {
+        if qualifier_matches.len() == 1 {
+            return qualifier_matches[0];
+        }
+        if qualifier_matches.is_empty() && name_matches.len() == 1 {
+            return name_matches[0];
+        }
+        panic!(
+            "Aggregate column resolution failed for name={name} qualifier={q}: matches={:?}",
+            name_matches
+        );
+    }
+
+    if qualifier_matches.len() == 1 {
+        return qualifier_matches[0];
+    }
+    if qualifier_matches.is_empty() && name_matches.len() == 1 {
+        return name_matches[0];
+    }
+    panic!(
+        "Aggregate column resolution failed for name={name}: matches={:?}",
+        name_matches
+    );
+}
+
 
 fn count_output_names(aggr_exprs: &[Expr]) -> Vec<String> {
     fn is_count_expr(expr: &Expr) -> bool {

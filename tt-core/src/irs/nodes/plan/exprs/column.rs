@@ -4,6 +4,9 @@ use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, DFSchema, Statistics};
 
+// Store column qualifiers in metadata to disambiguate same-name columns.
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+
 use crate::irs::{
     nodes::{IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
     payloads::PayloadStructure,
@@ -57,9 +60,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper: try to pull the requested column (and activator) from a tracked table.
         let try_build_subtable =
-            |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
-                let schema = table.schema_ref()?;
-                let col_idx = schema.index_of(column_name).ok()?;
+            |table: &arithmetic::table::TrackedTable<B>, column: &Column| -> Option<_> {
+                let col_idx = tracked_table_index_of_column(table, column)?;
                 Some(table.tracked_subtable_by_indices(&[col_idx]))
             };
         let scope = self
@@ -71,7 +73,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-            && let Some(subtable) = try_build_subtable(table, self.column.name())
+            && let Some(subtable) = try_build_subtable(table, &self.column)
         {
             virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
             return Ok(());
@@ -156,6 +158,59 @@ fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::E
     datafusion_expr::Expr::Column(Column::new_unqualified(name))
 }
 
+// Resolve by qualifier metadata when present to disambiguate self-joins.
+fn tracked_table_index_of_column<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+    column: &Column,
+) -> Option<usize> {
+    let name = column.name();
+    if let Some(relation) = column.relation.as_ref() {
+        let relation_str = relation.to_string();
+        if let Some((idx, _)) = table.tracked_polys().iter().enumerate().find(|(_, (field, _))| {
+            field.name() == name
+                && field
+                    .metadata()
+                    .get(QUALIFIER_METADATA_KEY)
+                    .is_some_and(|q| q == &relation_str)
+        }) {
+            return Some(idx);
+        }
+    }
+    table
+        .tracked_polys()
+        .iter()
+        .position(|(field, _)| field.name() == name)
+}
+
+// Verifier-side version of qualifier-aware column lookup.
+fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    column: &Column,
+) -> Option<usize> {
+    let name = column.name();
+    if let Some(relation) = column.relation.as_ref() {
+        let relation_str = relation.to_string();
+        if let Some((idx, _)) = table
+            .tracked_oracles()
+            .iter()
+            .enumerate()
+            .find(|(_, (field, _))| {
+                field.name() == name
+                    && field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .is_some_and(|q| q == &relation_str)
+            })
+        {
+            return Some(idx);
+        }
+    }
+    table
+        .tracked_oracles()
+        .iter()
+        .position(|(field, _)| field.name() == name)
+}
+
 impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     fn add_virtual_witness(
         &self,
@@ -164,9 +219,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Helper: try to pull the requested column (and activator) from a tracked table oracle.
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-                                  column_name: &str| {
-            let schema = table.schema_ref()?;
-            let col_idx = schema.index_of(column_name).ok()?;
+                                  column: &Column| {
+            let col_idx = tracked_table_oracle_index_of_column(table, column)?;
             Some(table.tracked_subtable_by_indices(&[col_idx]))
         };
         let scope = self
@@ -178,7 +232,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 
         // First try the scope payload itself.
         if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
-            && let Some(subtable) = try_build_subtable(table, self.column.name())
+            && let Some(subtable) = try_build_subtable(table, &self.column)
         {
             virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
             return Ok(());

@@ -33,6 +33,31 @@ impl<B: SnarkBackend> ProverNode<B> {
             .schema_name()
             .to_string()
     }
+
+    // Resolve the aggregate output name as it appears in the parent Aggregate plan
+    // (handles aliases like `sum(...) AS volume`).
+    fn output_column_name_in_parent(&self) -> String {
+        let parent_plan = self.parent();
+        if let crate::irs::nodes::PlanNode::LpBased(lp_node) = parent_plan {
+            if let LogicalPlan::Aggregate(aggregate) = lp_node.lp() {
+                let target = Expr::AggregateFunction(self.aggregate_function.clone());
+                for expr in &aggregate.aggr_expr {
+                    match expr {
+                        Expr::Alias(alias) if *alias.expr == target => {
+                            return alias.name.clone();
+                        }
+                        Expr::AggregateFunction(func) if *func == self.aggregate_function => {
+                            return Expr::AggregateFunction(func.clone())
+                                .schema_name()
+                                .to_string();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        self.output_column_name()
+    }
     fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
         match aggregate_function.func.name() {
             "count" => None,
@@ -146,7 +171,9 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
         .expect("aggregate function output row-id sort should succeed");
 
         let mut output_exprs = aggregate.group_expr.clone();
-        output_exprs.push(Expr::Column(Column::from_name(self.output_column_name())));
+        output_exprs.push(Expr::Column(Column::from_name(
+            self.output_column_name_in_parent(),
+        )));
         crate::irs::nodes::hints::append_activator_exprs_if_present(&output_df, &mut output_exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&output_df, &mut output_exprs);
         let output_projected = output_df
@@ -212,8 +239,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
                     )
                 });
 
-            let count_table =
-                count_table_from_multiplicities(&multiplicities_table, &self.output_column_name());
+            let count_table = count_table_from_multiplicities(
+                &multiplicities_table,
+                &self.output_column_name_in_parent(),
+            );
             // Emit a virtual table named after the COUNT output column, backed by
             // the multiplicity polynomial (plus system columns).
             virtualized_ir
@@ -228,12 +257,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
             .expect("AggregateFunction node must have a parent");
         let parent_id = parent_node.id();
         let parent_payload = virtualized_ir.payload_for_node(&parent_id);
-        let column_name = self.output_column_name();
+        let column_name = self.output_column_name_in_parent();
 
         let try_build_subtable =
             |table: &arithmetic::table::TrackedTable<B>, column_name: &str| -> Option<_> {
-                let schema = table.schema_ref()?;
-                let col_idx = schema.index_of(column_name).ok()?;
+                let col_idx = tracked_table_index_of_name(table, column_name)?;
                 Some(table.tracked_subtable_by_indices(&[col_idx]))
             };
 
@@ -350,7 +378,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let parent_hint_df = self.parent().output();
-        let column_name = self.output_column_name();
+        let column_name = self.output_column_name_in_parent();
         let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
             parent_hint_df.data_frame().clone(),
         )
@@ -405,7 +433,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
 
             let count_table = count_table_from_multiplicities_oracle(
                 &multiplicities_table,
-                &self.output_column_name(),
+                &self.output_column_name_in_parent(),
             );
             // Emit a virtual table named after the COUNT output column, backed by
             // the multiplicity oracle (plus system columns).
@@ -421,12 +449,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
             .expect("AggregateFunction node must have a parent");
         let parent_id = parent_node.id();
         let parent_payload = virtualized_ir.payload_for_node(&parent_id);
-        let column_name = self.output_column_name();
+        let column_name = self.output_column_name_in_parent();
 
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                                   column_name: &str| {
-            let schema = table.schema_ref()?;
-            let col_idx = schema.index_of(column_name).ok()?;
+            let col_idx = tracked_table_oracle_index_of_name(table, column_name)?;
             Some(table.tracked_subtable_by_indices(&[col_idx]))
         };
 
@@ -625,6 +652,26 @@ fn count_table_from_multiplicities_oracle<B: SnarkBackend>(
         Schema::new_with_metadata(fields, schema.metadata().clone())
     });
     arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, multiplicities.log_size())
+}
+
+fn tracked_table_index_of_name<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+    column_name: &str,
+) -> Option<usize> {
+    table
+        .tracked_polys()
+        .iter()
+        .position(|(field, _)| field.name() == column_name)
+}
+
+fn tracked_table_oracle_index_of_name<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    column_name: &str,
+) -> Option<usize> {
+    table
+        .tracked_oracles()
+        .iter()
+        .position(|(field, _)| field.name() == column_name)
 }
 
 impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
