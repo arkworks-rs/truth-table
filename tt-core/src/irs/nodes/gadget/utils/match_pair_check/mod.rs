@@ -708,7 +708,7 @@ fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, 
     let mut right_cols = Vec::with_capacity(join.on.len());
     let mut key_names = Vec::with_capacity(join.on.len());
 
-    for (left_expr, right_expr) in &join.on {
+    for (idx, (left_expr, right_expr)) in join.on.iter().enumerate() {
         let (left_col, right_col) = match (left_expr, right_expr) {
             (Expr::Column(left_col), Expr::Column(right_col)) => (left_col, right_col),
             _ => {
@@ -719,7 +719,8 @@ fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, 
         };
         left_cols.push(left_col.clone());
         right_cols.push(right_col.clone());
-        key_names.push(left_col.name.clone());
+        // Use a deterministic, unambiguous alias for each join key.
+        key_names.push(format!("__mp_key_{idx}"));
     }
 
     Ok((left_cols, right_cols, key_names))

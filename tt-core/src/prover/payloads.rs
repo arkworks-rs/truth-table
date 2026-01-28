@@ -22,12 +22,26 @@ pub type GadgetReadyPayload<B> = PayloadStructure<TrackedTable<B>>;
 pub struct MaterializedTable {
     table: Arc<MemTable>,
     row_count: usize,
+    batches: Option<Vec<RecordBatch>>,
 }
 impl MaterializedTable {
     pub fn new(table: MemTable, row_count: usize) -> Self {
         Self {
             table: Arc::new(table),
             row_count,
+            batches: None,
+        }
+    }
+
+    pub fn new_with_batches(
+        table: MemTable,
+        row_count: usize,
+        batches: Vec<RecordBatch>,
+    ) -> Self {
+        Self {
+            table: Arc::new(table),
+            row_count,
+            batches: Some(batches),
         }
     }
 
@@ -43,6 +57,9 @@ impl MaterializedTable {
     }
 
     pub fn batches(&self) -> datafusion_common::Result<Vec<RecordBatch>> {
+        if let Some(batches) = &self.batches {
+            return Ok(batches.clone());
+        }
         let ctx = SessionContext::new();
         let df = ctx.read_table(self.table.clone())?;
         collect_blocking_df(df)

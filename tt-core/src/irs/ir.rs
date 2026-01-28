@@ -1,5 +1,7 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
+use tracing::instrument;
+use tracing::debug;
 
 use crate::irs::{
     nodes::{IsNode, Node, NodeId, PlanNode},
@@ -162,7 +164,19 @@ where
                 .as_ref()
                 .cloned()
                 .or_else(|| pass.fallback_payload(&node, id));
+            debug!(
+                node_id = ?id,
+                node_name = %node.name(),
+                has_payload = input_payload.is_some(),
+                "pass.transform start"
+            );
             let p_out = pass.transform(&node, id, input_payload.as_ref());
+            debug!(
+                node_id = ?id,
+                node_name = %node.name(),
+                produced = p_out.is_some(),
+                "pass.transform end"
+            );
             out.insert(id, p_out);
         }
         Ir {
@@ -186,7 +200,17 @@ where
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
+                debug!(
+                    node_id = ?id,
+                    has_payload = self.payloads.get(id).is_some_and(|opt| opt.is_some()),
+                    "pass.transform start"
+                );
                 let maybe = pass.transform(node, *id, self.payloads[id].as_ref());
+                debug!(
+                    node_id = ?id,
+                    produced = maybe.is_some(),
+                    "pass.transform end"
+                );
                 (*id, maybe)
             })
             .collect();

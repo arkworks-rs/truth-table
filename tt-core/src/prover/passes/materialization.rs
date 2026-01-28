@@ -116,9 +116,13 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let (batches, row_count) =
         pad_batches_to_power_of_two(&arrow_schema, batches).expect("padding should succeed");
 
+    let mem_batches = batches.clone();
     let mem_table =
-        MemTable::try_new(Arc::new(arrow_schema), vec![batches]).expect("memtable creation");
-    Some(MaterializedTable::new(mem_table, row_count))
+        MemTable::try_new(Arc::new(arrow_schema), vec![mem_batches]).expect("memtable creation");
+    // Store batches so arithmetization can bypass DataFusion schema name checks.
+    Some(MaterializedTable::new_with_batches(
+        mem_table, row_count, batches,
+    ))
 }
 
 fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
@@ -283,6 +287,14 @@ fn rewrap_batches_with_schema(
 
 fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {
     let name = field.name();
+    if let Some(qualifier_meta) = field.metadata().get(QUALIFIER_METADATA_KEY) {
+        if let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
+            f.name() == name
+                && q.as_ref().map(|q| q.to_string()) == Some(qualifier_meta.to_string())
+        }) {
+            return Expr::Column(Column::new(qualifier.cloned(), name));
+        }
+    }
     if let Some((qualifier, _)) = schema.iter().find(|(_, f)| f.name() == name) {
         return Expr::Column(Column::new(qualifier.cloned(), name));
     }

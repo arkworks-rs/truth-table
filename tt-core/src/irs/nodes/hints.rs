@@ -1,9 +1,10 @@
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
-use datafusion_common::{Column, Result as DataFusionResult};
+use datafusion_common::{Column, Result as DataFusionResult, TableReference};
 use datafusion_expr::{expr::Alias, Expr, LogicalPlan, SortExpr, col, expr_fn::try_cast};
 use indexmap::IndexMap;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct HintDF {
@@ -244,6 +245,26 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
     HintDF::new(projected_df, should_materialize)
 }
 
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+
+fn field_with_qualifier_metadata(
+    field: &FieldRef,
+    qualifier: Option<&TableReference>,
+) -> FieldRef {
+    let mut updated = field.as_ref().clone();
+    if updated.name() == arithmetic::ACTIVATOR_COL_NAME
+        || updated.name() == arithmetic::ROW_ID_COL_NAME
+    {
+        return Arc::new(updated);
+    }
+    if let Some(qualifier) = qualifier {
+        let mut metadata = updated.metadata().clone();
+        metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
+        updated = updated.with_metadata(metadata);
+    }
+    Arc::new(updated)
+}
+
 fn normalize_hint_df(
     data_fram: DataFrame,
     should_materialize: IndexMap<FieldRef, bool>,
@@ -289,13 +310,14 @@ fn normalize_hint_df(
     };
 
     let mut normalized_should_materialize = IndexMap::new();
-    for (idx, field) in normalized_df.schema().fields().iter().enumerate() {
+    for (idx, (qualifier, field)) in normalized_df.schema().iter().enumerate() {
         let original_field = &original_fields[idx];
         let should = should_materialize
             .get(original_field)
             .copied()
             .unwrap_or(true);
-        normalized_should_materialize.insert(field.clone(), should);
+        let qualified_field = field_with_qualifier_metadata(field, qualifier);
+        normalized_should_materialize.insert(qualified_field, should);
     }
 
     (normalized_df, normalized_should_materialize)

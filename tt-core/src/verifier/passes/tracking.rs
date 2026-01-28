@@ -1,4 +1,3 @@
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
 use datafusion::arrow::datatypes::{FieldRef, Schema};
@@ -16,8 +15,8 @@ use crate::{
     verifier::payloads::TrackedPayload,
 };
 use std::cell::RefCell;
-use tracing::debug;
 use std::sync::Arc;
+use tracing::debug;
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 /// A tracking pass that tracks and commits the verifier's arithmetized tables
@@ -92,6 +91,22 @@ fn track_hint_df<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
+    dbg!(
+        "verifier tracking schema fields",
+        df_schema_ref
+            .iter()
+            .map(|(qualifier, field)| {
+                (
+                    field.name().to_string(),
+                    qualifier.as_ref().map(|q| q.to_string()),
+                    field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .map(|q| q.to_string()),
+                )
+            })
+            .collect::<Vec<_>>()
+    );
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(&df_schema_ref);
     // Initialize some variables
@@ -104,7 +119,10 @@ fn track_hint_df<B: SnarkBackend>(
         if !*should_mat {
             continue;
         }
-        let qualified_field = qualified_fields.get(field).cloned().unwrap_or_else(|| field.clone());
+        let qualified_field = qualified_fields
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| field.clone());
         // Use the next expected id so the verifier's tracker stays in sync with the proof
         let id = verifier.peek_next_id();
         let oracle = verifier
@@ -137,6 +155,22 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     verifier: &RefCell<ArgVerifier<B>>,
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
+    dbg!(
+        "verifier tracking ctx_oracle schema fields",
+        df_schema_ref
+            .iter()
+            .map(|(qualifier, field)| {
+                (
+                    field.name().to_string(),
+                    qualifier.as_ref().map(|q| q.to_string()),
+                    field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .map(|q| q.to_string()),
+                )
+            })
+            .collect::<Vec<_>>()
+    );
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
     let qualified_fields = qualify_fields(&df_schema_ref);
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
@@ -147,12 +181,22 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
         if !*should_mat {
             continue;
         }
-        let qualified_field = qualified_fields.get(field).cloned().unwrap_or_else(|| field.clone());
+        let qualified_field = qualified_fields
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| field.clone());
         let commitment = oracle
             .comitments()
             .get(field)
-            .expect("ctx_oracle missing commitment for table scan field")
-            .clone();
+            .cloned()
+            .or_else(|| {
+                oracle
+                    .comitments()
+                    .iter()
+                    .find(|(oracle_field, _)| oracle_field.name() == field.name())
+                    .map(|(_, commitment)| commitment.clone())
+            })
+            .expect("ctx_oracle missing commitment for table scan field");
         // Reuse ctx_oracle commitments to avoid tracking via proof IDs.
         let tracked_oracle = verifier
             .track_mat_mv_com(commitment)

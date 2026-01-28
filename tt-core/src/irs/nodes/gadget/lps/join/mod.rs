@@ -582,16 +582,37 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         // input left = [left activator | left keys + left data + normal index]
         let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
         let output_left_base = output_base_from_output(&output, &left_table);
+        dbg!(
+            "join prover output_left_base cols",
+            output_left_base
+                .tracked_polys()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
 
         let index_poly = index_tracked_poly(prover, &left_table);
         let input_left_base = input_base_from_output(&left_table, &output);
+        dbg!(
+            "join prover input_left_base cols",
+            input_left_base
+                .tracked_polys()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
 
         let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_cols());
         let output_folded = output_left.fold_all_data_columns(&output_challs);
         let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_cols());
         let input_folded = input_left.fold_all_data_columns(&input_challs);
+        dbg!(
+            "join prover left folded ids",
+            input_folded.data_tracked_poly().id(),
+            output_folded.data_tracked_poly().id()
+        );
 
         // output_left is a subtable of input_left after folding, so add lookup claim.
         prover.add_mv_lookup_claim(
@@ -606,11 +627,27 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let (right_src_field, right_src_poly) = single_data_col_from_table(&right_src, "src-right");
         let output_right_base = output_base_from_output(&output, &right_table);
+        dbg!(
+            "join prover output_right_base cols",
+            output_right_base
+                .tracked_polys()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let output_right =
             append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
 
         let right_index_poly = index_tracked_poly(prover, &right_table);
         let input_right_base = input_base_from_output(&right_table, &output);
+        dbg!(
+            "join prover input_right_base cols",
+            input_right_base
+                .tracked_polys()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let input_right =
             append_tracked_col(&input_right_base, right_src_field, right_index_poly);
 
@@ -618,6 +655,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let output_right_folded = output_right.fold_all_data_columns(&output_right_challs);
         let input_right_challs = folding_challenges::<B::F>(input_right.num_data_tracked_cols());
         let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
+        dbg!(
+            "join prover right folded ids",
+            input_right_folded.data_tracked_poly().id(),
+            output_right_folded.data_tracked_poly().id()
+        );
         prover.add_mv_lookup_claim(
             input_right_folded.data_tracked_poly().id(),
             output_right_folded.data_tracked_poly().id(),
@@ -661,18 +703,64 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected src-right table for Join gadget");
         };
 
+        dbg!(
+            "join verifier output cols",
+            output
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
+        dbg!(
+            "join verifier left table cols",
+            left_table
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
+        dbg!(
+            "join verifier right table cols",
+            right_table
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
+
         let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
         let output_left_base = output_base_from_output_oracle(&output, &left_table);
+        dbg!(
+            "join verifier output_left_base cols",
+            output_left_base
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let output_left = append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
 
         let index_oracle = index_tracked_oracle(verifier, &left_table);
         let input_left_base = input_base_from_output_oracle(&left_table, &output);
+        dbg!(
+            "join verifier input_left_base cols",
+            input_left_base
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
 
         let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_col_oracles());
         let output_folded = output_left.fold_all_data_oracles(&output_challs);
         let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_col_oracles());
         let input_folded = input_left.fold_all_data_oracles(&input_challs);
+        dbg!(
+            "join verifier left folded ids",
+            input_folded.data_tracked_oracle().id(),
+            output_folded.data_tracked_oracle().id()
+        );
 
         verifier.add_mv_lookup_claim(
             input_folded.data_tracked_oracle().id(),
@@ -682,6 +770,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let (right_src_field, right_src_oracle) =
             single_data_col_from_table_oracle(&right_src, "src-right");
         let output_right_base = output_base_from_output_oracle(&output, &right_table);
+        dbg!(
+            "join verifier output_right_base cols",
+            output_right_base
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let output_right = append_tracked_oracle(
             &output_right_base,
             right_src_field.clone(),
@@ -690,6 +786,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let right_index_oracle = index_tracked_oracle(verifier, &right_table);
         let input_right_base = input_base_from_output_oracle(&right_table, &output);
+        dbg!(
+            "join verifier input_right_base cols",
+            input_right_base
+                .tracked_oracles()
+                .keys()
+                .map(|f| (f.name().to_string(), field_qualifier(f).map(|q| q.to_string())))
+                .collect::<Vec<_>>()
+        );
         let input_right =
             append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
 
@@ -699,6 +803,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let input_right_challs =
             folding_challenges::<B::F>(input_right.num_data_tracked_col_oracles());
         let input_right_folded = input_right.fold_all_data_oracles(&input_right_challs);
+        dbg!(
+            "join verifier right folded ids",
+            input_right_folded.data_tracked_oracle().id(),
+            output_right_folded.data_tracked_oracle().id()
+        );
 
         verifier.add_mv_lookup_claim(
             input_right_folded.data_tracked_oracle().id(),
