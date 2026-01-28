@@ -31,11 +31,17 @@ struct Cli {
 /// Truthtable CLI commands
 #[derive(Subcommand)]
 enum Commands {
+    /// Generate proving/verifying keys
     Setup(cmd::setup::Setup),
+    /// Commit a table to an oracle
     Commit(cmd::commit::Commit),
+    /// Generate a proof for a query
     Prove(cmd::prove::Prove),
+    /// Verify a proof for a query
     Verify(cmd::verify::Verify),
+    /// Generate TPC-H Parquet data (for testing and benchmarking purposes)
     DataGen(cmd::data_gen::DataGen),
+    /// Run a SQL query against Parquet files
     Query(cmd::query::Query),
 }
 
