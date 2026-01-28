@@ -14,7 +14,7 @@ fn filter_cases() -> &'static [BenchCase] {
         let cases = vec![
             BenchCase {
                 name: "filter_eq",
-                query: r#"SELECT l_returnflag, l_linestatus FROM lineitem WHERE l_partkey = 214"#,
+                query: r#"SELECT l_returnflag FROM lineitem WHERE l_partkey = 214"#,
                 tables: &["lineitem"],
             },
             BenchCase {

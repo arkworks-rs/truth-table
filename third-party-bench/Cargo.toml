@@ -1,0 +1,16 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "third-party-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql.git", branch = "main", package = "proof-of-sql-benchlib" }
+
+[[bench]]
+name = "sxt_proof_of_sql"
+harness = false
