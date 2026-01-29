@@ -2,7 +2,6 @@ use ark_piop::{
     DefaultSnarkBackend, SnarkBackend, arithmetic::mat_poly::mle::MLE, errors::SnarkResult,
     piop::PIOP, test_utils::test_prelude, to_field_vec,
 };
-use ark_test_curves::bls12_381::Fr;
 
 use super::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput};
 // Test cases for multiplicity check, where the active and multiplicative
@@ -12,15 +11,15 @@ use super::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput};
 fn binary_check_is_complete() -> SnarkResult<()> {
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], Fr),
+        to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
     )?;
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([1, 0, 1, 1, 1, 0, 0, 1], Fr),
+        to_field_vec!([1, 0, 1, 1, 1, 0, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
     )?;
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0,], Fr),
+        to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0,], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
     )?;
     Ok(())
 }
@@ -29,11 +28,11 @@ fn binary_check_is_complete() -> SnarkResult<()> {
 fn binary_check_is_sound() -> SnarkResult<()> {
     binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 0, 20, 18, 2, 12, 3], Fr),
+        to_field_vec!([4, 7, 0, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
     )?;
     binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 0, 1, 20, 0, 2, 0, 3], Fr),
+        to_field_vec!([4, 0, 1, 20, 0, 2, 0, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
     )?;
     Ok(())
 }

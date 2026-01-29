@@ -6,7 +6,6 @@ use ark_piop::{
 };
 use ark_poly::MultilinearExtension;
 use ark_std::test_rng;
-use ark_test_curves::bls12_381::Fr;
 
 use super::{FoldCheckPIOP, FoldCheckProverInput, FoldCheckVerifierInput};
 
@@ -22,9 +21,15 @@ fn test_fold_check() -> SnarkResult<()> {
     let input_mles = (0..num)
         .map(|_| MLE::rand(nv, &mut rng))
         .collect::<Vec<_>>();
-    let activator_mle = MLE::from_evaluations_vec(nv, vec![Fr::ONE; 2_usize.pow(nv as u32)]);
+    let activator_mle = MLE::from_evaluations_vec(
+        nv,
+        vec![
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE;
+            2_usize.pow(nv as u32)
+        ],
+    );
     let activator_tracked_mle = prover.track_and_commit_mat_mv_poly(&activator_mle).unwrap();
-    let challs = vec![Fr::rand(&mut rng); num];
+    let challs = vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::rand(&mut rng); num];
     let folded_poly = fold_mles(&input_mles, &challs);
 
     let folded_tracked_poly = TrackedCol::new(
