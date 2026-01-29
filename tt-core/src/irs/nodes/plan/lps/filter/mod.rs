@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Filter, LogicalPlan};
@@ -69,11 +71,7 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![
-            self.input.clone(),
-            self.predicate.clone(),
-            self.gadget.clone(),
-        ]
+        vec![self.input.clone(), self.predicate.clone()]
     }
 }
 
@@ -89,37 +87,26 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
             _ => return Ok(()),
         };
 
-        // Get the table payload for this filter node from the current state of the Virtualized IR.
-        // This table should already include only one column which is the activator column.
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        // Pull the predicate output table.
+        let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
 
-        let mut merged_polys = current_table.tracked_polys();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Filter payload should already contain the activator column"
-        );
+        let mut merged_polys = input_table.tracked_polys();
 
-        // Append all non-activator columns from the input into this table.
-        for (field, poly) in input_table.tracked_polys_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            merged_polys
-                .entry(field.clone())
-                .or_insert_with(|| poly.clone());
-        }
+        // Replace the activator column with the predicate output column.
+        let predicate_data_indices = predicate_table.data_tracked_polys_indices();
+        let predicate_data_idx = *predicate_data_indices
+            .first()
+            .expect("Filter predicate output should include a data column");
+        let predicate_col = predicate_table.tracked_col_by_ind(predicate_data_idx);
+        merged_polys.insert(ACTIVATOR_FIELD.clone(), predicate_col.data_tracked_poly());
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
-        let metadata = current_table
+        let metadata = input_table
             .schema_ref()
             .map(|s| s.metadata().clone())
-            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
 
         // Get the fields from the merged polys for the new schema.
@@ -131,14 +118,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // Keep the existing log size when set; otherwise inherit from the input.
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Filter log sizes should match input");
-                current
-            }
-        };
+        let log_size = input_table.log_size();
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
@@ -232,36 +212,29 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
             _ => return Ok(()),
         };
 
-        // Start from this node's current payload (should already include the activator).
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        // Pull the predicate output table.
+        let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
 
-        let mut merged_polys = current_table.tracked_oracles();
-        debug_assert!(
-            !merged_polys.is_empty(),
-            "Filter payload should already contain the activator column"
-        );
+        let mut merged_polys = input_table.tracked_oracles();
 
-        // Append all non-activator columns from the input into this table.
-        for (field, poly) in input_table.tracked_oracles_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            merged_polys
-                .entry(field.clone())
-                .or_insert_with(|| poly.clone());
-        }
+        // Replace the activator column with the predicate output column.
+        let predicate_data_indices = predicate_table.data_tracked_oracles_indices();
+        let predicate_data_idx = *predicate_data_indices
+            .first()
+            .expect("Filter predicate output should include a data column");
+        let binding = predicate_table.tracked_oracles();
+        let (_field, predicate_oracle) = binding
+            .get_index(predicate_data_idx)
+            .expect("predicate data index out of bounds");
+        merged_polys.insert(ACTIVATOR_FIELD.clone(), predicate_oracle.clone());
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
-        let metadata = current_table
+        let metadata = input_table
             .schema_ref()
             .map(|s| s.metadata().clone())
-            .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
 
         let fields = merged_polys
@@ -271,14 +244,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // Keep the existing log size when set; otherwise inherit from the input.
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Filter log sizes should match input");
-                current
-            }
-        };
+        let log_size = input_table.log_size();
 
         let updated_table = TrackedTableOracle::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
@@ -376,17 +342,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
         let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
             .expect("filter output sort should succeed");
 
-        // Only materialize the activator column; keep all other columns virtual.
+        // Keep all output columns virtual; the activator is filled in by wiring.
         let should_materialize: IndexMap<FieldRef, bool> = output_df
             .schema()
             .fields()
             .iter()
-            .map(|field| {
-                (
-                    field.clone(),
-                    field.name() == arithmetic::ACTIVATOR_COL_NAME,
-                )
-            })
+            .map(|field| (field.clone(), false))
             .collect();
 
         crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
@@ -411,8 +372,8 @@ impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
         // filter.
         let predicate =
             Tree::<B>::from_expr(&filter.predicate, Some(self_ref), Arc::downgrade(&input))
-            .root()
-            .clone();
+                .root()
+                .clone();
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::FilterNode::new())));
 
