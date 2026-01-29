@@ -2,6 +2,9 @@
 members = ["."]
 resolver = "2"
 
+[patch.crates-io]
+arrow-arith = { path = "patches/arrow-arith-51.0.0" }
+
 [package]
 name = "third-party-bench"
 version = "0.1.0"
@@ -9,8 +12,17 @@ edition = "2024"
 publish = false
 
 [dependencies]
-proof-of-sql-benchlib = { git = "https://github.com/Pratyush/sxt-proof-of-sql.git", branch = "main", package = "proof-of-sql-benchlib" }
+proof-of-sql-benchlib = { path = "../../sxt-proof-of-sql/crates/proof-of-sql-benchlib" }
+proof-of-sql = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
+tpch-data = { path = "../tpch-data" }
+exec = { path = "../exec" }
+tokio = { version = "1", features = ["rt", "macros"] }
+parquet = { version = "57" }
 
 [[bench]]
 name = "sxt_proof_of_sql"
+harness = false
+
+[[bench]]
+name = "truth_table"
 harness = false

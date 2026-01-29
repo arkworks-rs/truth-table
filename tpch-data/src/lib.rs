@@ -20,6 +20,7 @@ use arrow::{
 };
 use chrono::{Datelike, Timelike};
 use duckdb::Connection;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tpchgen::generators::*;
 use tpchgen_arrow::*;
@@ -537,6 +538,18 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         write_parquet_raw(orig_out.join("lineitem.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("lineitem.parquet"), &schema, &mut it);
     }
+}
+
+/// Preprocess an existing Parquet file using the same logic as `generate_parquet_scale`.
+/// This expands date/time columns, adds `__row_id__` and `__activator__`, and pads to
+/// a power-of-two row count by duplicating the last row.
+pub fn preprocess_parquet<P: AsRef<Path>>(input: P, output: P) -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open(input.as_ref())?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+    let schema = Arc::clone(builder.schema());
+    let reader = builder.build()?;
+    write_parquet(output, &schema, reader.into_iter().map(|batch| batch.expect("read batch")));
+    Ok(())
 }
 
 /// Absolute path helper to a Parquet file under this crate's `test-data` dir.
