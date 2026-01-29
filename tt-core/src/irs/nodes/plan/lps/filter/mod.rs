@@ -95,13 +95,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
 
         let mut merged_polys = input_table.tracked_polys();
 
-        // Replace the activator column with the predicate output column.
+        // Replace the activator column with input_activator AND predicate output.
         let predicate_data_indices = predicate_table.data_tracked_polys_indices();
         let predicate_data_idx = *predicate_data_indices
             .first()
             .expect("Filter predicate output should include a data column");
         let predicate_col = predicate_table.tracked_col_by_ind(predicate_data_idx);
-        merged_polys.insert(ACTIVATOR_FIELD.clone(), predicate_col.data_tracked_poly());
+        let predicate_poly = predicate_col.data_tracked_poly();
+        let output_activator = match input_table.activator_tracked_poly() {
+            Some(input_activator) => &predicate_poly * &input_activator,
+            None => predicate_poly,
+        };
+        merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
         let metadata = input_table
@@ -220,7 +225,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
 
         let mut merged_polys = input_table.tracked_oracles();
 
-        // Replace the activator column with the predicate output column.
+        // Replace the activator column with input_activator AND predicate output.
         let predicate_data_indices = predicate_table.data_tracked_oracles_indices();
         let predicate_data_idx = *predicate_data_indices
             .first()
@@ -229,7 +234,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
         let (_field, predicate_oracle) = binding
             .get_index(predicate_data_idx)
             .expect("predicate data index out of bounds");
-        merged_polys.insert(ACTIVATOR_FIELD.clone(), predicate_oracle.clone());
+        let output_activator = match input_table.activator_tracked_poly() {
+            Some(input_activator) => predicate_oracle * &input_activator,
+            None => predicate_oracle.clone(),
+        };
+        merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
         let metadata = input_table
