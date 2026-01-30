@@ -27,7 +27,7 @@ use crate::{
 mod tests;
 mod virtual_ops;
 
-pub struct BinaryExprNode<B: SnarkBackend> {
+pub struct ExprNode<B: SnarkBackend> {
     /// The binary expression being represented.
     pub binary_expression: BinaryExpr,
     /// The left child node.
@@ -40,7 +40,7 @@ pub struct BinaryExprNode<B: SnarkBackend> {
     pub gadget: Option<Arc<Node<B>>>,
 }
 
-impl<B: SnarkBackend> BinaryExprNode<B> {
+impl<B: SnarkBackend> ExprNode<B> {
     /// Determines whether the result of the binary expression should be materialized or not.
     /// Some operators require materialization (e.g., comparisions), while others may not (e.g., arithmetic operations).
     fn should_materialize(&self) -> bool {
@@ -83,7 +83,7 @@ impl<B: SnarkBackend> BinaryExprNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
+impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn name(&self) -> String {
         "BinaryExpr".to_string()
     }
@@ -122,7 +122,7 @@ impl<B: SnarkBackend> IsNode<B> for BinaryExprNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -286,7 +286,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinaryExprNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -449,7 +449,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinaryExprNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         self.gadget.as_ref().map(|gadget| gadget.as_ref().clone())
     }
@@ -501,7 +501,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for BinaryExprNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsExprNode<B> for BinaryExprNode<B> {
+impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     fn from_expr(
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,

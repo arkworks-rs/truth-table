@@ -18,7 +18,7 @@ use indexmap::IndexMap;
 use tokio::runtime::RuntimeFlavor;
 mod hints;
 #[allow(clippy::type_complexity)]
-pub struct JoinNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
@@ -30,7 +30,7 @@ where
     join: Join,
 }
 
-impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Join".to_string()
     }
@@ -124,7 +124,7 @@ impl<B: SnarkBackend> IsNode<B> for JoinNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -168,7 +168,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for JoinNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -202,7 +202,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for JoinNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -245,7 +245,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for JoinNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(plan: datafusion_expr::LogicalPlan, self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized,
@@ -281,7 +281,7 @@ impl<B: SnarkBackend> IsLpNode<B> for JoinNode<B> {
         let gadget = Arc::new(Node::Gadget(Arc::new(
             crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone()),
         )));
-        JoinNode {
+        LpNode {
             left,
             right,
             on,

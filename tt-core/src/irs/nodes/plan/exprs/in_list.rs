@@ -16,7 +16,7 @@ use crate::irs::nodes::{
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
-pub struct ProverNode<B: SnarkBackend> {
+pub struct ExprNode<B: SnarkBackend> {
     pub scope: std::sync::Weak<Node<B>>,
     pub expr: Arc<Node<B>>,
     pub list: Vec<Arc<Node<B>>>,
@@ -24,7 +24,7 @@ pub struct ProverNode<B: SnarkBackend> {
     pub in_list: InList,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn name(&self) -> String {
         "InList".to_string()
     }
@@ -58,7 +58,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -130,7 +130,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -174,7 +174,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -245,7 +245,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     fn from_expr(
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,

@@ -22,7 +22,7 @@ use crate::{
 pub(crate) mod output;
 use datafusion::logical_expr::Sort;
 /// The implementation of a filter node in the prover proof tree.
-pub struct GadgetNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
@@ -36,7 +36,7 @@ where
     gadget: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Order By".to_string()
     }
@@ -122,7 +122,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: NodeId,
@@ -186,7 +186,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: NodeId,
@@ -446,7 +446,7 @@ fn strip_row_id_tracked_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, cols, table.log_size())
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         Some(self.gadget.as_ref().clone())
     }
@@ -480,7 +480,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for GadgetNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for GadgetNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,

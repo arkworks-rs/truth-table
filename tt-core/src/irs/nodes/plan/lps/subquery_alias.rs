@@ -14,7 +14,7 @@ use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
-pub struct SubqueryAliasNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
@@ -22,7 +22,7 @@ where
     subquery_alias: SubqueryAlias,
 }
 
-impl<B: SnarkBackend> IsNode<B> for SubqueryAliasNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Subquery Alias".to_string()
     }
@@ -56,7 +56,7 @@ impl<B: SnarkBackend> IsNode<B> for SubqueryAliasNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for SubqueryAliasNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -83,7 +83,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SubqueryAliasNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for SubqueryAliasNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -105,7 +105,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for SubqueryAliasNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for SubqueryAliasNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -197,7 +197,7 @@ fn qualify_tracked_table_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, qualified, table.log_size())
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for SubqueryAliasNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(plan: datafusion_expr::LogicalPlan, _self_ref: Weak<Node<B>>) -> Self
     where
         Self: Sized,
@@ -212,7 +212,7 @@ impl<B: SnarkBackend> IsLpNode<B> for SubqueryAliasNode<B> {
         let input = Tree::<B>::from_logical_plan(&subquery_alias.input)
             .root()
             .clone();
-        SubqueryAliasNode {
+        LpNode {
             input,
             subquery_alias,
         }

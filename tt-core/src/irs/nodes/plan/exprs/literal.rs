@@ -11,11 +11,11 @@ use datafusion_common::ScalarValue;
 use datafusion_expr::{Expr, lit};
 use indexmap::IndexMap;
 use rayon::iter::Either;
-pub struct ProverNode<B: SnarkBackend> {
+pub struct ExprNode<B: SnarkBackend> {
     pub literal: ScalarValue,
     pub scope: std::sync::Weak<Node<B>>,
 }
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn name(&self) -> String {
         "Literal".to_string()
     }
@@ -49,7 +49,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -123,7 +123,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -156,7 +156,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -231,7 +231,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     fn from_expr(
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<crate::irs::nodes::Node<B>>,

@@ -5,11 +5,11 @@ use datafusion_expr::TableScan;
 use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps};
 
 #[derive(Debug)]
-pub struct ProverNode {
+pub struct LpNode {
     table_scan: TableScan,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode {
+impl<B: SnarkBackend> IsNode<B> for LpNode {
     fn name(&self) -> String {
         "TableScan".to_string()
     }
@@ -45,7 +45,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -64,7 +64,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -93,7 +93,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -111,7 +111,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for ProverNode {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode {
     fn from_lp(_plan: datafusion_expr::LogicalPlan, _parent: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,

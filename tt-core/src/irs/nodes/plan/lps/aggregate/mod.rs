@@ -19,7 +19,7 @@ use crate::irs::{
 
 mod hints;
 
-pub struct ProverAggregateNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
@@ -114,7 +114,7 @@ fn single_group_oracle<B: SnarkBackend>(
     Some(TrackedTableOracle::new(schema, oracles, table.log_size()))
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Aggregate".to_string()
     }
@@ -243,7 +243,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverAggregateNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -372,7 +372,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverAggregateNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         Some(self.gadget.as_ref().clone())
     }
@@ -419,7 +419,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverAggregateNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -668,7 +668,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverAggregateNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for ProverAggregateNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(plan: LogicalPlan, _self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,

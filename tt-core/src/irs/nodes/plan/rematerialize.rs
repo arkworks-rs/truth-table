@@ -15,14 +15,14 @@ use std::cmp::Ordering;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-pub struct ProverNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Rematerialize".to_string()
     }
@@ -52,7 +52,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -71,7 +71,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -87,7 +87,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(_plan: LogicalPlan, _self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,
@@ -116,7 +116,7 @@ impl<B: SnarkBackend> IsLpNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -134,7 +134,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNode<B> {
+impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>) -> Self {
         Self { input }
     }

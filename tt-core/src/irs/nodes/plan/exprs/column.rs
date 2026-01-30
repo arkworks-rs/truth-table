@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, DFSchema, Statistics};
@@ -12,13 +10,13 @@ use crate::irs::{
     payloads::PayloadStructure,
 };
 
-pub struct ProverNode<B: SnarkBackend> {
+pub struct ExprNode<B: SnarkBackend> {
     pub scope: std::sync::Weak<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
 }
 
-impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn name(&self) -> String {
         "Column".to_string()
     }
@@ -52,7 +50,7 @@ impl<B: SnarkBackend> IsNode<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -104,7 +102,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
@@ -166,13 +164,18 @@ fn tracked_table_index_of_column<B: SnarkBackend>(
     let name = column.name();
     if let Some(relation) = column.relation.as_ref() {
         let relation_str = relation.to_string();
-        if let Some((idx, _)) = table.tracked_polys().iter().enumerate().find(|(_, (field, _))| {
-            field.name() == name
-                && field
-                    .metadata()
-                    .get(QUALIFIER_METADATA_KEY)
-                    .is_some_and(|q| q == &relation_str)
-        }) {
+        if let Some((idx, _)) = table
+            .tracked_polys()
+            .iter()
+            .enumerate()
+            .find(|(_, (field, _))| {
+                field.name() == name
+                    && field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .is_some_and(|q| q == &relation_str)
+            })
+        {
             return Some(idx);
         }
     }
@@ -190,17 +193,18 @@ fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
     let name = column.name();
     if let Some(relation) = column.relation.as_ref() {
         let relation_str = relation.to_string();
-        if let Some((idx, _)) = table
-            .tracked_oracles()
-            .iter()
-            .enumerate()
-            .find(|(_, (field, _))| {
-                field.name() == name
-                    && field
-                        .metadata()
-                        .get(QUALIFIER_METADATA_KEY)
-                        .is_some_and(|q| q == &relation_str)
-            })
+        if let Some((idx, _)) =
+            table
+                .tracked_oracles()
+                .iter()
+                .enumerate()
+                .find(|(_, (field, _))| {
+                    field.name() == name
+                        && field
+                            .metadata()
+                            .get(QUALIFIER_METADATA_KEY)
+                            .is_some_and(|q| q == &relation_str)
+                })
         {
             return Some(idx);
         }
@@ -211,7 +215,7 @@ fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
         .position(|(field, _)| field.name() == name)
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -262,7 +266,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ProverNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsExprNode<B> for ProverNode<B> {
+impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
     fn from_expr(
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<Node<B>>,

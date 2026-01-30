@@ -27,7 +27,7 @@ use crate::{
 mod hints;
 
 /// The implementation of a filter node in the prover proof tree.
-pub struct FilterNode<B>
+pub struct LpNode<B>
 where
     B: SnarkBackend,
 {
@@ -41,7 +41,7 @@ where
     gadget: Arc<Node<B>>,
 }
 
-impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
+impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Filter".to_string()
     }
@@ -75,7 +75,7 @@ impl<B: SnarkBackend> IsNode<B> for FilterNode<B> {
     }
 }
 
-impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
+impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -205,7 +205,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for FilterNode<B> {
     }
 }
 
-impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
+impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
@@ -335,7 +335,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
+impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         Some(self.gadget.as_ref().clone())
     }
@@ -363,7 +363,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for FilterNode<B> {
     }
 }
 
-impl<B: SnarkBackend> IsLpNode<B> for FilterNode<B> {
+impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
     fn from_lp(_plan: LogicalPlan, self_ref: std::sync::Weak<Node<B>>) -> Self
     where
         Self: Sized,

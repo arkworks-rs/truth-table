@@ -171,37 +171,36 @@ impl<B: SnarkBackend> Node<B> {
     pub(crate) fn from_lp(plan: LogicalPlan) -> Arc<Self> {
         match plan.clone() {
             LogicalPlan::Projection(_) => Arc::new_cyclic(|weak_self| {
-                let node = projection::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                let node = projection::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
 
             LogicalPlan::TableScan(_) => Arc::new_cyclic(|weak_self| {
-                let node = table_scan::ProverNode::from_lp(plan.clone(), weak_self.clone());
+                let node = table_scan::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Filter(_) => Arc::new_cyclic(|weak_self| {
-                let node = filter::FilterNode::from_lp(plan.clone(), weak_self.clone());
+                let node = filter::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Aggregate(_) => Arc::new_cyclic(|weak_self| {
-                let node = aggregate::ProverAggregateNode::from_lp(plan.clone(), weak_self.clone());
+                let node = aggregate::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Sort(_) => Arc::new_cyclic(|weak_self| {
-                let node = sort::GadgetNode::from_lp(plan.clone(), weak_self.clone());
+                let node = sort::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Join(_) => Arc::new_cyclic(|weak_self| {
-                let node = join::JoinNode::from_lp(plan.clone(), weak_self.clone());
+                let node = join::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::SubqueryAlias(_) => Arc::new_cyclic(|weak_self| {
-                let node =
-                    subquery_alias::SubqueryAliasNode::from_lp(plan.clone(), weak_self.clone());
+                let node = subquery_alias::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Limit(_) => Arc::new_cyclic(|weak_self| {
-                let node = limit::LimitNode::from_lp(plan.clone(), weak_self.clone());
+                let node = limit::LpNode::from_lp(plan.clone(), weak_self.clone());
                 Node::Plan(PlanNode::LpBased(Arc::new(node)))
             }),
             LogicalPlan::Extension(extension) => {
@@ -212,7 +211,7 @@ impl<B: SnarkBackend> Node<B> {
                 {
                     Arc::new_cyclic(|_weak_self| {
                         let input = Tree::<B>::from_logical_plan(remat.input()).root().clone();
-                        let node = rematerialize::ProverNode::new(input);
+                        let node = rematerialize::LpNode::new(input);
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })
                 } else {
@@ -229,7 +228,7 @@ impl<B: SnarkBackend> Node<B> {
     ) -> Arc<Self> {
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
-                let node = column::ProverNode::from_expr(
+                let node = column::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -239,7 +238,7 @@ impl<B: SnarkBackend> Node<B> {
             }),
 
             Expr::Literal(_) => Arc::new_cyclic(|weak_self| {
-                let node = literal::ProverNode::from_expr(
+                let node = literal::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -248,7 +247,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::BinaryExpr(_) => Arc::new_cyclic(|weak_self| {
-                let node = binary_expr::BinaryExprNode::from_expr(
+                let node = binary_expr::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -257,7 +256,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::Cast(_) => Arc::new_cyclic(|weak_self| {
-                let node = cast::ProverNode::from_expr(
+                let node = cast::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -266,7 +265,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::Alias(_) => Arc::new_cyclic(|weak_self| {
-                let node = alias::ProverNode::from_expr(
+                let node = alias::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -275,7 +274,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::AggregateFunction(_) => Arc::new_cyclic(|weak_self| {
-                let node = aggregate_function::ProverNode::from_expr(
+                let node = aggregate_function::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -284,7 +283,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::Between(_) => Arc::new_cyclic(|weak_self| {
-                let node = between::ProverNode::from_expr(
+                let node = between::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -293,7 +292,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::InList(_) => Arc::new_cyclic(|weak_self| {
-                let node = in_list::ProverNode::from_expr(
+                let node = in_list::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -302,7 +301,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::ScalarFunction(_) => Arc::new_cyclic(|weak_self| {
-                let node = scalar_function::ProverNode::from_expr(
+                let node = scalar_function::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -311,7 +310,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::InSubquery(_) => Arc::new_cyclic(|weak_self| {
-                let node = in_subquery::ProverNode::from_expr(
+                let node = in_subquery::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
@@ -320,7 +319,7 @@ impl<B: SnarkBackend> Node<B> {
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
             Expr::Case(_) => Arc::new_cyclic(|weak_self| {
-                let node = case::ProverNode::from_expr(
+                let node = case::ExprNode::from_expr(
                     expr.clone(),
                     weak_self.clone(),
                     parent.clone(),
