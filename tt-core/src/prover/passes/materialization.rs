@@ -11,7 +11,7 @@ use ark_piop::SnarkBackend;
 use datafusion::catalog::TableProvider;
 use datafusion::{
     arrow::{
-        array::{ArrayRef, BooleanArray, Int64Array},
+        array::{new_null_array, ArrayRef, BooleanArray, Int64Array},
         compute::{concat, concat_batches},
         datatypes::{Field, FieldRef, Schema},
         record_batch::{RecordBatch, RecordBatchOptions},
@@ -242,14 +242,24 @@ fn pad_batches_to_power_of_two(
                 .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
-        } else if let Some(batch) = combined.as_ref() {
-            let base = batch.column(idx).clone();
-            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
+        } else if field.name() == arithmetic::ROW_ID_COL_NAME {
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| Arc::new(Int64Array::from(Vec::<i64>::new())) as ArrayRef);
+            let last = if row_count > 0 {
+                ScalarValue::try_from_array(base.as_ref(), row_count - 1)?
+            } else {
+                ScalarValue::try_new_null(field.data_type())?
+            };
             let pad_arr = last.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if let Some(batch) = combined.as_ref() {
+            let base = batch.column(idx).clone();
+            let pad_arr = new_null_array(field.data_type(), pad);
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else {
-            let null = ScalarValue::try_new_null(field.data_type())?;
-            null.to_array_of_size(pad)?
+            new_null_array(field.data_type(), pad)
         };
         output_arrays.push(padded);
     }

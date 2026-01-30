@@ -16,7 +16,7 @@ use ark_piop::{
 };
 use ark_poly::Polynomial;
 use datafusion::arrow::{
-    array::{ArrayRef, BooleanArray, Int64Array},
+    array::{new_null_array, ArrayRef, BooleanArray, Int64Array},
     compute::{concat, concat_batches},
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
@@ -1767,12 +1767,10 @@ fn pad_batches_to_power_of_two(
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if let Some(batch) = combined.as_ref() {
             let base = batch.column(idx).clone();
-            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
-            let pad_arr = last.to_array_of_size(pad)?;
+            let pad_arr = new_null_array(field.data_type(), pad);
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else {
-            let null = ScalarValue::try_new_null(field.data_type())?;
-            null.to_array_of_size(pad)?
+            new_null_array(field.data_type(), pad)
         };
         output_arrays.push(padded);
     }

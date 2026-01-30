@@ -7,11 +7,10 @@ use std::{
 use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
     array::{
-        Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder, Int64Builder,
-        RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-        TimestampSecondArray,
+        new_null_array, Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder,
+        Int64Builder, RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray,
+        TimestampNanosecondArray, TimestampSecondArray,
     },
-    compute::concat as arrow_concat,
     datatypes::{
         DataType, Date64Type, Field, Schema, TimeUnit, TimestampMicrosecondType,
         TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
@@ -47,28 +46,28 @@ fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
         match field.data_type() {
             DataType::Date32 => {
                 let name = field.name().to_string();
-                let nullable = field.is_nullable();
+                let nullable = true;
                 expansions.push(Expansion::Original(idx));
                 expansions.push(Expansion::Date32 { index: idx, name: name.clone(), nullable });
-                fields.push((**field).clone());
-                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
+                fields.push((**field).clone().with_nullable(true));
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, true));
             }
             DataType::Date64 => {
                 let name = field.name().to_string();
-                let nullable = field.is_nullable();
+                let nullable = true;
                 expansions.push(Expansion::Original(idx));
                 expansions.push(Expansion::Date64 { index: idx, name: name.clone(), nullable });
-                fields.push((**field).clone());
-                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_time"), DataType::Int32, nullable));
+                fields.push((**field).clone().with_nullable(true));
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_time"), DataType::Int32, true));
             }
             DataType::Timestamp(unit, _) => {
                 let name = field.name().to_string();
-                let nullable = field.is_nullable();
+                let nullable = true;
                 expansions.push(Expansion::Original(idx));
                 expansions.push(Expansion::Timestamp {
                     index: idx,
@@ -76,15 +75,15 @@ fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
                     nullable,
                     unit: unit.clone(),
                 });
-                fields.push((**field).clone());
-                fields.push(Field::new(format!("{name}_year"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_month"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_day"), DataType::Int32, nullable));
-                fields.push(Field::new(format!("{name}_time"), DataType::Int32, nullable));
+                fields.push((**field).clone().with_nullable(true));
+                fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_month"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_day"), DataType::Int32, true));
+                fields.push(Field::new(format!("{name}_time"), DataType::Int32, true));
             }
             _ => {
                 expansions.push(Expansion::Original(idx));
-                fields.push((**field).clone());
+                fields.push((**field).clone().with_nullable(true));
             }
         }
     }
@@ -277,8 +276,8 @@ fn next_power_of_two(n: usize) -> usize {
 }
 
 /// Write Parquet after augmenting with a stable `row_id` column and an
-/// `__activator__` Boolean column, then pad by duplicating the last row until the
-/// total row count is a power of two (appended rows have __activator__=false).
+/// `__activator__` Boolean column, then pad with nulls until the total row count
+/// is a power of two (appended rows have __activator__=false).
 fn write_parquet<P: AsRef<Path>>(
     path: P,
     orig_schema: &arrow::datatypes::SchemaRef,
@@ -350,17 +349,11 @@ fn write_parquet<P: AsRef<Path>>(
         let target = next_power_of_two(total_rows);
         let pad = target - total_rows;
         let last_batch = last_nonempty_batch.expect("must have last batch");
-        let last_idx = last_batch.num_rows() - 1;
 
-        // Build per-column arrays by repeating the last row value `pad` times
+        // Build per-column arrays of nulls for padding rows.
         let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 2);
         for col in last_batch.columns() {
-            let one = col.slice(last_idx, 1);
-            // Create a slice of &dyn Array repeated `pad` times
-            let repeated: Vec<&dyn arrow::array::Array> =
-                std::iter::repeat_n(one.as_ref(), pad).collect();
-            let repeated_arr = arrow_concat(&repeated).expect("concat repeated scalars");
-            pad_cols.push(repeated_arr);
+            pad_cols.push(new_null_array(col.data_type(), pad));
         }
 
         let mut row_id_builder = Int64Builder::new();
@@ -418,8 +411,8 @@ fn write_parquet_raw<P: AsRef<Path>>(
 // Note that the tables are further preprocessed as follows:
 // - All tables have an additional __row_id__ Int64 column with stable row
 //   indices, plus the boolean __activator__ column set true for existing rows
-// - The tables are padded by duplicating the last row until the total row count
-//   is a power of two; the appended rows have __activator__=false
+// - The tables are padded with nulls until the total row count is a power of two;
+//   the appended rows have __activator__=false
 pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
     let out = out_dir.as_ref();
 
@@ -542,7 +535,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
 
 /// Preprocess an existing Parquet file using the same logic as `generate_parquet_scale`.
 /// This expands date/time columns, adds `__row_id__` and `__activator__`, and pads to
-/// a power-of-two row count by duplicating the last row.
+/// a power-of-two row count with nulls.
 pub fn preprocess_parquet<P: AsRef<Path>>(input: P, output: P) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(input.as_ref())?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
