@@ -8,12 +8,12 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
+use arithmetic::col::TrackedCol;
+use ark_ff::Zero;
 use ark_ff::{One, PrimeField, batch_inversion};
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use datafusion::functions::unicode::left;
 use indexmap::IndexMap;
-
 /// Label for the left input to the neq gadget
 pub const LEFT_LABEL: &str = "left";
 /// Label for the right input to the neq gadget
@@ -130,25 +130,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             (left_col, right_col)
         };
         let non_zero_poly = &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
-        let col = TrackedCol::new(non_zero_poly, left_col.activator_tracked_poly(), None);
-        let col_poly = col.data_tracked_poly().clone();
-        let col_sel = col.activator_tracked_poly();
-        let col_poly_evals = col_poly.evaluations();
-        let mut eval_inverses: Vec<B::F> = col_poly_evals.clone();
-        batch_inversion(&mut eval_inverses);
-        let inverses_mle = MLE::from_evaluations_vec(col.log_size(), eval_inverses);
-
-        // Commit the inverse polynomial and add a zerocheck claim.
-        let inverses_poly = prover.track_and_commit_mat_mv_poly(&inverses_mle)?;
-        let no_zeros_check_poly = match col_sel {
-            Some(col_sel) => {
-                let prod = &(&col_poly * &col_sel) * &inverses_poly;
-                &prod - &col_sel
+        let one_minus_non_zero_activator = match left_col.activator_tracked_poly() {
+            Some(activator) => {
+                (activator.mul_scalar_poly(-B::F::one())).add_scalar_poly(B::F::one())
             }
-            None => (&col_poly * &inverses_poly) - B::F::one(),
+            None => non_zero_poly.mul_scalar_poly(B::F::zero()),
         };
-
-        prover.add_mv_zerocheck_claim(no_zeros_check_poly.id())?;
+        let non_zero_poly = &non_zero_poly + &one_minus_non_zero_activator;
+        prover.add_mv_nozerocheck_claim(non_zero_poly.id())?;
         Ok(())
     }
 
@@ -245,20 +234,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             (left_col, right_col)
         };
         let non_zero_oracle = &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
-        let tracked_col_oracle =
-            TrackedColOracle::new(non_zero_oracle, left_col.activator_tracked_oracle(), None);
-        let col_poly = tracked_col_oracle.data_tracked_oracle().clone();
-        let col_sel = tracked_col_oracle.activator_tracked_oracle().clone();
-        let inverses_poly_id = verifier.peek_next_id();
-        let inverses_poly = verifier.track_mv_com_by_id(inverses_poly_id)?;
-        let no_zeros_check_poly = match col_sel {
-            Some(col_sel) => {
-                let prod = &(&col_poly * &col_sel) * &inverses_poly;
-                &prod - &col_sel
-            }
-            None => (&col_poly * &inverses_poly) - B::F::one(),
+        let one_minus_activator = match left_col.activator_tracked_oracle() {
+            Some(activator) => activator
+                .mul_scalar_oracle(-B::F::one())
+                .add_scalar_oracle(B::F::one()),
+            None => non_zero_oracle.mul_scalar_oracle(B::F::zero()),
         };
-        verifier.add_zerocheck_claim(no_zeros_check_poly.id());
+        let non_zero_oracle = &non_zero_oracle + &one_minus_activator;
+        verifier.add_nozerocheck_claim(non_zero_oracle.id());
         Ok(())
     }
 
