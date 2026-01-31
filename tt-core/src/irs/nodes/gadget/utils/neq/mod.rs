@@ -13,6 +13,7 @@ use ark_ff::Zero;
 use ark_ff::{One, PrimeField, batch_inversion};
 use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
 use datafusion::functions::unicode::left;
+use either::Either::{Left, Right};
 use indexmap::IndexMap;
 /// Label for the left input to the neq gadget
 pub const LEFT_LABEL: &str = "left";
@@ -137,7 +138,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             None => non_zero_poly.mul_scalar_poly(B::F::zero()),
         };
         let non_zero_poly = &non_zero_poly + &one_minus_non_zero_activator;
-        prover.add_mv_nozerocheck_claim(non_zero_poly.id())?;
+        match non_zero_poly.id_or_const() {
+            Left(id) => prover.add_mv_nozerocheck_claim(id)?,
+            Right(cnst) => assert!(
+                !cnst.is_zero(),
+                "Non-zero check on zero constant polynomial in neq gadget"
+            ),
+        }
         Ok(())
     }
 
@@ -241,7 +248,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             None => non_zero_oracle.mul_scalar_oracle(B::F::zero()),
         };
         let non_zero_oracle = &non_zero_oracle + &one_minus_activator;
-        verifier.add_nozerocheck_claim(non_zero_oracle.id());
+        match non_zero_oracle.id_or_const() {
+            Left(id) => verifier.add_nozerocheck_claim(id),
+            Right(cnst) => assert!(
+                !cnst.is_zero(),
+                "Non-zero check on zero constant polynomial in neq gadget"
+            ),
+        }
         Ok(())
     }
 
