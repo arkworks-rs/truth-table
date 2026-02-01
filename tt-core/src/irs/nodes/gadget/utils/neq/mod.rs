@@ -137,7 +137,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             }
             None => non_zero_poly.mul_scalar_poly(B::F::zero()),
         };
-        let non_zero_poly = &non_zero_poly + &one_minus_non_zero_activator;
+        let chall = prover.get_and_append_challenge(b"neq")?;
+        let non_zero_poly = &non_zero_poly + &one_minus_non_zero_activator.mul_scalar_poly(chall);
         match non_zero_poly.id_or_const() {
             Left(id) => prover.add_mv_nozerocheck_claim(id)?,
             Right(cnst) => assert!(
@@ -247,7 +248,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 .add_scalar_oracle(B::F::one()),
             None => non_zero_oracle.mul_scalar_oracle(B::F::zero()),
         };
-        let non_zero_oracle = &non_zero_oracle + &one_minus_activator;
+        let chall = verifier.get_and_append_challenge(b"neq")?;
+        let non_zero_oracle = &non_zero_oracle + &one_minus_activator.mul_scalar_oracle(chall);
         match non_zero_oracle.id_or_const() {
             Left(id) => verifier.add_nozerocheck_claim(id),
             Right(cnst) => assert!(
