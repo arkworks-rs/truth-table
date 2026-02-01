@@ -56,7 +56,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         // The previous optimizations added expressions and projections,
         // that might benefit from the following rules
         Arc::new(SimplifyExpressions::new()),
-        Arc::new(CommonSubexprEliminate::new()),
+        // Arc::new(CommonSubexprEliminate::new()),
         Arc::new(EliminateGroupByConstant::new()),
         Arc::new(normalize_table_scan::NormalizeTableScanPushdown::new()),
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),

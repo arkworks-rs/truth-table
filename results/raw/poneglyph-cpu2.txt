@@ -1,0 +1,730 @@
+Alireza Shirzad, [Jan 31, 2026 at 10:16:34 AM (Jan 31, 2026 at 2:34:50 PM)]:
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 7
+lineitem_read_ms: 101.303421ms
+Time elapsed for block: 3.047348ms
+Time elapsed for block: 33.412222ms
+Time elapsed for block: 63.932575ms
+Time to generate vk 5.996174682s
+Time elapsed for block: 2.526459ms
+Time elapsed for block: 22.76097ms
+Time elapsed for block: 45.059898ms
+Time to generate pk 4.832653468s
+Time elapsed for block: 2.654602ms
+Time elapsed for block: 22.602013ms
+Time elapsed for block: 44.19654ms
+prove_time: 33.246978298s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q1
+verify_time: 8.814932ms
+test sql::q1_final_kzg::tests::test_1 ... ok
+
+
+
+
+
+——————————————————————————————————————
+
+
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 2.238947ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 16.995842ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 4
+lineitem_read_ms: 53.292639ms
+Time elapsed for block: 361.73µs
+Time elapsed for block: 53.67566ms
+Time elapsed for block: 117.911287ms
+Time elapsed for block: 154.499636ms
+Time to generate vk 12.092607453s
+Time elapsed for block: 402.409µs
+Time elapsed for block: 65.664456ms
+Time elapsed for block: 152.088381ms
+Time elapsed for block: 195.524218ms
+Time to generate pk 4.691954173s
+Time elapsed for block: 384.617µs
+Time elapsed for block: 50.892287ms
+Time elapsed for block: 114.501691ms
+Time elapsed for block: 189.478424ms
+test sql::q3_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 59.12803392s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q3
+verify_time: 15.690358ms
+test sql::q3_final_kzg::tests::test_1 ... ok
+
+
+———————————————————————————————————
+
+
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 2.724326ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 22.455671ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 4
+lineitem_read_ms: 59.798751ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 86.225µs
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 18.115µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 30.447µs
+Time to generate vk 1.711962063s
+Time to generate pk 2.014885978s
+test sql::q5_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 76.060147356s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q5
+verify_time: 17.071647ms
+test sql::q5_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 80.14s
+
+
+Alireza Shirzad, [Jan 31, 2026 at 10:16:34 AM]:
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 4.882727ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 281.211µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 5
+lineitem_read_ms: 54.882884ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 11.865155ms
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 987.907µs
+nation_n1_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n1_file_exists: true
+nation_n1_file_size_bytes: 2199
+nation_n1_records_loaded: 25
+nation_n1_read_ms: 20.351µs
+nation_n2_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n2_file_exists: true
+nation_n2_file_size_bytes: 2199
+nation_n2_records_loaded: 25
+nation_n2_read_ms: 11.996µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 21.934µs
+Time to generate vk 3.819524481s
+Time to generate pk 3.093006877s
+test sql::q8_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 104.212770156s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q8
+verify_time: 21.536375ms
+test sql::q8_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 111.49s
+
+
+———————————————————————————————————————————————-
+
+
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 3.574344ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 222.862µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 6
+lineitem_read_ms: 59.599006ms
+partsupp_file_path: /home/alrshir/PoneglyphDB/src/data/partsupp.tbl
+partsupp_file_exists: true
+partsupp_file_size_bytes: 1153705
+partsupp_records_loaded: 8000
+partsupp_read_ms: 3.148757ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 11.127296ms
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 16.259µs
+Time to generate vk 23.694750674s
+Time to generate pk 7.662550339s
+test sql::q9_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 83.336205186s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q9
+verify_time: 20.862547ms
+test sql::q9_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 115.05s
+
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 1.506767ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 19.789105ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 7204075
+lineitem_records_loaded: 60175
+lineitem_record_width: 2
+lineitem_read_ms: 51.908525ms
+Time to generate vk 11.217210632s
+Time to generate pk 5.216328734s
+test sql::q18_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 49.123722631s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q18
+verify_time: 15.59441ms
+test sql::q18_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 65.90s
+
+
+
+******************************************************************************
+
+
+running 1 test
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 7
+lineitem_read_ms: 162.897592ms
+Time to generate params 42.10864409s
+Time elapsed for block: 5.63154ms
+Time elapsed for block: 53.520991ms
+Time elapsed for block: 101.582342ms
+Time to generate vk 9.82892835s
+Time elapsed for block: 4.893849ms
+Time elapsed for block: 44.159698ms
+Time elapsed for block: 85.904735ms
+test sql::q1_final_kzg::tests::test_1 has been running for over 60 seconds
+Time to generate pk 9.999562793s
+Time elapsed for block: 5.398366ms
+Time elapsed for block: 45.895865ms
+Time elapsed for block: 90.739155ms
+prove_time: 61.286692503s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q1
+verify_time: 8.263865ms
+test sql::q1_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 124.00s
+
+
+——————————————————————————————————————————————————
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 1.357811ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 17.809423ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 4
+lineitem_read_ms: 111.093536ms
+Time elapsed for block: 625.897µs
+Time elapsed for block: 105.717433ms
+Time elapsed for block: 202.56763ms
+Time elapsed for block: 250.384901ms
+Time to generate vk 22.068141641s
+Time elapsed for block: 769.866µs
+Time elapsed for block: 103.771253ms
+Time elapsed for block: 200.971889ms
+Time elapsed for block: 248.480032ms
+Time to generate pk 9.809671556s
+Time elapsed for block: 585.453µs
+Time elapsed for block: 102.254015ms
+Time elapsed for block: 197.981151ms
+Time elapsed for block: 314.936402ms
+test sql::q3_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 117.395337618s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q3
+verify_time: 15.645016ms
+test sql::q3_final_kzg::tests::test_1 ... ok
+
+
+
+—————————————————————————————————————————————————
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 2.22642ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 24.920381ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 4
+lineitem_read_ms: 98.436735ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 81.297µs
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 17.186µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 27.244µs
+Time to generate vk 2.940217589s
+Time to generate pk 4.8200673s
+test sql::q5_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 147.612946784s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q5
+verify_time: 18.591273ms
+test sql::q5_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 156.02s
+
+
+
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 2.321897ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 234.227µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 5
+lineitem_read_ms: 99.591632ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 10.866484ms
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 900.654µs
+nation_n1_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n1_file_exists: true
+nation_n1_file_size_bytes: 2199
+nation_n1_records_loaded: 25
+nation_n1_read_ms: 17.446µs
+nation_n2_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n2_file_exists: true
+nation_n2_file_size_bytes: 2199
+nation_n2_records_loaded: 25
+nation_n2_read_ms: 11.492µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 25.213µs
+Time to generate vk 6.613245167s
+Time to generate pk 6.645756668s
+test sql::q8_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 202.667382301s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q8
+verify_time: 22.108684ms
+test sql::q8_final_kzg::tests::test_1 ... ok
+
+
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 3.758792ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 244.745µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 6
+lineitem_read_ms: 106.663836ms
+partsupp_file_path: /home/alrshir/PoneglyphDB/src/data/partsupp.tbl
+partsupp_file_exists: true
+partsupp_file_size_bytes: 1153705
+partsupp_records_loaded: 8000
+partsupp_read_ms: 3.204485ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 10.93678ms
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 17.355µs
+Time to generate vk 43.02653911s
+Time to generate pk 15.460635447s
+test sql::q9_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 170.526869395s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q9_k17
+verify_time: 21.318279ms
+test sql::q9_final_kzg::tests::test_1 ... ok
+
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 1.38922ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 15.00846ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_120K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 14556934
+lineitem_records_loaded: 120515
+lineitem_record_width: 2
+lineitem_read_ms: 119.206396ms
+Time to generate vk 21.037034684s
+Time to generate pk 11.517582117s
+test sql::q18_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 101.647135923s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q18_k17
+
+
+
+
+******************************************************************************
+
+running 1 test
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 7
+lineitem_read_ms: 270.303101ms
+Time elapsed for block: 9.22297ms
+Time elapsed for block: 92.081403ms
+Time elapsed for block: 176.500308ms
+Time to generate vk 19.517682055s
+Time elapsed for block: 9.265823ms
+Time elapsed for block: 92.397896ms
+Time elapsed for block: 176.828418ms
+Time to generate pk 20.294213071s
+Time elapsed for block: 10.979305ms
+Time elapsed for block: 109.567325ms
+Time elapsed for block: 206.021548ms
+test sql::q1_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 123.426895209s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q1_k18
+verify_time: 7.883005ms
+test sql::q1_final_kzg::tests::test_1 ... ok
+
+
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 1.304325ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 13.723543ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 4
+lineitem_read_ms: 261.877053ms
+test sql::q3_final_kzg::tests::test_1 has been running for over 60 seconds
+Time to generate params 78.36450493s
+Time elapsed for block: 1.134301ms
+Time elapsed for block: 260.115029ms
+Time elapsed for block: 495.738282ms
+Time elapsed for block: 578.582773ms
+Time to generate vk 40.50009774s
+Time elapsed for block: 1.116186ms
+Time elapsed for block: 210.213366ms
+Time elapsed for block: 374.53287ms
+Time elapsed for block: 443.039953ms
+Time to generate pk 22.299397921s
+Time elapsed for block: 1.09717ms
+Time elapsed for block: 201.627278ms
+Time elapsed for block: 361.675946ms
+Time elapsed for block: 561.410069ms
+prove_time: 233.472887211s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q3
+verify_time: 16.685416ms
+test sql::q3_final_kzg::tests::test_1 ... ok
+
+
+
+
+
+Alireza Shirzad, [Jan 31, 2026 at 12:57:31 PM]:
+running 1 test
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 3.865591ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 27.378752ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 4
+lineitem_read_ms: 192.757462ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 84.169µs
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 17.903µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 25.376µs
+Time to generate vk 5.342525986s
+Time to generate pk 10.270686391s
+test sql::q5_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 298.625160219s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q5
+verify_time: 19.666742ms
+test sql::q5_final_kzg::tests::test_1 ... ok
+
+
+————————————————————————————————————————————
+
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 5.489682ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 288.741µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 5
+lineitem_read_ms: 233.58753ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 12.791146ms
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 1.11042ms
+nation_n1_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n1_file_exists: true
+nation_n1_file_size_bytes: 2199
+nation_n1_records_loaded: 25
+nation_n1_read_ms: 17.924µs
+nation_n2_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_n2_file_exists: true
+nation_n2_file_size_bytes: 2199
+nation_n2_records_loaded: 25
+nation_n2_read_ms: 16.302µs
+region_file_path: /home/alrshir/PoneglyphDB/src/data/region.cvs
+region_file_exists: true
+region_file_size_bytes: 384
+region_records_loaded: 5
+region_read_ms: 28.369µs
+Time to generate vk 12.967556692s
+Time to generate pk 13.619310181s
+test sql::q8_final_kzg::tests::test_1 has been running for over 60 seconds
+prove_time: 405.313703154s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q8
+verify_time: 21.494433ms
+test sql::q8_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 433.18s
+
+
+——————————————————————————————————————————-
+
+
+
+
+running 1 test
+part_file_path: /home/alrshir/PoneglyphDB/src/data/part.tbl
+part_file_exists: true
+part_file_size_bytes: 235134
+part_records_loaded: 2000
+part_read_ms: 3.687119ms
+supplier_file_path: /home/alrshir/PoneglyphDB/src/data/supplier.tbl
+supplier_file_exists: true
+supplier_file_size_bytes: 13695
+supplier_records_loaded: 100
+supplier_read_ms: 211.585µs
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 6
+lineitem_read_ms: 195.246418ms
+partsupp_file_path: /home/alrshir/PoneglyphDB/src/data/partsupp.tbl
+partsupp_file_exists: true
+partsupp_file_size_bytes: 1153705
+partsupp_records_loaded: 8000
+partsupp_read_ms: 3.158962ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 10.895862ms
+nation_file_path: /home/alrshir/PoneglyphDB/src/data/nation.tbl
+nation_file_exists: true
+nation_file_size_bytes: 2199
+nation_records_loaded: 25
+nation_read_ms: 17.496µs
+test sql::q9_final_kzg::tests::test_1 has been running for over 60 seconds
+Time to generate vk 78.70951453s
+Time to generate pk 31.980850394s
+prove_time: 346.93727767s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q9_k18
+verify_time: 21.411757ms
+test sql::q9_final_kzg::tests::test_1 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 458.91s
+
+
+
+
+Alireza Shirzad, [Jan 31, 2026 at 12:57:31 PM]:
+customer_file_path: /home/alrshir/PoneglyphDB/src/data/customer.tbl
+customer_file_exists: true
+customer_file_size_bytes: 239490
+customer_records_loaded: 1500
+customer_read_ms: 3.734511ms
+orders_file_path: /home/alrshir/PoneglyphDB/src/data/orders.tbl
+orders_file_exists: true
+orders_file_size_bytes: 1644137
+orders_records_loaded: 15000
+orders_read_ms: 26.172884ms
+lineitem_file_path: /home/alrshir/PoneglyphDB/src/data/lineitem_240K.tbl
+lineitem_file_exists: true
+lineitem_file_size_bytes: 29223329
+lineitem_records_loaded: 240292
+lineitem_record_width: 2
+lineitem_read_ms: 182.815427ms
+Time to generate vk 40.530050821s
+test sql::q18_final_kzg::tests::test_1 has been running for over 60 seconds
+Time to generate pk 24.462453704s
+prove_time: 201.792596286s
+Proof written to: /home/alrshir/PoneglyphDB/src/sql/proof_q18
