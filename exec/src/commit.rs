@@ -21,7 +21,9 @@ use front_end::{
 };
 use tt_core::{
     irs::{nodes::IsNode, payloads::PayloadStructure},
-    prover::irs::TrackedIr,
+    prover::{
+        irs::TrackedIr, passes::materialization::configure_constraint_metadata_from_parquet_paths,
+    },
 };
 
 use front_end::structs::{Artifact, TTPk};
@@ -140,6 +142,7 @@ async fn commit_parquet_with_pk(
     pk_path: &Path,
     output_path: &Path,
 ) -> Result<PathBuf> {
+    configure_constraint_metadata_from_parquet_paths(&[parquet_path.to_path_buf()]);
     let table_name = parquet_path
         .file_stem()
         .ok_or_else(|| anyhow!("parquet path must have a file name"))?

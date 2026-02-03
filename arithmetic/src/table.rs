@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc};
 
 use ark_ff::PrimeField;
 
-use crate::{col::TrackedCol, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
+use crate::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol,
+    table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY,
+};
 use ark_piop::SnarkBackend;
 use ark_piop::{
     arithmetic::mat_poly::mle::MLE,
@@ -17,7 +20,7 @@ use ark_serialize::{
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
-use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec};
+use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
@@ -76,10 +79,11 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
                 .collect();
             write!(
                 f,
-                "TrackedTable cols=({}), log_size={}, degrees={:?}",
+                "TrackedTable cols=({}), log_size={}, degrees={:?}, constraints={}",
                 cols.join(","),
                 self.log_size,
-                self.degrees()
+                self.degrees(),
+                constraints_summary_label(self.schema_ref()).unwrap_or_else(|| "none".to_string())
             )
         }
     }
@@ -455,12 +459,57 @@ impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
                 .collect();
             write!(
                 f,
-                "ArithTable cols=({}), log_size={}",
+                "ArithTable cols=({}), log_size={}, constraints={}",
                 cols.join(","),
-                self.log_size
+                self.log_size,
+                constraints_summary_label(self.schema.as_ref()).unwrap_or_else(|| "none".to_string())
             )
         }
     }
+}
+
+fn constraints_summary_label(schema: Option<&Schema>) -> Option<String> {
+    let raw = schema?
+        .metadata()
+        .get(CONSTRAINTS_SUMMARY_METADATA_KEY)?
+        .as_str();
+    let parsed = serde_json::from_str::<Value>(raw).ok()?;
+
+    let pk_cols = parsed
+        .get("primary_key_columns")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let fk_cols = parsed
+        .get("foreign_keys")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|fk| {
+                    let col = fk.get("column")?.as_str()?;
+                    let table = fk.get("ref_table")?.as_str()?;
+                    Some(format!("{col}->{table}"))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let pk = if pk_cols.is_empty() {
+        "none".to_string()
+    } else {
+        pk_cols.join("|")
+    };
+    let fk = if fk_cols.is_empty() {
+        "none".to_string()
+    } else {
+        fk_cols.join("|")
+    };
+    Some(format!("pk:{pk}; fk:{fk}"))
 }
 
 fn border_line(widths: &[usize]) -> String {

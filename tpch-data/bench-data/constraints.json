@@ -1,0 +1,152 @@
+{
+  "format_version": 1,
+  "source": "tpch-constraints-hardcoded",
+  "tables": [
+    {
+      "table": "region",
+      "primary_key": [
+        "r_regionkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": []
+    },
+    {
+      "table": "nation",
+      "primary_key": [
+        "n_nationkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "n_regionkey"
+          ],
+          "ref_table": "region",
+          "ref_columns": [
+            "r_regionkey"
+          ]
+        }
+      ]
+    },
+    {
+      "table": "part",
+      "primary_key": [
+        "p_partkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": []
+    },
+    {
+      "table": "supplier",
+      "primary_key": [
+        "s_suppkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "s_nationkey"
+          ],
+          "ref_table": "nation",
+          "ref_columns": [
+            "n_nationkey"
+          ]
+        }
+      ]
+    },
+    {
+      "table": "partsupp",
+      "primary_key": [
+        "ps_partkey",
+        "ps_suppkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "ps_partkey"
+          ],
+          "ref_table": "part",
+          "ref_columns": [
+            "p_partkey"
+          ]
+        },
+        {
+          "columns": [
+            "ps_suppkey"
+          ],
+          "ref_table": "supplier",
+          "ref_columns": [
+            "s_suppkey"
+          ]
+        }
+      ]
+    },
+    {
+      "table": "customer",
+      "primary_key": [
+        "c_custkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "c_nationkey"
+          ],
+          "ref_table": "nation",
+          "ref_columns": [
+            "n_nationkey"
+          ]
+        }
+      ]
+    },
+    {
+      "table": "orders",
+      "primary_key": [
+        "o_orderkey"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "o_custkey"
+          ],
+          "ref_table": "customer",
+          "ref_columns": [
+            "c_custkey"
+          ]
+        }
+      ]
+    },
+    {
+      "table": "lineitem",
+      "primary_key": [
+        "l_orderkey",
+        "l_linenumber"
+      ],
+      "unique_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "l_orderkey"
+          ],
+          "ref_table": "orders",
+          "ref_columns": [
+            "o_orderkey"
+          ]
+        },
+        {
+          "columns": [
+            "l_partkey",
+            "l_suppkey"
+          ],
+          "ref_table": "partsupp",
+          "ref_columns": [
+            "ps_partkey",
+            "ps_suppkey"
+          ]
+        }
+      ]
+    }
+  ]
+}

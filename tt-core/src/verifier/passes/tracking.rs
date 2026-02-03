@@ -123,12 +123,11 @@ fn track_hint_df<B: SnarkBackend>(
     if tracked_oracles.is_empty() {
         None
     } else {
-        let metadata = base_schema.metadata().clone();
-        let fields = tracked_oracles
-            .keys()
-            .map(|f| f.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
+        let schema = Some(build_tracked_schema(
+            &base_schema,
+            tracked_oracles.keys(),
+            None,
+        ));
         Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
     }
 }
@@ -180,14 +179,30 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
     if tracked_oracles.is_empty() {
         None
     } else {
-        let metadata = base_schema.metadata().clone();
-        let fields = tracked_oracles
-            .keys()
-            .map(|f| f.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
+        let schema = Some(build_tracked_schema(
+            &base_schema,
+            tracked_oracles.keys(),
+            oracle.schema_ref(),
+        ));
         Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
     }
+}
+
+fn build_tracked_schema<'a>(
+    base_schema: &Schema,
+    tracked_fields: impl Iterator<Item = &'a FieldRef>,
+    oracle_schema: Option<&Schema>,
+) -> Schema {
+    // Keep field ordering exactly aligned with tracked_oracles keys, while
+    // merging table-level metadata from hint-df + oracle schema.
+    let mut metadata = base_schema.metadata().clone();
+    if let Some(schema) = oracle_schema {
+        metadata.extend(schema.metadata().clone());
+    }
+    let fields = tracked_fields
+        .map(|f| f.as_ref().clone())
+        .collect::<Vec<_>>();
+    Schema::new_with_metadata(fields, metadata)
 }
 
 fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {

@@ -5,7 +5,9 @@ use std::sync::{
 
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{SnarkBackend, pcs::PCS};
+use datafusion::arrow::datatypes::Schema;
 use indexmap::IndexMap;
+use serde_json::{Value, json};
 use tracing::{debug, info};
 
 use crate::ctx_oracles::CtxOracles;
@@ -144,5 +146,72 @@ fn arith_to_oracle<B: SnarkBackend>(
         }
     }
 
-    ArithTableOracle::new(arith_table.schema(), commitments, arith_table.log_size())
+    let schema = enrich_schema_with_constraint_summary(arith_table.schema());
+    ArithTableOracle::new(schema, commitments, arith_table.log_size())
+}
+
+fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {
+    let mut schema = schema?;
+
+    // Build a compact, table-local summary from column metadata so commitment
+    // payloads can carry key/relationship hints without re-reading sidecar files.
+    let mut pk_cols = Vec::new();
+    let mut fk_entries = Vec::new();
+
+    for field in schema.fields() {
+        let md = field.metadata();
+        let is_pk = md
+            .get("tt.pk")
+            .map(|v| matches!(v.as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
+        if is_pk {
+            pk_cols.push(field.name().to_string());
+        }
+
+        if let Some(ref_table) = md.get("tt.fk.ref_table") {
+            let ref_columns = md
+                .get("tt.fk.ref_columns")
+                .map(|s| parse_ref_columns(s))
+                .unwrap_or_default();
+            fk_entries.push(json!({
+                "column": field.name(),
+                "ref_table": ref_table,
+                "ref_columns": ref_columns,
+            }));
+        }
+    }
+
+    let summary = json!({
+        "primary_key_columns": pk_cols,
+        "foreign_keys": fk_entries,
+    });
+
+    let mut metadata = schema.metadata().clone();
+    metadata.insert(
+        arithmetic::table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY.to_string(),
+        summary.to_string(),
+    );
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|f| f.as_ref().clone())
+        .collect::<Vec<_>>();
+    schema = Schema::new_with_metadata(fields, metadata);
+    Some(schema)
+}
+
+fn parse_ref_columns(raw: &str) -> Vec<String> {
+    if raw.trim_start().starts_with('[')
+        && let Ok(Value::Array(values)) = serde_json::from_str::<Value>(raw)
+    {
+        return values
+            .into_iter()
+            .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+            .collect();
+    }
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }

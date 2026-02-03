@@ -1,4 +1,5 @@
 use ark_piop::{SnarkBackend, prover::ArgProver};
+use datafusion::arrow::datatypes::{Field, Schema};
 
 use crate::irs::nodes::IsNode;
 use crate::{
@@ -145,5 +146,31 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
         oracle.log_size(),
         "commitment oracle log_size should match arith table"
     );
-    TrackedTable::new(arith_table.schema(), tracked_polys, arith_table.log_size())
+    let schema = tracked_schema_with_oracle_metadata(
+        arith_table.schema(),
+        oracle.schema_ref(),
+        tracked_polys.keys().map(|f| f.as_ref().clone()).collect(),
+    );
+    TrackedTable::new(schema, tracked_polys, arith_table.log_size())
+}
+
+fn tracked_schema_with_oracle_metadata(
+    arith_schema: Option<Schema>,
+    oracle_schema: Option<&Schema>,
+    tracked_fields: Vec<Field>,
+) -> Option<Schema> {
+    if arith_schema.is_none() && oracle_schema.is_none() {
+        return None;
+    }
+
+    // Keep field ordering exactly aligned with tracked_polys keys, while merging
+    // table-level metadata from arith + oracle schemas (oracle takes precedence).
+    let mut metadata = arith_schema
+        .as_ref()
+        .map(|s| s.metadata().clone())
+        .unwrap_or_default();
+    if let Some(schema) = oracle_schema {
+        metadata.extend(schema.metadata().clone());
+    }
+    Some(Schema::new_with_metadata(tracked_fields, metadata))
 }

@@ -22,12 +22,56 @@ use datafusion::{
 use datafusion_common::{Column, DFSchema, DataFusionError, ScalarValue};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
+use serde::Deserialize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock, RwLock},
+};
 use tokio::runtime::RuntimeFlavor;
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
+const PK_METADATA_KEY: &str = "tt.pk";
+const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
+const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
+
+static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<HashMap<String, TableConstraint>>> = OnceLock::new();
+
+#[derive(Debug, Deserialize)]
+struct ConstraintManifest {
+    tables: Vec<TableConstraintSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TableConstraintSpec {
+    table: String,
+    #[serde(default)]
+    primary_key: Vec<String>,
+    #[serde(default)]
+    foreign_keys: Vec<ForeignKeySpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForeignKeySpec {
+    columns: Vec<String>,
+    ref_table: String,
+    ref_columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TableConstraint {
+    primary_key_cols: HashSet<String>,
+    foreign_key_by_col: HashMap<String, ForeignKeyColConstraint>,
+}
+
+#[derive(Clone, Debug)]
+struct ForeignKeyColConstraint {
+    ref_table: String,
+    ref_columns: Vec<String>,
+}
 
 /// A materialization pass that materializes the prover's hint DataFrames
 ///
@@ -42,6 +86,25 @@ impl<B> MaterializationPass<B> {
 impl<B> Default for MaterializationPass<B> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Loads constraint manifests from directories that contain input parquet files.
+///
+/// Each `<parquet_dir>/constraints.json` is parsed when present; missing files
+/// are ignored. The merged map is used by materialization to stamp `tt.pk` and
+/// `tt.fk.*` metadata onto output schema fields.
+pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
+    let mut merged = HashMap::new();
+    for parquet_path in parquet_paths {
+        let Some(dir) = parquet_path.parent() else {
+            continue;
+        };
+        merge_constraints_from_dir(dir, &mut merged);
+    }
+    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(mut guard) = lock.write() {
+        *guard = merged;
     }
 }
 
@@ -139,13 +202,100 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
             if let Some(qualifier) = qualifier {
                 // Preserve qualifiers so downstream lookups can disambiguate same-name columns.
                 let mut metadata = updated.metadata().clone();
-                metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
+                let qualifier_str = qualifier.to_string();
+                metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier_str.clone());
+                apply_constraint_metadata(
+                    &mut metadata,
+                    &table_name_from_qualifier(&qualifier_str),
+                    updated.name(),
+                );
                 updated = updated.with_metadata(metadata);
             }
             updated
         })
         .collect();
     Schema::new_with_metadata(fields, arrow_schema.metadata().clone())
+}
+
+fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstraint>) {
+    let path = dir.join(CONSTRAINTS_FILE_NAME);
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(manifest) = serde_json::from_str::<ConstraintManifest>(&raw) else {
+        return;
+    };
+
+    for table in manifest.tables {
+        let key = table.table.to_lowercase();
+        let mut constraint = TableConstraint {
+            primary_key_cols: table.primary_key.into_iter().map(|c| c.to_lowercase()).collect(),
+            foreign_key_by_col: HashMap::new(),
+        };
+
+        for fk in table.foreign_keys {
+            if fk.columns.is_empty() {
+                continue;
+            }
+            // Store FK metadata per source column, pairing source and target columns
+            // positionally for composite keys.
+            for (idx, src_col) in fk.columns.iter().enumerate() {
+                let ref_col = fk
+                    .ref_columns
+                    .get(idx)
+                    .cloned()
+                    .or_else(|| fk.ref_columns.first().cloned())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                constraint.foreign_key_by_col.insert(
+                    src_col.to_lowercase(),
+                    ForeignKeyColConstraint {
+                        ref_table: fk.ref_table.clone(),
+                        ref_columns: ref_col,
+                    },
+                );
+            }
+        }
+
+        out.insert(key, constraint);
+    }
+}
+
+fn table_name_from_qualifier(qualifier: &str) -> String {
+    qualifier
+        .rsplit('.')
+        .next()
+        .unwrap_or(qualifier)
+        .trim_matches('"')
+        .trim_matches('`')
+        .to_lowercase()
+}
+
+fn apply_constraint_metadata(
+    metadata: &mut HashMap<String, String>,
+    table_name: &str,
+    column_name: &str,
+) {
+    let Some(lock) = CONSTRAINTS_BY_TABLE.get() else {
+        return;
+    };
+    let Ok(guard) = lock.read() else {
+        return;
+    };
+    let Some(table) = guard.get(table_name) else {
+        return;
+    };
+    let column_key = column_name.to_lowercase();
+
+    if table.primary_key_cols.contains(&column_key) {
+        metadata.insert(PK_METADATA_KEY.to_string(), "true".to_string());
+    }
+    if let Some(fk) = table.foreign_key_by_col.get(&column_key) {
+        metadata.insert(FK_REF_TABLE_METADATA_KEY.to_string(), fk.ref_table.clone());
+        if let Ok(serialized) = serde_json::to_string(&fk.ref_columns) {
+            metadata.insert(FK_REF_COLUMNS_METADATA_KEY.to_string(), serialized);
+        }
+    }
 }
 
 fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {

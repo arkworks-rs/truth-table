@@ -1,5 +1,6 @@
 use std::{
     fs::{File, create_dir_all},
+    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
@@ -21,10 +22,142 @@ use chrono::{Datelike, Timelike};
 use duckdb::Connection;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
+use serde::Serialize;
 use tpchgen::generators::*;
 use tpchgen_arrow::*;
 
 const ROW_ID_COL_NAME: &str = "__row_id__";
+const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
+
+#[derive(Debug, Serialize)]
+struct ConstraintManifest {
+    format_version: u32,
+    source: &'static str,
+    tables: Vec<TableConstraintSpec>,
+}
+
+#[derive(Debug, Serialize)]
+struct TableConstraintSpec {
+    table: &'static str,
+    primary_key: Vec<&'static str>,
+    unique_keys: Vec<Vec<&'static str>>,
+    foreign_keys: Vec<ForeignKeySpec>,
+}
+
+#[derive(Debug, Serialize)]
+struct ForeignKeySpec {
+    columns: Vec<&'static str>,
+    ref_table: &'static str,
+    ref_columns: Vec<&'static str>,
+}
+
+fn tpch_constraints_manifest() -> ConstraintManifest {
+    ConstraintManifest {
+        format_version: 1,
+        source: "tpch-constraints-hardcoded",
+        tables: vec![
+            TableConstraintSpec {
+                table: "region",
+                primary_key: vec!["r_regionkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![],
+            },
+            TableConstraintSpec {
+                table: "nation",
+                primary_key: vec!["n_nationkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![ForeignKeySpec {
+                    columns: vec!["n_regionkey"],
+                    ref_table: "region",
+                    ref_columns: vec!["r_regionkey"],
+                }],
+            },
+            TableConstraintSpec {
+                table: "part",
+                primary_key: vec!["p_partkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![],
+            },
+            TableConstraintSpec {
+                table: "supplier",
+                primary_key: vec!["s_suppkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![ForeignKeySpec {
+                    columns: vec!["s_nationkey"],
+                    ref_table: "nation",
+                    ref_columns: vec!["n_nationkey"],
+                }],
+            },
+            TableConstraintSpec {
+                table: "partsupp",
+                primary_key: vec!["ps_partkey", "ps_suppkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![
+                    ForeignKeySpec {
+                        columns: vec!["ps_partkey"],
+                        ref_table: "part",
+                        ref_columns: vec!["p_partkey"],
+                    },
+                    ForeignKeySpec {
+                        columns: vec!["ps_suppkey"],
+                        ref_table: "supplier",
+                        ref_columns: vec!["s_suppkey"],
+                    },
+                ],
+            },
+            TableConstraintSpec {
+                table: "customer",
+                primary_key: vec!["c_custkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![ForeignKeySpec {
+                    columns: vec!["c_nationkey"],
+                    ref_table: "nation",
+                    ref_columns: vec!["n_nationkey"],
+                }],
+            },
+            TableConstraintSpec {
+                table: "orders",
+                primary_key: vec!["o_orderkey"],
+                unique_keys: vec![],
+                foreign_keys: vec![ForeignKeySpec {
+                    columns: vec!["o_custkey"],
+                    ref_table: "customer",
+                    ref_columns: vec!["c_custkey"],
+                }],
+            },
+            TableConstraintSpec {
+                table: "lineitem",
+                primary_key: vec!["l_orderkey", "l_linenumber"],
+                unique_keys: vec![],
+                foreign_keys: vec![
+                    ForeignKeySpec {
+                        columns: vec!["l_orderkey"],
+                        ref_table: "orders",
+                        ref_columns: vec!["o_orderkey"],
+                    },
+                    ForeignKeySpec {
+                        columns: vec!["l_partkey", "l_suppkey"],
+                        ref_table: "partsupp",
+                        ref_columns: vec!["ps_partkey", "ps_suppkey"],
+                    },
+                ],
+            },
+        ],
+    }
+}
+
+fn write_constraints_manifest<P: AsRef<Path>>(out_dir: P) {
+    let out_dir = out_dir.as_ref();
+    create_dir_all(out_dir).expect("create output dir for constraints");
+    let out_path = out_dir.join(CONSTRAINTS_FILE_NAME);
+    let payload = serde_json::to_string_pretty(&tpch_constraints_manifest())
+        .expect("serialize tpch constraints manifest");
+    let mut file = File::create(&out_path).expect("create constraints manifest file");
+    file.write_all(payload.as_bytes())
+        .expect("write constraints manifest");
+    file.write_all(b"\n")
+        .expect("finalize constraints manifest");
+}
 
 #[derive(Clone)]
 enum Expansion {
@@ -531,6 +664,9 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         write_parquet_raw(orig_out.join("lineitem.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("lineitem.parquet"), &schema, &mut it);
     }
+
+    // Emit table-level key constraints alongside generated parquet files.
+    write_constraints_manifest(out);
 }
 
 /// Preprocess an existing Parquet file using the same logic as `generate_parquet_scale`.
