@@ -843,12 +843,13 @@ fn field_qualifier(field: &FieldRef) -> Option<&str> {
         .map(|value| value.as_str())
 }
 
-fn find_tracked_index_by_column<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-    col: &Column,
-) -> usize {
+fn find_tracked_index_by_column<B: SnarkBackend>(table: &TrackedTable<B>, col: &Column) -> usize {
     let qualifier = col.relation.as_ref().map(|q| q.to_string());
-    find_tracked_index(table.tracked_polys().iter(), &col.name, qualifier.as_deref())
+    find_tracked_index(
+        table.tracked_polys().iter(),
+        &col.name,
+        qualifier.as_deref(),
+    )
 }
 
 fn find_tracked_index_by_name<B: SnarkBackend>(table: &TrackedTable<B>, name: &str) -> usize {
@@ -870,7 +871,11 @@ fn find_tracked_oracle_index_by_column<B: SnarkBackend>(
     col: &Column,
 ) -> usize {
     let qualifier = col.relation.as_ref().map(|q| q.to_string());
-    find_tracked_index(table.tracked_oracles().iter(), &col.name, qualifier.as_deref())
+    find_tracked_index(
+        table.tracked_oracles().iter(),
+        &col.name,
+        qualifier.as_deref(),
+    )
 }
 
 fn find_tracked_oracle_index_by_name<B: SnarkBackend>(
@@ -934,7 +939,6 @@ where
         name_matches
     );
 }
-
 
 fn count_output_names(aggr_exprs: &[Expr]) -> Vec<String> {
     fn is_count_expr(expr: &Expr) -> bool {

@@ -14,7 +14,7 @@ use ark_serialize::{
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
-use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
+use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec, Value};
 use std::fmt::Display;
 use std::{convert::TryFrom, sync::Arc};
 

@@ -5,7 +5,6 @@ use ark_piop::{
     piop::PIOP, test_utils::test_prelude, to_field_vec,
 };
 
-
 use super::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput};
 // Sets up randomized inputs for testing EqCheck
 #[test]
@@ -13,37 +12,73 @@ fn perm_check_is_complete() -> SnarkResult<()> {
     // All activated tests
     perm_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
         3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
-    )?;
-
-    perm_check_test_helper::<DefaultSnarkBackend>(
-        3,
-        to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
-        3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
     )?;
 
     perm_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [1, 7, 4, 20, 18, 3, 12, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
+        3,
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
+    )?;
+
+    perm_check_test_helper::<DefaultSnarkBackend>(
+        3,
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [1, 0, 0, 1, 0, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         2,
-        to_field_vec!([12, 3, 4, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [12, 3, 4, 20],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     perm_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([0, 0, 0, 1, 0, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [0, 0, 0, 1, 0, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         2,
-        to_field_vec!([12, 3, 4, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([1, 1, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [12, 3, 4, 20],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [1, 1, 0, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
 
     Ok(())
@@ -53,20 +88,38 @@ fn perm_check_is_complete() -> SnarkResult<()> {
 fn perm_check_is_sound() -> SnarkResult<()> {
     permcheck_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([1, 7, 4, 20, 18, 3, 12, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [1, 7, 4, 20, 18, 3, 12, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
         3,
-        to_field_vec!([4, 8, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 8, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::ONE; 2_usize.pow(3_u32)],
     )?;
 
     permcheck_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 1, 20, 18, 2, 12, 9], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 9],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [1, 0, 0, 1, 0, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         2,
-        to_field_vec!([12, 2, 4, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [12, 2, 4, 20],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        to_field_vec!(
+            [1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
 
     Ok(())

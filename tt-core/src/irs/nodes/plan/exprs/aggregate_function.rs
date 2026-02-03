@@ -7,9 +7,9 @@ use ark_piop::{
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use either::Either;
 use datafusion_common::{Column, Statistics};
 use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
+use either::Either;
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -307,41 +307,40 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             _ => panic!("AggregateFunction payload missing"),
         };
 
-        let (orig_rlc, super_rlc) = if let Some(supp_node) =
-            supp_child_from_aggregate_parent(&parent_node)
-        {
-            let supp_payload = virtualized_ir
-                .payload_for_node(&supp_node.id())
-                .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
-            let supp_payload = match supp_payload {
-                PayloadStructure::GadgetPayload(map) => map,
-                _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+        let (orig_rlc, super_rlc) =
+            if let Some(supp_node) = supp_child_from_aggregate_parent(&parent_node) {
+                let supp_payload = virtualized_ir
+                    .payload_for_node(&supp_node.id())
+                    .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+                let supp_payload = match supp_payload {
+                    PayloadStructure::GadgetPayload(map) => map,
+                    _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+                };
+                let orig_rlc = supp_payload
+                    .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
+                    });
+                let super_rlc = supp_payload
+                    .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+                    });
+                (orig_rlc, super_rlc)
+            } else {
+                (
+                    constant_one_table::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                    ),
+                    constant_one_table::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                    ),
+                )
             };
-            let orig_rlc = supp_payload
-                .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
-                });
-            let super_rlc = supp_payload
-                .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
-                });
-            (orig_rlc, super_rlc)
-        } else {
-            (
-                constant_one_table::<B>(
-                    &aggr_expr_table,
-                    crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
-                ),
-                constant_one_table::<B>(
-                    &aggr_expr_table,
-                    crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
-                ),
-            )
-        };
 
         if let Some(gadget) = &self.gadget {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
@@ -514,41 +513,40 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             }
             _ => panic!("AggregateFunction payload missing"),
         };
-        let (orig_rlc, super_rlc) = if let Some(supp_node) =
-            supp_child_from_aggregate_parent(&parent_node)
-        {
-            let supp_payload = virtualized_ir
-                .payload_for_node(&supp_node.id())
-                .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
-            let supp_payload = match supp_payload {
-                PayloadStructure::GadgetPayload(map) => map,
-                _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+        let (orig_rlc, super_rlc) =
+            if let Some(supp_node) = supp_child_from_aggregate_parent(&parent_node) {
+                let supp_payload = virtualized_ir
+                    .payload_for_node(&supp_node.id())
+                    .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+                let supp_payload = match supp_payload {
+                    PayloadStructure::GadgetPayload(map) => map,
+                    _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+                };
+                let orig_rlc = supp_payload
+                    .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
+                    });
+                let super_rlc = supp_payload
+                    .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+                    });
+                (orig_rlc, super_rlc)
+            } else {
+                (
+                    constant_one_table_oracle::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                    ),
+                    constant_one_table_oracle::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                    ),
+                )
             };
-            let orig_rlc = supp_payload
-                .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
-                });
-            let super_rlc = supp_payload
-                .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
-                .cloned()
-                .unwrap_or_else(|| {
-                    panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
-                });
-            (orig_rlc, super_rlc)
-        } else {
-            (
-                constant_one_table_oracle::<B>(
-                    &aggr_expr_table,
-                    crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
-                ),
-                constant_one_table_oracle::<B>(
-                    &aggr_expr_table,
-                    crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
-                ),
-            )
-        };
 
         if let Some(gadget) = &self.gadget {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {

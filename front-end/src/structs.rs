@@ -8,7 +8,9 @@ use ark_piop::{
     setup::structs::{SNARKPk, SNARKVk},
     SnarkBackend,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid};
+use ark_serialize::{
+    CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid,
+};
 use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
 use tt_core::irs::{
@@ -181,7 +183,8 @@ where
         debug!(ir_len, "TTProof serialize: IR byte length");
         writer.write_all(&ir_len.to_le_bytes())?;
         writer.write_all(&ir_bytes)?;
-        self.snark_proof.serialize_with_mode(&mut writer, compress)?;
+        self.snark_proof
+            .serialize_with_mode(&mut writer, compress)?;
         Ok(())
     }
 
@@ -210,8 +213,8 @@ where
         if ir_len > 0 {
             reader.read_exact(&mut ir_bytes)?;
         }
-        let optimized_ir = deserialize_empty_ir::<B>(&ir_bytes)
-            .map_err(|_| SerializationError::InvalidData)?;
+        let optimized_ir =
+            deserialize_empty_ir::<B>(&ir_bytes).map_err(|_| SerializationError::InvalidData)?;
         let snark_proof = SNARKProof::<B>::deserialize_with_mode(reader, compress, _validate)?;
         Ok(Self {
             snark_proof,

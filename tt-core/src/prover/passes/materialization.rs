@@ -22,9 +22,9 @@ use datafusion::{
 use datafusion_common::{Column, DFSchema, DataFusionError, ScalarValue};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
-use serde::Deserialize;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -95,6 +95,7 @@ impl<B> Default for MaterializationPass<B> {
 /// are ignored. The merged map is used by materialization to stamp `tt.pk` and
 /// `tt.fk.*` metadata onto output schema fields.
 pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
+    crate::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths(parquet_paths);
     let mut merged = HashMap::new();
     for parquet_path in parquet_paths {
         let Some(dir) = parquet_path.parent() else {
@@ -229,7 +230,11 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstra
     for table in manifest.tables {
         let key = table.table.to_lowercase();
         let mut constraint = TableConstraint {
-            primary_key_cols: table.primary_key.into_iter().map(|c| c.to_lowercase()).collect(),
+            primary_key_cols: table
+                .primary_key
+                .into_iter()
+                .map(|c| c.to_lowercase())
+                .collect(),
             foreign_key_by_col: HashMap::new(),
         };
 

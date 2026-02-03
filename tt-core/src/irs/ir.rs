@@ -1,6 +1,5 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
-use tracing::instrument;
 use tracing::debug;
 
 use crate::irs::{
@@ -160,8 +159,11 @@ where
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.ordered_nodes(pass.order()) {
-            let input_payload = self.payloads[&id]
+            let input_payload = self
+                .payloads
+                .get(&id)
                 .as_ref()
+                .and_then(|opt| opt.as_ref())
                 .cloned()
                 .or_else(|| pass.fallback_payload(&node, id));
             debug!(
@@ -200,12 +202,20 @@ where
             .arena()
             .into_par_iter()
             .map(|(id, node)| {
+                let input_payload = self.payloads.get(id).and_then(|opt| opt.as_ref());
                 debug!(
                     node_id = ?id,
-                    has_payload = self.payloads.get(id).is_some_and(|opt| opt.is_some()),
+                    has_payload = input_payload.is_some(),
                     "pass.transform start"
                 );
-                let maybe = pass.transform(node, *id, self.payloads[id].as_ref());
+                // Some optimizer passes can temporarily hide subtrees (e.g. mode switches).
+                // Those detached nodes may still exist in arena but have no payload entry.
+                // Skip transforming them in parallel traversal.
+                let maybe = if self.payloads.contains_key(id) {
+                    pass.transform(node, *id, input_payload)
+                } else {
+                    None
+                };
                 debug!(
                     node_id = ?id,
                     produced = maybe.is_some(),

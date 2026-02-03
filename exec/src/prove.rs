@@ -23,7 +23,8 @@ use std::{
 };
 use tracing::instrument;
 use tt_core::{
-    ctx_oracles::CtxOracles, prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
+    ctx_oracles::CtxOracles,
+    prover::passes::materialization::configure_constraint_metadata_from_parquet_paths,
 };
 
 type B = DefaultSnarkBackend;
@@ -229,9 +230,7 @@ impl ProveRunner {
         let ctx_oracles = self.ctx_oracles_from_paths()?;
         Ok(TTSharedConfig::new(
             Analyzer::with_rules(proof_planner::logical_plan_analyzer::rules()),
-            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(
-                &session_ctx,
-            )),
+            Optimizer::with_rules(proof_planner::logical_plan_optimizer::rules(&session_ctx)),
             ctx_oracles,
             session_ctx,
             ConfigOptions::new(),

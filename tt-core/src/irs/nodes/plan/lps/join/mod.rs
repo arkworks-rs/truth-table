@@ -2,21 +2,18 @@ use std::sync::{Arc, Weak};
 
 use crate::irs::{
     nodes::{
-        gadget::lps::join as join_gadget, IsLpNode, IsNode, IsPlanNode, Node, NodeId,
-        ProverNodeOps, VerifierNodeOps,
+        IsLpNode, IsNode, IsPlanNode, Node, ProverNodeOps, VerifierNodeOps,
+        gadget::lps::join as join_gadget,
     },
     payloads::PayloadStructure,
     tree::Tree,
 };
 use arithmetic::ROW_ID_COL_NAME;
 use ark_piop::SnarkBackend;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::prelude::DataFrame;
-use datafusion_common::DataFusionError;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
-use tokio::runtime::RuntimeFlavor;
 mod hints;
+
 #[allow(clippy::type_complexity)]
 pub struct LpNode<B>
 where
@@ -56,7 +53,7 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
             self.right.name(),
             self.join.join_type,
             on_pairs,
-            filter
+            filter,
         )
     }
 
@@ -170,7 +167,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        None
+        Some(self.gadget.as_ref().clone())
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
@@ -278,9 +275,11 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
                 .root()
                 .clone()
         });
+
         let gadget = Arc::new(Node::Gadget(Arc::new(
             crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone()),
         )));
+
         LpNode {
             left,
             right,

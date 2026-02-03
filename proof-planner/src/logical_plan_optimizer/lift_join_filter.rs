@@ -46,7 +46,10 @@ fn lift_join_filter(plan: LogicalPlan) -> datafusion_common::Result<Transformed<
     };
 
     debug!("LiftJoinFilter applied: filter moved to separate Filter node");
-    let join_plan = LogicalPlan::Join(Join { filter: None, ..join });
+    let join_plan = LogicalPlan::Join(Join {
+        filter: None,
+        ..join
+    });
     let filter_plan = LogicalPlan::Filter(Filter::try_new(filter, Arc::new(join_plan))?);
     Ok(Transformed::yes(filter_plan))
 }

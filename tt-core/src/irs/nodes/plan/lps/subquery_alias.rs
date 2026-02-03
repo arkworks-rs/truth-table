@@ -1,8 +1,8 @@
 use std::sync::{Arc, Weak};
 
 use ark_piop::SnarkBackend;
-use datafusion_expr::{LogicalPlan, SubqueryAlias};
 use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion_expr::{LogicalPlan, SubqueryAlias};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -10,7 +10,9 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
+};
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 

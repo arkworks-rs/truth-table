@@ -1,7 +1,9 @@
 use std::{mem, sync::Arc};
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
-use datafusion_common::{tree_node::Transformed, DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion_common::{
+    tree_node::Transformed, DataFusionError, Result as DataFusionResult, ScalarValue,
+};
 use datafusion_expr::{
     logical_plan::{Filter, Limit, LogicalPlan},
     utils::conjunction,

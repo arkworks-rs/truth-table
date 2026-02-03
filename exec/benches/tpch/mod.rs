@@ -92,7 +92,6 @@ ORDER BY
     o_orderdate_year DESC;
 ";
 
-
         let cases = vec![
             BenchCase {
                 name: "tpch_q1",

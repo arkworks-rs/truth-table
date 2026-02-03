@@ -1426,7 +1426,9 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
 
     // Enforce first_tie * tie_i * input_activator * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
     // first_tie masks the wrap-around row (last -> first), and input activator gates inactive rows.
-    let first_tie_poly = tie_table.tracked_col_by_ind(tie_indices[0]).data_tracked_poly();
+    let first_tie_poly = tie_table
+        .tracked_col_by_ind(tie_indices[0])
+        .data_tracked_poly();
     let input_activator = input_table.activator_tracked_poly();
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()

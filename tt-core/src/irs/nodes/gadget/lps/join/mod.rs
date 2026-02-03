@@ -20,6 +20,7 @@ use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
 use either::Either;
 use indexmap::IndexMap;
+use std::sync::RwLock;
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 mod hints;
@@ -31,11 +32,32 @@ pub const SRC_LEFT_LABEL: &str = "__SRC_LEFT__";
 pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
+
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinMode {
+    ONE_TO_MANY,
+    MANY_TO_ONE,
+    ONE_TO_ONE,
+    MANY_TO_MANY,
+}
+
+pub enum Gadgets<B: SnarkBackend> {
+    // Full join proof stack: bool + nodup + match-pair utilities.
+    ManyToMany(ManyToManyGadgets<B>),
+    // Optimized mode for joins where one side is guaranteed unique.
+    // No child gadgets are needed.
+    HasOne,
+}
+pub struct ManyToManyGadgets<B: SnarkBackend> {
+    pub(super) bool_gadget: Arc<Node<B>>,
+    pub(super) nodup_gadget: Arc<Node<B>>,
+    pub(super) match_pair_gadget: Arc<Node<B>>,
+}
 pub struct GadgetNode<B: SnarkBackend> {
-    bool_gadget: Arc<Node<B>>,
-    nodup_gadget: Arc<Node<B>>,
-    match_pair_gadget: Arc<Node<B>>,
+    gadgets: RwLock<Gadgets<B>>,
     join: Join,
+    join_mode: RwLock<JoinMode>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -61,88 +83,98 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let left_hint = match gadget_payload.get(LEFT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let right_hint = match gadget_payload.get(RIGHT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
+        if let Some(gadgets) = self.many_to_many_gadgets() {
+            let gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => return Ok(()),
+            };
+            let left_hint = match gadget_payload.get(LEFT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let right_hint = match gadget_payload.get(RIGHT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
 
-        // Build source-row tables aligned with the join output.
-        let (left_src_df, right_src_df) = hints::build_source_dfs(
-            left_hint.data_frame().clone(),
-            right_hint.data_frame().clone(),
-            output_hint.data_frame().clone(),
-            &self.join,
-        )
-        .expect("join source dataframe derivation should succeed");
-        let nodup_input_df = hints::build_nodup_input_df(
-            left_hint.data_frame().clone(),
-            right_hint.data_frame().clone(),
-            output_hint.data_frame().clone(),
-            &self.join,
-        )
-        .expect("join nodup dataframe derivation should succeed");
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(
-            SRC_LEFT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
-        );
-        gadget_payload.insert(
-            SRC_RIGHT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
-        );
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+            // Build source-row tables aligned with the join output.
+            let (left_src_df, right_src_df) = hints::build_source_dfs(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join source dataframe derivation should succeed");
+            let nodup_input_df = hints::build_nodup_input_df(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join nodup dataframe derivation should succeed");
+            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            gadget_payload.insert(
+                SRC_LEFT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
+            );
+            gadget_payload.insert(
+                SRC_RIGHT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
+            );
+            planned_ir
+                .set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
-        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        nodup_payload.insert(
-            crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
-        );
-        planned_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
+            let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            nodup_payload.insert(
+                crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
+            );
+            planned_ir.set_payload_for_node(
+                gadgets.nodup_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
 
-        let (match_left, match_right, match_out) =
-            build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
-                .expect("match-pair hint derivation should succeed");
-        let mut match_payload = match planned_ir.payload_for_node(&self.match_pair_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
-        match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
-        match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
-        planned_ir.set_payload_for_node(
-            self.match_pair_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(match_payload)),
-        );
-        Ok(())
+            let (match_left, match_right, match_out) =
+                build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
+                    .expect("match-pair hint derivation should succeed");
+            let mut match_payload =
+                match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+            match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
+            match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
+            match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
+            planned_ir.set_payload_for_node(
+                gadgets.match_pair_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(match_payload)),
+            );
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![
-            self.bool_gadget.clone(),
-            self.nodup_gadget.clone(),
-            self.match_pair_gadget.clone(),
-        ]
+        if let Some(gadgets) = self.many_to_many_gadgets() {
+            vec![
+                gadgets.bool_gadget.clone(),
+                gadgets.nodup_gadget.clone(),
+                gadgets.match_pair_gadget.clone(),
+            ]
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -161,44 +193,48 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // First fetch the payload for the current node, prepared by the parent
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            panic!("Expected gadget payload for Join gadget node")
-        };
-        // Among the payload, we expect left, right, and output tables
-        let current_output = payload
-            .get(OUTPUT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
-        let current_left = payload
-            .get(LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
-        let current_right = payload
-            .get(RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
-        let current_left_src = payload
-            .get(SRC_LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
-        let current_right_src = payload
-            .get(SRC_RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
-        self.wire_prover_bool_payload(current_output, virtualized_ir);
+        if self.many_to_many_gadgets().is_some() {
+            // First fetch the payload for the current node, prepared by the parent
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                virtualized_ir.payload_for_node(&id).cloned()
+            else {
+                panic!("Expected gadget payload for Join gadget node")
+            };
+            // Among the payload, we expect left, right, and output tables
+            let current_output = payload
+                .get(OUTPUT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
+            let current_left = payload
+                .get(LEFT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
+            let current_right = payload
+                .get(RIGHT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
+            let current_left_src = payload
+                .get(SRC_LEFT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
+            let current_right_src = payload
+                .get(SRC_RIGHT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
+            self.wire_prover_bool_payload(current_output, virtualized_ir);
 
-        self.wire_prover_nodup_payload(
-            current_output,
-            current_left_src,
-            current_right_src,
-            virtualized_ir,
-        );
+            self.wire_prover_nodup_payload(
+                current_output,
+                current_left_src,
+                current_right_src,
+                virtualized_ir,
+            );
 
-        self.wire_prover_match_pair_payload(
-            current_output,
-            current_left,
-            current_right,
-            virtualized_ir,
-        );
-        Ok(())
+            self.wire_prover_match_pair_payload(
+                current_output,
+                current_left,
+                current_right,
+                virtualized_ir,
+            );
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -216,42 +252,46 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            panic!("expected gadget payload for Join gadget node")
-        };
-        let current_output = payload
-            .get(OUTPUT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
-        let current_left = payload
-            .get(LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
-        let current_right = payload
-            .get(RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
-        let current_left_src = payload
-            .get(SRC_LEFT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
-        let current_right_src = payload
-            .get(SRC_RIGHT_LABEL)
-            .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
-        self.wire_verifier_bool_payload(current_output, virtualized_ir);
+        if self.many_to_many_gadgets().is_some() {
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                virtualized_ir.payload_for_node(&id).cloned()
+            else {
+                panic!("expected gadget payload for Join gadget node")
+            };
+            let current_output = payload
+                .get(OUTPUT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
+            let current_left = payload
+                .get(LEFT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
+            let current_right = payload
+                .get(RIGHT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
+            let current_left_src = payload
+                .get(SRC_LEFT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
+            let current_right_src = payload
+                .get(SRC_RIGHT_LABEL)
+                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
+            self.wire_verifier_bool_payload(current_output, virtualized_ir);
 
-        self.wire_verifier_nodup_payload(
-            current_output,
-            current_left_src,
-            current_right_src,
-            virtualized_ir,
-        );
+            self.wire_verifier_nodup_payload(
+                current_output,
+                current_left_src,
+                current_right_src,
+                virtualized_ir,
+            );
 
-        self.wire_verifier_match_pair_payload(
-            current_output,
-            current_left,
-            current_right,
-            virtualized_ir,
-        );
-        Ok(())
+            self.wire_verifier_match_pair_payload(
+                current_output,
+                current_left,
+                current_right,
+                virtualized_ir,
+            );
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -387,7 +427,7 @@ fn output_base_from_output<B: SnarkBackend>(
     };
 
     let mut filtered = IndexMap::new();
-    for (out_idx, (out_field, out_poly)) in output_cols.iter().enumerate() {
+    for (out_field, out_poly) in output_cols.iter() {
         if out_field.name() == arithmetic::ACTIVATOR_COL_NAME
             || out_field.name() == arithmetic::ROW_ID_COL_NAME
         {
@@ -526,9 +566,7 @@ fn field_matches(left: &FieldRef, right: &FieldRef) -> bool {
     if left.name() != right.name() {
         return false;
     }
-    if left.name() == arithmetic::ACTIVATOR_COL_NAME
-        || left.name() == arithmetic::ROW_ID_COL_NAME
-    {
+    if left.name() == arithmetic::ACTIVATOR_COL_NAME || left.name() == arithmetic::ROW_ID_COL_NAME {
         return true;
     }
     // Use qualifier metadata to disambiguate when left/right share column names.
@@ -555,74 +593,82 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Join gadget node");
-        };
+        if self.many_to_many_gadgets().is_some() {
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                gadget_ready_ir.payload_for_node(&id)
+            else {
+                panic!("Expected gadget payload for Join gadget node");
+            };
 
-        let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
-            panic!("Expected output table for Join gadget");
-        };
-        let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
-            panic!("Expected left table for Join gadget");
-        };
-        let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
-            panic!("Expected right table for Join gadget");
-        };
-        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
-            panic!("Expected src-left table for Join gadget");
-        };
-        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
-            panic!("Expected src-right table for Join gadget");
-        };
+            let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
+                panic!("Expected output table for Join gadget");
+            };
+            let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
+                panic!("Expected left table for Join gadget");
+            };
+            let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
+                panic!("Expected right table for Join gadget");
+            };
+            let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
+                panic!("Expected src-left table for Join gadget");
+            };
+            let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+                panic!("Expected src-right table for Join gadget");
+            };
 
-        // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
-        // Method: We look up table output_left in input_left
-        // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
-        // input left = [left activator | left keys + left data + normal index]
-        let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
-        let output_left_base = output_base_from_output(&output, &left_table);
-        let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
+            // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
+            // Method: We look up table output_left in input_left
+            // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
+            // input left = [left activator | left keys + left data + normal index]
+            let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
+            let output_left_base = output_base_from_output(&output, &left_table);
+            let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
 
-        let index_poly = index_tracked_poly(prover, &left_table);
-        let input_left_base = input_base_from_output(&left_table, &output);
-        let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
+            let index_poly = index_tracked_poly(prover, &left_table);
+            let input_left_base = input_base_from_output(&left_table, &output);
+            let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
 
-        let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_cols());
-        let output_folded = output_left.fold_all_data_columns(&output_challs);
-        let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_cols());
-        let input_folded = input_left.fold_all_data_columns(&input_challs);
+            let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_cols());
+            let output_folded = output_left.fold_all_data_columns(&output_challs);
+            let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_cols());
+            let input_folded = input_left.fold_all_data_columns(&input_challs);
 
-        // output_left is a subtable of input_left after folding, so add lookup claim.
-        prover.add_mv_lookup_claim(
-            input_folded.data_tracked_poly().id(),
-            output_folded.data_tracked_poly().id(),
-        )?;
+            // output_left is a subtable of input_left after folding, so add lookup claim.
+            prover.add_mv_lookup_claim(
+                input_folded.data_tracked_poly().id(),
+                output_folded.data_tracked_poly().id(),
+            )?;
 
-        // Purpose: Every row in the output table must consist of columns that come from some row in the right table.
-        // Method: We look up table output_right in input_right
-        // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
-        // input right = [right activator | right keys + right data + normal index]
+            // Purpose: Every row in the output table must consist of columns that come from some row in the right table.
+            // Method: We look up table output_right in input_right
+            // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
+            // input right = [right activator | right keys + right data + normal index]
 
-        let (right_src_field, right_src_poly) = single_data_col_from_table(&right_src, "src-right");
-        let output_right_base = output_base_from_output(&output, &right_table);
-        let output_right =
-            append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
+            let (right_src_field, right_src_poly) =
+                single_data_col_from_table(&right_src, "src-right");
+            let output_right_base = output_base_from_output(&output, &right_table);
+            let output_right =
+                append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
 
-        let right_index_poly = index_tracked_poly(prover, &right_table);
-        let input_right_base = input_base_from_output(&right_table, &output);
-        let input_right =
-            append_tracked_col(&input_right_base, right_src_field, right_index_poly);
+            let right_index_poly = index_tracked_poly(prover, &right_table);
+            let input_right_base = input_base_from_output(&right_table, &output);
+            let input_right =
+                append_tracked_col(&input_right_base, right_src_field, right_index_poly);
 
-        let output_right_challs = folding_challenges::<B::F>(output_right.num_data_tracked_cols());
-        let output_right_folded = output_right.fold_all_data_columns(&output_right_challs);
-        let input_right_challs = folding_challenges::<B::F>(input_right.num_data_tracked_cols());
-        let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
-        prover.add_mv_lookup_claim(
-            input_right_folded.data_tracked_poly().id(),
-            output_right_folded.data_tracked_poly().id(),
-        )?;
-        Ok(())
+            let output_right_challs =
+                folding_challenges::<B::F>(output_right.num_data_tracked_cols());
+            let output_right_folded = output_right.fold_all_data_columns(&output_right_challs);
+            let input_right_challs =
+                folding_challenges::<B::F>(input_right.num_data_tracked_cols());
+            let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
+            prover.add_mv_lookup_claim(
+                input_right_folded.data_tracked_poly().id(),
+                output_right_folded.data_tracked_poly().id(),
+            )?;
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     fn honest_prover_check(
@@ -640,72 +686,79 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            panic!("Expected gadget payload for Join gadget node");
-        };
+        if self.many_to_many_gadgets().is_some() {
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                gadget_ready_ir.payload_for_node(&id)
+            else {
+                panic!("Expected gadget payload for Join gadget node");
+            };
 
-        let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
-            panic!("Expected output table for Join gadget");
-        };
-        let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
-            panic!("Expected left table for Join gadget");
-        };
-        let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
-            panic!("Expected right table for Join gadget");
-        };
-        let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
-            panic!("Expected src-left table for Join gadget");
-        };
-        let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
-            panic!("Expected src-right table for Join gadget");
-        };
+            let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
+                panic!("Expected output table for Join gadget");
+            };
+            let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
+                panic!("Expected left table for Join gadget");
+            };
+            let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
+                panic!("Expected right table for Join gadget");
+            };
+            let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
+                panic!("Expected src-left table for Join gadget");
+            };
+            let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+                panic!("Expected src-right table for Join gadget");
+            };
 
+            let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
+            let output_left_base = output_base_from_output_oracle(&output, &left_table);
+            let output_left =
+                append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
 
-        let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
-        let output_left_base = output_base_from_output_oracle(&output, &left_table);
-        let output_left = append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
+            let index_oracle = index_tracked_oracle(verifier, &left_table);
+            let input_left_base = input_base_from_output_oracle(&left_table, &output);
+            let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
 
-        let index_oracle = index_tracked_oracle(verifier, &left_table);
-        let input_left_base = input_base_from_output_oracle(&left_table, &output);
-        let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
+            let output_challs =
+                folding_challenges::<B::F>(output_left.num_data_tracked_col_oracles());
+            let output_folded = output_left.fold_all_data_oracles(&output_challs);
+            let input_challs =
+                folding_challenges::<B::F>(input_left.num_data_tracked_col_oracles());
+            let input_folded = input_left.fold_all_data_oracles(&input_challs);
 
-        let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_col_oracles());
-        let output_folded = output_left.fold_all_data_oracles(&output_challs);
-        let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_col_oracles());
-        let input_folded = input_left.fold_all_data_oracles(&input_challs);
+            verifier.add_mv_lookup_claim(
+                input_folded.data_tracked_oracle().id(),
+                output_folded.data_tracked_oracle().id(),
+            )?;
 
-        verifier.add_mv_lookup_claim(
-            input_folded.data_tracked_oracle().id(),
-            output_folded.data_tracked_oracle().id(),
-        )?;
+            let (right_src_field, right_src_oracle) =
+                single_data_col_from_table_oracle(&right_src, "src-right");
+            let output_right_base = output_base_from_output_oracle(&output, &right_table);
+            let output_right = append_tracked_oracle(
+                &output_right_base,
+                right_src_field.clone(),
+                right_src_oracle,
+            );
 
-        let (right_src_field, right_src_oracle) =
-            single_data_col_from_table_oracle(&right_src, "src-right");
-        let output_right_base = output_base_from_output_oracle(&output, &right_table);
-        let output_right = append_tracked_oracle(
-            &output_right_base,
-            right_src_field.clone(),
-            right_src_oracle,
-        );
+            let right_index_oracle = index_tracked_oracle(verifier, &right_table);
+            let input_right_base = input_base_from_output_oracle(&right_table, &output);
+            let input_right =
+                append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
 
-        let right_index_oracle = index_tracked_oracle(verifier, &right_table);
-        let input_right_base = input_base_from_output_oracle(&right_table, &output);
-        let input_right =
-            append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
+            let output_right_challs =
+                folding_challenges::<B::F>(output_right.num_data_tracked_col_oracles());
+            let output_right_folded = output_right.fold_all_data_oracles(&output_right_challs);
+            let input_right_challs =
+                folding_challenges::<B::F>(input_right.num_data_tracked_col_oracles());
+            let input_right_folded = input_right.fold_all_data_oracles(&input_right_challs);
 
-        let output_right_challs =
-            folding_challenges::<B::F>(output_right.num_data_tracked_col_oracles());
-        let output_right_folded = output_right.fold_all_data_oracles(&output_right_challs);
-        let input_right_challs =
-            folding_challenges::<B::F>(input_right.num_data_tracked_col_oracles());
-        let input_right_folded = input_right.fold_all_data_oracles(&input_right_challs);
-
-        verifier.add_mv_lookup_claim(
-            input_right_folded.data_tracked_oracle().id(),
-            output_right_folded.data_tracked_oracle().id(),
-        )?;
-        Ok(())
+            verifier.add_mv_lookup_claim(
+                input_right_folded.data_tracked_oracle().id(),
+                output_right_folded.data_tracked_oracle().id(),
+            )?;
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -724,22 +777,52 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::match_pair_check::GadgetNode::new(),
         )));
-        Self {
+        let gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
             bool_gadget,
             nodup_gadget,
             match_pair_gadget,
+        });
+        Self {
+            gadgets: RwLock::new(gadgets),
             join,
+            join_mode: RwLock::new(JoinMode::MANY_TO_MANY),
         }
     }
-}
 
-fn expr_col_name(expr: &Expr) -> String {
-    match expr {
-        Expr::Column(col) => col.to_string(),
-        Expr::Alias(alias) => expr_col_name(&alias.expr),
-        Expr::Cast(cast) => expr_col_name(&cast.expr),
-        Expr::TryCast(cast) => expr_col_name(&cast.expr),
-        _ => format!("{expr}"),
+    pub(super) fn many_to_many_gadgets(&self) -> Option<ManyToManyGadgets<B>> {
+        if self.join_mode() != JoinMode::MANY_TO_MANY {
+            return None;
+        }
+        let gadgets_guard = self.gadgets.read().ok()?;
+        match &*gadgets_guard {
+            Gadgets::ManyToMany(gadgets) => Some(ManyToManyGadgets {
+                bool_gadget: gadgets.bool_gadget.clone(),
+                nodup_gadget: gadgets.nodup_gadget.clone(),
+                match_pair_gadget: gadgets.match_pair_gadget.clone(),
+            }),
+            Gadgets::HasOne => None,
+        }
+    }
+
+    pub fn join_mode(&self) -> JoinMode {
+        self.join_mode
+            .read()
+            .map(|mode| *mode)
+            .unwrap_or(JoinMode::MANY_TO_MANY)
+    }
+
+    pub fn set_join_mode(&self, mode: JoinMode) {
+        if let Ok(mut guard) = self.join_mode.write() {
+            *guard = mode;
+        }
+        if let Ok(mut gadgets) = self.gadgets.write() {
+            // Never rebuild MANY_TO_MANY children here: creating fresh child nodes would
+            // change node ids and break IR payload maps keyed by existing ids.
+            // Optimized modes collapse the join gadget into a no-op (no child gadgets).
+            if mode != JoinMode::MANY_TO_MANY {
+                *gadgets = Gadgets::HasOne;
+            }
+        }
     }
 }
 

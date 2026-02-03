@@ -130,14 +130,17 @@ impl<B: SnarkBackend> GadgetNode<B> {
         output: &TrackedTable<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let bool_table = Self::bool_table_from_output_prover(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+        let mut bool_payload = match virtualized_ir.payload_for_node(&gadgets.bool_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
         bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
         virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
+            gadgets.bool_gadget.id(),
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
     }
@@ -149,14 +152,17 @@ impl<B: SnarkBackend> GadgetNode<B> {
         right_src: &TrackedTable<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let nodup_table = Self::nodup_table_from_output_prover(output, left_src, right_src);
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
+        let mut nodup_payload = match virtualized_ir.payload_for_node(&gadgets.nodup_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
         nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
         virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
+            gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
     }
@@ -371,20 +377,23 @@ impl<B: SnarkBackend> GadgetNode<B> {
         right: &TrackedTable<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let match_tables = Self::build_match_pair_tables_prover(&self.join, output, left, right)
             .unwrap_or_else(|| {
                 panic!("Match-pair tables require left/right/output for Join gadget");
             });
-        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut match_payload =
+            match virtualized_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
         match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
         match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
         virtualized_ir.set_payload_for_node(
-            self.match_pair_gadget.id(),
+            gadgets.match_pair_gadget.id(),
             Some(PayloadStructure::GadgetPayload(match_payload)),
         );
     }
@@ -394,14 +403,17 @@ impl<B: SnarkBackend> GadgetNode<B> {
         output: &TrackedTableOracle<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let bool_table = Self::bool_table_from_output_verifier(output);
-        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
+        let mut bool_payload = match virtualized_ir.payload_for_node(&gadgets.bool_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
         bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
         virtualized_ir.set_payload_for_node(
-            self.bool_gadget.id(),
+            gadgets.bool_gadget.id(),
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
     }
@@ -413,14 +425,17 @@ impl<B: SnarkBackend> GadgetNode<B> {
         right_src: &TrackedTableOracle<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let nodup_table = Self::nodup_table_from_output_verifier(output, left_src, right_src);
-        let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
+        let mut nodup_payload = match virtualized_ir.payload_for_node(&gadgets.nodup_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
         nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
         virtualized_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
+            gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
     }
@@ -432,20 +447,23 @@ impl<B: SnarkBackend> GadgetNode<B> {
         right: &TrackedTableOracle<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) {
+        let Some(gadgets) = self.many_to_many_gadgets() else {
+            return;
+        };
         let match_tables = Self::build_match_pair_tables_verifier(&self.join, output, left, right)
             .unwrap_or_else(|| {
                 panic!("Match-pair tables require left/right/output for Join gadget");
             });
-        let mut match_payload = match virtualized_ir.payload_for_node(&self.match_pair_gadget.id())
-        {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+        let mut match_payload =
+            match virtualized_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
         match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_tables.0);
         match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_tables.1);
         match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_tables.2);
         virtualized_ir.set_payload_for_node(
-            self.match_pair_gadget.id(),
+            gadgets.match_pair_gadget.id(),
             Some(PayloadStructure::GadgetPayload(match_payload)),
         );
     }

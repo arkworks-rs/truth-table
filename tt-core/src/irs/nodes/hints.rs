@@ -2,9 +2,14 @@ use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
 use datafusion_common::{Column, Result as DataFusionResult, TableReference};
-use datafusion_expr::{expr::Alias, Expr, LogicalPlan, SortExpr, col, expr_fn::try_cast};
+use datafusion_expr::{Expr, LogicalPlan, SortExpr, col, expr::Alias, expr_fn::try_cast};
 use indexmap::IndexMap;
-use std::sync::Arc;
+use serde::Deserialize;
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock, RwLock},
+};
 
 #[derive(Clone, Debug)]
 pub struct HintDF {
@@ -209,7 +214,6 @@ pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) 
     exprs.extend(to_insert);
 }
 
-
 pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
     let df = hint.data_frame().clone();
     let has_row_id = df
@@ -246,11 +250,92 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
 }
 
 const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
+const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
+const PK_METADATA_KEY: &str = "tt.pk";
+const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
+const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
 
-fn field_with_qualifier_metadata(
-    field: &FieldRef,
-    qualifier: Option<&TableReference>,
-) -> FieldRef {
+static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<HashMap<String, TableConstraint>>> = OnceLock::new();
+
+#[derive(Debug, Deserialize)]
+struct ConstraintManifest {
+    tables: Vec<TableConstraintSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TableConstraintSpec {
+    table: String,
+    #[serde(default)]
+    primary_key: Vec<String>,
+    #[serde(default)]
+    foreign_keys: Vec<ForeignKeySpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForeignKeySpec {
+    columns: Vec<String>,
+    ref_table: String,
+    ref_columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TableConstraint {
+    primary_key_cols: HashSet<String>,
+    foreign_key_by_col: HashMap<String, ForeignKeyColConstraint>,
+}
+
+#[derive(Clone, Debug)]
+struct ForeignKeyColConstraint {
+    ref_table: String,
+    ref_columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ColumnConstraintMetadata {
+    pub is_pk: bool,
+    pub fk_ref_table: Option<String>,
+    pub fk_ref_columns: Vec<String>,
+}
+
+pub fn column_constraint_metadata(
+    table_name: &str,
+    column_name: &str,
+) -> Option<ColumnConstraintMetadata> {
+    let lock = CONSTRAINTS_BY_TABLE.get()?;
+    let guard = lock.read().ok()?;
+    let table_key = table_name_from_qualifier(table_name);
+    let table = guard.get(&table_key)?;
+    let column_key = column_name.to_lowercase();
+
+    let is_pk = table.primary_key_cols.contains(&column_key);
+    let (fk_ref_table, fk_ref_columns) = table
+        .foreign_key_by_col
+        .get(&column_key)
+        .map(|fk| (Some(fk.ref_table.clone()), fk.ref_columns.clone()))
+        .unwrap_or((None, Vec::new()));
+
+    Some(ColumnConstraintMetadata {
+        is_pk,
+        fk_ref_table,
+        fk_ref_columns,
+    })
+}
+
+pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
+    let mut merged = HashMap::new();
+    for parquet_path in parquet_paths {
+        let Some(dir) = parquet_path.parent() else {
+            continue;
+        };
+        merge_constraints_from_dir(dir, &mut merged);
+    }
+    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(mut guard) = lock.write() {
+        *guard = merged;
+    }
+}
+
+fn field_with_qualifier_metadata(field: &FieldRef, qualifier: Option<&TableReference>) -> FieldRef {
     let mut updated = field.as_ref().clone();
     if updated.name() == arithmetic::ACTIVATOR_COL_NAME
         || updated.name() == arithmetic::ROW_ID_COL_NAME
@@ -259,10 +344,99 @@ fn field_with_qualifier_metadata(
     }
     if let Some(qualifier) = qualifier {
         let mut metadata = updated.metadata().clone();
-        metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier.to_string());
+        let qualifier_str = qualifier.to_string();
+        metadata.insert(QUALIFIER_METADATA_KEY.to_string(), qualifier_str.clone());
+        apply_constraint_metadata(
+            &mut metadata,
+            &table_name_from_qualifier(&qualifier_str),
+            updated.name(),
+        );
         updated = updated.with_metadata(metadata);
     }
     Arc::new(updated)
+}
+
+fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstraint>) {
+    let path = dir.join(CONSTRAINTS_FILE_NAME);
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(manifest) = serde_json::from_str::<ConstraintManifest>(&raw) else {
+        return;
+    };
+
+    for table in manifest.tables {
+        let key = table.table.to_lowercase();
+        let mut constraint = TableConstraint {
+            primary_key_cols: table
+                .primary_key
+                .into_iter()
+                .map(|c| c.to_lowercase())
+                .collect(),
+            foreign_key_by_col: HashMap::new(),
+        };
+
+        for fk in table.foreign_keys {
+            if fk.columns.is_empty() {
+                continue;
+            }
+            for (idx, src_col) in fk.columns.iter().enumerate() {
+                let ref_col = fk
+                    .ref_columns
+                    .get(idx)
+                    .cloned()
+                    .or_else(|| fk.ref_columns.first().cloned())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                constraint.foreign_key_by_col.insert(
+                    src_col.to_lowercase(),
+                    ForeignKeyColConstraint {
+                        ref_table: fk.ref_table.clone(),
+                        ref_columns: ref_col,
+                    },
+                );
+            }
+        }
+
+        out.insert(key, constraint);
+    }
+}
+
+fn table_name_from_qualifier(qualifier: &str) -> String {
+    qualifier
+        .rsplit('.')
+        .next()
+        .unwrap_or(qualifier)
+        .trim_matches('"')
+        .trim_matches('`')
+        .to_lowercase()
+}
+
+fn apply_constraint_metadata(
+    metadata: &mut HashMap<String, String>,
+    table_name: &str,
+    column_name: &str,
+) {
+    let Some(lock) = CONSTRAINTS_BY_TABLE.get() else {
+        return;
+    };
+    let Ok(guard) = lock.read() else {
+        return;
+    };
+    let Some(table) = guard.get(table_name) else {
+        return;
+    };
+    let column_key = column_name.to_lowercase();
+
+    if table.primary_key_cols.contains(&column_key) {
+        metadata.insert(PK_METADATA_KEY.to_string(), "true".to_string());
+    }
+    if let Some(fk) = table.foreign_key_by_col.get(&column_key) {
+        metadata.insert(FK_REF_TABLE_METADATA_KEY.to_string(), fk.ref_table.clone());
+        if let Ok(serialized) = serde_json::to_string(&fk.ref_columns) {
+            metadata.insert(FK_REF_COLUMNS_METADATA_KEY.to_string(), serialized);
+        }
+    }
 }
 
 fn normalize_hint_df(

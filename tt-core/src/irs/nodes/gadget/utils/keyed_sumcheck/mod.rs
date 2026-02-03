@@ -346,9 +346,7 @@ fn format_tracked_col_oracle_ids<B: SnarkBackend>(cols: &[TrackedColOracle<B>]) 
     out
 }
 
-fn format_tracked_oracle_opt_ids<B: SnarkBackend>(
-    oracles: &[Option<TrackedOracle<B>>],
-) -> String {
+fn format_tracked_oracle_opt_ids<B: SnarkBackend>(oracles: &[Option<TrackedOracle<B>>]) -> String {
     let mut out = String::from("[");
     for (i, oracle) in oracles.iter().enumerate() {
         if i > 0 {

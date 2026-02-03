@@ -33,11 +33,7 @@ impl MaterializedTable {
         }
     }
 
-    pub fn new_with_batches(
-        table: MemTable,
-        row_count: usize,
-        batches: Vec<RecordBatch>,
-    ) -> Self {
+    pub fn new_with_batches(table: MemTable, row_count: usize, batches: Vec<RecordBatch>) -> Self {
         Self {
             table: Arc::new(table),
             row_count,

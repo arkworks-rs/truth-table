@@ -1,7 +1,7 @@
 use datafusion::prelude::DataFrame;
+use datafusion_common::tree_node::{Transformed, TreeNode};
 use datafusion_common::{Column, DFSchema};
 use datafusion_expr::Projection;
-use datafusion_common::tree_node::{Transformed, TreeNode};
 
 pub(super) fn build_output_dataframe(input: &DataFrame, projection: &Projection) -> DataFrame {
     let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(input.clone())
@@ -18,7 +18,10 @@ pub(super) fn build_output_dataframe(input: &DataFrame, projection: &Projection)
         .expect("projection application should succeed")
 }
 
-fn resolve_projection_expr(schema: &DFSchema, expr: datafusion_expr::Expr) -> datafusion_expr::Expr {
+fn resolve_projection_expr(
+    schema: &DFSchema,
+    expr: datafusion_expr::Expr,
+) -> datafusion_expr::Expr {
     expr.transform(|inner| {
         if let datafusion_expr::Expr::Column(col) = &inner {
             let name = col.name();
@@ -47,7 +50,6 @@ fn resolve_projection_expr(schema: &DFSchema, expr: datafusion_expr::Expr) -> da
     .unwrap()
     .data
 }
-
 
 #[cfg(test)]
 mod tests {

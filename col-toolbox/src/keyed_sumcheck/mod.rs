@@ -9,7 +9,6 @@ mod test;
 use arithmetic::{col::TrackedCol, col_oracle::TrackedColOracle};
 use ark_ff::One;
 use ark_ff::Zero;
-use either::Either;
 use ark_piop::{
     SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
@@ -27,6 +26,7 @@ use ark_piop::{
     },
 };
 use derivative::Derivative;
+use either::Either;
 use std::marker::PhantomData;
 use std::ops::Neg;
 pub struct KeyedSumcheck<B: SnarkBackend>(#[doc(hidden)] PhantomData<B>);
@@ -226,9 +226,7 @@ fn format_tracked_poly_opt_ids<B: SnarkBackend>(polys: &[Option<TrackedPoly<B>>]
     out
 }
 
-fn format_tracked_oracle_opt_ids<B: SnarkBackend>(
-    oracles: &[Option<TrackedOracle<B>>],
-) -> String {
+fn format_tracked_oracle_opt_ids<B: SnarkBackend>(oracles: &[Option<TrackedOracle<B>>]) -> String {
     let mut out = String::from("[");
     for (i, oracle) in oracles.iter().enumerate() {
         if i > 0 {

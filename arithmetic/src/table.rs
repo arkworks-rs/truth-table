@@ -3,8 +3,8 @@ use std::{fmt, sync::Arc};
 use ark_ff::PrimeField;
 
 use crate::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, col::TrackedCol,
-    table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY,
+    col::TrackedCol, table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY, ACTIVATOR_COL_NAME,
+    ACTIVATOR_FIELD,
 };
 use ark_piop::SnarkBackend;
 use ark_piop::{
@@ -20,7 +20,7 @@ use ark_serialize::{
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use derivative::Derivative;
 use indexmap::IndexMap;
-use serde_json::{Value, from_slice as schema_from_slice, to_vec as schema_to_vec};
+use serde_json::{from_slice as schema_from_slice, to_vec as schema_to_vec, Value};
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked arithmetized table in dbSNARK
@@ -462,7 +462,8 @@ impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
                 "ArithTable cols=({}), log_size={}, constraints={}",
                 cols.join(","),
                 self.log_size,
-                constraints_summary_label(self.schema.as_ref()).unwrap_or_else(|| "none".to_string())
+                constraints_summary_label(self.schema.as_ref())
+                    .unwrap_or_else(|| "none".to_string())
             )
         }
     }

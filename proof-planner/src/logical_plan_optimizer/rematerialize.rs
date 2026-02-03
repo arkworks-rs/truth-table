@@ -9,9 +9,7 @@ use datafusion_common::{
 };
 use datafusion_expr::LogicalPlan;
 use tokio::runtime::RuntimeFlavor;
-use tt_core::irs::nodes::plan::rematerialize::{
-    RematerializeLogicalNode, wrap_logical_plan,
-};
+use tt_core::irs::nodes::plan::rematerialize::{wrap_logical_plan, RematerializeLogicalNode};
 
 #[derive(Debug)]
 pub struct RematerializeRule {
@@ -137,7 +135,9 @@ fn next_power_of_two_strict(value: usize) -> usize {
     }
 }
 
-fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<datafusion::arrow::record_batch::RecordBatch>> {
+fn collect_blocking(
+    df: DataFrame,
+) -> DataFusionResult<Vec<datafusion::arrow::record_batch::RecordBatch>> {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
             RuntimeFlavor::MultiThread => {

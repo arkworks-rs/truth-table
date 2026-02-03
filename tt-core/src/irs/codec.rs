@@ -1,25 +1,33 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use ark_piop::SnarkBackend;
 use ark_serialize::SerializationError;
+use datafusion::arrow::array::types::{IntervalDayTime, IntervalMonthDayNano};
+use datafusion::arrow::datatypes::{DataType, Field, Schema, i256};
 use datafusion::datasource::{empty::EmptyTable, provider_as_source};
 use datafusion::execution::FunctionRegistry;
 use datafusion::prelude::SessionContext;
-use datafusion_common::{Column, DFSchemaRef, JoinConstraint, JoinType, ScalarValue, TableReference};
-use datafusion::arrow::array::types::{IntervalDayTime, IntervalMonthDayNano};
-use datafusion::arrow::datatypes::{DataType, Field, Schema, i256};
-use datafusion_expr::expr::{AggregateFunction, Alias, Between, BinaryExpr, Cast, Case, InList, InSubquery, ScalarFunction, Sort as SortExpr};
+use datafusion_common::{
+    Column, DFSchemaRef, JoinConstraint, JoinType, ScalarValue, TableReference,
+};
+use datafusion_expr::expr::{
+    AggregateFunction, Alias, Between, BinaryExpr, Case, Cast, InList, InSubquery, ScalarFunction,
+    Sort as SortExpr,
+};
 use datafusion_expr::logical_plan::builder::build_join_schema;
-use datafusion_expr::logical_plan::{Aggregate, Filter, Join, Limit, Projection, Sort, Subquery, SubqueryAlias, TableScan};
+use datafusion_expr::logical_plan::{
+    Aggregate, Filter, Join, Limit, Projection, Sort, Subquery, SubqueryAlias, TableScan,
+};
 use datafusion_expr::{Expr, LogicalPlan, Operator};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::errors::{TTError, TTResult};
+use crate::irs::nodes::gadget::lps::join as gadget_join;
+use crate::irs::nodes::plan::rematerialize;
+use crate::irs::nodes::{IsNode, Node, PlanNode};
 use crate::irs::shared_ir::EmptyIr;
 use crate::irs::tree::Tree;
-use crate::irs::nodes::{Node, PlanNode};
-use crate::irs::nodes::plan::rematerialize;
 
 #[derive(Serialize, Deserialize)]
 enum LogicalPlanRepr {
@@ -132,7 +140,7 @@ impl FieldRepr {
 
 impl DataTypeRepr {
     fn from_data_type(data_type: &DataType) -> TTResult<Self> {
-        use datafusion::arrow::datatypes::{IntervalUnit, TimeUnit};
+        use datafusion::arrow::datatypes::TimeUnit;
 
         Ok(match data_type {
             DataType::Null => DataTypeRepr::Null,
@@ -147,12 +155,14 @@ impl DataTypeRepr {
             DataType::UInt64 => DataTypeRepr::UInt64,
             DataType::Float32 => DataTypeRepr::Float32,
             DataType::Float64 => DataTypeRepr::Float64,
-            DataType::Decimal128(precision, scale) => {
-                DataTypeRepr::Decimal128 { precision: *precision, scale: *scale }
-            }
-            DataType::Decimal256(precision, scale) => {
-                DataTypeRepr::Decimal256 { precision: *precision, scale: *scale }
-            }
+            DataType::Decimal128(precision, scale) => DataTypeRepr::Decimal128 {
+                precision: *precision,
+                scale: *scale,
+            },
+            DataType::Decimal256(precision, scale) => DataTypeRepr::Decimal256 {
+                precision: *precision,
+                scale: *scale,
+            },
             DataType::Utf8 => DataTypeRepr::Utf8,
             DataType::Utf8View => DataTypeRepr::Utf8View,
             DataType::LargeUtf8 => DataTypeRepr::LargeUtf8,
@@ -303,8 +313,14 @@ enum DataTypeRepr {
     UInt64,
     Float32,
     Float64,
-    Decimal128 { precision: u8, scale: i8 },
-    Decimal256 { precision: u8, scale: i8 },
+    Decimal128 {
+        precision: u8,
+        scale: i8,
+    },
+    Decimal256 {
+        precision: u8,
+        scale: i8,
+    },
     Utf8,
     Utf8View,
     LargeUtf8,
@@ -317,9 +333,16 @@ enum DataTypeRepr {
     Time32Millisecond,
     Time64Microsecond,
     Time64Nanosecond,
-    Timestamp { unit: String, timezone: Option<String> },
-    Duration { unit: String },
-    Interval { unit: String },
+    Timestamp {
+        unit: String,
+        timezone: Option<String>,
+    },
+    Duration {
+        unit: String,
+    },
+    Interval {
+        unit: String,
+    },
     List(Box<FieldRepr>),
     LargeList(Box<FieldRepr>),
     FixedSizeList(Box<FieldRepr>, i32),
@@ -490,6 +513,44 @@ enum JoinTypeRepr {
 enum JoinConstraintRepr {
     On,
     Using,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum JoinModeRepr {
+    OneToMany,
+    ManyToOne,
+    OneToOne,
+    ManyToMany,
+}
+
+impl JoinModeRepr {
+    fn from_join_mode(mode: gadget_join::JoinMode) -> Self {
+        match mode {
+            gadget_join::JoinMode::ONE_TO_MANY => JoinModeRepr::OneToMany,
+            gadget_join::JoinMode::MANY_TO_ONE => JoinModeRepr::ManyToOne,
+            gadget_join::JoinMode::ONE_TO_ONE => JoinModeRepr::OneToOne,
+            gadget_join::JoinMode::MANY_TO_MANY => JoinModeRepr::ManyToMany,
+        }
+    }
+
+    fn to_join_mode(&self) -> gadget_join::JoinMode {
+        match self {
+            JoinModeRepr::OneToMany => gadget_join::JoinMode::ONE_TO_MANY,
+            JoinModeRepr::ManyToOne => gadget_join::JoinMode::MANY_TO_ONE,
+            JoinModeRepr::OneToOne => gadget_join::JoinMode::ONE_TO_ONE,
+            JoinModeRepr::ManyToMany => gadget_join::JoinMode::MANY_TO_MANY,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TreeRepr {
+    plan: LogicalPlanRepr,
+    // Keep join gadget mode stable across proof serialization so verifier and prover
+    // use the same join gadget shape.
+    #[serde(default)]
+    join_modes: Vec<JoinModeRepr>,
 }
 
 fn serialization_error<T>() -> TTResult<T> {
@@ -750,7 +811,9 @@ impl ColumnRepr {
 
     fn to_column(&self) -> Column {
         Column::new(
-            self.relation.as_ref().map(|r| TableReference::from(r.clone())),
+            self.relation
+                .as_ref()
+                .map(|r| TableReference::from(r.clone())),
             self.name.clone(),
         )
     }
@@ -766,7 +829,11 @@ impl SortRepr {
     }
 
     fn to_sort(&self, ctx: &SessionContext) -> TTResult<SortExpr> {
-        Ok(SortExpr::new(self.expr.to_expr(ctx)?, self.asc, self.nulls_first))
+        Ok(SortExpr::new(
+            self.expr.to_expr(ctx)?,
+            self.asc,
+            self.nulls_first,
+        ))
     }
 }
 
@@ -900,19 +967,19 @@ impl ExprRepr {
                 op.to_operator(),
                 Box::new(right.to_expr(ctx)?),
             )),
-            ExprRepr::Cast { expr, data_type } => {
-                Expr::Cast(Cast::new(
-                    Box::new(expr.to_expr(ctx)?),
-                    data_type.to_data_type()?,
-                ))
-            }
+            ExprRepr::Cast { expr, data_type } => Expr::Cast(Cast::new(
+                Box::new(expr.to_expr(ctx)?),
+                data_type.to_data_type()?,
+            )),
             ExprRepr::Alias {
                 expr,
                 relation,
                 name,
             } => Expr::Alias(Alias::new(
                 expr.to_expr(ctx)?,
-                relation.as_ref().map(|rel| TableReference::from(rel.clone())),
+                relation
+                    .as_ref()
+                    .map(|rel| TableReference::from(rel.clone())),
                 name.clone(),
             )),
             ExprRepr::AggregateFunction {
@@ -941,12 +1008,7 @@ impl ExprRepr {
                     None => None,
                 };
                 Expr::AggregateFunction(AggregateFunction::new_udf(
-                    udf,
-                    args,
-                    *distinct,
-                    filter,
-                    order_by,
-                    None,
+                    udf, args, *distinct, filter, order_by, None,
                 ))
             }
             ExprRepr::Between {
@@ -960,10 +1022,13 @@ impl ExprRepr {
                 Box::new(low.to_expr(ctx)?),
                 Box::new(high.to_expr(ctx)?),
             )),
-            ExprRepr::InList { expr, list, negated } => Expr::InList(InList::new(
+            ExprRepr::InList {
+                expr,
+                list,
+                negated,
+            } => Expr::InList(InList::new(
                 Box::new(expr.to_expr(ctx)?),
-                list
-                    .iter()
+                list.iter()
                     .map(|expr| expr.to_expr(ctx))
                     .collect::<TTResult<Vec<_>>>()?,
                 *negated,
@@ -972,8 +1037,7 @@ impl ExprRepr {
                 let udf = ctx.udf(func)?;
                 Expr::ScalarFunction(ScalarFunction::new_udf(
                     udf,
-                    args
-                        .iter()
+                    args.iter()
                         .map(|expr| expr.to_expr(ctx))
                         .collect::<TTResult<Vec<_>>>()?,
                 ))
@@ -1057,32 +1121,25 @@ impl ScalarValueRepr {
             ScalarValue::TimestampSecond(value, tz) => {
                 ScalarValueRepr::TimestampSecond(*value, tz.as_ref().map(|v| v.to_string()))
             }
-            ScalarValue::TimestampMillisecond(value, tz) => ScalarValueRepr::TimestampMillisecond(
-                *value,
-                tz.as_ref().map(|v| v.to_string()),
-            ),
-            ScalarValue::TimestampMicrosecond(value, tz) => ScalarValueRepr::TimestampMicrosecond(
-                *value,
-                tz.as_ref().map(|v| v.to_string()),
-            ),
-            ScalarValue::TimestampNanosecond(value, tz) => ScalarValueRepr::TimestampNanosecond(
-                *value,
-                tz.as_ref().map(|v| v.to_string()),
-            ),
+            ScalarValue::TimestampMillisecond(value, tz) => {
+                ScalarValueRepr::TimestampMillisecond(*value, tz.as_ref().map(|v| v.to_string()))
+            }
+            ScalarValue::TimestampMicrosecond(value, tz) => {
+                ScalarValueRepr::TimestampMicrosecond(*value, tz.as_ref().map(|v| v.to_string()))
+            }
+            ScalarValue::TimestampNanosecond(value, tz) => {
+                ScalarValueRepr::TimestampNanosecond(*value, tz.as_ref().map(|v| v.to_string()))
+            }
             ScalarValue::IntervalYearMonth(value) => ScalarValueRepr::IntervalYearMonth(*value),
-            ScalarValue::IntervalDayTime(value) => ScalarValueRepr::IntervalDayTime(
-                value.map(|v| (v.days, v.milliseconds)),
-            ),
+            ScalarValue::IntervalDayTime(value) => {
+                ScalarValueRepr::IntervalDayTime(value.map(|v| (v.days, v.milliseconds)))
+            }
             ScalarValue::IntervalMonthDayNano(value) => ScalarValueRepr::IntervalMonthDayNano(
                 value.map(|v| (v.months, v.days, v.nanoseconds)),
             ),
             ScalarValue::DurationSecond(value) => ScalarValueRepr::DurationSecond(*value),
-            ScalarValue::DurationMillisecond(value) => {
-                ScalarValueRepr::DurationMillisecond(*value)
-            }
-            ScalarValue::DurationMicrosecond(value) => {
-                ScalarValueRepr::DurationMicrosecond(*value)
-            }
+            ScalarValue::DurationMillisecond(value) => ScalarValueRepr::DurationMillisecond(*value),
+            ScalarValue::DurationMicrosecond(value) => ScalarValueRepr::DurationMicrosecond(*value),
             ScalarValue::DurationNanosecond(value) => ScalarValueRepr::DurationNanosecond(*value),
             _ => {
                 debug!(?value, "TTProof serialize: unsupported ScalarValue variant");
@@ -1101,12 +1158,13 @@ impl ScalarValueRepr {
                 ScalarValue::Decimal128(*value, *precision, *scale)
             }
             ScalarValueRepr::Decimal256(value, precision, scale) => {
-                let parsed = match value {
-                    Some(value) => Some(value.parse::<i256>().map_err(|_| {
-                        TTError::Serialization(SerializationError::InvalidData)
-                    })?),
-                    None => None,
-                };
+                let parsed =
+                    match value {
+                        Some(value) => Some(value.parse::<i256>().map_err(|_| {
+                            TTError::Serialization(SerializationError::InvalidData)
+                        })?),
+                        None => None,
+                    };
                 ScalarValue::Decimal256(parsed, *precision, *scale)
             }
             ScalarValueRepr::Int8(value) => ScalarValue::Int8(*value),
@@ -1135,25 +1193,19 @@ impl ScalarValueRepr {
             ScalarValueRepr::TimestampSecond(value, tz) => {
                 ScalarValue::TimestampSecond(*value, tz.as_ref().map(|v| v.as_str().into()))
             }
-            ScalarValueRepr::TimestampMillisecond(value, tz) => ScalarValue::TimestampMillisecond(
-                *value,
-                tz.as_ref().map(|v| v.as_str().into()),
-            ),
-            ScalarValueRepr::TimestampMicrosecond(value, tz) => ScalarValue::TimestampMicrosecond(
-                *value,
-                tz.as_ref().map(|v| v.as_str().into()),
-            ),
-            ScalarValueRepr::TimestampNanosecond(value, tz) => ScalarValue::TimestampNanosecond(
-                *value,
-                tz.as_ref().map(|v| v.as_str().into()),
-            ),
-            ScalarValueRepr::IntervalYearMonth(value) => ScalarValue::IntervalYearMonth(*value),
-            ScalarValueRepr::IntervalDayTime(value) => {
-                ScalarValue::IntervalDayTime(value.map(|(days, milliseconds)| IntervalDayTime {
-                    days,
-                    milliseconds,
-                }))
+            ScalarValueRepr::TimestampMillisecond(value, tz) => {
+                ScalarValue::TimestampMillisecond(*value, tz.as_ref().map(|v| v.as_str().into()))
             }
+            ScalarValueRepr::TimestampMicrosecond(value, tz) => {
+                ScalarValue::TimestampMicrosecond(*value, tz.as_ref().map(|v| v.as_str().into()))
+            }
+            ScalarValueRepr::TimestampNanosecond(value, tz) => {
+                ScalarValue::TimestampNanosecond(*value, tz.as_ref().map(|v| v.as_str().into()))
+            }
+            ScalarValueRepr::IntervalYearMonth(value) => ScalarValue::IntervalYearMonth(*value),
+            ScalarValueRepr::IntervalDayTime(value) => ScalarValue::IntervalDayTime(
+                value.map(|(days, milliseconds)| IntervalDayTime { days, milliseconds }),
+            ),
             ScalarValueRepr::IntervalMonthDayNano(value) => {
                 ScalarValue::IntervalMonthDayNano(value.map(|(months, days, nanoseconds)| {
                     IntervalMonthDayNano {
@@ -1164,12 +1216,8 @@ impl ScalarValueRepr {
                 }))
             }
             ScalarValueRepr::DurationSecond(value) => ScalarValue::DurationSecond(*value),
-            ScalarValueRepr::DurationMillisecond(value) => {
-                ScalarValue::DurationMillisecond(*value)
-            }
-            ScalarValueRepr::DurationMicrosecond(value) => {
-                ScalarValue::DurationMicrosecond(*value)
-            }
+            ScalarValueRepr::DurationMillisecond(value) => ScalarValue::DurationMillisecond(*value),
+            ScalarValueRepr::DurationMicrosecond(value) => ScalarValue::DurationMicrosecond(*value),
             ScalarValueRepr::DurationNanosecond(value) => ScalarValue::DurationNanosecond(*value),
         })
     }
@@ -1304,16 +1352,27 @@ pub fn serialize_tree<B: SnarkBackend>(tree: &Tree<B>) -> TTResult<Vec<u8>> {
             return serialization_error();
         }
     };
-    let repr = LogicalPlanRepr::from_plan(&plan)?;
+    let mut join_modes = Vec::new();
+    collect_join_modes(root, &mut join_modes);
+    let repr = TreeRepr {
+        plan: LogicalPlanRepr::from_plan(&plan)?,
+        join_modes,
+    };
     serde_json::to_vec(&repr).map_err(|_| TTError::Serialization(SerializationError::InvalidData))
 }
 
 pub fn deserialize_tree<B: SnarkBackend>(bytes: &[u8]) -> TTResult<Tree<B>> {
-    let repr: LogicalPlanRepr =
-        serde_json::from_slice(bytes).map_err(|_| TTError::Serialization(SerializationError::InvalidData))?;
+    let repr: TreeRepr = serde_json::from_slice(bytes)
+        .map_err(|_| TTError::Serialization(SerializationError::InvalidData))?;
     let ctx = SessionContext::new();
-    let plan = repr.to_plan(&ctx)?;
-    Ok(Tree::from_logical_plan(&plan))
+    let plan = repr.plan.to_plan(&ctx)?;
+    let tree = Tree::from_logical_plan(&plan);
+    if !repr.join_modes.is_empty() {
+        apply_join_modes(tree.root(), &repr.join_modes, &mut 0usize);
+        Ok(Tree::new_from_root(tree.root().clone()))
+    } else {
+        Ok(tree)
+    }
 }
 
 pub fn serialize_empty_ir<B: SnarkBackend>(ir: &EmptyIr<B>) -> TTResult<Vec<u8>> {
@@ -1323,4 +1382,51 @@ pub fn serialize_empty_ir<B: SnarkBackend>(ir: &EmptyIr<B>) -> TTResult<Vec<u8>>
 pub fn deserialize_empty_ir<B: SnarkBackend>(bytes: &[u8]) -> TTResult<EmptyIr<B>> {
     let tree = deserialize_tree::<B>(bytes)?;
     Ok(EmptyIr::<B>::new_empty(tree))
+}
+
+fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinModeRepr>) {
+    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() {
+        if matches!(lp_node.lp(), LogicalPlan::Join(_)) {
+            let mode = node
+                .children()
+                .iter()
+                .find_map(|child| {
+                    let Node::Gadget(gadget) = child.as_ref() else {
+                        return None;
+                    };
+                    let any = gadget.as_ref() as &dyn Any;
+                    any.downcast_ref::<gadget_join::GadgetNode<B>>()
+                        .map(|join_gadget| join_gadget.join_mode())
+                })
+                .unwrap_or(gadget_join::JoinMode::MANY_TO_MANY);
+            out.push(JoinModeRepr::from_join_mode(mode));
+        }
+    }
+
+    for child in node.children() {
+        collect_join_modes(&child, out);
+    }
+}
+
+fn apply_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, modes: &[JoinModeRepr], idx: &mut usize) {
+    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() {
+        if matches!(lp_node.lp(), LogicalPlan::Join(_)) {
+            if let Some(mode) = modes.get(*idx) {
+                for child in node.children() {
+                    let Node::Gadget(gadget) = child.as_ref() else {
+                        continue;
+                    };
+                    let any = gadget.as_ref() as &dyn Any;
+                    if let Some(join_gadget) = any.downcast_ref::<gadget_join::GadgetNode<B>>() {
+                        join_gadget.set_join_mode(mode.to_join_mode());
+                    }
+                }
+            }
+            *idx += 1;
+        }
+    }
+
+    for child in node.children() {
+        apply_join_modes(&child, modes, idx);
+    }
 }

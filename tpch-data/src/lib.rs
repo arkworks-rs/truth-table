@@ -8,9 +8,9 @@ use std::{
 use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
     array::{
-        new_null_array, Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder,
-        Int64Builder, RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray,
-        TimestampNanosecondArray, TimestampSecondArray,
+        Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder, Int64Builder,
+        RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray,
+        TimestampNanosecondArray, TimestampSecondArray, new_null_array,
     },
     datatypes::{
         DataType, Date64Type, Field, Schema, TimeUnit, TimestampMicrosecondType,
@@ -162,8 +162,16 @@ fn write_constraints_manifest<P: AsRef<Path>>(out_dir: P) {
 #[derive(Clone)]
 enum Expansion {
     Original(usize),
-    Date32 { index: usize, name: String, nullable: bool },
-    Date64 { index: usize, name: String, nullable: bool },
+    Date32 {
+        index: usize,
+        name: String,
+        nullable: bool,
+    },
+    Date64 {
+        index: usize,
+        name: String,
+        nullable: bool,
+    },
     Timestamp {
         index: usize,
         name: String,
@@ -181,7 +189,11 @@ fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
                 let name = field.name().to_string();
                 let nullable = true;
                 expansions.push(Expansion::Original(idx));
-                expansions.push(Expansion::Date32 { index: idx, name: name.clone(), nullable });
+                expansions.push(Expansion::Date32 {
+                    index: idx,
+                    name: name.clone(),
+                    nullable,
+                });
                 fields.push((**field).clone().with_nullable(true));
                 fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));
                 fields.push(Field::new(format!("{name}_month"), DataType::Int32, true));
@@ -191,7 +203,11 @@ fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
                 let name = field.name().to_string();
                 let nullable = true;
                 expansions.push(Expansion::Original(idx));
-                expansions.push(Expansion::Date64 { index: idx, name: name.clone(), nullable });
+                expansions.push(Expansion::Date64 {
+                    index: idx,
+                    name: name.clone(),
+                    nullable,
+                });
                 fields.push((**field).clone().with_nullable(true));
                 fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));
                 fields.push(Field::new(format!("{name}_month"), DataType::Int32, true));
@@ -248,8 +264,7 @@ fn expand_batch(
                         day.append_null();
                         continue;
                     }
-                    let dt = date32_to_datetime(array.value(i))
-                        .expect("date32 conversion");
+                    let dt = date32_to_datetime(array.value(i)).expect("date32 conversion");
                     year.append_value(dt.year() as i32);
                     month.append_value(dt.month() as i32);
                     day.append_value(dt.day() as i32);
@@ -276,8 +291,7 @@ fn expand_batch(
                         time.append_null();
                         continue;
                     }
-                    let dt =
-                        as_datetime::<Date64Type>(array.value(i)).expect("date64 conversion");
+                    let dt = as_datetime::<Date64Type>(array.value(i)).expect("date64 conversion");
                     year.append_value(dt.year() as i32);
                     month.append_value(dt.month() as i32);
                     day.append_value(dt.day() as i32);
@@ -425,7 +439,11 @@ fn write_parquet<P: AsRef<Path>>(
     let expanded_schema = Arc::new(Schema::new(expanded_fields));
 
     // Build output schema = expanded fields + row_id: Int64 + __activator__: Boolean
-    let mut fields: Vec<Field> = expanded_schema.fields().iter().map(|f| (**f).clone()).collect();
+    let mut fields: Vec<Field> = expanded_schema
+        .fields()
+        .iter()
+        .map(|f| (**f).clone())
+        .collect();
     fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, false));
     fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
     let out_schema = Arc::new(Schema::new(fields));
@@ -672,12 +690,19 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
 /// Preprocess an existing Parquet file using the same logic as `generate_parquet_scale`.
 /// This expands date/time columns, adds `__row_id__` and `__activator__`, and pads to
 /// a power-of-two row count with nulls.
-pub fn preprocess_parquet<P: AsRef<Path>>(input: P, output: P) -> Result<(), Box<dyn std::error::Error>> {
+pub fn preprocess_parquet<P: AsRef<Path>>(
+    input: P,
+    output: P,
+) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(input.as_ref())?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let schema = Arc::clone(builder.schema());
     let reader = builder.build()?;
-    write_parquet(output, &schema, reader.into_iter().map(|batch| batch.expect("read batch")));
+    write_parquet(
+        output,
+        &schema,
+        reader.into_iter().map(|batch| batch.expect("read batch")),
+    );
     Ok(())
 }
 

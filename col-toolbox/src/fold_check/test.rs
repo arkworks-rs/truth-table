@@ -29,7 +29,8 @@ fn test_fold_check() -> SnarkResult<()> {
         ],
     );
     let activator_tracked_mle = prover.track_and_commit_mat_mv_poly(&activator_mle).unwrap();
-    let challs = vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::rand(&mut rng); num];
+    let challs =
+        vec![<ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F::rand(&mut rng); num];
     let folded_poly = fold_mles(&input_mles, &challs);
 
     let folded_tracked_poly = TrackedCol::new(

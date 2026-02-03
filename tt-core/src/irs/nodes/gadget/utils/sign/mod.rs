@@ -755,7 +755,12 @@ impl<B: SnarkBackend> SignNode<B> {
             let n = Self::field_signed_from_encoding(eval, 32) as i32;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i32_into_u16s(n);
             // The top chunk carries sign in two's-complement space and may be negative.
-            [(chunk3 as i16) as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
+            [
+                (chunk3 as i16) as i64,
+                chunk2 as i64,
+                chunk1 as i64,
+                chunk0 as i64,
+            ]
         })
     }
 
@@ -806,7 +811,12 @@ impl<B: SnarkBackend> SignNode<B> {
             let n = Self::field_signed_from_encoding(eval, 64) as i64;
             let [chunk3, chunk2, chunk1, chunk0] = Self::split_i64_into_u16s(n);
             // Keep the most-significant chunk signed; lower chunks are always non-negative.
-            [(chunk3 as i16) as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
+            [
+                (chunk3 as i16) as i64,
+                chunk2 as i64,
+                chunk1 as i64,
+                chunk0 as i64,
+            ]
         })
     }
 
@@ -1298,19 +1308,21 @@ impl<B: SnarkBackend> SignNode<B> {
                 Some(Self::field_low_bits_unsigned(value, 64)),
                 Some(64),
             ),
-            DataType::Int8 => (Some(Self::field_signed_from_encoding(value, 8)), None, Some(8)),
+            DataType::Int8 => (
+                Some(Self::field_signed_from_encoding(value, 8)),
+                None,
+                Some(8),
+            ),
             DataType::Int16 => (
                 Some(Self::field_signed_from_encoding(value, 16)),
                 None,
                 Some(16),
             ),
-            DataType::Int32 | DataType::Date32 => {
-                (
-                    Some(Self::field_signed_from_encoding(value, 32)),
-                    None,
-                    Some(32),
-                )
-            }
+            DataType::Int32 | DataType::Date32 => (
+                Some(Self::field_signed_from_encoding(value, 32)),
+                None,
+                Some(32),
+            ),
             DataType::Int64 => (
                 Some(Self::field_signed_from_encoding(value, 64)),
                 None,

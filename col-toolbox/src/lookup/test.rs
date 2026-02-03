@@ -10,28 +10,46 @@ use super::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 fn lookup_with_non_activator_is_complete() -> SnarkResult<()> {
     lookup_test_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
     lookup_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([20, 7, 18, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [20, 7, 18, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
         3,
-        to_field_vec!([65536, 7, 18, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [65536, 7, 18, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
     lookup_test_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([20, 7, 18, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [20, 7, 18, 20],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
         3,
-        to_field_vec!([65536, 7, 18, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [65536, 7, 18, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
@@ -42,29 +60,62 @@ fn lookup_with_non_activator_is_complete() -> SnarkResult<()> {
 fn lookup_is_complete() -> SnarkResult<()> {
     lookup_test_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
     lookup_test_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 7, 200], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 0, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 200],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 0, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 0, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
     )?;
 
     lookup_test_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([7, 7, 7, 200], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [7, 7, 7, 200],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 0, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
     )?;
 
     Ok(())
@@ -74,19 +125,31 @@ fn lookup_is_complete() -> SnarkResult<()> {
 fn lookup_with_non_activator_is_sound() -> SnarkResult<()> {
     lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 8, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 8, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
     lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 10, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 10, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
         3,
-        to_field_vec!([25, 7, 7, 2, 1, 5, 6, 123], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2, 1, 5, 6, 123],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
@@ -97,20 +160,41 @@ fn lookup_with_non_activator_is_sound() -> SnarkResult<()> {
 fn lookup_is_sound() -> SnarkResult<()> {
     lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 7, 9], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 9],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
         None,
     )?;
 
     lookup_test_soundness_helper::<DefaultSnarkBackend>(
         2,
-        to_field_vec!([25, 7, 7, 9], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 9],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
         2,
-        to_field_vec!([25, 7, 7, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-        Some(to_field_vec!([0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+        to_field_vec!(
+            [25, 7, 7, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
+        Some(to_field_vec!(
+            [0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )),
     )?;
 
     Ok(())

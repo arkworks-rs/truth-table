@@ -165,9 +165,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 }
                 either::Either::Right(cnst) => {
                     if !cnst.is_zero() {
-                        return Err(SnarkError::VerifierError(VerifierError::VerifierCheckFailed(
-                            "Bool check failed: constant predicate is not boolean".to_string(),
-                        )));
+                        return Err(SnarkError::VerifierError(
+                            VerifierError::VerifierCheckFailed(
+                                "Bool check failed: constant predicate is not boolean".to_string(),
+                            ),
+                        ));
                     }
                 }
             }

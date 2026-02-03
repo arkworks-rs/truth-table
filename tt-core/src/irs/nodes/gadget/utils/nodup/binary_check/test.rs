@@ -11,15 +11,24 @@ use super::{BinaryCheckPIOP, BinaryCheckProverInput, BinaryCheckVerifierInput};
 fn binary_check_is_complete() -> SnarkResult<()> {
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([1, 0, 1, 1, 1, 0, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [1, 0, 1, 1, 1, 0, 0, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     binary_check_test_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([0, 0, 0, 0, 0, 0, 0, 0,], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [0, 0, 0, 0, 0, 0, 0, 0,],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     Ok(())
 }
@@ -28,11 +37,17 @@ fn binary_check_is_complete() -> SnarkResult<()> {
 fn binary_check_is_sound() -> SnarkResult<()> {
     binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 7, 0, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 7, 0, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     binary_check_test_soundness_helper::<DefaultSnarkBackend>(
         3,
-        to_field_vec!([4, 0, 1, 20, 0, 2, 0, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+        to_field_vec!(
+            [4, 0, 1, 20, 0, 2, 0, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ),
     )?;
     Ok(())
 }

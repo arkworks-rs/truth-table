@@ -14,41 +14,74 @@ use std::str::FromStr;
 fn keyed_sumcheck_with_activator_and_mul_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
         vec![3],
-        vec![to_field_vec!([3, 7, 18, 2, 1, 20, 12, 4], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [3, 7, 18, 2, 1, 20, 12, 4],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([4, 20, 1, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([3, 7, 12, 18], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 20, 1, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [3, 7, 12, 18],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![None, None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([4, 7, 1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7, 1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 2, 12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![None, None],
         vec![1, 1, 1, 1],
         vec![
-            to_field_vec!([3, 7], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([12, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 4], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [3, 7],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [12, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 4],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None, None, None],
         vec![None, None, None, None],
@@ -65,11 +98,17 @@ fn keyed_sumcheck_with_activator_and_mul_none_is_complete() -> SnarkResult<()> {
 fn keyed_sumcheck_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([4, 1, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 1, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
@@ -77,30 +116,57 @@ fn keyed_sumcheck_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([4, 7, 1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7, 1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 2, 12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![None, None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([4, 7, 1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7, 1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 2, 12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![None, None],
         vec![1, 1, 1, 1],
         vec![
-            to_field_vec!([4, 7], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None, None, None],
         vec![None, None, None, None],
@@ -116,93 +182,201 @@ fn keyed_sumcheck_with_activator_and_mul_none_is_sound() -> SnarkResult<()> {
 fn keyed_sumcheck_with_activator_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([1, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [1, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 2, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 2, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([1, 7, 12, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [1, 7, 12, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 4, 18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![
-            Some(to_field_vec!([10, 1, 3, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [10, 1, 3, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [1, 1, 1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 11, 1, 1, 1, 3, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 11, 1, 1, 1, 3, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([1, 7, 12, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [1, 7, 12, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 4, 18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![
-            Some(to_field_vec!([10, 1, 3, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [10, 1, 3, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [1, 1, 1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
         vec![1, 1, 1, 1],
         vec![
-            to_field_vec!([4, 7], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None, None, None],
         vec![
-            Some(to_field_vec!([1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([11, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([3, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [11, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [3, 0],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([1, 7, 12, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [1, 7, 12, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 4, 18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None],
         vec![
-            Some(to_field_vec!([10, 1, 3, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [10, 1, 3, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [1, 1, 1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
         vec![1, 1, 1, 1],
         vec![
-            to_field_vec!([4, 7], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [12, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![None, None, None, None],
         vec![
-            Some(to_field_vec!([1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([11, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [11, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
             None,
-            Some(to_field_vec!([3, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [3, 0],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
     )?;
 
@@ -216,24 +390,45 @@ fn keyed_sumcheck_with_activator_none_is_complete() -> SnarkResult<()> {
 fn keyed_sumcheck_with_activator_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 5, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 5, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
         vec![None],
     )?;
 
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([1, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [1, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 10, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 10, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
         vec![None],
-        vec![Some(to_field_vec!([1, 1, 2, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [1, 1, 2, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     // exit successfully
@@ -246,61 +441,127 @@ fn keyed_sumcheck_with_activator_none_is_sound() -> SnarkResult<()> {
 fn keyed_sumcheck_with_mul_none_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3,], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 0, 0, 1, 0, 0, 1, 1,], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3,],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 0, 0, 1, 0, 0, 1, 1,],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
         vec![2],
-        vec![to_field_vec!([4, 20, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 20, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![2, 2],
         vec![
-            to_field_vec!([3, 7, 12, 20], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [3, 7, 12, 20],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [1, 4, 18, 2],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![
-            Some(to_field_vec!([1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [1, 1, 1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [1, 1, 1, 0],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
         vec![None, None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
     // exit successfully
@@ -313,12 +574,24 @@ fn keyed_sumcheck_with_mul_none_is_complete() -> SnarkResult<()> {
 fn keyed_sumcheck_with_mul_none_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 0, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 0, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 0, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![None],
     )?;
     // exit successfully
@@ -331,64 +604,163 @@ fn keyed_sumcheck_with_mul_none_is_sound() -> SnarkResult<()> {
 fn keyed_sumcheck_is_complete() -> SnarkResult<()> {
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([0, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1100, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [0, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1100, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 12412], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 12412],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 4, 18, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([0, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1100, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 4, 18, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [0, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1100, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 12, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 12, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 3, 1, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 0, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([10, 11, 0, 13, 14, 15, 16, 17], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 3, 1, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 0, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [10, 11, 0, 13, 14, 15, 16, 17],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 3, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([0, 11, 30, 0, 1, 0, 3, 22], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 3, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [0, 11, 30, 0, 1, 0, 3, 22],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
     multiplicity_test_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 3, 1, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 0, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([10, 11, 0, 13, 14, 15, 16, 17], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 3, 1, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 0, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [10, 11, 0, 13, 14, 15, 16, 17],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3, 3],
         vec![
-            to_field_vec!([4, 7, 1, 20, 18, 2, 3, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
-            to_field_vec!([4, 7, 1, 20, 18, 3, 3, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F),
+            to_field_vec!(
+                [4, 7, 1, 20, 18, 2, 3, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
+            to_field_vec!(
+                [4, 7, 1, 20, 18, 3, 3, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            ),
         ],
         vec![
-            Some(to_field_vec!([1, 1, 1, 1, 0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([0, 0, 0, 0, 0, 1, 0, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [1, 1, 1, 1, 0, 1, 1, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [0, 0, 0, 0, 0, 1, 0, 1],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
         vec![
-            Some(to_field_vec!([0, 11, 30, 0, 1, 0, 3, 18], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
-            Some(to_field_vec!([0, 0, 0, 0, 0, 1, 0, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)),
+            Some(to_field_vec!(
+                [0, 11, 30, 0, 1, 0, 3, 18],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
+            Some(to_field_vec!(
+                [0, 0, 0, 0, 0, 1, 0, 3],
+                <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+            )),
         ],
     )?;
     // exit successfully
@@ -401,13 +773,31 @@ fn keyed_sumcheck_is_complete() -> SnarkResult<()> {
 fn keyed_sumcheck_is_sound() -> SnarkResult<()> {
     multiplicity_test_soundness_helper::<DefaultSnarkBackend>(
         vec![3],
-        vec![to_field_vec!([3, 7, 12, 20, 1, 3, 1, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 0, 1, 1, 1, 0], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([10, 11, 0, 13, 14, 15, 16, 17], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [3, 7, 12, 20, 1, 3, 1, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 0, 1, 1, 1, 0],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [10, 11, 0, 13, 14, 15, 16, 17],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
         vec![3],
-        vec![to_field_vec!([4, 7, 1, 20, 18, 2, 3, 3], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F)],
-        vec![Some(to_field_vec!([1, 1, 1, 1, 0, 1, 1, 1], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
-        vec![Some(to_field_vec!([0, 11, 30, 0, 1, 0, 3, 28], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![to_field_vec!(
+            [4, 7, 1, 20, 18, 2, 3, 3],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        )],
+        vec![Some(to_field_vec!(
+            [1, 1, 1, 1, 0, 1, 1, 1],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
+        vec![Some(to_field_vec!(
+            [0, 11, 30, 0, 1, 0, 3, 28],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     // exit successfully
@@ -474,7 +864,10 @@ fn special_test() -> SnarkResult<()> {
             .unwrap(),
         ]],
         vec![None],
-        vec![Some(to_field_vec!([2, 2, 2, 2], <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F))],
+        vec![Some(to_field_vec!(
+            [2, 2, 2, 2],
+            <ark_piop::DefaultSnarkBackend as ark_piop::SnarkBackend>::F
+        ))],
     )?;
 
     // exit successfully
