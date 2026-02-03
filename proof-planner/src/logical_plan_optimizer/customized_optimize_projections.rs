@@ -111,6 +111,15 @@ fn optimize_projections(
     config: &dyn OptimizerConfig,
     indices: RequiredIndices,
 ) -> Result<Transformed<LogicalPlan>> {
+    // Conservative safety gate for truth-table system columns.
+    // This customized rule can over-prune/reorder when __row_id__/__activator__
+    // are in play, which later breaks gadget assumptions. We therefore skip
+    // this optimization for plan nodes whose output schema already contains
+    // system columns, and let the rest of the optimizer pipeline handle them.
+    if has_system_columns(plan.schema()) {
+        return Ok(Transformed::no(plan));
+    }
+
     let indices = indices.with_system_columns(plan.schema());
     // Recursively rewrite any nodes that may be able to avoid computation given
     // their parents' required indices.
@@ -402,6 +411,13 @@ fn optimize_projections(
     } else {
         Ok(transformed_plan)
     }
+}
+
+fn has_system_columns(schema: &datafusion_common::DFSchemaRef) -> bool {
+    schema.fields().iter().any(|f| {
+        let name = f.name();
+        name == "__activator__" || name == "__row_id__"
+    })
 }
 
 /// Merges consecutive projections.
@@ -852,7 +868,11 @@ mod required_indices {
                 self.add_expr(schema, e);
                 Ok(TreeNodeRecursion::Continue)
             })?;
-            Ok(self.add_system_columns(schema).compact())
+            // Do not force child system columns here: this method computes
+            // *expression-derived* child requirements. Injecting row/activator
+            // columns at every edge can add unintended payload columns and break
+            // downstream gadget assumptions.
+            Ok(self.compact())
         }
 
         /// Adds the indices of the fields referred to by the given expression
@@ -895,7 +915,9 @@ mod required_indices {
                     acc.add_expr(schema, expr);
                     acc
                 })
-                .add_system_columns(schema)
+                // Keep this as a pure expression-to-index mapping.
+                // System columns are injected only when preserving the current
+                // node output schema (via `with_system_columns`).
                 .compact()
         }
 
