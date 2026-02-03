@@ -726,7 +726,10 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         Self::prove_non_neg_u16_chunks_4(prover, col, |eval| {
             let n = Self::field_low_bits_unsigned(eval, 32) as u32;
-            Self::split_u32_into_u16s(n)
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_u32_into_u16s(n);
+            // Chunks are committed as signed field elements for a uniform path shared
+            // by signed/unsigned integer checks.
+            [chunk3 as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
         })
     }
 
@@ -749,8 +752,10 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         Self::prove_non_neg_u16_chunks_4(prover, col, |eval| {
-            let n = Self::field_low_bits_signed(eval, 32) as i32;
-            Self::split_i32_into_u16s(n)
+            let n = Self::field_signed_from_encoding(eval, 32) as i32;
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_i32_into_u16s(n);
+            // The top chunk carries sign in two's-complement space and may be negative.
+            [(chunk3 as i16) as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
         })
     }
 
@@ -774,7 +779,8 @@ impl<B: SnarkBackend> SignNode<B> {
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         Self::prove_non_neg_u16_chunks_4(prover, col, |eval| {
             let n = Self::field_low_bits_unsigned(eval, 64) as u64;
-            Self::split_u64_into_u16s(n)
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_u64_into_u16s(n);
+            [chunk3 as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
         })
     }
 
@@ -797,8 +803,10 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         Self::prove_non_neg_u16_chunks_4(prover, col, |eval| {
-            let n = Self::field_low_bits_signed(eval, 64) as i64;
-            Self::split_i64_into_u16s(n)
+            let n = Self::field_signed_from_encoding(eval, 64) as i64;
+            let [chunk3, chunk2, chunk1, chunk0] = Self::split_i64_into_u16s(n);
+            // Keep the most-significant chunk signed; lower chunks are always non-negative.
+            [(chunk3 as i16) as i64, chunk2 as i64, chunk1 as i64, chunk0 as i64]
         })
     }
 
@@ -819,7 +827,7 @@ impl<B: SnarkBackend> SignNode<B> {
     fn prove_non_neg_u16_chunks_4(
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
-        mut eval_to_chunks: impl FnMut(B::F) -> [u16; 4],
+        mut eval_to_chunks: impl FnMut(B::F) -> [i64; 4],
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
         let log_size = col.log_size();
@@ -830,12 +838,12 @@ impl<B: SnarkBackend> SignNode<B> {
 
         for &eval in evaluations.iter() {
             let [chunk3, chunk2, chunk1, chunk0] = eval_to_chunks(eval);
-            chunk3_vals.push(B::F::from(chunk3 as u64));
-            chunk2_vals.push(B::F::from(chunk2 as u64));
-            chunk1_vals.push(B::F::from(chunk1 as u64));
-            chunk0_vals.push(B::F::from(chunk0 as u64));
+            // Preserve signed chunk semantics when lifting into field elements.
+            chunk3_vals.push(B::F::from(chunk3 as i128));
+            chunk2_vals.push(B::F::from(chunk2 as i128));
+            chunk1_vals.push(B::F::from(chunk1 as i128));
+            chunk0_vals.push(B::F::from(chunk0 as i128));
         }
-
         let chunk3_poly = prover
             .track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(log_size, chunk3_vals))?;
         let chunk2_poly = prover
@@ -928,7 +936,7 @@ impl<B: SnarkBackend> SignNode<B> {
             .collect();
 
         for &eval in evaluations.iter() {
-            let n = Self::field_low_bits_signed(eval, 128);
+            let n = Self::field_signed_from_encoding(eval, 128);
             for (target, chunk) in chunk_values
                 .iter_mut()
                 .zip(Self::split_i128_into_u16s(n).into_iter())
@@ -1209,17 +1217,21 @@ impl<B: SnarkBackend> SignNode<B> {
         acc
     }
 
-    fn field_low_bits_signed(value: B::F, bits: usize) -> i128 {
-        debug_assert!(bits <= 128);
-        if bits == 0 {
-            return 0;
-        }
-        let unsigned = Self::field_low_bits_unsigned(value, bits);
-        let sign_bit = 1u128 << (bits - 1);
-        if unsigned & sign_bit != 0 {
-            (unsigned as i128) - (1i128 << bits)
+    // Decode a field element that was encoded from a signed integer via `F::from(i128)`.
+    // For negative values this uses the smaller-magnitude representative `-value`,
+    // which matches how signed literals are currently embedded into the field.
+    fn field_signed_from_encoding(value: B::F, bits: usize) -> i128 {
+        debug_assert!((1..=128).contains(&bits));
+        let neg = -value;
+        if value.into_bigint() <= neg.into_bigint() {
+            Self::field_low_bits_unsigned(value, bits) as i128
         } else {
-            unsigned as i128
+            let mag = Self::field_low_bits_unsigned(neg, bits);
+            if bits == 128 && mag == (1u128 << 127) {
+                i128::MIN
+            } else {
+                -(mag as i128)
+            }
         }
     }
 
@@ -1256,7 +1268,7 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     fn eval_signed_sign(value: B::F, bits: usize, sign: Sign) -> bool {
-        let val = Self::field_low_bits_signed(value, bits);
+        let val = Self::field_signed_from_encoding(value, bits);
         match sign {
             Sign::NonNegative => val >= 0,
             Sign::Positive => val > 0,
@@ -1286,14 +1298,26 @@ impl<B: SnarkBackend> SignNode<B> {
                 Some(Self::field_low_bits_unsigned(value, 64)),
                 Some(64),
             ),
-            DataType::Int8 => (Some(Self::field_low_bits_signed(value, 8)), None, Some(8)),
-            DataType::Int16 => (Some(Self::field_low_bits_signed(value, 16)), None, Some(16)),
+            DataType::Int8 => (Some(Self::field_signed_from_encoding(value, 8)), None, Some(8)),
+            DataType::Int16 => (
+                Some(Self::field_signed_from_encoding(value, 16)),
+                None,
+                Some(16),
+            ),
             DataType::Int32 | DataType::Date32 => {
-                (Some(Self::field_low_bits_signed(value, 32)), None, Some(32))
+                (
+                    Some(Self::field_signed_from_encoding(value, 32)),
+                    None,
+                    Some(32),
+                )
             }
-            DataType::Int64 => (Some(Self::field_low_bits_signed(value, 64)), None, Some(64)),
+            DataType::Int64 => (
+                Some(Self::field_signed_from_encoding(value, 64)),
+                None,
+                Some(64),
+            ),
             DataType::Decimal128(..) => (
-                Some(Self::field_low_bits_signed(value, 128)),
+                Some(Self::field_signed_from_encoding(value, 128)),
                 None,
                 Some(128),
             ),

@@ -2,11 +2,18 @@ use crate::irs::nodes::gadget::utils::contig_sort::{
     DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL,
 };
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
+use datafusion::arrow::{
+    array::{ArrayRef, BooleanArray, Int64Array, new_null_array},
+    compute::{concat, concat_batches},
+    datatypes::DataType,
+    record_batch::RecordBatch,
+};
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::col;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{DataFusionError, Result as DataFusionResult};
+use datafusion::prelude::SessionContext;
+use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::SortExpr;
 use datafusion_expr::when;
@@ -78,41 +85,184 @@ pub(crate) fn sort_input_for_contig_sort(
 }
 
 pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult<DataFrame> {
-    let has_row_id = df
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME);
-    let order_by = if !order_by.is_empty() {
-        order_by
-    } else if has_row_id {
-        vec![col(ROW_ID_COL_NAME).sort(true, true)]
-    } else {
-        return Err(DataFusionError::Plan(format!(
-            "rotate requires {} column for deterministic ordering",
-            ROW_ID_COL_NAME
-        )));
-    };
-
-    let ordered = df.sort(order_by.clone())?;
-    let mut rotated_cols = Vec::new();
-
-    for field in ordered.schema().fields() {
-        let name = field.name();
-        if name == ROW_ID_COL_NAME {
-            continue;
+    // Important: we rotate *after* power-of-two padding.
+    // If rotation happens first, the wrap row gets buried by appended rows and the
+    // prescribed permutation no longer matches the intended cyclic shift.
+    let ordered = if order_by.is_empty() {
+        let has_row_id = df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ROW_ID_COL_NAME);
+        if !has_row_id {
+            return Err(DataFusionError::Plan(format!(
+                "rotate requires {} column for deterministic ordering",
+                ROW_ID_COL_NAME
+            )));
         }
-        let lead_expr = lead(col(name), Some(1), None)
-            .order_by(order_by.clone())
-            .build()?;
-        let first_expr = first_value(col(name)).order_by(order_by.clone()).build()?;
-        let rotated_expr = when(lead_expr.clone().is_null(), first_expr)
-            .otherwise(lead_expr)?
-            .alias(name.to_string());
-        rotated_cols.push(rotated_expr);
+        df.sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])?
+    } else {
+        df.sort(order_by)?
+    };
+    // Collect to Arrow so we can deterministically pad and then perform an explicit
+    // cyclic array rotation (DataFusion window + post-padding was the source of mismatch).
+    let batches = collect_blocking(ordered)?;
+    if batches.is_empty() {
+        return Err(DataFusionError::Execution(
+            "rotate input produced no batches".to_string(),
+        ));
     }
 
-    ordered.select(rotated_cols)
+    let schema_ref = batches[0].schema();
+    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+    let combined = concat_batches(&schema_ref, batch_refs)?;
+    let padded = pad_batch_to_power_of_two_with_zeros(&combined)?;
+    let row_count = padded.num_rows();
+
+    let mut out_fields = Vec::new();
+    let mut out_cols = Vec::new();
+    for (idx, field) in padded.schema().fields().iter().enumerate() {
+        if field.name() == ROW_ID_COL_NAME {
+            continue;
+        }
+        let source = padded.column(idx).clone();
+        let rotated = if row_count <= 1 {
+            source
+        } else {
+            let tail = source.slice(1, row_count - 1);
+            let head = source.slice(0, 1);
+            concat(&[tail.as_ref(), head.as_ref()])?
+        };
+        out_fields.push(field.as_ref().clone());
+        out_cols.push(rotated);
+    }
+
+    let out_schema = std::sync::Arc::new(datafusion::arrow::datatypes::Schema::new_with_metadata(
+        out_fields,
+        padded.schema().metadata().clone(),
+    ));
+    let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
+    SessionContext::new().read_batch(out_batch)
+}
+
+fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
+    // This helper is used from both async and sync call paths; avoid creating nested
+    // runtimes in multithread contexts and keep behavior consistent in tests.
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
+        }
+    }
+}
+
+fn pad_batch_to_power_of_two_with_zeros(batch: &RecordBatch) -> DataFusionResult<RecordBatch> {
+    let row_count = batch.num_rows();
+    let target = if row_count == 0 {
+        2
+    } else {
+        row_count.next_power_of_two()
+    };
+    let pad = target - row_count;
+    if pad == 0 {
+        return Ok(batch.clone());
+    }
+
+    let mut out_cols = Vec::with_capacity(batch.num_columns());
+    for (idx, field) in batch.schema().fields().iter().enumerate() {
+        let base = batch.column(idx).clone();
+        let pad_arr: ArrayRef = if field.name() == ACTIVATOR_COL_NAME {
+            // Newly padded rows are always inactive.
+            std::sync::Arc::new(BooleanArray::from(vec![false; pad]))
+        } else if field.name() == ROW_ID_COL_NAME {
+            // Keep row ids contiguous so downstream deterministic ordering by row id remains valid.
+            let start = if row_count > 0 {
+                ScalarValue::try_from_array(base.as_ref(), row_count - 1)
+                    .ok()
+                    .and_then(|v| match v {
+                        ScalarValue::Int64(Some(x)) => Some(x + 1),
+                        ScalarValue::UInt64(Some(x)) => i64::try_from(x).ok().map(|x| x + 1),
+                        _ => None,
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            let vals: Vec<i64> = (0..pad as i64).map(|off| start + off).collect();
+            std::sync::Arc::new(Int64Array::from(vals))
+        } else {
+            // Data columns are zero-filled for padded rows, matching gadget assumptions.
+            zero_array(field.data_type(), pad)?
+        };
+        out_cols.push(concat(&[base.as_ref(), pad_arr.as_ref()])?);
+    }
+
+    RecordBatch::try_new(batch.schema(), out_cols).map_err(Into::into)
+}
+
+fn zero_array(data_type: &DataType, len: usize) -> DataFusionResult<ArrayRef> {
+    let scalar = match data_type {
+        DataType::Boolean => Some(ScalarValue::Boolean(Some(false))),
+        DataType::Int8 => Some(ScalarValue::Int8(Some(0))),
+        DataType::Int16 => Some(ScalarValue::Int16(Some(0))),
+        DataType::Int32 => Some(ScalarValue::Int32(Some(0))),
+        DataType::Int64 => Some(ScalarValue::Int64(Some(0))),
+        DataType::UInt8 => Some(ScalarValue::UInt8(Some(0))),
+        DataType::UInt16 => Some(ScalarValue::UInt16(Some(0))),
+        DataType::UInt32 => Some(ScalarValue::UInt32(Some(0))),
+        DataType::UInt64 => Some(ScalarValue::UInt64(Some(0))),
+        DataType::Float32 => Some(ScalarValue::Float32(Some(0.0))),
+        DataType::Float64 => Some(ScalarValue::Float64(Some(0.0))),
+        DataType::Date32 => Some(ScalarValue::Date32(Some(0))),
+        DataType::Date64 => Some(ScalarValue::Date64(Some(0))),
+        DataType::Timestamp(unit, tz) => match unit {
+            datafusion::arrow::datatypes::TimeUnit::Second => {
+                Some(ScalarValue::TimestampSecond(Some(0), tz.clone()))
+            }
+            datafusion::arrow::datatypes::TimeUnit::Millisecond => {
+                Some(ScalarValue::TimestampMillisecond(Some(0), tz.clone()))
+            }
+            datafusion::arrow::datatypes::TimeUnit::Microsecond => {
+                Some(ScalarValue::TimestampMicrosecond(Some(0), tz.clone()))
+            }
+            datafusion::arrow::datatypes::TimeUnit::Nanosecond => {
+                Some(ScalarValue::TimestampNanosecond(Some(0), tz.clone()))
+            }
+        },
+        DataType::Decimal128(precision, scale) => {
+            Some(ScalarValue::Decimal128(Some(0), *precision, *scale))
+        }
+        _ => None,
+    };
+
+    if let Some(scalar) = scalar {
+        scalar.to_array_of_size(len).map_err(Into::into)
+    } else {
+        Ok(new_null_array(data_type, len))
+    }
 }
 
 pub(crate) fn diff_input(
@@ -280,9 +430,14 @@ pub(crate) fn tie_indicator(
         return df.select(Vec::<Expr>::new());
     }
     if data_cols.len() == 1 {
-        // Emit tie_0 so Bool/Sign gadgets stay wired for single-key sorts.
+        // For a single sort key, tie_0 must be false on the wrap row (last -> first).
+        // Otherwise tie-gated consistency checks incorrectly constrain the cyclic boundary.
         let ordered = df.sort(order_by.clone())?;
-        return ordered.select(vec![lit(true).alias("tie_0")]);
+        let next_val = lead(col(&data_cols[0]), Some(1), None)
+            .order_by(order_by.clone())
+            .build()?;
+        let tie_0 = when(next_val.is_null(), lit(false)).otherwise(lit(true))?;
+        return ordered.select(vec![tie_0.alias("tie_0")]);
     }
 
     let ordered = df.sort(order_by.clone())?;
@@ -335,7 +490,10 @@ fn sort_order_from_hint(
                 .iter()
                 .find(|field| normalize_sort_name(field.name()) == normalized)
             {
-                ordered.push(col(field.name()).sort(*asc, *nulls_first));
+                // We intentionally force NULLS LAST here to match the deterministic
+                // ordering used during padding/rotation and keep prover/verifier aligned.
+                let _ = nulls_first;
+                ordered.push(col(field.name()).sort(*asc, false));
             }
         }
         if ordered.len() == data_fields.len() {
@@ -344,14 +502,14 @@ fn sort_order_from_hint(
             order_by.extend(
                 data_fields
                     .iter()
-                    .map(|field| col(field.name()).sort(true, true)),
+                    .map(|field| col(field.name()).sort(true, false)),
             );
         }
     } else {
         order_by.extend(
             data_fields
                 .iter()
-                .map(|field| col(field.name()).sort(true, true)),
+                .map(|field| col(field.name()).sort(true, false)),
         );
     }
 

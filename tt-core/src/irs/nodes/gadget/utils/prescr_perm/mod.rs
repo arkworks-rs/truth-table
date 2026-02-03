@@ -420,9 +420,11 @@ fn data_columns_evals<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<Vec<B::F>
         .data_tracked_polys_indices()
         .into_iter()
         .map(|idx| {
+            // Compare activated values so inactive padded rows do not create
+            // false mismatches during the honest permutation check.
             table
                 .tracked_col_by_ind(idx)
-                .data_tracked_poly()
+                .activated_data_tracked_poly()
                 .evaluations()
         })
         .collect()

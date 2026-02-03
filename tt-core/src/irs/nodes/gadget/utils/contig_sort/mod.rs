@@ -16,7 +16,7 @@ use ark_piop::{
 };
 use ark_poly::Polynomial;
 use datafusion::arrow::{
-    array::{new_null_array, ArrayRef, BooleanArray, Int64Array},
+    array::{ArrayRef, BooleanArray, Int64Array},
     compute::{concat, concat_batches},
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
@@ -129,7 +129,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             }
             crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
         };
-
         populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
@@ -818,7 +817,7 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    diff_table: Option<&TrackedTable<B>>,
+    _diff_table: Option<&TrackedTable<B>>,
     tie_table: &TrackedTable<B>,
     input_table: &TrackedTable<B>,
     rotated_table: &TrackedTable<B>,
@@ -873,26 +872,10 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
             }
         };
 
-        let (diff_poly, diff_field) = if let Some(diff_table) = diff_table {
-            let diff_idx = diff_table
-                .data_tracked_polys_indices()
-                .into_iter()
-                .find(|idx| {
-                    let diff_field = diff_table
-                        .tracked_col_by_ind(*idx)
-                        .field_ref()
-                        .expect("Expected field ref for diff column");
-                    normalize_sort_name(diff_field.name()) == col_name
-                })
-                .unwrap_or_else(|| panic!("Missing diff column for Sort column {}", col_name));
-            let diff_col = diff_table.tracked_col_by_ind(diff_idx);
-            let diff_field = diff_col
-                .field_ref()
-                .expect("Expected field ref for diff column")
-                .as_ref()
-                .clone();
-            (diff_col.data_tracked_poly(), diff_field)
-        } else if is_asc {
+        // Build the diff directly from input/rotated columns.
+        // This keeps the sign constraints bound to the exact rotated relation and
+        // avoids stale/mismatched auxiliary diff payloads.
+        let (diff_poly, diff_field) = if is_asc {
             (
                 &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly(),
                 input_col
@@ -949,7 +932,7 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    diff_table: Option<&TrackedTableOracle<B>>,
+    _diff_table: Option<&TrackedTableOracle<B>>,
     tie_table: &TrackedTableOracle<B>,
     input_table: &TrackedTableOracle<B>,
     rotated_table: &TrackedTableOracle<B>,
@@ -1004,26 +987,9 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
             }
         };
 
-        let (diff_oracle, diff_field) = if let Some(diff_table) = diff_table {
-            let diff_idx = diff_table
-                .data_tracked_oracles_indices()
-                .into_iter()
-                .find(|idx| {
-                    let diff_field = diff_table
-                        .tracked_col_oracle_by_ind(*idx)
-                        .field_ref()
-                        .expect("Expected field ref for diff column");
-                    normalize_sort_name(diff_field.name()) == col_name
-                })
-                .unwrap_or_else(|| panic!("Missing diff column for Sort column {}", col_name));
-            let diff_col = diff_table.tracked_col_oracle_by_ind(diff_idx);
-            let diff_field = diff_col
-                .field_ref()
-                .expect("Expected field ref for diff column")
-                .as_ref()
-                .clone();
-            (diff_col.data_tracked_oracle(), diff_field)
-        } else if is_asc {
+        // Mirror prover logic: compute diff from input/rotated oracles directly so
+        // verifier constraints match prover-side construction exactly.
+        let (diff_oracle, diff_field) = if is_asc {
             (
                 &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle(),
                 input_col
@@ -1458,7 +1424,10 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
         "Sort gadget expects one tie indicator per data column."
     );
 
-    // Enforce tie_i * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
+    // Enforce first_tie * tie_i * input_activator * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
+    // first_tie masks the wrap-around row (last -> first), and input activator gates inactive rows.
+    let first_tie_poly = tie_table.tracked_col_by_ind(tie_indices[0]).data_tracked_poly();
+    let input_activator = input_table.activator_tracked_poly();
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
@@ -1469,10 +1438,14 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
         let tie_col = tie_table.tracked_col_by_ind(tie_idx);
         let input_col = input_table.tracked_col_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_by_ind(rotated_idx);
-        let tie_poly = tie_col.data_tracked_poly();
-        let diff_poly = &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly();
 
-        let zero_poly = &tie_poly * &diff_poly;
+        let tie_poly = &tie_col.data_tracked_poly() * &first_tie_poly;
+        let diff_poly = &input_col.data_tracked_poly() - &rotated_col.data_tracked_poly();
+        let gated_diff_poly = match input_activator.as_ref() {
+            Some(activator) => &diff_poly * activator,
+            None => diff_poly,
+        };
+        let zero_poly = &tie_poly * &gated_diff_poly;
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
     }
     Ok(())
@@ -1509,7 +1482,12 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
         "Sort gadget expects one tie indicator per data column."
     );
 
-    // Enforce tie_i * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
+    // Enforce first_tie * tie_i * input_activator * (input_{i-1} - rotated_{i-1}) = 0 for i > 0.
+    // first_tie masks the wrap-around row (last -> first), and input activator gates inactive rows.
+    let first_tie_oracle = tie_table
+        .tracked_col_oracle_by_ind(tie_indices[0])
+        .data_tracked_oracle();
+    let input_activator = input_table.activator_tracked_poly();
     for ((tie_idx, input_idx), rotated_idx) in tie_indices
         .iter()
         .copied()
@@ -1521,9 +1499,13 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
         let input_col = input_table.tracked_col_oracle_by_ind(input_idx);
         let rotated_col = rotated_table.tracked_col_oracle_by_ind(rotated_idx);
 
-        let tie_oracle = tie_col.data_tracked_oracle();
+        let tie_oracle = &tie_col.data_tracked_oracle() * &first_tie_oracle;
         let diff_oracle = &input_col.data_tracked_oracle() - &rotated_col.data_tracked_oracle();
-        let zero_oracle = &tie_oracle * &diff_oracle;
+        let gated_diff_oracle = match input_activator.as_ref() {
+            Some(activator) => &diff_oracle * activator,
+            None => diff_oracle,
+        };
+        let zero_oracle = &tie_oracle * &gated_diff_oracle;
         verifier.add_zerocheck_claim(zero_oracle.id());
     }
     Ok(())
@@ -1746,7 +1728,18 @@ fn pad_batches_to_power_of_two(
                 .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
             let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
             concat(&[base.as_ref(), pad_arr.as_ref()])?
+        } else if field.data_type() == &DataType::Boolean {
+            // Non-system boolean columns are false on padded rows to avoid
+            // introducing accidental truthy constraints in downstream gadgets.
+            let base = combined
+                .as_ref()
+                .map(|batch| batch.column(idx).clone())
+                .unwrap_or_else(|| Arc::new(BooleanArray::from(Vec::<bool>::new())) as ArrayRef);
+            let pad_arr: ArrayRef = Arc::new(BooleanArray::from(vec![false; pad]));
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if field.name() == ROW_ID_COL_NAME {
+            // Preserve monotonic row ids across padding so any row-id-based ordering
+            // remains deterministic after materialization.
             let base = combined
                 .as_ref()
                 .map(|batch| batch.column(idx).clone())
@@ -1767,10 +1760,14 @@ fn pad_batches_to_power_of_two(
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else if let Some(batch) = combined.as_ref() {
             let base = batch.column(idx).clone();
-            let pad_arr = new_null_array(field.data_type(), pad);
+            // Repeat the last value for padded rows. This keeps arithmetic constraints
+            // stable under padding and matches existing gadget expectations.
+            let last = ScalarValue::try_from_array(base.as_ref(), row_count - 1)?;
+            let pad_arr = last.to_array_of_size(pad)?;
             concat(&[base.as_ref(), pad_arr.as_ref()])?
         } else {
-            new_null_array(field.data_type(), pad)
+            let null = ScalarValue::try_new_null(field.data_type())?;
+            null.to_array_of_size(pad)?
         };
         output_arrays.push(padded);
     }

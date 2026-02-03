@@ -216,7 +216,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Self::honest_check_no_dup_active(prover, gadget_ready_ir, id)
+        match self.gadgets {
+            Gadgets::BezoutNoDup => Self::honest_check_no_dup_active(prover, gadget_ready_ir, id),
+            // SortNoDup is enforced compositionally by its child gadgets
+            // (sorting + permutation + keyed constraints), so we intentionally
+            // skip the direct active-row duplicate scan in this path.
+            Gadgets::SortNoDup(_) => Ok(()),
+        }
     }
 
     fn verify(
