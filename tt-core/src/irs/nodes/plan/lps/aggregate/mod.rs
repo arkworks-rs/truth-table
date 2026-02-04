@@ -269,25 +269,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
-        let group_output_names: HashSet<String> = self
-            .aggregate
-            .group_expr
-            .iter()
-            .filter_map(|expr| match expr {
-                Expr::Column(c) => Some(c.name.clone()),
-                _ => None,
-            })
-            .collect();
-
         for (field, poly) in input_table.tracked_polys_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs and group outputs materialized by this
-            // node; only non-group passthrough columns are sourced from input.
-            if aggregate_output_names.contains(field.name())
-                || group_output_names.contains(field.name())
-            {
+            // Keep aggregate outputs materialized by this node; all other
+            // columns (including group keys) are sourced virtually from input.
+            if aggregate_output_names.contains(field.name()) {
                 continue;
             }
             if let Some(existing_field) = merged_polys
@@ -381,12 +369,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             _ => None,
         };
         if let Some(input_table) = input_table {
-            tracing::debug!(
-                "Aggregate support wiring (prover): input_log_size={}, aggregate_log_size={}, support_output_log_size={}",
-                input_table.log_size(),
-                current_table.log_size(),
-                current_table.log_size()
-            );
             populate_aggregate_gadget(
                 &self.aggregate,
                 &input_table,
@@ -428,16 +410,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             .map(|field| field.name().to_string())
             .filter(|name| !count_output_names.contains(name))
             .collect();
-        let group_field_names: std::collections::HashSet<String> = self
-            .aggregate
-            .group_expr
-            .iter()
-            .filter_map(|expr| match expr {
-                Expr::Column(c) => Some(c.name.clone()),
-                _ => None,
-            })
-            .collect();
-
         let should_materialize: IndexMap<FieldRef, bool> = output
             .schema()
             .fields()
@@ -446,8 +418,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
                 (
                     field.clone(),
                     field.name() == ACTIVATOR_COL_NAME
-                        || aggregate_field_names.contains(field.name())
-                        || group_field_names.contains(field.name()),
+                        || aggregate_field_names.contains(field.name()),
                 )
             })
             .collect();
@@ -482,25 +453,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
-        let group_output_names: HashSet<String> = self
-            .aggregate
-            .group_expr
-            .iter()
-            .filter_map(|expr| match expr {
-                Expr::Column(c) => Some(c.name.clone()),
-                _ => None,
-            })
-            .collect();
-
         for (field, oracle) in input_table.tracked_oracles_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs and group outputs materialized by this
-            // node; only non-group passthrough columns are sourced from input.
-            if aggregate_output_names.contains(field.name())
-                || group_output_names.contains(field.name())
-            {
+            // Keep aggregate outputs materialized by this node; all other
+            // columns (including group keys) are sourced virtually from input.
+            if aggregate_output_names.contains(field.name()) {
                 continue;
             }
             if let Some(existing_field) = merged_oracles
@@ -714,12 +673,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => None,
         };
         if let Some(input_table) = input_table {
-            tracing::debug!(
-                "Aggregate support wiring (verifier): input_log_size={}, aggregate_log_size={}, support_output_log_size={}",
-                input_table.log_size(),
-                current_table.log_size(),
-                current_table.log_size()
-            );
             populate_aggregate_gadget(
                 &self.aggregate,
                 &input_table,
