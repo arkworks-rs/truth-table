@@ -12,124 +12,35 @@ fn tpch_cases() -> &'static [BenchCase] {
     // Static list of TPCH queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
-        let q1 = query_spec(1);
-        let q3 = query_spec(3);
-        let q5 = query_spec(5);
-        let q8 = query_spec(8);
-        let q9 = query_spec(9);
-        let q18 = query_spec(18);
-        let q19 = query_spec(19);
-        ////////////////////////////////////////////////
-        let q8_simplified_sql = "
-SELECT
-    o_orderdate_year,
-    sum(
-        CASE WHEN nation = 'BRAZIL' THEN
-            volume
-        ELSE
-            0
-        END) AS mkt_share_num , sum(volume) AS mkt_share_denom
-FROM (
-    SELECT
-        o_orderdate_year,
-        l_extendedprice * (1 - l_discount) AS volume,
-        n2.n_name AS nation
-    FROM
-        part,
-        supplier,
-        lineitem,
-        orders,
-        customer,
-        nation n1,
-        nation n2,
-        region
-    WHERE
-        p_partkey = l_partkey
-        AND s_suppkey = l_suppkey
-        AND l_orderkey = o_orderkey
-        AND o_custkey = c_custkey
-        AND c_nationkey = n1.n_nationkey
-        AND n1.n_regionkey = r_regionkey
-        AND r_name = 'AMERICA'
-        AND s_nationkey = n2.n_nationkey
-        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
-        AND CAST('1996-12-31' AS date)
-        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
-GROUP BY
-    o_orderdate_year
-ORDER BY
-    o_orderdate_year;
-        ";
-        let q9_simplified_sql = "
-SELECT
-    nation,
-    o_orderdate_year,
-    sum(amount) AS sum_profit
-FROM (
-    SELECT
-        n_name AS nation,
-        o_orderdate_year,
-        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
-    FROM
-        part,
-        supplier,
-        lineitem,
-        partsupp,
-        orders,
-        nation
-    WHERE
-        s_suppkey = l_suppkey
-        AND ps_suppkey = l_suppkey
-        AND ps_partkey = l_partkey
-        AND p_partkey = l_partkey
-        AND o_orderkey = l_orderkey
-        AND s_nationkey = n_nationkey) AS profit
-GROUP BY
-    nation,
-    o_orderdate_year
-ORDER BY
-    nation,
-    o_orderdate_year DESC;
-";
-
-        let q18_simplified_sql = "
-SELECT
-    c_name,
-    c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice,
-    sum(l_quantity)
-FROM
-    customer,
-    orders,
-    lineitem
-WHERE
-    o_orderkey IN (
-        SELECT
-            l_orderkey
-        FROM
-            lineitem
-        GROUP BY
-            l_orderkey)
-    AND c_custkey = o_custkey
-    AND o_orderkey = l_orderkey
-GROUP BY
-    c_name,
-    c_custkey,
-    o_orderkey,
-    o_orderdate,
-    o_totalprice
-ORDER BY
-    o_totalprice DESC,
-    o_orderdate
-";
+        let q1 = query_spec(1, false);
+        let q1_poneglyph = query_spec(1, true);
+        let q3 = query_spec(3, false);
+        let q3_poneglyph = query_spec(3, true);
+        let q5 = query_spec(5, false);
+        let q5_poneglyph = query_spec(5, true);
+        let q8 = query_spec(8, false);
+        let q8_poneglyph = query_spec(8, true);
+        let q9 = query_spec(9, false);
+        let q9_poneglyph = query_spec(9, true);
+        let q18 = query_spec(18, false);
+        let q18_poneglyph = query_spec(18, true);
+        let q19 = query_spec(19, false);
 
         let cases = vec![
             BenchCase {
                 name: "tpch_q1",
                 query: q1.sql,
                 tables: q1.tables,
+            },
+            BenchCase {
+                name: "tpch_q1_poneglyph",
+                query: q1_poneglyph.sql,
+                tables: q1_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q3_poneglyph",
+                query: q3_poneglyph.sql,
+                tables: q3_poneglyph.tables,
             },
             BenchCase {
                 name: "tpch_q3",
@@ -142,18 +53,38 @@ ORDER BY
                 tables: q5.tables,
             },
             BenchCase {
-                name: "tpch_q8",
-                query: q8_simplified_sql,
+                name: "tpch_q5_poneglyph",
+                query: q5_poneglyph.sql,
+                tables: q5_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q8_tt",
+                query: q8.sql,
                 tables: q8.tables,
             },
             BenchCase {
-                name: "tpch_q9",
-                query: q9_simplified_sql,
+                name: "tpch_q8_poneglyph",
+                query: q8_poneglyph.sql,
+                tables: q8_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q9_tt",
+                query: q9.sql,
                 tables: q9.tables,
             },
             BenchCase {
+                name: "tpch_q9_poneglyph",
+                query: q9_poneglyph.sql,
+                tables: q9_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q18_poneglyph",
+                query: q18_poneglyph.sql,
+                tables: q18_poneglyph.tables,
+            },
+            BenchCase {
                 name: "tpch_q18",
-                query: q18_simplified_sql,
+                query: q18.sql,
                 tables: q18.tables,
             },
             BenchCase {

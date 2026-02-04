@@ -68,7 +68,6 @@ async fn execute_query(
             .context("parquet file must have a valid name")?
             .to_string_lossy()
             .to_string();
-
         if !table_names.insert(table_name.clone()) {
             bail!(
                 "duplicate table name detected for {} – ensure filenames are unique",

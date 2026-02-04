@@ -48,7 +48,7 @@ impl QueryArg {
             (Some(query), None) => Ok(query.clone()),
             (None, Some(number)) => {
                 // Load the TPCH SQL on demand to match the CLI option.
-                Ok(query_spec(number).sql.to_string())
+                Ok(query_spec(number, false).sql.to_string())
             }
             _ => bail!("provide either --query or --tpch-query"),
         }

@@ -28,7 +28,7 @@ fn prover_bench_queries() -> &'static [BenchQuery] {
     // Static list of queries to benchmark for the prover-only bench.
     static QUERIES: OnceLock<&'static [BenchQuery]> = OnceLock::new();
     QUERIES.get_or_init(|| {
-        let tpch = query_spec(1);
+        let tpch = query_spec(1, false);
         let queries = vec![BenchQuery {
             name: "tpch_q1",
             query: tpch.sql,

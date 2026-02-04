@@ -8,8 +8,9 @@ use std::{
 use arithmetic::ACTIVATOR_COL_NAME;
 use arrow::{
     array::{
-        Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Int32Builder, Int64Builder,
-        RecordBatch, TimestampMicrosecondArray, TimestampMillisecondArray,
+        Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Decimal128Array, Float32Array,
+        Float64Array, Int32Builder, Int64Builder, RecordBatch, TimestampMicrosecondArray,
+        TimestampMillisecondArray, UInt64Builder,
         TimestampNanosecondArray, TimestampSecondArray, new_null_array,
     },
     datatypes::{
@@ -29,120 +30,134 @@ use tpchgen_arrow::*;
 const ROW_ID_COL_NAME: &str = "__row_id__";
 const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct ConstraintManifest {
     format_version: u32,
     source: &'static str,
     tables: Vec<TableConstraintSpec>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct TableConstraintSpec {
-    table: &'static str,
-    primary_key: Vec<&'static str>,
-    unique_keys: Vec<Vec<&'static str>>,
+    table: String,
+    primary_key: Vec<String>,
+    unique_keys: Vec<Vec<String>>,
     foreign_keys: Vec<ForeignKeySpec>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct ForeignKeySpec {
-    columns: Vec<&'static str>,
-    ref_table: &'static str,
-    ref_columns: Vec<&'static str>,
+    columns: Vec<String>,
+    ref_table: String,
+    ref_columns: Vec<String>,
 }
 
 fn tpch_constraints_manifest() -> ConstraintManifest {
+    let mut tables = vec![
+        TableConstraintSpec {
+            table: "region".to_string(),
+            primary_key: vec!["r_regionkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![],
+        },
+        TableConstraintSpec {
+            table: "nation".to_string(),
+            primary_key: vec!["n_nationkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![ForeignKeySpec {
+                columns: vec!["n_regionkey".to_string()],
+                ref_table: "region".to_string(),
+                ref_columns: vec!["r_regionkey".to_string()],
+            }],
+        },
+        TableConstraintSpec {
+            table: "part".to_string(),
+            primary_key: vec!["p_partkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![],
+        },
+        TableConstraintSpec {
+            table: "supplier".to_string(),
+            primary_key: vec!["s_suppkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![ForeignKeySpec {
+                columns: vec!["s_nationkey".to_string()],
+                ref_table: "nation".to_string(),
+                ref_columns: vec!["n_nationkey".to_string()],
+            }],
+        },
+        TableConstraintSpec {
+            table: "partsupp".to_string(),
+            primary_key: vec!["ps_partkey".to_string(), "ps_suppkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![
+                ForeignKeySpec {
+                    columns: vec!["ps_partkey".to_string()],
+                    ref_table: "part".to_string(),
+                    ref_columns: vec!["p_partkey".to_string()],
+                },
+                ForeignKeySpec {
+                    columns: vec!["ps_suppkey".to_string()],
+                    ref_table: "supplier".to_string(),
+                    ref_columns: vec!["s_suppkey".to_string()],
+                },
+            ],
+        },
+        TableConstraintSpec {
+            table: "customer".to_string(),
+            primary_key: vec!["c_custkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![ForeignKeySpec {
+                columns: vec!["c_nationkey".to_string()],
+                ref_table: "nation".to_string(),
+                ref_columns: vec!["n_nationkey".to_string()],
+            }],
+        },
+        TableConstraintSpec {
+            table: "orders".to_string(),
+            primary_key: vec!["o_orderkey".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![ForeignKeySpec {
+                columns: vec!["o_custkey".to_string()],
+                ref_table: "customer".to_string(),
+                ref_columns: vec!["c_custkey".to_string()],
+            }],
+        },
+        TableConstraintSpec {
+            table: "lineitem".to_string(),
+            primary_key: vec!["l_orderkey".to_string(), "l_linenumber".to_string()],
+            unique_keys: vec![],
+            foreign_keys: vec![
+                ForeignKeySpec {
+                    columns: vec!["l_orderkey".to_string()],
+                    ref_table: "orders".to_string(),
+                    ref_columns: vec!["o_orderkey".to_string()],
+                },
+                ForeignKeySpec {
+                    columns: vec!["l_partkey".to_string(), "l_suppkey".to_string()],
+                    ref_table: "partsupp".to_string(),
+                    ref_columns: vec!["ps_partkey".to_string(), "ps_suppkey".to_string()],
+                },
+            ],
+        },
+    ];
+    let poneglyph_tables: Vec<TableConstraintSpec> = tables
+        .iter()
+        .cloned()
+        .map(|mut table| {
+            table.table = format!("{}_poneglyph", table.table);
+            for fk in &mut table.foreign_keys {
+                fk.ref_table = format!("{}_poneglyph", fk.ref_table);
+            }
+            table
+        })
+        .collect();
+    tables.extend(poneglyph_tables);
+
     ConstraintManifest {
         format_version: 1,
         source: "tpch-constraints-hardcoded",
-        tables: vec![
-            TableConstraintSpec {
-                table: "region",
-                primary_key: vec!["r_regionkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![],
-            },
-            TableConstraintSpec {
-                table: "nation",
-                primary_key: vec!["n_nationkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![ForeignKeySpec {
-                    columns: vec!["n_regionkey"],
-                    ref_table: "region",
-                    ref_columns: vec!["r_regionkey"],
-                }],
-            },
-            TableConstraintSpec {
-                table: "part",
-                primary_key: vec!["p_partkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![],
-            },
-            TableConstraintSpec {
-                table: "supplier",
-                primary_key: vec!["s_suppkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![ForeignKeySpec {
-                    columns: vec!["s_nationkey"],
-                    ref_table: "nation",
-                    ref_columns: vec!["n_nationkey"],
-                }],
-            },
-            TableConstraintSpec {
-                table: "partsupp",
-                primary_key: vec!["ps_partkey", "ps_suppkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![
-                    ForeignKeySpec {
-                        columns: vec!["ps_partkey"],
-                        ref_table: "part",
-                        ref_columns: vec!["p_partkey"],
-                    },
-                    ForeignKeySpec {
-                        columns: vec!["ps_suppkey"],
-                        ref_table: "supplier",
-                        ref_columns: vec!["s_suppkey"],
-                    },
-                ],
-            },
-            TableConstraintSpec {
-                table: "customer",
-                primary_key: vec!["c_custkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![ForeignKeySpec {
-                    columns: vec!["c_nationkey"],
-                    ref_table: "nation",
-                    ref_columns: vec!["n_nationkey"],
-                }],
-            },
-            TableConstraintSpec {
-                table: "orders",
-                primary_key: vec!["o_orderkey"],
-                unique_keys: vec![],
-                foreign_keys: vec![ForeignKeySpec {
-                    columns: vec!["o_custkey"],
-                    ref_table: "customer",
-                    ref_columns: vec!["c_custkey"],
-                }],
-            },
-            TableConstraintSpec {
-                table: "lineitem",
-                primary_key: vec!["l_orderkey", "l_linenumber"],
-                unique_keys: vec![],
-                foreign_keys: vec![
-                    ForeignKeySpec {
-                        columns: vec!["l_orderkey"],
-                        ref_table: "orders",
-                        ref_columns: vec!["o_orderkey"],
-                    },
-                    ForeignKeySpec {
-                        columns: vec!["l_partkey", "l_suppkey"],
-                        ref_table: "partsupp",
-                        ref_columns: vec!["ps_partkey", "ps_suppkey"],
-                    },
-                ],
-            },
-        ],
+        tables,
     }
 }
 
@@ -408,6 +423,97 @@ fn expand_batch(
     RecordBatch::try_new(Arc::clone(out_schema), cols).expect("expanded batch build")
 }
 
+fn poneglyph_field(field: &Field) -> Field {
+    match field.data_type() {
+        DataType::Float32 | DataType::Float64 | DataType::Decimal128(_, _) => {
+            Field::new(field.name(), DataType::UInt64, true)
+        }
+        _ => field.clone().with_nullable(true),
+    }
+}
+
+fn poneglyph_schema(schema: &Schema) -> Arc<Schema> {
+    Arc::new(Schema::new(
+        schema
+            .fields()
+            .iter()
+            .map(|f| poneglyph_field(f))
+            .collect::<Vec<_>>(),
+    ))
+}
+
+fn convert_batch_to_poneglyph(batch: &RecordBatch, out_schema: &Arc<Schema>) -> RecordBatch {
+    let cols: Vec<ArrayRef> = batch
+        .columns()
+        .iter()
+        .zip(batch.schema().fields().iter())
+        .map(|(col, field)| match field.data_type() {
+            DataType::Float32 => {
+                let arr = col
+                    .as_any()
+                    .downcast_ref::<Float32Array>()
+                    .expect("float32 downcast");
+                let mut builder = UInt64Builder::new();
+                for i in 0..arr.len() {
+                    if arr.is_null(i) {
+                        builder.append_null();
+                        continue;
+                    }
+                    let scaled = f64::from(arr.value(i)) * 1000.0;
+                    if scaled.is_finite() && scaled >= 0.0 && scaled <= u64::MAX as f64 {
+                        builder.append_value(scaled as u64);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            DataType::Float64 => {
+                let arr = col
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .expect("float64 downcast");
+                let mut builder = UInt64Builder::new();
+                for i in 0..arr.len() {
+                    if arr.is_null(i) {
+                        builder.append_null();
+                        continue;
+                    }
+                    let scaled = arr.value(i) * 1000.0;
+                    if scaled.is_finite() && scaled >= 0.0 && scaled <= u64::MAX as f64 {
+                        builder.append_value(scaled as u64);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            DataType::Decimal128(_, _) => {
+                let arr = col
+                    .as_any()
+                    .downcast_ref::<Decimal128Array>()
+                    .expect("decimal128 downcast");
+                let mut builder = UInt64Builder::new();
+                for i in 0..arr.len() {
+                    if arr.is_null(i) {
+                        builder.append_null();
+                        continue;
+                    }
+                    let value = arr.value(i);
+                    if value >= 0 && value <= u64::MAX as i128 {
+                        builder.append_value(value as u64);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            _ => col.clone(),
+        })
+        .collect();
+    RecordBatch::try_new(Arc::clone(out_schema), cols).expect("poneglyph batch build")
+}
+
 /// Check if n is a power of two
 fn is_power_of_two(n: usize) -> bool {
     n != 0 && (n & (n - 1)) == 0
@@ -530,6 +636,106 @@ fn write_parquet<P: AsRef<Path>>(
     writer.close().expect("close writer");
 }
 
+/// Write Parquet in the same preprocessed shape as [`write_parquet`] but with
+/// floating-point and decimal columns materialized as UInt64 values.
+fn write_parquet_poneglyph<P: AsRef<Path>>(
+    path: P,
+    orig_schema: &arrow::datatypes::SchemaRef,
+    batches: impl Iterator<Item = RecordBatch>,
+) {
+    let path_ref = path.as_ref();
+    if let Some(parent) = path_ref.parent() {
+        create_dir_all(parent).expect("create output dir");
+    }
+
+    let (expansions, expanded_fields) = build_expansions(orig_schema.as_ref());
+    let expanded_schema = Arc::new(Schema::new(expanded_fields));
+    let poneglyph_base_schema = poneglyph_schema(expanded_schema.as_ref());
+
+    let mut fields: Vec<Field> = poneglyph_base_schema
+        .fields()
+        .iter()
+        .map(|f| (**f).clone())
+        .collect();
+    fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, false));
+    fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false));
+    let out_schema = Arc::new(Schema::new(fields));
+
+    let file = File::create(path_ref).expect("create parquet file");
+    let mut writer = ArrowWriter::try_new(file, Arc::clone(&out_schema), None).expect("new writer");
+
+    let mut total_rows: usize = 0;
+    let mut next_row_id: i64 = 0;
+    let mut last_nonempty_batch: Option<RecordBatch> = None;
+
+    for batch in batches {
+        let n = batch.num_rows();
+        if n == 0 {
+            continue;
+        }
+        let batch = expand_batch(&batch, &expansions, &expanded_schema);
+        let batch = convert_batch_to_poneglyph(&batch, &poneglyph_base_schema);
+        total_rows += n;
+        last_nonempty_batch = Some(batch.clone());
+
+        let mut row_id_builder = Int64Builder::new();
+        for offset in 0..n {
+            row_id_builder.append_value(next_row_id + offset as i64);
+        }
+        next_row_id += n as i64;
+        let row_id = Arc::new(row_id_builder.finish());
+
+        let mut act_builder = BooleanBuilder::new();
+        for _ in 0..n {
+            act_builder.append_value(true);
+        }
+        let activator = Arc::new(act_builder.finish());
+
+        let mut cols = batch.columns().to_vec();
+        cols.push(row_id);
+        cols.push(activator);
+        let out_batch = RecordBatch::try_new(Arc::clone(&out_schema), cols)
+            .expect("rebuild batch with activator");
+        writer.write(&out_batch).expect("write batch");
+    }
+
+    if total_rows == 0 {
+        writer.close().expect("close writer");
+        return;
+    }
+
+    if !is_power_of_two(total_rows) {
+        let target = next_power_of_two(total_rows);
+        let pad = target - total_rows;
+        let last_batch = last_nonempty_batch.expect("must have last batch");
+
+        let mut pad_cols = Vec::with_capacity(last_batch.num_columns() + 2);
+        for col in last_batch.columns() {
+            pad_cols.push(new_null_array(col.data_type(), pad));
+        }
+
+        let mut row_id_builder = Int64Builder::new();
+        for offset in 0..pad {
+            row_id_builder.append_value(next_row_id + offset as i64);
+        }
+        let pad_row_id = Arc::new(row_id_builder.finish());
+        pad_cols.push(pad_row_id);
+
+        let mut act_builder = BooleanBuilder::new();
+        for _ in 0..pad {
+            act_builder.append_value(false);
+        }
+        let pad_activator = Arc::new(act_builder.finish());
+        pad_cols.push(pad_activator);
+
+        let pad_batch =
+            RecordBatch::try_new(Arc::clone(&out_schema), pad_cols).expect("pad batch build");
+        writer.write(&pad_batch).expect("write pad batch");
+    }
+
+    writer.close().expect("close writer");
+}
+
 /// Write Parquet with the original schema and rows (no row_id/activator, no padding).
 fn write_parquet_raw<P: AsRef<Path>>(
     path: P,
@@ -577,12 +783,16 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = NationGenerator::new(scale, 1, 1);
         let mut it_raw = NationArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = NationGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            NationArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("nation.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("nation.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(out.join("nation_poneglyph.parquet"), &schema, &mut it_poneglyph);
     }
     // region
     {
@@ -591,12 +801,16 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = RegionGenerator::new(scale, 1, 1);
         let mut it_raw = RegionArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = RegionGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            RegionArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("region.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("region.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(out.join("region_poneglyph.parquet"), &schema, &mut it_poneglyph);
     }
     // part
     {
@@ -605,12 +819,16 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = PartGenerator::new(scale, 1, 1);
         let mut it_raw = PartArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = PartGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            PartArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("part.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("part.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(out.join("part_poneglyph.parquet"), &schema, &mut it_poneglyph);
     }
     // supplier
     {
@@ -619,12 +837,20 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = SupplierGenerator::new(scale, 1, 1);
         let mut it_raw = SupplierArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = SupplierGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            SupplierArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("supplier.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("supplier.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(
+            out.join("supplier_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // partsupp
     {
@@ -633,12 +859,20 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = PartSuppGenerator::new(scale, 1, 1);
         let mut it_raw = PartSuppArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = PartSuppGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            PartSuppArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("partsupp.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("partsupp.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(
+            out.join("partsupp_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // customer
     {
@@ -647,12 +881,20 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = CustomerGenerator::new(scale, 1, 1);
         let mut it_raw = CustomerArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = CustomerGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            CustomerArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("customer.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("customer.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(
+            out.join("customer_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // orders
     {
@@ -661,12 +903,16 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = OrderGenerator::new(scale, 1, 1);
         let mut it_raw = OrderArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = OrderGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            OrderArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("orders.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("orders.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(out.join("orders_poneglyph.parquet"), &schema, &mut it_poneglyph);
     }
     // lineitem
     {
@@ -675,12 +921,20 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = LineItemGenerator::new(scale, 1, 1);
         let mut it_raw = LineItemArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
+        let generator_poneglyph = LineItemGenerator::new(scale, 1, 1);
+        let mut it_poneglyph =
+            LineItemArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
             "orig-{}",
             out.file_name().unwrap_or_default().to_string_lossy()
         ));
         write_parquet_raw(orig_out.join("lineitem.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("lineitem.parquet"), &schema, &mut it);
+        write_parquet_poneglyph(
+            out.join("lineitem_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
 
     // Emit table-level key constraints alongside generated parquet files.
@@ -778,8 +1032,6 @@ static TPCH_Q4_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q5_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q6_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q7_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q8_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q9_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q10_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q11_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q12_SQL: OnceLock<&'static str> = OnceLock::new();
@@ -794,6 +1046,244 @@ static TPCH_Q20_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q21_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q22_SQL: OnceLock<&'static str> = OnceLock::new();
 
+const TPCH_Q1_PONEGLYPH_SQL: &str = r#"
+SELECT
+    l_returnflag,
+    sum(l_quantity) AS sum_qty,
+    sum(l_extendedprice) AS sum_base_price,
+    sum(l_extendedprice * (1 - l_discount)) AS sum_disc_price,
+    sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) AS sum_charge,
+    count(*) AS count_order
+FROM
+    lineitem_poneglyph
+WHERE
+    l_shipdate <= CAST('1998-09-02' AS date)
+GROUP BY
+    l_returnflag
+ORDER BY
+    l_returnflag
+"#;
+
+const TPCH_Q3_PONEGLYPH_SQL: &str = r#"
+SELECT
+    l_orderkey,
+    sum(l_extendedprice * (1 - l_discount)) AS revenue,
+    o_orderdate,
+    o_shippriority
+FROM
+    customer_poneglyph,
+    orders_poneglyph,
+    lineitem_poneglyph
+WHERE
+    c_mktsegment = 'BUILDING'
+    AND c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+    AND o_orderdate < CAST('1995-03-15' AS date)
+    AND l_shipdate > CAST('1995-03-15' AS date)
+GROUP BY
+    l_orderkey,
+    o_orderdate,
+    o_shippriority
+ORDER BY
+    revenue DESC,
+    o_orderdate
+"#;
+
+const TPCH_Q5_PONEGLYPH_SQL: &str = r#"
+SELECT
+    n_name,
+    sum(l_extendedprice * (1 - l_discount)) AS revenue
+FROM
+    customer_poneglyph,
+    orders_poneglyph,
+    lineitem_poneglyph,
+    supplier_poneglyph,
+    nation_poneglyph,
+    region_poneglyph
+WHERE
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+    AND l_suppkey = s_suppkey
+    AND c_nationkey = s_nationkey
+    AND s_nationkey = n_nationkey
+    AND n_regionkey = r_regionkey
+    AND r_name = 'ASIA'
+    AND o_orderdate >= CAST('1994-01-01' AS date)
+    AND o_orderdate < CAST('1995-01-01' AS date)
+GROUP BY
+    n_name
+ORDER BY
+    revenue DESC;
+"#;
+
+const TPCH_Q8_REWRITTEN_SQL: &str = r#"
+SELECT
+    o_orderdate_year,
+    sum(
+        CASE WHEN nation = 'BRAZIL' THEN
+            volume
+        ELSE
+            0
+        END) AS mkt_share_num , sum(volume) AS mkt_share_denom
+FROM (
+    SELECT
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) AS volume,
+        n2.n_name AS nation
+    FROM
+        part,
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        nation n2,
+        region
+    WHERE
+        p_partkey = l_partkey
+        AND s_suppkey = l_suppkey
+        AND l_orderkey = o_orderkey
+        AND o_custkey = c_custkey
+        AND c_nationkey = n1.n_nationkey
+        AND n1.n_regionkey = r_regionkey
+        AND r_name = 'AMERICA'
+        AND s_nationkey = n2.n_nationkey
+        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+GROUP BY
+    o_orderdate_year
+ORDER BY
+    o_orderdate_year;
+"#;
+
+const TPCH_Q8_PONEGLYPH_SQL: &str = r#"
+SELECT
+    o_orderdate_year,
+    sum(
+        CASE WHEN nation = 'BRAZIL' THEN
+            volume
+        ELSE
+            0
+        END) AS mkt_share_num , sum(volume) AS mkt_share_denom
+FROM (
+    SELECT
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) AS volume,
+        n2.n_name AS nation
+    FROM
+        part_poneglyph,
+        supplier_poneglyph,
+        lineitem_poneglyph,
+        orders_poneglyph,
+        customer_poneglyph,
+        nation_poneglyph n1,
+        nation_poneglyph n2,
+        region_poneglyph
+    WHERE
+        p_partkey = l_partkey
+        AND s_suppkey = l_suppkey
+        AND l_orderkey = o_orderkey
+        AND o_custkey = c_custkey
+        AND c_nationkey = n1.n_nationkey
+        AND n1.n_regionkey = r_regionkey
+        AND r_name = 'AMERICA'
+        AND s_nationkey = n2.n_nationkey
+        AND o_orderdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)
+        AND p_type = 'ECONOMY ANODIZED STEEL') AS all_nations
+GROUP BY
+    o_orderdate_year
+ORDER BY
+    o_orderdate_year;
+"#;
+
+const TPCH_Q9_REWRITTEN_SQL: &str = r#"
+SELECT
+    nation,
+    o_orderdate_year,
+    sum(amount) AS sum_profit
+FROM (
+    SELECT
+        n_name AS nation,
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+    FROM
+        part,
+        supplier,
+        lineitem,
+        partsupp,
+        orders,
+        nation
+    WHERE
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey) AS profit
+GROUP BY
+    nation,
+    o_orderdate_year
+ORDER BY
+    nation,
+    o_orderdate_year DESC;
+"#;
+
+const TPCH_Q9_PONEGLYPH_SQL: &str = r#"
+SELECT
+    nation,
+    o_orderdate_year,
+    sum(amount) AS sum_profit
+FROM (
+    SELECT
+        n_name AS nation,
+        o_orderdate_year,
+        l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
+    FROM
+        part_poneglyph,
+        supplier_poneglyph,
+        lineitem_poneglyph,
+        partsupp_poneglyph,
+        orders_poneglyph,
+        nation_poneglyph
+    WHERE
+        s_suppkey = l_suppkey
+        AND ps_suppkey = l_suppkey
+        AND ps_partkey = l_partkey
+        AND p_partkey = l_partkey
+        AND o_orderkey = l_orderkey
+        AND s_nationkey = n_nationkey) AS profit
+GROUP BY
+    nation,
+    o_orderdate_year
+ORDER BY
+    nation,
+    o_orderdate_year DESC;
+"#;
+
+const TPCH_Q18_PONEGLYPH_SQL: &str = r#"
+SELECT
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice,
+    SUM(l_quantity) AS sum_l_quantity
+FROM customer_poneglyph
+JOIN orders_poneglyph   ON c_custkey = o_custkey
+JOIN lineitem_poneglyph ON o_orderkey = l_orderkey
+GROUP BY
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice
+ORDER BY
+    o_totalprice DESC,
+    o_orderdate ASC;
+"#;
+
 fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'static str {
     lock.get_or_init(|| {
         let sql = fetch_tpch_query_sql(number);
@@ -801,31 +1291,62 @@ fn cached_tpch_sql(lock: &'static OnceLock<&'static str>, number: u8) -> &'stati
     })
 }
 
-/// Return the [`TpchQuerySpec`] for the provided query number. Query SQL is
-/// loaded from DuckDB's TPCH extension on first use to avoid hardcoding.
-pub fn query_spec(number: u8) -> TpchQuerySpec {
+/// Return the [`TpchQuerySpec`] for the provided query number.
+/// If `poneglyph` is true, query variants for Q1/Q3/Q5/Q8/Q9/Q18 are selected.
+pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
     match number {
         1 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q1_SQL, 1),
-            tables: &["lineitem"],
+            sql: if poneglyph {
+                TPCH_Q1_PONEGLYPH_SQL
+            } else {
+                cached_tpch_sql(&TPCH_Q1_SQL, 1)
+            },
+            tables: if poneglyph {
+                &["lineitem_poneglyph"]
+            } else {
+                &["lineitem"]
+            },
         },
         2 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q2_SQL, 2),
             tables: &["part", "supplier", "partsupp", "nation", "region"],
         },
         3 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q3_SQL, 3),
-            tables: &["customer", "orders", "lineitem"],
+            sql: if poneglyph {
+                TPCH_Q3_PONEGLYPH_SQL
+            } else {
+                cached_tpch_sql(&TPCH_Q3_SQL, 3)
+            },
+            tables: if poneglyph {
+                &["customer_poneglyph", "orders_poneglyph", "lineitem_poneglyph"]
+            } else {
+                &["customer", "orders", "lineitem"]
+            },
         },
         4 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q4_SQL, 4),
             tables: &["orders", "lineitem"],
         },
         5 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q5_SQL, 5),
-            tables: &[
-                "customer", "orders", "lineitem", "nation", "region", "supplier",
-            ],
+            sql: if poneglyph {
+                TPCH_Q5_PONEGLYPH_SQL
+            } else {
+                cached_tpch_sql(&TPCH_Q5_SQL, 5)
+            },
+            tables: if poneglyph {
+                &[
+                    "customer_poneglyph",
+                    "orders_poneglyph",
+                    "lineitem_poneglyph",
+                    "nation_poneglyph",
+                    "region_poneglyph",
+                    "supplier_poneglyph",
+                ]
+            } else {
+                &[
+                    "customer", "orders", "lineitem", "nation", "region", "supplier",
+                ]
+            },
         },
         6 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q6_SQL, 6),
@@ -836,16 +1357,47 @@ pub fn query_spec(number: u8) -> TpchQuerySpec {
             tables: &["customer", "orders", "lineitem", "nation", "supplier"],
         },
         8 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q8_SQL, 8),
-            tables: &[
-                "customer", "orders", "lineitem", "nation", "region", "part", "supplier",
-            ],
+            sql: if poneglyph {
+                TPCH_Q8_PONEGLYPH_SQL
+            } else {
+                TPCH_Q8_REWRITTEN_SQL
+            },
+            tables: if poneglyph {
+                &[
+                    "customer_poneglyph",
+                    "orders_poneglyph",
+                    "lineitem_poneglyph",
+                    "nation_poneglyph",
+                    "region_poneglyph",
+                    "part_poneglyph",
+                    "supplier_poneglyph",
+                ]
+            } else {
+                &[
+                    "customer", "orders", "lineitem", "nation", "region", "part", "supplier",
+                ]
+            },
         },
         9 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q9_SQL, 9),
-            tables: &[
-                "nation", "orders", "lineitem", "part", "supplier", "partsupp",
-            ],
+            sql: if poneglyph {
+                TPCH_Q9_PONEGLYPH_SQL
+            } else {
+                TPCH_Q9_REWRITTEN_SQL
+            },
+            tables: if poneglyph {
+                &[
+                    "nation_poneglyph",
+                    "orders_poneglyph",
+                    "lineitem_poneglyph",
+                    "part_poneglyph",
+                    "supplier_poneglyph",
+                    "partsupp_poneglyph",
+                ]
+            } else {
+                &[
+                    "nation", "orders", "lineitem", "part", "supplier", "partsupp",
+                ]
+            },
         },
         10 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q10_SQL, 10),
@@ -880,8 +1432,16 @@ pub fn query_spec(number: u8) -> TpchQuerySpec {
             tables: &["part", "lineitem"],
         },
         18 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q18_SQL, 18),
-            tables: &["customer", "orders", "lineitem"],
+            sql: if poneglyph {
+                TPCH_Q18_PONEGLYPH_SQL
+            } else {
+                cached_tpch_sql(&TPCH_Q18_SQL, 18)
+            },
+            tables: if poneglyph {
+                &["customer_poneglyph", "orders_poneglyph", "lineitem_poneglyph"]
+            } else {
+                &["customer", "orders", "lineitem"]
+            },
         },
         19 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q19_SQL, 19),
