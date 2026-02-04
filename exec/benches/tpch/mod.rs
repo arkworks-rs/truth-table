@@ -92,6 +92,39 @@ ORDER BY
     o_orderdate_year DESC;
 ";
 
+        let q18_simplified_sql = "
+SELECT
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice,
+    sum(l_quantity)
+FROM
+    customer,
+    orders,
+    lineitem
+WHERE
+    o_orderkey IN (
+        SELECT
+            l_orderkey
+        FROM
+            lineitem
+        GROUP BY
+            l_orderkey)
+    AND c_custkey = o_custkey
+    AND o_orderkey = l_orderkey
+GROUP BY
+    c_name,
+    c_custkey,
+    o_orderkey,
+    o_orderdate,
+    o_totalprice
+ORDER BY
+    o_totalprice DESC,
+    o_orderdate
+";
+
         let cases = vec![
             BenchCase {
                 name: "tpch_q1",
@@ -120,7 +153,7 @@ ORDER BY
             },
             BenchCase {
                 name: "tpch_q18",
-                query: q18.sql,
+                query: q18_simplified_sql,
                 tables: q18.tables,
             },
             BenchCase {

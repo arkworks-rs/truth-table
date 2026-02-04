@@ -87,6 +87,25 @@ impl OptimizerRule for RematerializeRule {
                         Ok(Transformed::no(aggregate_plan))
                     }
                 }
+                LogicalPlan::Join(join) => {
+                    let join_plan = LogicalPlan::Join(join.clone());
+                    let left_rows = row_count(&self.session_state, &join.left)?;
+                    let right_rows = row_count(&self.session_state, &join.right)?;
+                    let hypercube_size = next_power_of_two_strict(left_rows.max(right_rows));
+                    if hypercube_size == 0 {
+                        return Ok(Transformed::no(join_plan));
+                    }
+                    let active_rows = row_count(&self.session_state, &join_plan)?;
+                    if active_rows.saturating_mul(2) < hypercube_size {
+                        Ok(Transformed::new(
+                            wrap_logical_plan(join_plan),
+                            true,
+                            TreeNodeRecursion::Stop,
+                        ))
+                    } else {
+                        Ok(Transformed::no(join_plan))
+                    }
+                }
                 _ => Ok(Transformed::no(node)),
             }
         })?;
