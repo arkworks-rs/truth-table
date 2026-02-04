@@ -200,25 +200,9 @@ pub fn build_partial_output_dataframe(
         .join_on(pk_df, JoinType::Left, join_exprs)
         .expect("partial join should succeed");
 
-    // Defensive normalization: keep exactly one joined row per FK row-id.
-    // In HasOne modes this should already hold; when it does not, we pick a single
-    // representative row (preferring rows with a PK match) so output stays on FK domain.
-    let mut with_rank_exprs = Vec::new();
-    for (qualifier, field) in joined.schema().iter() {
-        with_rank_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-    }
-    let fk_rank_expr = row_number()
-        .partition_by(vec![col("__fk_row_id__")])
-        .order_by(vec![col("__pk_present__").sort(false, true)])
-        .build()
-        .expect("partial join rank window should build")
-        .alias("__fk_match_rank__");
-    with_rank_exprs.push(fk_rank_expr);
-    let joined = joined
-        .select(with_rank_exprs)
-        .expect("partial join rank projection should succeed")
-        .filter(col("__fk_match_rank__").eq(lit(1_i64)))
-        .expect("partial join rank filter should succeed");
+    // HasOne modes guarantee at most one PK match per FK row, so we keep the
+    // raw LEFT JOIN output and avoid an expensive per-row-id window ranking.
+    let joined = joined;
 
     // Keep partial-join output in FK row-id order so materialized PK columns and
     // FK-side virtual columns stay index-aligned when virtual witness columns are
@@ -242,9 +226,6 @@ pub fn build_partial_output_dataframe(
         }
         if field.name() == "__pk_present__" {
             pk_present = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            continue;
-        }
-        if field.name() == "__fk_match_rank__" {
             continue;
         }
         if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {

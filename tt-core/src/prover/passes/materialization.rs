@@ -169,6 +169,12 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
         .map(|(field, _should_mat)| projection_expr_for_field(df_schema, field))
         .collect();
 
+    // Virtual-only payloads are reconstructed later by the virtualization pass.
+    // Materializing them here only adds expensive DataFusion execution.
+    if projection.is_empty() {
+        return None;
+    }
+
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");

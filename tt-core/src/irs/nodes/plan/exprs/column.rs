@@ -130,9 +130,10 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
                 )
             });
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("column row-id sort should succeed");
+        // Fast path: keep upstream order. Re-sorting by row_id for every Column node
+        // is very expensive on large padded domains and is unnecessary for plain
+        // projection.
+        let input_df = scope_hint_df.data_frame().clone();
 
         let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
         if self.column.name() != ACTIVATOR_COL_NAME {
@@ -144,8 +145,6 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
             .select(exprs)
             .expect("column projection should succeed");
 
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("column output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
