@@ -310,6 +310,22 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         let activator = input
             .activator_tracked_poly()
             .map(|poly| poly.evaluations());
+        tracing::debug!(
+            target: "tt_core::prover::passes::honest_prover",
+            gadget = "Sign",
+            node_id = %id,
+            input_log_size = input.log_size(),
+            data_cols = ?data_inds
+                .iter()
+                .map(|i| {
+                    let c = input.tracked_col_by_ind(*i);
+                    c.field_ref()
+                        .map(|f| f.name().to_string())
+                        .unwrap_or_else(|| format!("#{i}"))
+                })
+                .collect::<Vec<_>>(),
+            "starting sign honest check"
+        );
         for (idx, data_ind) in data_inds.clone().into_iter().enumerate() {
             let input_col = input.tracked_col_by_ind(data_ind);
             let field_ref = input_col
@@ -331,6 +347,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                     Sign::Negative => (-*eval, Sign::NonNegative, true),
                 };
                 if require_nonzero && eval.is_zero() {
+                    tracing::error!(
+                        target: "tt_core::prover::passes::honest_prover",
+                        gadget = "Sign",
+                        node_id = %id,
+                        row = idx,
+                        col = %field_ref.name(),
+                        data_type = %data_type,
+                        sign = ?sign,
+                        "honest prover sign strict-nonzero check failed (value is zero)"
+                    );
                     return Err(ark_piop::errors::SnarkError::ProverError(
                         ark_piop::prover::errors::ProverError::HonestProverError(
                             ark_piop::prover::errors::HonestProverError::FalseClaim,

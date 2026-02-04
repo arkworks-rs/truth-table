@@ -35,7 +35,7 @@ pub struct ExprNode<B: SnarkBackend> {
     /// The right child node.
     pub right: Arc<Node<B>>,
     /// The scope node.
-    pub scope: std::sync::Weak<Node<B>>,
+    pub scope: Vec<std::sync::Weak<Node<B>>>,
     /// The gadget node.
     pub gadget: Option<Arc<Node<B>>>,
 }
@@ -456,8 +456,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Project the binary expression result alongside the activator from the scope.
-        let scope = self
-            .scope
+        let scope = self.scope[0]
             .upgrade()
             .expect("BinaryExpr scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
@@ -506,7 +505,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         _parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Weak<Node<B>>,
+        scope: Vec<std::sync::Weak<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -555,12 +554,16 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         todo!()
     }
 
-    fn scope(&self) -> Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {
         self.scope
-            .upgrade()
-            .expect("BinaryExpr scope should be available")
+            .iter()
+            .map(|s| {
+                s.upgrade()
+                    .expect("ScalarFunction scope should be available")
+            })
+            .collect()
     }
 }

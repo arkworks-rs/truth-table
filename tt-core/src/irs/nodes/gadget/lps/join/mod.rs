@@ -426,20 +426,21 @@ fn output_base_from_output<B: SnarkBackend>(
         None => left.tracked_polys().keys().cloned().collect(),
     };
 
+    // Keep the same column order as `left` so folding challenges are aligned
+    // between output-derived rows and input rows in lookup checks.
     let mut filtered = IndexMap::new();
-    for (out_field, out_poly) in output_cols.iter() {
-        if out_field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || out_field.name() == arithmetic::ROW_ID_COL_NAME
+    for left_field in left_fields.iter() {
+        if left_field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || left_field.name() == arithmetic::ROW_ID_COL_NAME
         {
             continue;
         }
-        if !left_fields
+        if let Some((out_field, out_poly)) = output_cols
             .iter()
-            .any(|left_field| field_matches(left_field, out_field))
+            .find(|(out_field, _)| field_matches(left_field, out_field))
         {
-            continue;
+            filtered.insert(out_field.clone(), out_poly.clone());
         }
-        filtered.insert(out_field.clone(), out_poly.clone());
     }
 
     let metadata = left
@@ -501,20 +502,20 @@ fn output_base_from_output_oracle<B: SnarkBackend>(
         None => left.tracked_oracles().keys().cloned().collect(),
     };
 
+    // Mirror prover ordering for deterministic folding alignment.
     let mut filtered = IndexMap::new();
-    for (out_field, out_oracle) in output_cols.iter() {
-        if out_field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || out_field.name() == arithmetic::ROW_ID_COL_NAME
+    for left_field in left_fields.iter() {
+        if left_field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || left_field.name() == arithmetic::ROW_ID_COL_NAME
         {
             continue;
         }
-        if !left_fields
+        if let Some((out_field, out_oracle)) = output_cols
             .iter()
-            .any(|left_field| field_matches(left_field, out_field))
+            .find(|(out_field, _)| field_matches(left_field, out_field))
         {
-            continue;
+            filtered.insert(out_field.clone(), out_oracle.clone());
         }
-        filtered.insert(out_field.clone(), out_oracle.clone());
     }
 
     let metadata = left

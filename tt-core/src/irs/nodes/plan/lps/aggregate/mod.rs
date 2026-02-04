@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_ff::One;
+use ark_ff::{One, Zero};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::Column;
@@ -263,20 +263,41 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_polys();
-        let mut existing_names: HashSet<String> = merged_polys
-            .keys()
-            .map(|field| field.name().to_string())
+        let aggregate_output_names: HashSet<String> = self
+            .aggregate
+            .aggr_expr
+            .iter()
+            .map(|expr| expr.schema_name().to_string())
+            .collect();
+        let group_output_names: HashSet<String> = self
+            .aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| match expr {
+                Expr::Column(c) => Some(c.name.clone()),
+                _ => None,
+            })
             .collect();
 
         for (field, poly) in input_table.tracked_polys_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            if existing_names.contains(field.name()) {
+            // Keep aggregate outputs and group outputs materialized by this
+            // node; only non-group passthrough columns are sourced from input.
+            if aggregate_output_names.contains(field.name())
+                || group_output_names.contains(field.name())
+            {
                 continue;
             }
+            if let Some(existing_field) = merged_polys
+                .keys()
+                .find(|existing| existing.name() == field.name())
+                .cloned()
+            {
+                merged_polys.swap_remove(&existing_field);
+            }
             merged_polys.insert(field.clone(), poly.clone());
-            existing_names.insert(field.name().to_string());
         }
 
         // COUNT outputs are sourced from lookup multiplicities; override those
@@ -360,6 +381,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             _ => None,
         };
         if let Some(input_table) = input_table {
+            tracing::debug!(
+                "Aggregate support wiring (prover): input_log_size={}, aggregate_log_size={}, support_output_log_size={}",
+                input_table.log_size(),
+                current_table.log_size(),
+                current_table.log_size()
+            );
             populate_aggregate_gadget(
                 &self.aggregate,
                 &input_table,
@@ -401,6 +428,15 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             .map(|field| field.name().to_string())
             .filter(|name| !count_output_names.contains(name))
             .collect();
+        let group_field_names: std::collections::HashSet<String> = self
+            .aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| match expr {
+                Expr::Column(c) => Some(c.name.clone()),
+                _ => None,
+            })
+            .collect();
 
         let should_materialize: IndexMap<FieldRef, bool> = output
             .schema()
@@ -410,7 +446,8 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
                 (
                     field.clone(),
                     field.name() == ACTIVATOR_COL_NAME
-                        || aggregate_field_names.contains(field.name()),
+                        || aggregate_field_names.contains(field.name())
+                        || group_field_names.contains(field.name()),
                 )
             })
             .collect();
@@ -439,20 +476,41 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .unwrap_or_default();
 
         let mut merged_oracles = current_table.tracked_oracles();
-        let mut existing_names: HashSet<String> = merged_oracles
-            .keys()
-            .map(|field| field.name().to_string())
+        let aggregate_output_names: HashSet<String> = self
+            .aggregate
+            .aggr_expr
+            .iter()
+            .map(|expr| expr.schema_name().to_string())
+            .collect();
+        let group_output_names: HashSet<String> = self
+            .aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| match expr {
+                Expr::Column(c) => Some(c.name.clone()),
+                _ => None,
+            })
             .collect();
 
         for (field, oracle) in input_table.tracked_oracles_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            if existing_names.contains(field.name()) {
+            // Keep aggregate outputs and group outputs materialized by this
+            // node; only non-group passthrough columns are sourced from input.
+            if aggregate_output_names.contains(field.name())
+                || group_output_names.contains(field.name())
+            {
                 continue;
             }
+            if let Some(existing_field) = merged_oracles
+                .keys()
+                .find(|existing| existing.name() == field.name())
+                .cloned()
+            {
+                merged_oracles.swap_remove(&existing_field);
+            }
             merged_oracles.insert(field.clone(), oracle.clone());
-            existing_names.insert(field.name().to_string());
         }
 
         // COUNT outputs are sourced from lookup multiplicities; override those
@@ -656,6 +714,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => None,
         };
         if let Some(input_table) = input_table {
+            tracing::debug!(
+                "Aggregate support wiring (verifier): input_log_size={}, aggregate_log_size={}, support_output_log_size={}",
+                input_table.log_size(),
+                current_table.log_size(),
+                current_table.log_size()
+            );
             populate_aggregate_gadget(
                 &self.aggregate,
                 &input_table,
@@ -686,7 +750,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             .aggr_expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), Arc::downgrade(&input))
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), vec![Arc::downgrade(&input)])
                     .root()
                     .clone()
             })
@@ -695,7 +759,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             .group_expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), Arc::downgrade(&input))
+                Tree::<B>::from_expr(expr, Some(_self_ref.clone()), vec![Arc::downgrade(&input)])
                     .root()
                     .clone()
             })
@@ -815,6 +879,78 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
     } else {
         output_table.tracked_subtable_by_indices(&output_group_indices)
     };
+    #[cfg(feature = "honest-prover")]
+    {
+        let sample_keys = |table: &TrackedTable<B>| {
+            let row_count = 1usize << table.log_size();
+            let activator = table
+                .activator_tracked_poly()
+                .map(|p| p.evaluations())
+                .unwrap_or_else(|| vec![B::F::one(); row_count]);
+            let data_indices = table.data_tracked_polys_indices();
+            let col_evals = data_indices
+                .iter()
+                .map(|idx| table.tracked_col_by_ind(*idx).data_tracked_poly().evaluations())
+                .collect::<Vec<_>>();
+            let mut out = Vec::new();
+            for i in 0..row_count {
+                if activator[i].is_zero() {
+                    continue;
+                }
+                let key = col_evals
+                    .iter()
+                    .map(|vals| format!("{}", vals[i]))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                out.push(key);
+                if out.len() >= 5 {
+                    break;
+                }
+            }
+            out
+        };
+        let input_group_names = input_group_indices
+            .iter()
+            .map(|idx| {
+                let f = input_table.tracked_col_by_ind(*idx).field_ref();
+                f.map(|field| {
+                    let qual = field_qualifier(&field).unwrap_or("<none>");
+                    format!("#{idx}:{}@{}", field.name(), qual)
+                })
+                .unwrap_or_else(|| format!("#{idx}:<unknown>"))
+            })
+            .collect::<Vec<_>>();
+        let output_group_names = output_group_indices
+            .iter()
+            .map(|idx| {
+                let f = output_table.tracked_col_by_ind(*idx).field_ref();
+                f.map(|field| {
+                    let qual = field_qualifier(&field).unwrap_or("<none>");
+                    format!("#{idx}:{}@{}", field.name(), qual)
+                })
+                .unwrap_or_else(|| format!("#{idx}:<unknown>"))
+            })
+            .collect::<Vec<_>>();
+        let output_dupes = {
+            let mut names = std::collections::HashMap::<String, usize>::new();
+            for (field, _) in output_table.tracked_polys_iter() {
+                *names.entry(field.name().to_string()).or_insert(0) += 1;
+            }
+            names.into_iter()
+                .filter(|(_, c)| *c > 1)
+                .collect::<Vec<_>>()
+        };
+        tracing::debug!(
+            "Aggregate group wiring sample (prover): input_log_size={}, output_log_size={}, input_group_names={:?}, output_group_names={:?}, output_dupes={:?}, input_samples={:?}, output_samples={:?}",
+            input_groups_table.log_size(),
+            output_groups_table.log_size(),
+            input_group_names,
+            output_group_names,
+            output_dupes,
+            sample_keys(&input_groups_table),
+            sample_keys(&output_groups_table)
+        );
+    }
     let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget_id) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),

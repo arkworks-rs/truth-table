@@ -17,7 +17,7 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::tree::Tree;
 
 pub struct ExprNode<B: SnarkBackend> {
-    pub scope: std::sync::Weak<Node<B>>,
+    pub scope: Vec<std::sync::Weak<Node<B>>>,
     pub expr: Arc<Node<B>>,
     pub subquery: Arc<Node<B>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
@@ -137,8 +137,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     }
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let scope = self
-            .scope
+        let scope = self.scope[0]
             .upgrade()
             .expect("InSubquery scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
@@ -304,7 +303,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Weak<Node<B>>,
+        scope: Vec<std::sync::Weak<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -349,12 +348,16 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             .expect("InSubquery node must have a parent")
     }
 
-    fn scope(&self) -> std::sync::Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {
         self.scope
-            .upgrade()
-            .expect("InSubquery scope should be available")
+            .iter()
+            .map(|s| {
+                s.upgrade()
+                    .expect("ScalarFunction scope should be available")
+            })
+            .collect()
     }
 }

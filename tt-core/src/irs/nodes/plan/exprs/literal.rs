@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 use rayon::iter::Either;
 pub struct ExprNode<B: SnarkBackend> {
     pub literal: ScalarValue,
-    pub scope: std::sync::Weak<Node<B>>,
+    pub scope: Vec<std::sync::Weak<Node<B>>>,
 }
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn name(&self) -> String {
@@ -23,7 +23,7 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
     fn display(&self) -> String {
         format!(
             "Literal\nScope: {}, value: {}",
-            self.scope().name(),
+            self.scope()[0].name(),
             self.literal
         )
     }
@@ -56,8 +56,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table to inherit activator and tracker.
-        let scope = self
-            .scope
+        let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during witness generation");
         let scope_id = scope.id();
@@ -130,8 +129,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Produce a virtual DataFrame with the literal and activator columns from the scope.
-        let scope = self
-            .scope
+        let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
@@ -163,8 +161,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the scope's tracked table oracle to inherit activator and tracker.
-        let scope = self
-            .scope
+        let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during witness generation");
         let scope_id = scope.id();
@@ -236,7 +233,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         _expr: datafusion_expr::Expr,
         _self_ref: std::sync::Weak<crate::irs::nodes::Node<B>>,
         _parent: Option<std::sync::Weak<crate::irs::nodes::Node<B>>>,
-        scope: std::sync::Weak<crate::irs::nodes::Node<B>>,
+        scope: Vec<std::sync::Weak<crate::irs::nodes::Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -259,12 +256,16 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         todo!()
     }
 
-    fn scope(&self) -> Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {
         self.scope
-            .upgrade()
-            .expect("Literal scope should be available")
+            .iter()
+            .map(|s| {
+                s.upgrade()
+                    .expect("ScalarFunction scope should be available")
+            })
+            .collect()
     }
 }

@@ -151,6 +151,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         let log_size = log_size.unwrap_or(0);
         let projected_table =
             arithmetic::table::TrackedTable::new(Some(schema), output_cols, log_size);
+        debug_assert!(
+            projected_table
+                .tracked_polys_iter()
+                .all(|(_, poly)| poly.log_size() == projected_table.log_size()),
+            "Projection output contains mixed log-size columns (prover)"
+        );
         virtualized_ir
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
@@ -271,6 +277,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         );
         let log_size = log_size.unwrap_or(0);
         let projected_table = TrackedTableOracle::new(Some(schema), output_cols, log_size);
+        debug_assert!(
+            projected_table
+                .tracked_oracles_iter()
+                .all(|(_, oracle)| oracle.log_size() == projected_table.log_size()),
+            "Projection output contains mixed log-size columns (verifier)"
+        );
         virtualized_ir
             .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(projected_table)));
         Ok(())
@@ -323,7 +335,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             .expr
             .iter()
             .map(|expr| {
-                Tree::<B>::from_expr(expr, Some(self_ref.clone()), Arc::downgrade(&input))
+                Tree::<B>::from_expr(expr, Some(self_ref.clone()), vec![Arc::downgrade(&input)])
                     .root()
                     .clone()
             })

@@ -10,7 +10,7 @@ use crate::irs::nodes::{
 use crate::irs::tree::Tree;
 
 pub struct ExprNode<B: SnarkBackend> {
-    pub scope: std::sync::Weak<Node<B>>,
+    pub scope: Vec<std::sync::Weak<Node<B>>>,
     pub exprs: Vec<Arc<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub scalar_function: ScalarFunction,
@@ -107,7 +107,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
         expr: datafusion_expr::Expr,
         self_ref: std::sync::Weak<Node<B>>,
         parent: Option<std::sync::Weak<Node<B>>>,
-        scope: std::sync::Weak<Node<B>>,
+        scope: Vec<std::sync::Weak<Node<B>>>,
     ) -> Self
     where
         Self: Sized,
@@ -153,12 +153,16 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             .expect("Cast node must have a parent")
     }
 
-    fn scope(&self) -> std::sync::Arc<Node<B>>
+    fn scope(&self) -> Vec<std::sync::Arc<Node<B>>>
     where
         Self: Sized,
     {
         self.scope
-            .upgrade()
-            .expect("ScalarFunction scope should be available")
+            .iter()
+            .map(|s| {
+                s.upgrade()
+                    .expect("ScalarFunction scope should be available")
+            })
+            .collect()
     }
 }

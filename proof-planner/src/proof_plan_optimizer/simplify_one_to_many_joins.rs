@@ -168,12 +168,14 @@ fn compute_join_mode_from_lp_node<B: SnarkBackend>(
         right_is_fk_to_left &= right_fk_to_left;
     }
 
-    if left_is_pk && right_is_pk {
-        gadget_join::JoinMode::ONE_TO_ONE
-    } else if left_is_pk && right_is_fk_to_left {
+    // Prefer explicit FK->PK evidence over plain PK flags.
+    // This avoids misclassifying composite-PK/FK joins as ONE_TO_ONE.
+    if left_is_pk && right_is_fk_to_left {
         gadget_join::JoinMode::ONE_TO_MANY
     } else if right_is_pk && left_is_fk_to_right {
         gadget_join::JoinMode::MANY_TO_ONE
+    } else if left_is_pk && right_is_pk {
+        gadget_join::JoinMode::ONE_TO_ONE
     } else {
         gadget_join::JoinMode::MANY_TO_MANY
     }

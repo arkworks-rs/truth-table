@@ -1,9 +1,10 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use crate::irs::nodes::gadget::lps::join as join_gadget;
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::Column;
 use datafusion_expr::expr::Sort as SortExpr;
-use datafusion_expr::{Expr, ExprFunctionExt, Join, Operator, binary_expr, col, lit};
+use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, Operator, binary_expr, col, lit};
 
 pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Join) -> DataFrame {
     // 1) Build the join predicates from the logical plan.
@@ -116,6 +117,159 @@ pub fn build_output_dataframe(left_df: DataFrame, right_df: DataFrame, join: &Jo
     joined
         .select(final_exprs)
         .expect("join row_id projection should succeed")
+}
+
+pub fn build_partial_output_dataframe(
+    left_df: DataFrame,
+    right_df: DataFrame,
+    join: &Join,
+    mode: join_gadget::JoinMode,
+) -> DataFrame {
+    // In partial mode, keep FK-side rows (including inactive ones) and attach PK-side
+    // columns via LEFT JOIN. This guarantees PK materialized columns share FK log-size.
+    let fk_is_left = matches!(
+        mode,
+        join_gadget::JoinMode::MANY_TO_ONE
+    );
+
+    let (fk_df_raw, pk_df_raw) = if fk_is_left {
+        (left_df, right_df)
+    } else {
+        (right_df, left_df)
+    };
+
+    let prepare_fk_input = |df: DataFrame| {
+        let mut projection_exprs = Vec::new();
+        for (qualifier, field) in df.schema().iter() {
+            if field.name() == ROW_ID_COL_NAME {
+                projection_exprs.push(
+                    Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
+                        .alias("__fk_row_id__"),
+                );
+                continue;
+            }
+            if field.name() == ACTIVATOR_COL_NAME {
+                projection_exprs.push(
+                    Expr::Column(Column::new(qualifier.cloned(), ACTIVATOR_COL_NAME))
+                        .alias("__fk_activator__"),
+                );
+                continue;
+            }
+            projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+        }
+        df.select(projection_exprs)
+            .expect("partial join fk projection should succeed")
+    };
+
+    let prepare_pk_input = |df: DataFrame| {
+        let df = df
+            .filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))
+            .expect("partial join pk activator filter should succeed");
+        let mut projection_exprs = Vec::new();
+        // Marker to detect whether LEFT JOIN found a PK-side match for each FK row.
+        projection_exprs.push(lit(true).alias("__pk_present__"));
+        for (qualifier, field) in df.schema().iter() {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                continue;
+            }
+            projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+        }
+        df.select(projection_exprs)
+            .expect("partial join pk projection should succeed")
+    };
+
+    let fk_df = prepare_fk_input(fk_df_raw);
+    let pk_df = prepare_pk_input(pk_df_raw);
+
+    let mut join_exprs: Vec<Expr> = join
+        .on
+        .iter()
+        .map(|(left_expr, right_expr)| {
+            if fk_is_left {
+                left_expr.clone().eq(right_expr.clone())
+            } else {
+                right_expr.clone().eq(left_expr.clone())
+            }
+        })
+        .collect();
+    if let Some(filter) = &join.filter {
+        join_exprs.push(filter.clone());
+    }
+
+    let joined = fk_df
+        .join_on(pk_df, JoinType::Left, join_exprs)
+        .expect("partial join should succeed");
+
+    // Defensive normalization: keep exactly one joined row per FK row-id.
+    // In HasOne modes this should already hold; when it does not, we pick a single
+    // representative row (preferring rows with a PK match) so output stays on FK domain.
+    let mut with_rank_exprs = Vec::new();
+    for (qualifier, field) in joined.schema().iter() {
+        with_rank_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+    }
+    let fk_rank_expr = row_number()
+        .partition_by(vec![col("__fk_row_id__")])
+        .order_by(vec![col("__pk_present__").sort(false, true)])
+        .build()
+        .expect("partial join rank window should build")
+        .alias("__fk_match_rank__");
+    with_rank_exprs.push(fk_rank_expr);
+    let joined = joined
+        .select(with_rank_exprs)
+        .expect("partial join rank projection should succeed")
+        .filter(col("__fk_match_rank__").eq(lit(1_i64)))
+        .expect("partial join rank filter should succeed");
+
+    // Keep partial-join output in FK row-id order so materialized PK columns and
+    // FK-side virtual columns stay index-aligned when virtual witness columns are
+    // copied from the FK input payload.
+    let joined = joined
+        .sort(vec![col("__fk_row_id__").sort(true, true)])
+        .expect("partial join fk row-id sort should succeed");
+
+    let mut data_exprs = Vec::new();
+    let mut fk_row_id = None;
+    let mut fk_activator = None;
+    let mut pk_present = None;
+    for (qualifier, field) in joined.schema().iter() {
+        if field.name() == "__fk_row_id__" {
+            fk_row_id = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            continue;
+        }
+        if field.name() == "__fk_activator__" {
+            fk_activator = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            continue;
+        }
+        if field.name() == "__pk_present__" {
+            pk_present = Some(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+            continue;
+        }
+        if field.name() == "__fk_match_rank__" {
+            continue;
+        }
+        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+            continue;
+        }
+        data_exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
+    }
+
+    let fk_activator = fk_activator.expect("partial join output missing fk activator");
+    let pk_present = pk_present.expect("partial join output missing pk marker");
+    // INNER-join semantics over FK domain: a row is active iff FK row is active and
+    // a PK-side match exists for that FK row.
+    let output_activator = fk_activator.and(pk_present.is_not_null());
+
+    let mut projection_exprs = data_exprs;
+    projection_exprs.push(output_activator.alias(ACTIVATOR_COL_NAME));
+    projection_exprs.push(
+        fk_row_id
+            .expect("partial join output missing fk row_id")
+            .alias(ROW_ID_COL_NAME),
+    );
+
+    joined
+        .select(projection_exprs)
+        .expect("partial join output projection should succeed")
 }
 
 #[cfg(test)]

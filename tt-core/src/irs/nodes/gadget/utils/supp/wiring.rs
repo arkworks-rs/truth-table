@@ -202,10 +202,21 @@ pub(super) fn io_rlc_prover<B: SnarkBackend>(
     super_table: &TrackedTable<B>,
 ) -> (TrackedTable<B>, TrackedTable<B>) {
     let folding_challs = folding_challenges_from_table(orig_table);
+    let orig_order = data_col_names_prover(orig_table);
     let orig_rlc =
         fold_table_to_single_col_with_challs(orig_table, ORIG_RLC_LABEL, &folding_challs);
-    let super_rlc =
-        fold_table_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs);
+    let super_rlc = if let Some(aligned_super_indices) =
+        aligned_indices_prover(super_table, &orig_order)
+    {
+        fold_table_to_single_col_with_indices(
+            super_table,
+            SUPER_RLC_LABEL,
+            &aligned_super_indices,
+            &folding_challs,
+        )
+    } else {
+        fold_table_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs)
+    };
     (orig_rlc, super_rlc)
 }
 
@@ -236,11 +247,58 @@ pub(super) fn io_rlc_verifier<B: SnarkBackend>(
     super_table: &TrackedTableOracle<B>,
 ) -> (TrackedTableOracle<B>, TrackedTableOracle<B>) {
     let folding_challs = folding_challenges_from_table_oracle(orig_table);
+    let orig_order = data_col_names_verifier(orig_table);
     let orig_rlc =
         fold_table_oracle_to_single_col_with_challs(orig_table, ORIG_RLC_LABEL, &folding_challs);
-    let super_rlc =
-        fold_table_oracle_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs);
+    let super_rlc = if let Some(aligned_super_indices) =
+        aligned_indices_verifier(super_table, &orig_order)
+    {
+        fold_table_oracle_to_single_col_with_indices(
+            super_table,
+            SUPER_RLC_LABEL,
+            &aligned_super_indices,
+            &folding_challs,
+        )
+    } else {
+        fold_table_oracle_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs)
+    };
     (orig_rlc, super_rlc)
+}
+
+fn data_col_names_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<String> {
+    table
+        .tracked_polys_iter()
+        .filter_map(|(field, _)| (!is_system_column(field.name())).then_some(field.name().to_string()))
+        .collect()
+}
+
+fn data_col_names_verifier<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<String> {
+    table
+        .tracked_oracles_iter()
+        .filter_map(|(field, _)| (!is_system_column(field.name())).then_some(field.name().to_string()))
+        .collect()
+}
+
+fn aligned_indices_prover<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    target_names: &[String],
+) -> Option<Vec<usize>> {
+    let schema = table.schema_ref()?;
+    target_names
+        .iter()
+        .map(|name| schema.index_of(name).ok())
+        .collect()
+}
+
+fn aligned_indices_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    target_names: &[String],
+) -> Option<Vec<usize>> {
+    let schema = table.schema_ref()?;
+    target_names
+        .iter()
+        .map(|name| schema.index_of(name).ok())
+        .collect()
 }
 
 fn folded_field_from_schema(schema: Option<&Schema>, label: &str) -> FieldRef {
@@ -261,13 +319,22 @@ pub(super) fn fold_table_to_single_col_with_challs<B: SnarkBackend>(
     label: &str,
     challenges: &[B::F],
 ) -> TrackedTable<B> {
-    let num_data = table.num_data_tracked_cols();
+    let indices = table.data_tracked_polys_indices();
+    fold_table_to_single_col_with_indices(table, label, &indices, challenges)
+}
+
+pub(super) fn fold_table_to_single_col_with_indices<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    label: &str,
+    indices: &[usize],
+    challenges: &[B::F],
+) -> TrackedTable<B> {
     assert_eq!(
-        num_data,
+        indices.len(),
         challenges.len(),
         "supp folding challenges must align with data columns"
     );
-    let folded_col = table.fold_all_data_columns(challenges);
+    let folded_col = table.fold(indices, challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];
@@ -287,13 +354,22 @@ pub(super) fn fold_table_oracle_to_single_col_with_challs<B: SnarkBackend>(
     label: &str,
     challenges: &[B::F],
 ) -> TrackedTableOracle<B> {
-    let num_data = table.num_data_tracked_col_oracles();
+    let indices = table.data_tracked_oracles_indices();
+    fold_table_oracle_to_single_col_with_indices(table, label, &indices, challenges)
+}
+
+pub(super) fn fold_table_oracle_to_single_col_with_indices<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    label: &str,
+    indices: &[usize],
+    challenges: &[B::F],
+) -> TrackedTableOracle<B> {
     assert_eq!(
-        num_data,
+        indices.len(),
         challenges.len(),
         "supp folding challenges must align with data columns"
     );
-    let folded_col = table.fold_all_data_oracles(challenges);
+    let folded_col = table.fold(indices, challenges);
 
     let data_field = folded_field_from_schema(table.schema_ref(), label);
     let mut fields = vec![data_field.as_ref().clone()];

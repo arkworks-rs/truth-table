@@ -501,7 +501,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             let expr_lp = Tree::<B>::from_expr(
                 &expr.expr.clone(),
                 Some(self_ref.clone()),
-                Arc::downgrade(&input),
+                vec![Arc::downgrade(&input)],
             )
             .root()
             .clone();

@@ -8,8 +8,9 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::ROW_ID_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
 mod hints;
@@ -25,6 +26,42 @@ where
     filter: Option<Arc<Node<B>>>,
     gadget: Arc<Node<B>>,
     join: Join,
+}
+
+impl<B: SnarkBackend> LpNode<B> {
+    fn join_mode(&self) -> join_gadget::JoinMode {
+        match self.gadget.as_ref() {
+            Node::Gadget(gadget) => {
+                let any = gadget.as_ref() as &dyn std::any::Any;
+                if let Some(join_gadget) = any.downcast_ref::<join_gadget::GadgetNode<B>>() {
+                    return join_gadget.join_mode();
+                }
+                join_gadget::JoinMode::MANY_TO_MANY
+            }
+            Node::Plan(_) => join_gadget::JoinMode::MANY_TO_MANY,
+        }
+    }
+
+    fn should_fully_materialize(&self) -> bool {
+        // Keep the plan-side materialization policy exactly in sync with the join
+        // gadget mode:
+        // - MANY_TO_MANY gadget => full materialization
+        // - HasOne gadget (all other modes) => partial materialization
+        self.join_mode() == join_gadget::JoinMode::MANY_TO_MANY
+    }
+
+    fn fk_side_input(&self) -> Option<&Arc<Node<B>>> {
+        match self.join_mode() {
+            // ONE_TO_MANY: left is unique side, right is FK side.
+            join_gadget::JoinMode::ONE_TO_MANY => Some(&self.right),
+            // MANY_TO_ONE: right is unique side, left is FK side.
+            join_gadget::JoinMode::MANY_TO_ONE => Some(&self.left),
+            // ONE_TO_ONE: keep side choice deterministic and aligned with
+            // `output()`/hint-side partial policy below.
+            join_gadget::JoinMode::ONE_TO_ONE => Some(&self.right),
+            join_gadget::JoinMode::MANY_TO_MANY => None,
+        }
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -124,9 +161,78 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Full-materialized joins already contain all output columns.
+        if self.should_fully_materialize() {
+            return Ok(());
+        }
+
+        let Some(fk_input) = self.fk_side_input() else {
+            return Ok(());
+        };
+
+        let fk_table = match virtualized_ir.payload_for_node(&fk_input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_polys = current_table.tracked_polys();
+
+        // Copy FK-side columns exactly into the join output payload.
+        for (field, poly) in fk_table.tracked_polys_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            if let Some(existing_field) = merged_polys
+                .keys()
+                .find(|existing| existing.name() == field.name())
+                .cloned()
+            {
+                merged_polys.swap_remove(&existing_field);
+            }
+            merged_polys.insert(field.clone(), poly.clone());
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), fk_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
+                current
+            }
+        };
+
+        let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        // Partial-join output must not mix row domains: every output column must
+        // share the table log-size (FK-side domain).
+        debug_assert!(
+            updated_table
+                .tracked_polys_iter()
+                .all(|(_, poly)| poly.log_size() == updated_table.log_size()),
+            "Join output contains columns from mixed log-size domains (prover)"
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
 
@@ -179,11 +285,38 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             Node::Plan(plan_node) => plan_node.output(),
             Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
         };
-        let joined = hints::build_output_dataframe(
-            left_hint_df.data_frame().clone(),
-            right_hint_df.data_frame().clone(),
-            &self.join,
-        );
+        let full_materialization = self.should_fully_materialize();
+        let joined = if full_materialization {
+            hints::build_output_dataframe(
+                left_hint_df.data_frame().clone(),
+                right_hint_df.data_frame().clone(),
+                &self.join,
+            )
+        } else {
+            // Partial mode (HasOne): keep FK-side row domain and only materialize PK-side
+            // columns. This keeps virtual/materialized columns on the same log-size.
+            hints::build_partial_output_dataframe(
+                left_hint_df.data_frame().clone(),
+                right_hint_df.data_frame().clone(),
+                &self.join,
+                self.join_mode(),
+            )
+        };
+
+        let left_fields = left_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<std::collections::HashSet<_>>();
+        let right_fields = right_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<std::collections::HashSet<_>>();
 
         let should_materialize: IndexMap<_, _> = joined
             .schema()
@@ -191,7 +324,22 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = name != ROW_ID_COL_NAME;
+                let mat = if name == ROW_ID_COL_NAME {
+                    false
+                } else if full_materialization {
+                    true
+                } else {
+                    // Partial path (HasOne): materialize only one side's data and
+                    // keep the preserved-side columns virtual.
+                    match self.join_mode() {
+                        join_gadget::JoinMode::ONE_TO_MANY => left_fields.contains(name),
+                        join_gadget::JoinMode::MANY_TO_ONE => right_fields.contains(name),
+                        // ONE_TO_ONE: keep right as FK-preserved side (virtual), and
+                        // materialize only the opposite side.
+                        join_gadget::JoinMode::ONE_TO_ONE => left_fields.contains(name),
+                        join_gadget::JoinMode::MANY_TO_MANY => true,
+                    }
+                };
                 (field.clone(), mat)
             })
             .collect();
@@ -202,9 +350,79 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Full-materialized joins already contain all output columns.
+        if self.should_fully_materialize() {
+            return Ok(());
+        }
+
+        let Some(fk_input) = self.fk_side_input() else {
+            return Ok(());
+        };
+
+        let fk_table = match virtualized_ir.payload_for_node(&fk_input.id()) {
+            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let mut merged_oracles = current_table.tracked_oracles();
+
+        // Copy FK-side columns exactly into the join output payload.
+        for (field, oracle) in fk_table.tracked_oracles_iter() {
+            if field.name() == ACTIVATOR_COL_NAME {
+                continue;
+            }
+            if let Some(existing_field) = merged_oracles
+                .keys()
+                .find(|existing| existing.name() == field.name())
+                .cloned()
+            {
+                merged_oracles.swap_remove(&existing_field);
+            }
+            merged_oracles.insert(field.clone(), oracle.clone());
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), fk_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
+                current
+            }
+        };
+
+        let updated_table =
+            arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
+        // Verifier-side mirror of prover invariant: all output oracles must be on
+        // the same row domain.
+        debug_assert!(
+            updated_table
+                .tracked_oracles_iter()
+                .all(|(_, oracle)| oracle.log_size() == updated_table.log_size()),
+            "Join oracle output contains columns from mixed log-size domains (verifier)"
+        );
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
     fn initialize_gadgets(
@@ -255,23 +473,37 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
         let join_scope_node = self_ref.clone();
-        let on = join
+        let on: Vec<(Arc<Node<B>>, Arc<Node<B>>)> = join
             .on
             .iter()
             .map(|(l, r)| {
-                let left_node =
-                    Tree::<B>::from_expr(l, Some(self_ref.clone()), join_scope_node.clone())
-                        .root()
-                        .clone();
-                let right_node =
-                    Tree::<B>::from_expr(r, Some(self_ref.clone()), join_scope_node.clone())
-                        .root()
-                        .clone();
+                let left_node = Tree::<B>::from_expr(
+                    l,
+                    Some(self_ref.clone()),
+                    vec![
+                        join_scope_node.clone(),
+                        Arc::downgrade(&left),
+                        Arc::downgrade(&right),
+                    ],
+                )
+                .root()
+                .clone();
+                let right_node = Tree::<B>::from_expr(
+                    r,
+                    Some(self_ref.clone()),
+                    vec![
+                        join_scope_node.clone(),
+                        Arc::downgrade(&left),
+                        Arc::downgrade(&right),
+                    ],
+                )
+                .root()
+                .clone();
                 (left_node, right_node)
             })
             .collect();
         let filter = join.filter.as_ref().map(|expr| {
-            Tree::<B>::from_expr(expr, Some(self_ref.clone()), join_scope_node.clone())
+            Tree::<B>::from_expr(expr, Some(self_ref.clone()), vec![join_scope_node.clone()])
                 .root()
                 .clone()
         });

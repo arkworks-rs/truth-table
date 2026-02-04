@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::collections::HashSet;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
@@ -176,6 +177,33 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         };
         let super_col_multiplicities =
             Self::multiplicities_from_table(&multiplicities_table, included_cols.len());
+
+        // Debug subset relation expected by HintedLookupPIOP honest check.
+        #[cfg(feature = "honest-prover")]
+        {
+            for (idx, included_col) in included_cols.iter().enumerate() {
+                let included_vals: Vec<B::F> = included_col.effective_iter().into_iter().collect();
+                let super_set: HashSet<B::F> = super_col.effective_hashset();
+                let missing: Vec<B::F> = included_vals
+                    .iter()
+                    .copied()
+                    .filter(|v| !super_set.contains(v))
+                    .take(5)
+                    .collect();
+                tracing::debug!(
+                    "Lookup subset debug: node_id={}, idx={}, included_log_size={}, super_log_size={}, included_active_count={}, super_active_count={}, super_set_size={}, missing_examples={:?}",
+                    id,
+                    idx,
+                    included_col.log_size(),
+                    super_col.log_size(),
+                    included_vals.len(),
+                    super_col.effective_iter().into_iter().count(),
+                    super_set.len(),
+                    missing
+                );
+            }
+        }
+
         let input = HintedLookupProverInput {
             included_cols,
             super_col,

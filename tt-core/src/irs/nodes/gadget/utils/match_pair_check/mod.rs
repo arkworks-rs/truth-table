@@ -7,7 +7,8 @@ use ark_piop::{
 };
 use datafusion::{
     arrow::{
-        array::BooleanArray,
+        array::{ArrayRef, BooleanArray, new_null_array},
+        compute::concat,
         compute::concat_batches,
         datatypes::{Field, Schema},
         record_batch::RecordBatch,
@@ -17,7 +18,6 @@ use datafusion::{
 };
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, ExprFunctionExt, Join, LogicalPlan, col, lit};
-use datafusion_functions_aggregate::expr_fn::min;
 use indexmap::IndexMap;
 use tokio::runtime::RuntimeFlavor;
 use tracing::error;
@@ -388,6 +388,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL));
+        let _union_keys = payload
+            .get(UNION_LABEL)
+            .cloned()
+            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
         let output_table = payload
             .get(OUT_LABEL)
             .cloned()
@@ -784,15 +788,33 @@ fn build_key_union_df(
 
     let unioned = left_keys.union(right_keys)?;
     let key_exprs: Vec<Expr> = key_names.iter().map(col).collect();
-    let aggregated = unioned.aggregate(
-        key_exprs.clone(),
-        vec![min(col(arithmetic::ROW_ID_COL_NAME)).alias(arithmetic::ROW_ID_COL_NAME)],
+    // Deduplicate the union strictly by key values so downstream NoDup sees a true set.
+    let deduped_keys = unioned.select(key_exprs.clone())?.distinct()?;
+    let with_row_number = deduped_keys.select(
+        key_exprs
+            .iter()
+            .cloned()
+            .chain(std::iter::once(
+                row_number()
+                    .partition_by(Vec::new())
+                    .order_by(
+                        key_exprs
+                            .iter()
+                            .cloned()
+                            .map(|expr| expr.sort(true, true))
+                            .collect(),
+                    )
+                    .build()?
+                    .alias("__row_number__"),
+            ))
+            .collect(),
     )?;
-    let sorted = sort_by_row_id_if_present(aggregated)?;
-    let with_row_id = sorted.select(
+    let with_row_id = with_row_number.select(
         key_exprs
             .into_iter()
-            .chain(std::iter::once(col(arithmetic::ROW_ID_COL_NAME)))
+            .chain(std::iter::once(
+                (col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME),
+            ))
             .collect(),
     )?;
     Ok((with_row_id, key_names))
@@ -804,6 +826,17 @@ fn build_key_df(
     key_names: &[String],
     row_id_cols: &[Column],
 ) -> DataFusionResult<DataFrame> {
+    let sorted_df = sort_by_row_id_if_present(df.clone())?;
+    let active_df = if sorted_df
+        .schema()
+        .iter()
+        .any(|(_, field)| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+    {
+        sorted_df.filter(col(arithmetic::ACTIVATOR_COL_NAME).eq(lit(true)))?
+    } else {
+        sorted_df
+    };
+
     let mut exprs: Vec<Expr> = cols
         .iter()
         .zip(key_names)
@@ -812,7 +845,7 @@ fn build_key_df(
 
     if row_id_cols.len() == 1 {
         exprs.push(Expr::Column(row_id_cols[0].clone()).alias(arithmetic::ROW_ID_COL_NAME));
-        return sort_by_row_id_if_present(df.clone().select(exprs)?);
+        return sort_by_row_id_if_present(active_df.select(exprs)?);
     }
 
     let row_number_expr = row_number()
@@ -827,7 +860,7 @@ fn build_key_df(
         .build()?
         .alias("__row_number__");
     exprs.push(row_number_expr);
-    let with_row_number = df.clone().select(exprs)?;
+    let with_row_number = active_df.select(exprs)?;
 
     let mut final_exprs: Vec<Expr> = key_names.iter().map(col).collect();
     final_exprs.push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
@@ -848,6 +881,12 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
         concat_batches(&schema_ref, batch_refs)?
     };
     let row_count = combined.num_rows();
+    let target = if row_count == 0 {
+        2
+    } else {
+        row_count.next_power_of_two()
+    };
+    let pad = target.saturating_sub(row_count);
 
     let mut output_fields = Vec::with_capacity(key_names.len() + 1);
     let mut output_arrays = Vec::with_capacity(key_names.len() + 1);
@@ -865,11 +904,18 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
             })?;
         let base = combined.column(idx).clone();
         output_fields.push(field.as_ref().clone());
-        output_arrays.push(base);
+        let out = if pad == 0 {
+            base
+        } else {
+            let pad_arr: ArrayRef = new_null_array(field.data_type(), pad);
+            concat(&[base.as_ref(), pad_arr.as_ref()])?
+        };
+        output_arrays.push(out);
     }
 
-    let mut activator_vals = Vec::with_capacity(row_count);
+    let mut activator_vals = Vec::with_capacity(target);
     activator_vals.extend(std::iter::repeat_n(true, row_count));
+    activator_vals.extend(std::iter::repeat_n(false, pad));
     output_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
     output_arrays.push(Arc::new(BooleanArray::from(activator_vals)) as _);
 

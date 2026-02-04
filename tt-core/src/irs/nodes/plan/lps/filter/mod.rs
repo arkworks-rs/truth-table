@@ -125,7 +125,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         // Keep the existing log size when set; otherwise inherit from the input.
         let log_size = input_table.log_size();
 
-        let updated_table = TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = TrackedTable::new(schema.clone(), merged_polys.clone(), log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
         Ok(())
     }
@@ -379,10 +379,13 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
 
         // Recurse into the input subtree and fetch the expr that feeds this
         // filter.
-        let predicate =
-            Tree::<B>::from_expr(&filter.predicate, Some(self_ref), Arc::downgrade(&input))
-                .root()
-                .clone();
+        let predicate = Tree::<B>::from_expr(
+            &filter.predicate,
+            Some(self_ref),
+            vec![Arc::downgrade(&input)],
+        )
+        .root()
+        .clone();
 
         let gadget = Arc::new(Node::<B>::Gadget(Arc::new(filter::FilterNode::new())));
 
