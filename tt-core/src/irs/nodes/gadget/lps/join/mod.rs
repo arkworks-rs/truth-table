@@ -32,15 +32,7 @@ pub const SRC_LEFT_LABEL: &str = "__SRC_LEFT__";
 pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
-
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JoinMode {
-    ONE_TO_MANY,
-    MANY_TO_ONE,
-    ONE_TO_ONE,
-    MANY_TO_MANY,
-}
+pub use crate::irs::nodes::plan::lps::join::modes::JoinMode;
 
 pub enum Gadgets<B: SnarkBackend> {
     // Full join proof stack: bool + nodup + match-pair utilities.
@@ -768,7 +760,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
-    pub fn new(join: Join) -> Self {
+    pub fn new(join: Join, join_mode: JoinMode) -> Self {
         let bool_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::bool::GadgetNode::new(),
         )));
@@ -778,15 +770,19 @@ impl<B: SnarkBackend> GadgetNode<B> {
         let match_pair_gadget = Arc::new(Node::<B>::Gadget(Arc::new(
             crate::irs::nodes::gadget::utils::match_pair_check::GadgetNode::new(),
         )));
-        let gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
+        let mut gadgets = Gadgets::ManyToMany(ManyToManyGadgets {
             bool_gadget,
             nodup_gadget,
             match_pair_gadget,
         });
+        // HasOne modes collapse join gadget internals to keep plan/gadget optimization aligned.
+        if join_mode != JoinMode::MANY_TO_MANY {
+            gadgets = Gadgets::HasOne;
+        }
         Self {
             gadgets: RwLock::new(gadgets),
             join,
-            join_mode: RwLock::new(JoinMode::MANY_TO_MANY),
+            join_mode: RwLock::new(join_mode),
         }
     }
 

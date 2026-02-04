@@ -14,6 +14,7 @@ use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
 mod hints;
+pub mod modes;
 
 #[allow(clippy::type_complexity)]
 pub struct LpNode<B>
@@ -26,20 +27,13 @@ where
     filter: Option<Arc<Node<B>>>,
     gadget: Arc<Node<B>>,
     join: Join,
+    // Single source of truth for join optimization/materialization mode.
+    join_mode: modes::JoinMode,
 }
 
 impl<B: SnarkBackend> LpNode<B> {
-    fn join_mode(&self) -> join_gadget::JoinMode {
-        match self.gadget.as_ref() {
-            Node::Gadget(gadget) => {
-                let any = gadget.as_ref() as &dyn std::any::Any;
-                if let Some(join_gadget) = any.downcast_ref::<join_gadget::GadgetNode<B>>() {
-                    return join_gadget.join_mode();
-                }
-                join_gadget::JoinMode::MANY_TO_MANY
-            }
-            Node::Plan(_) => join_gadget::JoinMode::MANY_TO_MANY,
-        }
+    fn join_mode(&self) -> modes::JoinMode {
+        self.join_mode
     }
 
     fn should_fully_materialize(&self) -> bool {
@@ -47,19 +41,19 @@ impl<B: SnarkBackend> LpNode<B> {
         // gadget mode:
         // - MANY_TO_MANY gadget => full materialization
         // - HasOne gadget (all other modes) => partial materialization
-        self.join_mode() == join_gadget::JoinMode::MANY_TO_MANY
+        self.join_mode() == modes::JoinMode::MANY_TO_MANY
     }
 
     fn fk_side_input(&self) -> Option<&Arc<Node<B>>> {
         match self.join_mode() {
             // ONE_TO_MANY: left is unique side, right is FK side.
-            join_gadget::JoinMode::ONE_TO_MANY => Some(&self.right),
+            modes::JoinMode::ONE_TO_MANY => Some(&self.right),
             // MANY_TO_ONE: right is unique side, left is FK side.
-            join_gadget::JoinMode::MANY_TO_ONE => Some(&self.left),
+            modes::JoinMode::MANY_TO_ONE => Some(&self.left),
             // ONE_TO_ONE: keep side choice deterministic and aligned with
             // `output()`/hint-side partial policy below.
-            join_gadget::JoinMode::ONE_TO_ONE => Some(&self.right),
-            join_gadget::JoinMode::MANY_TO_MANY => None,
+            modes::JoinMode::ONE_TO_ONE => Some(&self.right),
+            modes::JoinMode::MANY_TO_MANY => None,
         }
     }
 }
@@ -332,12 +326,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
                     // Partial path (HasOne): materialize only one side's data and
                     // keep the preserved-side columns virtual.
                     match self.join_mode() {
-                        join_gadget::JoinMode::ONE_TO_MANY => left_fields.contains(name),
-                        join_gadget::JoinMode::MANY_TO_ONE => right_fields.contains(name),
+                        modes::JoinMode::ONE_TO_MANY => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_ONE => right_fields.contains(name),
                         // ONE_TO_ONE: keep right as FK-preserved side (virtual), and
                         // materialize only the opposite side.
-                        join_gadget::JoinMode::ONE_TO_ONE => left_fields.contains(name),
-                        join_gadget::JoinMode::MANY_TO_MANY => true,
+                        modes::JoinMode::ONE_TO_ONE => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_MANY => true,
                     }
                 };
                 (field.clone(), mat)
@@ -470,6 +464,8 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         } else {
             panic!("Expected Join LogicalPlan");
         };
+        // Decide mode at LP ingestion time so both plan and gadget are always synchronized.
+        let join_mode = modes::decide_join_mode(&join);
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
         let join_scope_node = self_ref.clone();
@@ -509,7 +505,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         });
 
         let gadget = Arc::new(Node::Gadget(Arc::new(
-            crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone()),
+            crate::irs::nodes::gadget::lps::join::GadgetNode::<B>::new(join.clone(), join_mode),
         )));
 
         LpNode {
@@ -519,6 +515,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             filter,
             gadget,
             join,
+            join_mode,
         }
     }
 

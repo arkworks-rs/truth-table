@@ -3,7 +3,6 @@ use std::sync::Arc;
 use ark_piop::SnarkBackend;
 use tt_core::irs::shared_ir::InitialIr;
 
-mod simplify_one_to_many_joins;
 mod truncate_empty_payload;
 
 pub trait ProofPlanOptimizerRule<B: SnarkBackend>: Send + Sync {
@@ -29,8 +28,6 @@ impl<B: SnarkBackend> ProofPlanOptimizer<B> {
 }
 
 pub fn rules<B: SnarkBackend>() -> Vec<Arc<dyn ProofPlanOptimizerRule<B>>> {
-    vec![
-        Arc::new(simplify_one_to_many_joins::SimplifyOneToManyJoins),
-        Arc::new(truncate_empty_payload::TruncateEmptyPayload),
-    ]
+    // vec![Arc::new(truncate_empty_payload::TruncateEmptyPayload)]
+    vec![]
 }
