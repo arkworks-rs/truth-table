@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_piop::SnarkBackend;
+use ark_ff::{One, PrimeField};
+use ark_piop::{SnarkBackend, errors::SnarkError};
 mod hints;
 use crate::{
     irs::{
@@ -15,8 +16,11 @@ use crate::{
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
 };
+use ark_ff::BigInteger;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::Limit;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 /// The implementation of a filter node in the prover proof tree.
@@ -28,6 +32,8 @@ where
     gadget: Arc<Node<B>>,
     limit: Limit,
 }
+
+const LIMIT_CONTIG_S_PREFIX: &str = "limit_contig_s";
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
@@ -81,6 +87,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        assert_no_skip(&self.limit);
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
@@ -129,6 +136,29 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 current
             }
         };
+
+        // Compute the contiguous mask size `s` and set output activator to
+        // input_activator * contig_one(log_size, s).
+        if let Some(input_act) = input_table.activator_tracked_poly() {
+            let fetch = fetch_limit_literal(&self.limit);
+            let s = contig_s_from_fetch(&input_act.evaluations(), fetch, input_table.size());
+            let tracker_rc = input_act.tracker();
+            let contig = tracker_rc
+                .borrow_mut()
+                .get_or_build_contig_one_poly(log_size, s)?;
+            let output_act = &input_act * &contig;
+            let activator_field = merged_polys
+                .keys()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                .cloned()
+                .unwrap_or_else(|| arithmetic::ACTIVATOR_FIELD.clone());
+            merged_polys.insert(activator_field, output_act);
+
+            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
+            tracker_rc
+                .borrow_mut()
+                .insert_miscellaneous_field(key, B::F::from(s as u64));
+        }
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
@@ -199,6 +229,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        assert_no_skip(&self.limit);
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(table)) => table.clone(),
             _ => return Ok(()),
@@ -247,6 +278,24 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 current
             }
         };
+
+        // Mirror the prover: read `s` and apply contiguous mask to activator.
+        if let Some(input_act) = input_table.activator_tracked_poly() {
+            let tracker_rc = input_act.tracker();
+            let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
+            let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
+            let s = field_to_usize::<B::F>(s_field)?;
+            let contig = tracker_rc
+                .borrow_mut()
+                .get_or_build_contig_one_oracle(log_size, s)?;
+            let output_act = &input_act * &contig;
+            let activator_field = merged_polys
+                .keys()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                .cloned()
+                .unwrap_or_else(|| arithmetic::ACTIVATOR_FIELD.clone());
+            merged_polys.insert(activator_field, output_act);
+        }
 
         let updated_table = TrackedTableOracle::new(schema, merged_polys, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
@@ -331,20 +380,87 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
         let output_df = hints::build_output_dataframe(input_hint_df.data_frame(), &self.limit);
         let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
             .expect("limit output row-id sort should succeed");
+        HintDF::new_virtual(output_df)
+    }
+}
 
-        let should_materialize: IndexMap<_, _> = output_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| {
-                (
-                    field.clone(),
-                    field.name() == arithmetic::ACTIVATOR_COL_NAME,
-                )
-            })
-            .collect();
+fn fetch_limit_literal(limit: &Limit) -> Option<usize> {
+    match limit.get_fetch_type() {
+        Ok(datafusion_expr::FetchType::Literal(Some(val))) => Some(val as usize),
+        _ => None,
+    }
+}
 
-        HintDF::new(output_df, should_materialize)
+fn contig_s_from_fetch<F: PrimeField>(
+    activator: &[F],
+    fetch: Option<usize>,
+    table_size: usize,
+) -> usize {
+    match fetch {
+        None => table_size,
+        Some(0) => 0,
+        Some(limit) => {
+            let mut seen = 0usize;
+            for (idx, val) in activator.iter().enumerate() {
+                if *val == F::one() {
+                    seen += 1;
+                    if seen == limit {
+                        return idx + 1;
+                    }
+                }
+            }
+            table_size
+        }
+    }
+}
+
+fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
+    let big = value.into_bigint();
+    let bytes = big.to_bytes_le();
+    let mut out: usize = 0;
+    let max = std::mem::size_of::<usize>();
+    for (i, byte) in bytes.iter().enumerate() {
+        if i >= max {
+            if *byte != 0 {
+                return Err(SnarkError::VerifierError(
+                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                        "limit contig s does not fit into usize".to_string(),
+                    ),
+                ));
+            }
+            continue;
+        }
+        out |= (*byte as usize) << (8 * i);
+    }
+    Ok(out)
+}
+
+fn limit_key(limit: &Limit) -> u64 {
+    let skip = match limit.get_skip_type() {
+        Ok(datafusion_expr::SkipType::Literal(val)) => Some(val),
+        _ => None,
+    };
+    let fetch = match limit.get_fetch_type() {
+        Ok(datafusion_expr::FetchType::Literal(val)) => val,
+        _ => None,
+    };
+    let mut hasher = DefaultHasher::new();
+    (skip, fetch).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn assert_no_skip(limit: &Limit) {
+    match limit.get_skip_type() {
+        Ok(datafusion_expr::SkipType::Literal(val)) if val == 0 => {}
+        Ok(datafusion_expr::SkipType::Literal(val)) => {
+            panic!("Limit skip is not supported (skip={val})");
+        }
+        Ok(datafusion_expr::SkipType::UnsupportedExpr) => {
+            panic!("Limit skip expression is not supported");
+        }
+        Err(err) => {
+            panic!("Limit skip parsing error: {err}");
+        }
     }
 }
 
@@ -362,7 +478,9 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         // limit.
         let input = Tree::<B>::from_logical_plan(&limit.input).root().clone();
 
-        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(limit::GadgetNode::new())));
+        let gadget = Arc::new(Node::<B>::Gadget(Arc::new(limit::GadgetNode::new(
+            limit.clone(),
+        ))));
 
         Self {
             input,
