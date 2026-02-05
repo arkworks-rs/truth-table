@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use arithmetic::{is_system_column, table::TrackedTable};
 use ark_piop::SnarkBackend;
+use ark_std::One;
+use either::Either;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
@@ -202,11 +204,39 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for FilterNode<B> {
 impl<B: SnarkBackend> IsGadgetNode<B> for FilterNode<B> {
     fn prove(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // TODO: implement gadget proof
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (input_act, predicate) = match (
+            payload.get(INPUT_ACTIVATOR_LABEL),
+            payload.get(FILTER_PREDICATE_LABEL),
+        ) {
+            (Some(input), Some(pred)) => (input.clone(), pred.clone()),
+            _ => return Ok(()),
+        };
+
+        let input_act_poly = input_act
+            .tracked_polys_iter()
+            .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()))
+            .expect("Filter gadget missing input activator poly");
+        let predicate_poly = predicate
+            .tracked_polys_iter()
+            .find_map(|(field, poly)| (!is_system_column(field.name())).then(|| poly.clone()))
+            .expect("Filter gadget missing predicate poly");
+
+        // Enforce (1 - a) * b = 0.
+        let one_poly = ark_piop::prover::structs::polynomial::TrackedPoly::new(
+            Either::Right(B::F::one()),
+            input_act_poly.log_size(),
+            input_act_poly.tracker(),
+        );
+        let zero_poly = &(&one_poly - &input_act_poly) * &predicate_poly;
+        prover.add_mv_zerocheck_claim(zero_poly.id())?;
         Ok(())
     }
 
@@ -221,10 +251,38 @@ impl<B: SnarkBackend> IsGadgetNode<B> for FilterNode<B> {
 
     fn verify(
         &self,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let (input_act, predicate) = match (
+            payload.get(INPUT_ACTIVATOR_LABEL),
+            payload.get(FILTER_PREDICATE_LABEL),
+        ) {
+            (Some(input), Some(pred)) => (input.clone(), pred.clone()),
+            _ => return Ok(()),
+        };
+
+        let input_act_oracle = input_act
+            .tracked_oracles_iter()
+            .find_map(|(field, oracle)| (!is_system_column(field.name())).then(|| oracle.clone()))
+            .expect("Filter gadget missing input activator oracle");
+        let predicate_oracle = predicate
+            .tracked_oracles_iter()
+            .find_map(|(field, oracle)| (!is_system_column(field.name())).then(|| oracle.clone()))
+            .expect("Filter gadget missing predicate oracle");
+
+        let one_oracle = ark_piop::verifier::structs::oracle::TrackedOracle::new(
+            Either::Right(B::F::one()),
+            input_act_oracle.tracker(),
+            input_act_oracle.log_size(),
+        );
+        let zero_oracle = &(&one_oracle - &input_act_oracle) * &predicate_oracle;
+        verifier.add_zerocheck_claim(zero_oracle.id());
         Ok(())
     }
 

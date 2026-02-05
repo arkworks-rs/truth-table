@@ -130,10 +130,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
         };
 
         // Build the eq gadget inputs
-        let eq_activator = match &shared_activator {
-            Some(poly) => poly * &output_poly,
-            None => output_poly.clone(),
-        };
+        // let eq_activator = match &shared_activator {
+        //     Some(poly) => poly * &output_poly,
+        //     None => output_poly.clone(),
+        // };
+        let eq_activator = output_poly.clone();
         let eq_left = build_table_with_activator(&left_input, &eq_activator.clone());
         let eq_right = build_table_with_activator(&right_input, &eq_activator.clone());
         let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
@@ -259,10 +260,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
             };
 
         // Build the eq gadget inputs.
-        let eq_activator = match &shared_activator {
-            Some(oracle) => oracle * &output_oracle,
-            None => output_oracle.clone(),
-        };
+        // let eq_activator = match &shared_activator {
+        //     Some(oracle) => oracle * &output_oracle,
+        //     None => output_oracle.clone(),
+        // };
+        let eq_activator = output_oracle.clone();
         let eq_left = build_table_with_activator(&left_input, &eq_activator);
         let eq_right = build_table_with_activator(&right_input, &eq_activator);
         let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
