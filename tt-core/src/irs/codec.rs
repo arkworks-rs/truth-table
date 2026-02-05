@@ -299,7 +299,6 @@ struct FieldRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
 enum DataTypeRepr {
     Null,
     Boolean,
@@ -363,7 +362,6 @@ struct SubqueryRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
 enum ExprRepr {
     Column(ColumnRepr),
     Literal(ScalarValueRepr),
@@ -416,7 +414,6 @@ enum ExprRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
 enum ScalarValueRepr {
     Null,
     Boolean(Option<bool>),
@@ -459,7 +456,6 @@ enum ScalarValueRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
 enum OperatorRepr {
     Eq,
     NotEq,
@@ -495,7 +491,6 @@ enum OperatorRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
 enum JoinTypeRepr {
     Inner,
     Left,
@@ -509,14 +504,12 @@ enum JoinTypeRepr {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
 enum JoinConstraintRepr {
     On,
     Using,
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
 enum JoinModeRepr {
     OneToMany,
     ManyToOne,
@@ -1358,13 +1351,7 @@ pub fn serialize_tree<B: SnarkBackend>(tree: &Tree<B>) -> TTResult<Vec<u8>> {
         plan: LogicalPlanRepr::from_plan(&plan)?,
         join_modes,
     };
-    // Prefer bincode for compactness, but only emit it if it roundtrips locally.
-    if let Ok(bytes) = bincode::serialize(&repr) {
-        if bincode::deserialize::<TreeRepr>(&bytes).is_ok() {
-            return Ok(bytes);
-        }
-    }
-    serde_json::to_vec(&repr).map_err(|_| TTError::Serialization(SerializationError::InvalidData))
+    bincode::serialize(&repr).map_err(|_| TTError::Serialization(SerializationError::InvalidData))
 }
 
 pub fn deserialize_tree<B: SnarkBackend>(bytes: &[u8]) -> TTResult<Tree<B>> {
