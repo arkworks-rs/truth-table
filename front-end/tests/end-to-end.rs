@@ -60,7 +60,7 @@ async fn run_query(query: &str) {
     let (_output_table, proof) = prover.prove(query).await.expect("prove should succeed");
 
     verifier
-        .verify(query, proof)
+        .verify(query, &proof)
         .await
         .expect("verifier should verify proof");
 }

@@ -60,24 +60,21 @@ pub struct BenchProof {
     #[allow(unused)]
     pub proof_path: PathBuf,
     pub proof_bytes: Vec<u8>,
-    pub snark_sc_subproof_bytes: usize,
-    pub snark_mv_pcs_subproof_bytes: usize,
-    pub snark_mv_pcs_opening_proof_bytes: usize,
-    pub snark_mv_pcs_commitments_bytes: usize,
-    pub snark_mv_pcs_query_map_bytes: usize,
-    pub snark_uv_pcs_subproof_bytes: usize,
-    pub snark_uv_pcs_opening_proof_bytes: usize,
-    pub snark_uv_pcs_commitments_bytes: usize,
-    pub snark_uv_pcs_query_map_bytes: usize,
-    pub snark_misc_field_elements_bytes: usize,
+    // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
+    // Serialized optimized IR component of TTProof.
     pub optimized_ir_bytes: usize,
     _temp_dir: TempDir,
 }
 
 pub struct VerifierBenchState {
-    pub assets: BenchAssets,
-    pub proof_bytes: Vec<u8>,
+    pub arg_verifier: ArgVerifier<B>,
+}
+
+pub struct VerifierFullBenchState {
+    pub verifier: TTVerifier<B>,
+    pub query: String,
+    pub proof: TTProof<B>,
 }
 
 pub struct ProverBenchIteration {
@@ -250,12 +247,6 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     let proof_path = temp_dir.path().join(format!("{case_name}.proof.pi"));
 
     let proof_bytes = proof.to_bytes().expect("serialize proof for bench");
-    let snark_breakdown = proof.snark_proof_size_breakdown_bytes();
-    let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
-    let optimized_ir_bytes = proof
-        .optimized_ir_serialized_size_bytes()
-        .expect("serialize optimized IR for bench");
-
     let file = File::create(&proof_path).expect("create proof file for bench");
     let mut writer = BufWriter::new(file);
     writer
@@ -263,33 +254,18 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
         .expect("write proof bytes for bench");
     writer.flush().expect("flush proof bytes for bench");
 
+    let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
+    let optimized_ir_bytes = proof
+        .optimized_ir_serialized_size_bytes()
+        .expect("serialize optimized ir for bench size accounting");
+
     Arc::new(BenchProof {
         proof_path,
         proof_bytes,
-        snark_sc_subproof_bytes: snark_breakdown.sc_subproof,
-        snark_mv_pcs_subproof_bytes: snark_breakdown.mv_pcs_subproof,
-        snark_mv_pcs_opening_proof_bytes: snark_breakdown.mv_pcs_subproof_parts.opening_proof,
-        snark_mv_pcs_commitments_bytes: snark_breakdown.mv_pcs_subproof_parts.commitments,
-        snark_mv_pcs_query_map_bytes: snark_breakdown.mv_pcs_subproof_parts.query_map,
-        snark_uv_pcs_subproof_bytes: snark_breakdown.uv_pcs_subproof,
-        snark_uv_pcs_opening_proof_bytes: snark_breakdown.uv_pcs_subproof_parts.opening_proof,
-        snark_uv_pcs_commitments_bytes: snark_breakdown.uv_pcs_subproof_parts.commitments,
-        snark_uv_pcs_query_map_bytes: snark_breakdown.uv_pcs_subproof_parts.query_map,
-        snark_misc_field_elements_bytes: snark_breakdown.miscellaneous_field_elements,
         snark_proof_bytes,
         optimized_ir_bytes,
         _temp_dir: temp_dir,
     })
-}
-
-#[allow(unused)]
-pub fn cache_proof(case_name: &'static str, proof: Arc<BenchProof>) {
-    // Store a proof in the global bench cache.
-    let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    cache
-        .lock()
-        .expect("bench proof cache poisoned")
-        .insert(case_name, proof);
 }
 
 pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
@@ -297,72 +273,58 @@ pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
     if guard.insert(case_name) {
-        println!("proof size ({})", case_name);
+        let full_bytes = proof.snark_proof_bytes + proof.optimized_ir_bytes;
         println!(
-            "  snark_proof: {}",
-            format_bytes(proof.snark_proof_bytes)
+            "proof size ({}) core={} plan={} full={}",
+            case_name,
+            format_bytes(proof.snark_proof_bytes),
+            format_bytes(proof.optimized_ir_bytes),
+            format_bytes(full_bytes),
         );
-        println!(
-            "    sc_subproof: {}",
-            format_bytes(proof.snark_sc_subproof_bytes)
-        );
-        println!(
-            "    mv_pcs_subproof: {}",
-            format_bytes(proof.snark_mv_pcs_subproof_bytes)
-        );
-        println!(
-            "      opening_proof: {}",
-            format_bytes(proof.snark_mv_pcs_opening_proof_bytes)
-        );
-        println!(
-            "      commitments: {}",
-            format_bytes(proof.snark_mv_pcs_commitments_bytes)
-        );
-        println!(
-            "      query_map: {}",
-            format_bytes(proof.snark_mv_pcs_query_map_bytes)
-        );
-        println!(
-            "    uv_pcs_subproof: {}",
-            format_bytes(proof.snark_uv_pcs_subproof_bytes)
-        );
-        println!(
-            "      opening_proof: {}",
-            format_bytes(proof.snark_uv_pcs_opening_proof_bytes)
-        );
-        println!(
-            "      commitments: {}",
-            format_bytes(proof.snark_uv_pcs_commitments_bytes)
-        );
-        println!(
-            "      query_map: {}",
-            format_bytes(proof.snark_uv_pcs_query_map_bytes)
-        );
-        println!(
-            "    miscellaneous_field_elements: {}",
-            format_bytes(proof.snark_misc_field_elements_bytes)
-        );
-        println!(
-            "  optimized_ir: {}",
-            format_bytes(proof.optimized_ir_bytes)
-        );
-        println!("  total: {}", format_bytes(proof.proof_bytes.len()));
     }
 }
 
 pub fn build_verifier_state(assets: &BenchAssets, proof_bytes: Vec<u8>) -> VerifierBenchState {
-    // Bundle the assets and proof bytes for repeated verifier iterations.
+    // Build and plan once; bench timing captures only cryptographic verifier checks.
+    let verifier = build_verifier(assets);
+    let proof = proof_from_bytes(&proof_bytes);
+    let (_stages, arg_verifier) = block_on(verifier.build_ir_stages(assets.case.query, &proof))
+        .expect("build verifier stages for bench");
     VerifierBenchState {
-        assets: assets.clone(),
-        proof_bytes,
+        arg_verifier,
     }
 }
 
-pub fn run_verifier_once(state: &VerifierBenchState) {
-    // Build a fresh verifier per bench iteration to avoid stateful reuse.
-    let verifier = build_verifier(&state.assets);
-    let proof = proof_from_bytes(&state.proof_bytes);
-    block_on(verifier.verify(state.assets.case.query, proof)).expect("verify for bench");
+pub fn fork_arg_verifier(state: &VerifierBenchState) -> ArgVerifier<B> {
+    // Create an isolated verifier instance for one timed iteration.
+    state.arg_verifier.fork()
+}
+
+pub fn run_arg_verifier_once(verifier: ArgVerifier<B>) {
+    // Time only cryptographic verification on a pre-forked verifier.
+    verifier.verify().expect("verify for bench");
+}
+
+pub fn build_verifier_full_state(assets: &BenchAssets, proof_bytes: Vec<u8>) -> VerifierFullBenchState {
+    // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
+    let verifier = build_verifier(assets);
+    let proof = proof_from_bytes(&proof_bytes);
+    VerifierFullBenchState {
+        verifier,
+        query: assets.case.query.to_string(),
+        proof,
+    }
+}
+
+pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
+    // Time full frontend verification path: IR passes + argument verification.
+    block_on(state.verifier.verify(&state.query, &state.proof)).expect("verify for bench");
+}
+
+pub fn run_preprocess_once(state: &VerifierFullBenchState) {
+    // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
+    state.verifier.clear_preprocess_cache();
+    state.verifier.preprocess_query(&state.query, &state.proof);
 }
 
 fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {

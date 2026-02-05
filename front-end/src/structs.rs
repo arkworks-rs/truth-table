@@ -20,6 +20,19 @@ pub struct TTProof<B: SnarkBackend> {
     optimized_ir: EmptyIr<B>,
 }
 
+impl<B: SnarkBackend> Clone for TTProof<B>
+where
+    SNARKProof<B>: Clone,
+    EmptyIr<B>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            snark_proof: self.snark_proof.clone(),
+            optimized_ir: self.optimized_ir.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PCSSubproofSizeBreakdown {
     pub opening_proof: usize,

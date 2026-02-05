@@ -170,7 +170,7 @@ impl VerifyRunner {
 
         let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
         verifier
-            .verify(&self.query, tt_proof)
+            .verify(&self.query, &tt_proof)
             .await
             .map_err(|err| anyhow!(err))?;
 

@@ -4,8 +4,9 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    BenchCase, build_verifier_state, ensure_proof, log_proof_size_once, prepare_assets,
-    prepare_prover_iteration, run_prover_iteration, run_verifier_once, warmup_proof,
+    BenchCase, build_verifier_full_state, ensure_proof, log_proof_size_once, prepare_assets,
+    prepare_prover_iteration, run_full_verifier_once, run_preprocess_once, run_prover_iteration,
+    warmup_proof,
 };
 
 fn tpch_cases() -> &'static [BenchCase] {
@@ -111,17 +112,44 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
-fn bench_tpch_verifier(bencher: Bencher, case: BenchCase) {
-    // Verifier benchmark: require a warm cache, then reuse cached proof bytes.
-    bencher
-        .with_inputs(|| {
-            let assets = prepare_assets(case);
-            let _ = warmup_proof(&assets);
-            let bench_proof = ensure_proof(&assets);
-            log_proof_size_once(case.name, &bench_proof);
-            build_verifier_state(&assets, bench_proof.proof_bytes.clone())
-        })
-        .bench_local_values(|state| {
-            run_verifier_once(&state);
-        });
+fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
+    // Benchmark only one-time verifier preprocessing (planning/gadget-planning cache fill).
+    let assets = prepare_assets(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    bencher.bench_local(|| {
+        run_preprocess_once(&state);
+    });
+}
+
+#[divan::bench(args = tpch_cases(), max_time = 1)]
+fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
+    // Verifier benchmark (core/steady-state): time IR passes + cryptographic
+    // verification, excluding one-time preprocessing/cache warmup.
+    let assets = prepare_assets(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    // Preprocess once outside the timed region so this benchmark reflects steady-state.
+    run_preprocess_once(&state);
+    bencher.bench_local(|| {
+        run_full_verifier_once(&state);
+    });
+}
+
+#[divan::bench(args = tpch_cases(), max_time = 1)]
+fn bench_tpch_verifier_full(bencher: Bencher, case: BenchCase) {
+    // Verifier benchmark (full): time preprocessing + steady-state verification together.
+    let assets = prepare_assets(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    bencher.bench_local(|| {
+        run_preprocess_once(&state);
+        run_full_verifier_once(&state);
+    });
 }

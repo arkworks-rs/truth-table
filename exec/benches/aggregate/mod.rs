@@ -3,8 +3,9 @@ use std::sync::OnceLock;
 use divan::Bencher;
 
 use crate::support::{
-    BenchCase, build_verifier_state, ensure_proof, log_proof_size_once, prepare_assets,
-    prepare_prover_iteration, run_prover_iteration, run_verifier_once, warmup_proof,
+    BenchCase, build_verifier_state, ensure_proof, fork_arg_verifier, log_proof_size_once,
+    prepare_assets, prepare_prover_iteration, run_arg_verifier_once, run_prover_iteration,
+    warmup_proof,
 };
 
 fn aggregate_cases() -> &'static [BenchCase] {
@@ -52,16 +53,13 @@ fn bench_aggregate_prover(bencher: Bencher, case: BenchCase) {
 
 #[divan::bench(args = aggregate_cases(), max_time = 1)]
 fn bench_aggregate_verifier(bencher: Bencher, case: BenchCase) {
-    // Verifier benchmark: require a warm cache, then reuse cached proof bytes.
+    // Verifier benchmark: build state once, then time only run_verifier_once.
+    let assets = prepare_assets(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    let state = build_verifier_state(&assets, bench_proof.proof_bytes.clone());
     bencher
-        .with_inputs(|| {
-            let assets = prepare_assets(case);
-            let _ = warmup_proof(&assets);
-            let bench_proof = ensure_proof(&assets);
-            log_proof_size_once(case.name, &bench_proof);
-            build_verifier_state(&assets, bench_proof.proof_bytes.clone())
-        })
-        .bench_local_values(|state| {
-            run_verifier_once(&state);
-        });
+        .with_inputs(|| fork_arg_verifier(&state))
+        .bench_local_values(run_arg_verifier_once);
 }

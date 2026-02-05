@@ -69,16 +69,23 @@ where
         }
         match node {
             Node::Gadget(gadget_node) => {
-                let parent_name = {
+                let should_log_parent =
+                    tracing::level_enabled!(tracing::Level::DEBUG)
+                        || tracing::level_enabled!(tracing::Level::INFO);
+                let parent_name = if should_log_parent {
                     let gadget_ready_ir = self.gadget_ready_ir.borrow();
                     parent_name_for(gadget_ready_ir.tree(), id)
                         .unwrap_or_else(|| "<none>".to_string())
+                } else {
+                    String::new()
                 };
-                tracing::debug!(
-                    gadget = %gadget_node.name(),
-                    parent = %parent_name,
-                    "starting to verify gadget"
-                );
+                if tracing::level_enabled!(tracing::Level::DEBUG) {
+                    tracing::debug!(
+                        gadget = %gadget_node.name(),
+                        parent = %parent_name,
+                        "starting to verify gadget"
+                    );
+                }
                 let result = {
                     let mut arg_verifier = self.arg_verifier.borrow_mut();
                     let mut gadget_ready_ir = self.gadget_ready_ir.borrow_mut();
@@ -88,11 +95,13 @@ where
                     *self.error.borrow_mut() = Some(err);
                     None
                 } else {
-                    tracing::info!(
-                        gadget = %gadget_node.name(),
-                        parent = %parent_name,
-                        "gadget was verified"
-                    );
+                    if tracing::level_enabled!(tracing::Level::INFO) {
+                        tracing::info!(
+                            gadget = %gadget_node.name(),
+                            parent = %parent_name,
+                            "gadget was verified"
+                        );
+                    }
                     Some(EmptyPayload)
                 }
             }

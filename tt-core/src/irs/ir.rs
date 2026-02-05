@@ -12,6 +12,15 @@ pub struct Ir<B: SnarkBackend, Pd: Payload> {
     payloads: IndexMap<NodeId, Option<Pd>>,
 }
 
+impl<Pd: Payload + Clone, B: SnarkBackend> Clone for Ir<B, Pd> {
+    fn clone(&self) -> Self {
+        Self {
+            tree: self.tree.clone(),
+            payloads: self.payloads.clone(),
+        }
+    }
+}
+
 impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Option<Pd>>) -> Self {
         Self { tree, payloads }
@@ -152,27 +161,26 @@ where
 
     pub fn apply_local_pass_sequential<POut, P>(&self, pass: &P) -> Ir<B, POut>
     where
-        PIn: Clone,
         POut: Payload,
         P: LocalPass<B, PIn, POut>,
     {
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.ordered_nodes(pass.order()) {
-            let input_payload = self
-                .payloads
-                .get(&id)
-                .as_ref()
-                .and_then(|opt| opt.as_ref())
-                .cloned()
-                .or_else(|| pass.fallback_payload(&node, id));
+            let existing_payload = self.payloads.get(&id).and_then(|opt| opt.as_ref());
+            let fallback_payload = if existing_payload.is_none() {
+                pass.fallback_payload(&node, id)
+            } else {
+                None
+            };
+            let input_payload = existing_payload.or(fallback_payload.as_ref());
             debug!(
                 node_id = ?id,
                 node_name = %node.name(),
                 has_payload = input_payload.is_some(),
                 "pass.transform start"
             );
-            let p_out = pass.transform(&node, id, input_payload.as_ref());
+            let p_out = pass.transform(&node, id, input_payload);
             debug!(
                 node_id = ?id,
                 node_name = %node.name(),
