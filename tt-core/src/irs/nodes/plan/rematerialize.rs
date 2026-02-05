@@ -1,8 +1,10 @@
 use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
-use arithmetic::ACTIVATOR_COL_NAME;
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
 use ark_piop::SnarkBackend;
+use ark_std::One;
+use ark_ff::BigInteger;
 
 use datafusion::prelude::DataFrame;
 use datafusion_common::{DFSchemaRef, DataFusionError};
@@ -12,8 +14,13 @@ use datafusion_expr::{
 };
 use std::any::Any;
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::sync::Arc;
+use datafusion::arrow::datatypes::Schema;
+use indexmap::IndexMap;
+
+const REMAT_CONTIG_S_PREFIX: &str = "remat_contig_s";
 
 pub struct LpNode<B>
 where
@@ -55,9 +62,56 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(crate::irs::payloads::PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                crate::irs::payloads::PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let Some(input_act) = input_table.activator_tracked_poly() else {
+            return Ok(());
+        };
+        let s = input_act
+            .evaluations()
+            .into_iter()
+            .filter(|val| *val == B::F::one())
+            .count();
+
+        let tracker_rc = input_act.tracker();
+        let contig = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_poly(current_table.log_size(), s)?;
+
+        let mut polys = current_table.tracked_polys();
+        polys.insert(ACTIVATOR_FIELD.clone(), contig);
+        let schema = current_table.schema_ref().map(|schema| {
+            let mut fields: Vec<_> = schema.fields().iter().cloned().collect();
+            fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+        let updated = arithmetic::table::TrackedTable::new(
+            schema,
+            polys,
+            current_table.log_size(),
+        );
+        virtualized_ir.set_payload_for_node(
+            id,
+            Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
+        );
+
+        let key = format!("{REMAT_CONTIG_S_PREFIX}_{}", remat_key(&self.input));
+        tracker_rc
+            .borrow_mut()
+            .insert_miscellaneous_field(key, B::F::from(s as u64));
         Ok(())
     }
 
@@ -83,7 +137,16 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
         };
 
         let output_df = build_output_dataframe(input_hint_df.data_frame().clone());
-        crate::irs::nodes::hints::HintDF::new_materialized(output_df)
+        let should_materialize = output_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let materialize = field.name() != ACTIVATOR_COL_NAME;
+                (field.clone(), materialize)
+            })
+            .collect::<IndexMap<_, _>>();
+        crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
     }
 }
 
@@ -119,9 +182,49 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
+            Some(crate::irs::payloads::PayloadStructure::PlanPayload(table)) => table.clone(),
+            _ => return Ok(()),
+        };
+        let current_table = virtualized_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                crate::irs::payloads::PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let Some(input_act) = input_table.activator_tracked_poly() else {
+            return Ok(());
+        };
+        let tracker_rc = input_act.tracker();
+        let key = format!("{REMAT_CONTIG_S_PREFIX}_{}", remat_key(&self.input));
+        let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
+        let s = field_to_usize::<B::F>(s_field)?;
+
+        let contig = tracker_rc
+            .borrow_mut()
+            .get_or_build_contig_one_oracle(current_table.log_size(), s)?;
+
+        let mut oracles = current_table.tracked_oracles();
+        oracles.insert(ACTIVATOR_FIELD.clone(), contig);
+        let schema = current_table.schema_ref().map(|schema| {
+            let mut fields: Vec<_> = schema.fields().iter().cloned().collect();
+            fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+        let updated = arithmetic::table_oracle::TrackedTableOracle::new(
+            schema,
+            oracles,
+            current_table.log_size(),
+        );
+        virtualized_ir.set_payload_for_node(
+            id,
+            Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
+        );
         Ok(())
     }
     fn initialize_gadgets(
@@ -260,4 +363,31 @@ fn build_output_dataframe(input: DataFrame) -> DataFrame {
         .expect("rematerialize activator filter should succeed");
     crate::irs::nodes::hints::sort_by_row_id_if_present(filtered)
         .expect("rematerialize output sort should succeed")
+}
+
+fn remat_key<B: SnarkBackend>(input: &Node<B>) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hasher.write(input.display().as_bytes());
+    hasher.finish()
+}
+
+fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
+    let big = value.into_bigint();
+    let bytes = big.to_bytes_le();
+    let mut out: usize = 0;
+    let max = std::mem::size_of::<usize>();
+    for (i, byte) in bytes.iter().enumerate() {
+        if i >= max {
+            if *byte != 0u8 {
+                return Err(ark_piop::errors::SnarkError::VerifierError(
+                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                        "rematerialize contig s does not fit into usize".to_string(),
+                    ),
+                ));
+            }
+            continue;
+        }
+        out |= (*byte as usize) << (8 * i);
+    }
+    Ok(out)
 }
