@@ -545,8 +545,13 @@ impl<B: SnarkBackend> SignNode<B> {
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
         nv: usize,
+        use_activator: bool,
     ) -> SnarkResult<()> {
-        let col_activated_poly = col.activated_data_tracked_poly();
+        let col_activated_poly = if use_activator {
+            col.activated_data_tracked_poly()
+        } else {
+            col.data_tracked_poly()
+        };
         let label = Self::range_poly_label(nv);
         let range_poly = match prover.indexed_tracked_poly(label.clone()) {
             Ok(poly) => poly,
@@ -585,8 +590,13 @@ impl<B: SnarkBackend> SignNode<B> {
         verifier: &mut ArgVerifier<B>,
         col: &TrackedColOracle<B>,
         nv: usize,
+        use_activator: bool,
     ) -> SnarkResult<()> {
-        let col_activated_oracle = col.activated_data_tracked_oracle();
+        let col_activated_oracle = if use_activator {
+            col.activated_data_tracked_oracle()
+        } else {
+            col.data_tracked_oracle()
+        };
         let label = Self::range_poly_label(nv);
         let range_oracle = match verifier.indexed_oracle(label.clone()) {
             Ok(oracle) => oracle,
@@ -608,41 +618,41 @@ impl<B: SnarkBackend> SignNode<B> {
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_inclusion(prover, col, 8)?;
+                Self::add_range_inclusion(prover, col, 8, true)?;
             }
             DataType::Int8 => {
-                Self::add_range_inclusion(prover, col, 7)?;
+                Self::add_range_inclusion(prover, col, 7, true)?;
             }
             DataType::UInt16 => {
-                Self::add_range_inclusion(prover, col, 16)?;
+                Self::add_range_inclusion(prover, col, 16, true)?;
             }
             DataType::Int16 => {
-                Self::add_range_inclusion(prover, col, 15)?;
+                Self::add_range_inclusion(prover, col, 15, true)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
+                    Self::add_range_inclusion(prover, &segment, 16, false)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
-                Self::add_range_inclusion(prover, &chunk3, 15)?;
+                Self::add_range_inclusion(prover, &chunk3, 15, false)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
+                    Self::add_range_inclusion(prover, &segment, 16, false)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
+                    Self::add_range_inclusion(prover, &segment, 16, false)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
-                Self::add_range_inclusion(prover, &chunk3, 15)?;
+                Self::add_range_inclusion(prover, &chunk3, 15, false)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
+                    Self::add_range_inclusion(prover, &segment, 16, false)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -650,15 +660,15 @@ impl<B: SnarkBackend> SignNode<B> {
                 let (top, rest) = chunks
                     .split_first()
                     .expect("chunked integer representation must be non-empty");
-                Self::add_range_inclusion(prover, top, 15)?;
+                Self::add_range_inclusion(prover, top, 15, false)?;
                 for segment in rest {
-                    Self::add_range_inclusion(prover, segment, 16)?;
+                    Self::add_range_inclusion(prover, segment, 16, false)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = Self::prove_non_neg_uint256(prover, col)?;
                 for segment in segments {
-                    Self::add_range_inclusion(prover, &segment, 16)?;
+                    Self::add_range_inclusion(prover, &segment, 16, false)?;
                 }
             }
             _ => {
@@ -681,41 +691,41 @@ impl<B: SnarkBackend> SignNode<B> {
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_inclusion_oracle(verifier, col, 8)?;
+                Self::add_range_inclusion_oracle(verifier, col, 8, true)?;
             }
             DataType::Int8 => {
-                Self::add_range_inclusion_oracle(verifier, col, 7)?;
+                Self::add_range_inclusion_oracle(verifier, col, 7, true)?;
             }
             DataType::UInt16 => {
-                Self::add_range_inclusion_oracle(verifier, col, 16)?;
+                Self::add_range_inclusion_oracle(verifier, col, 16, true)?;
             }
             DataType::Int16 => {
-                Self::add_range_inclusion_oracle(verifier, col, 15)?;
+                Self::add_range_inclusion_oracle(verifier, col, 15, true)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint32(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int32(verifier, col)?;
-                Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
+                Self::add_range_inclusion_oracle(verifier, &chunk3, 15, false)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint64(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int64(verifier, col)?;
-                Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
+                Self::add_range_inclusion_oracle(verifier, &chunk3, 15, false)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -723,15 +733,15 @@ impl<B: SnarkBackend> SignNode<B> {
                 let (top, rest) = segments
                     .split_first()
                     .expect("chunked integer representation must be non-empty");
-                Self::add_range_inclusion_oracle(verifier, top, 15)?;
+                Self::add_range_inclusion_oracle(verifier, top, 15, false)?;
                 for segment in rest {
-                    Self::add_range_inclusion_oracle(verifier, segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, segment, 16, false)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = Self::verify_non_neg_uint256(verifier, col)?;
                 for segment in segments {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
                 }
             }
             _ => {
@@ -866,13 +876,21 @@ impl<B: SnarkBackend> SignNode<B> {
         mut eval_to_chunks: impl FnMut(B::F) -> [i64; 4],
     ) -> SnarkResult<(TrackedCol<B>, TrackedCol<B>, TrackedCol<B>, TrackedCol<B>)> {
         let evaluations = col.data_tracked_poly().evaluations();
+        let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
         let mut chunk3_vals = Vec::with_capacity(evaluations.len());
         let mut chunk2_vals = Vec::with_capacity(evaluations.len());
         let mut chunk1_vals = Vec::with_capacity(evaluations.len());
         let mut chunk0_vals = Vec::with_capacity(evaluations.len());
 
-        for &eval in evaluations.iter() {
+        for (idx, &eval) in evaluations.iter().enumerate() {
+            if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
+                chunk3_vals.push(B::F::zero());
+                chunk2_vals.push(B::F::zero());
+                chunk1_vals.push(B::F::zero());
+                chunk0_vals.push(B::F::zero());
+                continue;
+            }
             let [chunk3, chunk2, chunk1, chunk0] = eval_to_chunks(eval);
             // Preserve signed chunk semantics when lifting into field elements.
             chunk3_vals.push(B::F::from(chunk3 as i128));
@@ -896,11 +914,11 @@ impl<B: SnarkBackend> SignNode<B> {
             chunk0_poly.clone(),
         ]);
 
-        let combined = &col.data_tracked_poly() - &recomposed;
-        let zero_poly = match &col.activator_tracked_poly() {
-            Some(activator) => &combined * activator,
-            None => combined,
-        };
+        let zero_poly = &col.activated_data_tracked_poly() - &recomposed;
+        // let zero_poly = match &col.activator_tracked_poly() {
+        //     Some(activator) => &combined * activator,
+        //     None => combined,
+        // };
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
 
         let activator = col.activator_tracked_poly();
@@ -924,7 +942,6 @@ impl<B: SnarkBackend> SignNode<B> {
         TrackedColOracle<B>,
         TrackedColOracle<B>,
     )> {
-        let col_inner = tracked_col_oracle.data_tracked_oracle().clone();
         let col_activator = tracked_col_oracle.activator_tracked_oracle().clone();
 
         let chunk3_id = verifier.peek_next_id();
@@ -943,11 +960,7 @@ impl<B: SnarkBackend> SignNode<B> {
             chunk0_poly.clone(),
         ]);
 
-        let combined = &col_inner - &recomposed;
-        let zero_poly = match &col_activator {
-            Some(activator) => &combined * activator,
-            None => combined,
-        };
+        let zero_poly = &tracked_col_oracle.activated_data_tracked_oracle().clone() - &recomposed;
         verifier.add_zerocheck_claim(zero_poly.id());
 
         let field_ref = tracked_col_oracle.field_ref().clone();
@@ -966,12 +979,19 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
     ) -> SnarkResult<Vec<TrackedCol<B>>> {
         let evaluations = col.data_tracked_poly().evaluations();
+        let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
         let mut chunk_values: Vec<Vec<B::F>> = (0..8)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
-        for &eval in evaluations.iter() {
+        for (idx, &eval) in evaluations.iter().enumerate() {
+            if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
+                for target in chunk_values.iter_mut() {
+                    target.push(B::F::zero());
+                }
+                continue;
+            }
             let n = Self::field_signed_from_encoding(eval, 128);
             for (target, chunk) in chunk_values
                 .iter_mut()
@@ -1044,12 +1064,19 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
     ) -> SnarkResult<Vec<TrackedCol<B>>> {
         let evaluations = col.data_tracked_poly().evaluations();
+        let activator_evals = col.activator_tracked_poly().map(|a| a.evaluations());
         let log_size = col.log_size();
         let mut chunk_values: Vec<Vec<B::F>> = (0..16)
             .map(|_| Vec::with_capacity(evaluations.len()))
             .collect();
 
-        for &eval in evaluations.iter() {
+        for (idx, &eval) in evaluations.iter().enumerate() {
+            if activator_evals.as_ref().is_some_and(|a| a[idx].is_zero()) {
+                for target in chunk_values.iter_mut() {
+                    target.push(B::F::zero());
+                }
+                continue;
+            }
             let chunks = Self::split_field_into_u16_limbs::<16>(eval);
             for (target, chunk) in chunk_values.iter_mut().zip(chunks.iter()) {
                 target.push(B::F::from(*chunk as u64));
