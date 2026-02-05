@@ -118,7 +118,7 @@ fn bench_tpch_verifier(bencher: Bencher, case: BenchCase) {
             let assets = prepare_assets(case);
             let _ = warmup_proof(&assets);
             let bench_proof = ensure_proof(&assets);
-            log_proof_size_once(case.name, bench_proof.proof_bytes.len());
+            log_proof_size_once(case.name, &bench_proof);
             build_verifier_state(&assets, bench_proof.proof_bytes.clone())
         })
         .bench_local_values(|state| {

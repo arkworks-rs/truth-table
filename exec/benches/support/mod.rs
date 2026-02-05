@@ -60,6 +60,18 @@ pub struct BenchProof {
     #[allow(unused)]
     pub proof_path: PathBuf,
     pub proof_bytes: Vec<u8>,
+    pub snark_sc_subproof_bytes: usize,
+    pub snark_mv_pcs_subproof_bytes: usize,
+    pub snark_mv_pcs_opening_proof_bytes: usize,
+    pub snark_mv_pcs_commitments_bytes: usize,
+    pub snark_mv_pcs_query_map_bytes: usize,
+    pub snark_uv_pcs_subproof_bytes: usize,
+    pub snark_uv_pcs_opening_proof_bytes: usize,
+    pub snark_uv_pcs_commitments_bytes: usize,
+    pub snark_uv_pcs_query_map_bytes: usize,
+    pub snark_misc_field_elements_bytes: usize,
+    pub snark_proof_bytes: usize,
+    pub optimized_ir_bytes: usize,
     _temp_dir: TempDir,
 }
 
@@ -238,6 +250,11 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     let proof_path = temp_dir.path().join(format!("{case_name}.proof.pi"));
 
     let proof_bytes = proof.to_bytes().expect("serialize proof for bench");
+    let snark_breakdown = proof.snark_proof_size_breakdown_bytes();
+    let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
+    let optimized_ir_bytes = proof
+        .optimized_ir_serialized_size_bytes()
+        .expect("serialize optimized IR for bench");
 
     let file = File::create(&proof_path).expect("create proof file for bench");
     let mut writer = BufWriter::new(file);
@@ -249,6 +266,18 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     Arc::new(BenchProof {
         proof_path,
         proof_bytes,
+        snark_sc_subproof_bytes: snark_breakdown.sc_subproof,
+        snark_mv_pcs_subproof_bytes: snark_breakdown.mv_pcs_subproof,
+        snark_mv_pcs_opening_proof_bytes: snark_breakdown.mv_pcs_subproof_parts.opening_proof,
+        snark_mv_pcs_commitments_bytes: snark_breakdown.mv_pcs_subproof_parts.commitments,
+        snark_mv_pcs_query_map_bytes: snark_breakdown.mv_pcs_subproof_parts.query_map,
+        snark_uv_pcs_subproof_bytes: snark_breakdown.uv_pcs_subproof,
+        snark_uv_pcs_opening_proof_bytes: snark_breakdown.uv_pcs_subproof_parts.opening_proof,
+        snark_uv_pcs_commitments_bytes: snark_breakdown.uv_pcs_subproof_parts.commitments,
+        snark_uv_pcs_query_map_bytes: snark_breakdown.uv_pcs_subproof_parts.query_map,
+        snark_misc_field_elements_bytes: snark_breakdown.miscellaneous_field_elements,
+        snark_proof_bytes,
+        optimized_ir_bytes,
         _temp_dir: temp_dir,
     })
 }
@@ -263,12 +292,61 @@ pub fn cache_proof(case_name: &'static str, proof: Arc<BenchProof>) {
         .insert(case_name, proof);
 }
 
-pub fn log_proof_size_once(case_name: &'static str, byte_len: usize) {
+pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
     // Print proof size once per case to avoid noisy benchmark output.
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
     if guard.insert(case_name) {
-        println!("proof size ({}): {}", case_name, format_bytes(byte_len));
+        println!("proof size ({})", case_name);
+        println!(
+            "  snark_proof: {}",
+            format_bytes(proof.snark_proof_bytes)
+        );
+        println!(
+            "    sc_subproof: {}",
+            format_bytes(proof.snark_sc_subproof_bytes)
+        );
+        println!(
+            "    mv_pcs_subproof: {}",
+            format_bytes(proof.snark_mv_pcs_subproof_bytes)
+        );
+        println!(
+            "      opening_proof: {}",
+            format_bytes(proof.snark_mv_pcs_opening_proof_bytes)
+        );
+        println!(
+            "      commitments: {}",
+            format_bytes(proof.snark_mv_pcs_commitments_bytes)
+        );
+        println!(
+            "      query_map: {}",
+            format_bytes(proof.snark_mv_pcs_query_map_bytes)
+        );
+        println!(
+            "    uv_pcs_subproof: {}",
+            format_bytes(proof.snark_uv_pcs_subproof_bytes)
+        );
+        println!(
+            "      opening_proof: {}",
+            format_bytes(proof.snark_uv_pcs_opening_proof_bytes)
+        );
+        println!(
+            "      commitments: {}",
+            format_bytes(proof.snark_uv_pcs_commitments_bytes)
+        );
+        println!(
+            "      query_map: {}",
+            format_bytes(proof.snark_uv_pcs_query_map_bytes)
+        );
+        println!(
+            "    miscellaneous_field_elements: {}",
+            format_bytes(proof.snark_misc_field_elements_bytes)
+        );
+        println!(
+            "  optimized_ir: {}",
+            format_bytes(proof.optimized_ir_bytes)
+        );
+        println!("  total: {}", format_bytes(proof.proof_bytes.len()));
     }
 }
 

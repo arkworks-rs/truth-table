@@ -1358,12 +1358,22 @@ pub fn serialize_tree<B: SnarkBackend>(tree: &Tree<B>) -> TTResult<Vec<u8>> {
         plan: LogicalPlanRepr::from_plan(&plan)?,
         join_modes,
     };
+    // Prefer bincode for compactness, but only emit it if it roundtrips locally.
+    if let Ok(bytes) = bincode::serialize(&repr) {
+        if bincode::deserialize::<TreeRepr>(&bytes).is_ok() {
+            return Ok(bytes);
+        }
+    }
     serde_json::to_vec(&repr).map_err(|_| TTError::Serialization(SerializationError::InvalidData))
 }
 
 pub fn deserialize_tree<B: SnarkBackend>(bytes: &[u8]) -> TTResult<Tree<B>> {
-    let repr: TreeRepr = serde_json::from_slice(bytes)
-        .map_err(|_| TTError::Serialization(SerializationError::InvalidData))?;
+    // Backward compatibility: try bincode first (current), then JSON (legacy).
+    let repr: TreeRepr = match bincode::deserialize(bytes) {
+        Ok(repr) => repr,
+        Err(_) => serde_json::from_slice(bytes)
+            .map_err(|_| TTError::Serialization(SerializationError::InvalidData))?,
+    };
     let ctx = SessionContext::new();
     let plan = repr.plan.to_plan(&ctx)?;
     let tree = Tree::from_logical_plan(&plan);

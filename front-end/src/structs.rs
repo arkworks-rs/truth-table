@@ -1,7 +1,4 @@
-use std::{
-    io::{Cursor, Read, Write},
-    path::Path,
-};
+use std::{io::Cursor, path::Path};
 
 use ark_piop::{
     prover::structs::proof::SNARKProof,
@@ -22,6 +19,26 @@ pub struct TTProof<B: SnarkBackend> {
     snark_proof: SNARKProof<B>,
     optimized_ir: EmptyIr<B>,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct PCSSubproofSizeBreakdown {
+    pub opening_proof: usize,
+    pub commitments: usize,
+    pub query_map: usize,
+    pub total: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SnarkProofSizeBreakdown {
+    pub sc_subproof: usize,
+    pub mv_pcs_subproof: usize,
+    pub mv_pcs_subproof_parts: PCSSubproofSizeBreakdown,
+    pub uv_pcs_subproof: usize,
+    pub uv_pcs_subproof_parts: PCSSubproofSizeBreakdown,
+    pub miscellaneous_field_elements: usize,
+    pub total: usize,
+}
+
 impl<B: SnarkBackend> TTProof<B> {
     pub fn new(snark_proof: SNARKProof<B>, optimized_ir: EmptyIr<B>) -> Self {
         Self {
@@ -44,6 +61,84 @@ impl<B: SnarkBackend> TTProof<B> {
 
     pub fn optimized_ir(&self) -> &EmptyIr<B> {
         &self.optimized_ir
+    }
+
+    pub fn optimized_ir_serialized_size_bytes(&self) -> TTResult<usize> {
+        Ok(serialize_empty_ir(&self.optimized_ir)?.len())
+    }
+
+    pub fn snark_proof_serialized_size_bytes(&self) -> usize
+    where
+        SNARKProof<B>: CanonicalSerialize,
+    {
+        self.snark_proof.serialized_size(Compress::Yes)
+    }
+
+    pub fn snark_proof_size_breakdown_bytes(&self) -> SnarkProofSizeBreakdown
+    where
+        SNARKProof<B>: CanonicalSerialize,
+    {
+        let sc_subproof = self.snark_proof.sc_subproof.serialized_size(Compress::Yes);
+
+        let mv_opening_proof = self
+            .snark_proof
+            .mv_pcs_subproof
+            .opening_proof
+            .serialized_size(Compress::Yes);
+        let mv_commitments = self
+            .snark_proof
+            .mv_pcs_subproof
+            .comitments
+            .serialized_size(Compress::Yes);
+        let mv_query_map = self
+            .snark_proof
+            .mv_pcs_subproof
+            .query_map
+            .serialized_size(Compress::Yes);
+        let mv_pcs_subproof = self.snark_proof.mv_pcs_subproof.serialized_size(Compress::Yes);
+
+        let uv_opening_proof = self
+            .snark_proof
+            .uv_pcs_subproof
+            .opening_proof
+            .serialized_size(Compress::Yes);
+        let uv_commitments = self
+            .snark_proof
+            .uv_pcs_subproof
+            .comitments
+            .serialized_size(Compress::Yes);
+        let uv_query_map = self
+            .snark_proof
+            .uv_pcs_subproof
+            .query_map
+            .serialized_size(Compress::Yes);
+        let uv_pcs_subproof = self.snark_proof.uv_pcs_subproof.serialized_size(Compress::Yes);
+
+        let miscellaneous_field_elements = self
+            .snark_proof
+            .miscellaneous_field_elements
+            .serialized_size(Compress::Yes);
+        let total = self.snark_proof.serialized_size(Compress::Yes);
+
+        SnarkProofSizeBreakdown {
+            sc_subproof,
+            mv_pcs_subproof,
+            mv_pcs_subproof_parts: PCSSubproofSizeBreakdown {
+                opening_proof: mv_opening_proof,
+                commitments: mv_commitments,
+                query_map: mv_query_map,
+                total: mv_pcs_subproof,
+            },
+            uv_pcs_subproof,
+            uv_pcs_subproof_parts: PCSSubproofSizeBreakdown {
+                opening_proof: uv_opening_proof,
+                commitments: uv_commitments,
+                query_map: uv_query_map,
+                total: uv_pcs_subproof,
+            },
+            miscellaneous_field_elements,
+            total,
+        }
     }
 }
 
@@ -78,12 +173,12 @@ where
     B: SnarkBackend,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec(&self.snark_vk)
+        canonical_to_vec_uncompressed(&self.snark_vk)
     }
 
     fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
         Ok(Self {
-            snark_vk: canonical_from_slice(bytes)?,
+            snark_vk: canonical_from_slice_uncompressed(bytes)?,
         })
     }
 }
@@ -94,12 +189,12 @@ where
     SNARKPk<B>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec(&self.snark_pk)
+        canonical_to_vec_uncompressed(&self.snark_pk)
     }
 
     fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
         Ok(Self {
-            snark_pk: canonical_from_slice(bytes)?,
+            snark_pk: canonical_from_slice_uncompressed(bytes)?,
         })
     }
 }
@@ -110,11 +205,14 @@ where
     SNARKProof<B>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec(self)
+        canonical_to_vec_compressed(self)
     }
 
     fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
-        canonical_from_slice(bytes)
+        match canonical_from_slice_compressed(bytes) {
+            Ok(proof) => Ok(proof),
+            Err(_) => canonical_from_slice_uncompressed(bytes),
+        }
     }
 }
 
@@ -144,16 +242,28 @@ where
     }
 }
 
-fn canonical_to_vec<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
+fn canonical_to_vec_uncompressed<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
     let mut buffer = Vec::new();
     value.serialize_uncompressed(&mut buffer)?;
     Ok(buffer)
 }
 
 #[instrument(level = "debug", skip_all)]
-fn canonical_from_slice<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
+fn canonical_from_slice_uncompressed<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
     let mut cursor = Cursor::new(bytes);
     Ok(T::deserialize_uncompressed_unchecked(&mut cursor)?)
+}
+
+fn canonical_to_vec_compressed<T: CanonicalSerialize>(value: &T) -> TTResult<Vec<u8>> {
+    let mut buffer = Vec::new();
+    value.serialize_compressed(&mut buffer)?;
+    Ok(buffer)
+}
+
+#[instrument(level = "debug", skip_all)]
+fn canonical_from_slice_compressed<T: CanonicalDeserialize>(bytes: &[u8]) -> TTResult<T> {
+    let mut cursor = Cursor::new(bytes);
+    Ok(T::deserialize_compressed_unchecked(&mut cursor)?)
 }
 
 impl<B> Valid for TTProof<B>

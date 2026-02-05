@@ -105,7 +105,7 @@ mod test {
             proof
                 .mv_pcs_subproof
                 .comitments
-                .insert(TrackerID(id), commitment);
+                .insert(TrackerID::from_usize(id), commitment);
         }
         verifier.set_proof(proof);
         verifier
