@@ -14,6 +14,7 @@ publish = false
 [dependencies]
 proof-of-sql-benchlib = { path = "../../sxt-proof-of-sql/crates/proof-of-sql-benchlib" }
 proof-of-sql = { path = "../../sxt-proof-of-sql/crates/proof-of-sql" }
+qedb = { git = "https://github.com/alireza-shirzad/qedb.git" }
 tpch-data = { path = "../tpch-data" }
 exec = { path = "../exec" }
 tokio = { version = "1", features = ["rt", "macros"] }
@@ -25,4 +26,8 @@ harness = false
 
 [[bench]]
 name = "truth_table"
+harness = false
+
+[[bench]]
+name = "qedb"
 harness = false
