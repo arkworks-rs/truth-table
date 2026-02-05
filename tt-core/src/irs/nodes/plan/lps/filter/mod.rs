@@ -102,10 +102,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .expect("Filter predicate output should include a data column");
         let predicate_col = predicate_table.tracked_col_by_ind(predicate_data_idx);
         let predicate_poly = predicate_col.data_tracked_poly();
-        let output_activator = match input_table.activator_tracked_poly() {
-            Some(input_activator) => &predicate_poly * &input_activator,
-            None => predicate_poly,
-        };
+        // let output_activator = match input_table.activator_tracked_poly() {
+        //     Some(input_activator) => &predicate_poly * &input_activator,
+        //     None => predicate_poly,
+        // };
+        let output_activator = predicate_poly.clone();
         merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
@@ -234,10 +235,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let (_field, predicate_oracle) = binding
             .get_index(predicate_data_idx)
             .expect("predicate data index out of bounds");
-        let output_activator = match input_table.activator_tracked_poly() {
-            Some(input_activator) => predicate_oracle * &input_activator,
-            None => predicate_oracle.clone(),
-        };
+        // let output_activator = match input_table.activator_tracked_poly() {
+        //     Some(input_activator) => predicate_oracle * &input_activator,
+        //     None => predicate_oracle.clone(),
+        // };
+        let output_activator = predicate_oracle.clone();
         merged_polys.insert(ACTIVATOR_FIELD.clone(), output_activator);
 
         // Prefer existing schema metadata, otherwise inherit from the input table.
