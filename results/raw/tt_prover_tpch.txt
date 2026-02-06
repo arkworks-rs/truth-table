@@ -1,0 +1,47 @@
+     scaling factor = 0.01, Max-Deg=6 
+      ├─ tpch_q1             27.86 s       │ 27.86 s       │ 27.86 s       │ 27.86 s       │ 1       │ 1
+      ├─ tpch_q1_poneglyph   18.76 s       │ 18.76 s       │ 18.76 s       │ 18.76 s       │ 1       │ 1
+      ├─ tpch_q3             23.16 s       │ 23.16 s       │ 23.16 s       │ 23.16 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   22.56 s       │ 22.56 s       │ 22.56 s       │ 22.56 s       │ 1       │ 1
+      ├─ tpch_q5             23.27 s       │ 23.27 s       │ 23.27 s       │ 23.27 s       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   22.42 s       │ 22.42 s       │ 22.42 s       │ 22.42 s       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   48.74 s       │ 48.74 s       │ 48.74 s       │ 48.74 s       │ 1       │ 1
+      ├─ tpch_q8_tt          48.93 s       │ 48.93 s       │ 48.93 s       │ 48.93 s       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   50.47 s       │ 50.47 s       │ 50.47 s       │ 50.47 s       │ 1       │ 1
+      ├─ tpch_q9_tt          50.93 s       │ 50.93 s       │ 50.93 s       │ 50.93 s       │ 1       │ 1
+      ├─ tpch_q18            1.048 m       │ 1.048 m       │ 1.048 m       │ 1.048 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  39.64 s       │ 39.64 s       │ 39.64 s       │ 39.64 s       │ 1       │ 1
+
+scaling factor = 0.02
+
+   ╰─ bench_tpch_prover                    │               │               │               │         │
+      ├─ tpch_q1             55.39 s       │ 55.39 s       │ 55.39 s       │ 55.39 s       │ 1       │ 1
+      ├─ tpch_q1_poneglyph   35.77 s       │ 35.77 s       │ 35.77 s       │ 35.77 s       │ 1       │ 1
+      ├─ tpch_q3             43.48 s       │ 43.48 s       │ 43.48 s       │ 43.48 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   43.1 s        │ 43.1 s        │ 43.1 s        │ 43.1 s        │ 1       │ 1
+      ├─ tpch_q5             43.75 s       │ 43.75 s       │ 43.75 s       │ 43.75 s       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   42.16 s       │ 42.16 s       │ 42.16 s       │ 42.16 s       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   1.549 m       │ 1.549 m       │ 1.549 m       │ 1.549 m       │ 1       │ 1
+      ├─ tpch_q8_tt          1.532 m       │ 1.532 m       │ 1.532 m       │ 1.532 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   1.601 m       │ 1.601 m       │ 1.601 m       │ 1.601 m       │ 1       │ 1
+      ├─ tpch_q9_tt          1.63 m        │ 1.63 m        │ 1.63 m        │ 1.63 m        │ 1       │ 1
+      ├─ tpch_q18            2.048 m       │ 2.048 m       │ 2.048 m       │ 2.048 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  1.289 m       │ 1.289 m       │ 1.289 m       │ 1.289 m       │ 1       │ 1
+
+
+scaling factor = 0.04
+
+
+        ╰─ bench_tpch_prover                    │               │               │               │         │
+      ├─ tpch_q1             1.74 m        │ 1.74 m        │ 1.74 m        │ 1.74 m        │ 1       │ 1
+      ├─ tpch_q1_poneglyph   1.138 m       │ 1.138 m       │ 1.138 m       │ 1.138 m       │ 1       │ 1
+      ├─ tpch_q3             1.419 m       │ 1.419 m       │ 1.419 m       │ 1.419 m       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   1.391 m       │ 1.391 m       │ 1.391 m       │ 1.391 m       │ 1       │ 1
+      ├─ tpch_q5             1.399 m       │ 1.399 m       │ 1.399 m       │ 1.399 m       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   1.36 m        │ 1.36 m        │ 1.36 m        │ 1.36 m        │ 1       │ 1
+      ├─ tpch_q8_poneglyph   2.985 m       │ 2.985 m       │ 2.985 m       │ 2.985 m       │ 1       │ 1
+      ├─ tpch_q8_tt          2.977 m       │ 2.977 m       │ 2.977 m       │ 2.977 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   3.114 m       │ 3.114 m       │ 3.114 m       │ 3.114 m       │ 1       │ 1
+      ├─ tpch_q9_tt          3.158 m       │ 3.158 m       │ 3.158 m       │ 3.158 m       │ 1       │ 1
+      ├─ tpch_q18            3.967 m       │ 3.967 m       │ 3.967 m       │ 3.967 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  2.514 m       │ 2.514 m       │ 2.514 m       │ 2.514 m       │ 1       │ 1
