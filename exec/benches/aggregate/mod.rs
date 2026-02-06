@@ -34,8 +34,13 @@ fn aggregate_cases() -> &'static [BenchCase] {
                 tables: &["lineitem"],
             },
             BenchCase {
-                name: "aggr",
+                name: "full_aggr_count",
                 query: r#"SELECT COUNT(*) FROM lineitem"#,
+                tables: &["lineitem"],
+            },
+            BenchCase {
+                name: "full_aggr_sum",
+                query: r#"SELECT SUM(l_suppkey) FROM lineitem"#,
                 tables: &["lineitem"],
             },
         ];

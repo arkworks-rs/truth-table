@@ -344,6 +344,29 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                         panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
                     });
                 (orig_rlc, super_rlc)
+            } else if self.aggregate_function.func.name() == "sum" {
+                // For SUM, the input selector must come from the input table,
+                // while the output selector comes from the output table.
+                let input_table = self
+                    .args
+                    .first()
+                    .and_then(|arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
+                        Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("Sum AggregateFunction expects an input table payload")
+                    });
+                (
+                    constant_one_table::<B>(
+                        &input_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                    ),
+                    constant_one_table::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                    ),
+                )
             } else {
                 (
                     constant_one_table::<B>(
@@ -567,6 +590,29 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                         panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
                     });
                 (orig_rlc, super_rlc)
+            } else if self.aggregate_function.func.name() == "sum" {
+                // For SUM, the input selector must come from the input table,
+                // while the output selector comes from the output table.
+                let input_table = self
+                    .args
+                    .first()
+                    .and_then(|arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
+                        Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("Sum AggregateFunction expects an input oracle table payload")
+                    });
+                (
+                    constant_one_table_oracle::<B>(
+                        &input_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                    ),
+                    constant_one_table_oracle::<B>(
+                        &aggr_expr_table,
+                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                    ),
+                )
             } else {
                 (
                     constant_one_table_oracle::<B>(
@@ -682,6 +728,7 @@ fn constant_one_table<B: SnarkBackend>(
     )
 }
 
+
 fn constant_one_table_oracle<B: SnarkBackend>(
     base: &arithmetic::table_oracle::TrackedTableOracle<B>,
     label: &str,
@@ -711,6 +758,7 @@ fn constant_one_table_oracle<B: SnarkBackend>(
         log_size,
     )
 }
+
 
 fn lookup_child_from_aggregate_parent<B: SnarkBackend>(
     parent_node: &Arc<Node<B>>,

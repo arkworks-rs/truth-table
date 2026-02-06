@@ -269,13 +269,26 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
+        let group_output_names: HashSet<String> = self
+            .aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| match expr {
+                Expr::Column(col) => Some(col.name.clone()),
+                _ => None,
+            })
+            .collect();
         for (field, poly) in input_table.tracked_polys_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs materialized by this node; all other
-            // columns (including group keys) are sourced virtually from input.
+            // Keep aggregate outputs materialized by this node. Only group-by
+            // columns are sourced virtually from input; other input columns
+            // must not leak into the aggregate output when there are no groups.
             if aggregate_output_names.contains(field.name()) {
+                continue;
+            }
+            if !group_output_names.contains(field.name()) {
                 continue;
             }
             if let Some(existing_field) = merged_polys
@@ -335,13 +348,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Aggregate log sizes should match input");
-                current
-            }
+        // Prefer the aggregate output size from the planned payload even if it is 0
+        // (e.g., a single-row aggregate). Only fall back to the input size when the
+        // aggregate payload is missing.
+        let log_size = if current_table.schema_ref().is_some() {
+            current_table.log_size()
+        } else {
+            input_table.log_size()
         };
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);
@@ -456,13 +469,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
+        let group_output_names: HashSet<String> = self
+            .aggregate
+            .group_expr
+            .iter()
+            .filter_map(|expr| match expr {
+                Expr::Column(col) => Some(col.name.clone()),
+                _ => None,
+            })
+            .collect();
         for (field, oracle) in input_table.tracked_oracles_iter() {
             if field.name() == ACTIVATOR_COL_NAME {
                 continue;
             }
-            // Keep aggregate outputs materialized by this node; all other
-            // columns (including group keys) are sourced virtually from input.
+            // Keep aggregate outputs materialized by this node. Only group-by
+            // columns are sourced virtually from input; other input columns
+            // must not leak into the aggregate output when there are no groups.
             if aggregate_output_names.contains(field.name()) {
+                continue;
+            }
+            if !group_output_names.contains(field.name()) {
                 continue;
             }
             if let Some(existing_field) = merged_oracles
@@ -523,13 +549,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        let log_size = match (current_table.log_size(), input_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Aggregate log sizes should match input");
-                current
-            }
+        // Mirror prover: trust the planned aggregate output size even if it is 0.
+        let log_size = if current_table.schema_ref().is_some() {
+            current_table.log_size()
+        } else {
+            input_table.log_size()
         };
 
         let updated_table = TrackedTableOracle::new(schema, merged_oracles, log_size);
