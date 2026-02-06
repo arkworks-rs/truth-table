@@ -569,8 +569,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 "Aggregate aggr expr list must align with expr nodes"
             );
 
+            let count_output_names: std::collections::HashSet<String> =
+                count_output_names(&aggregate.aggr_expr).into_iter().collect();
             for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
                 let column_name = expr.schema_name().to_string();
+                if count_output_names.contains(&column_name) {
+                    continue;
+                }
                 let col_idx = find_tracked_oracle_index_by_name(current_table, &column_name);
                 let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
 
@@ -771,8 +776,13 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
         "Aggregate aggr expr list must align with expr nodes"
     );
 
+    let count_output_names: std::collections::HashSet<String> =
+        count_output_names(&aggregate.aggr_expr).into_iter().collect();
     for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
         let column_name = expr.schema_name().to_string();
+        if count_output_names.contains(&column_name) {
+            continue;
+        }
         let col_idx = find_tracked_index_by_name(current_table, &column_name);
         let aggr_table = current_table.tracked_subtable_by_indices(&[col_idx]);
 

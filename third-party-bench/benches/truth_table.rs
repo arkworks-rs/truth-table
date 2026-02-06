@@ -1,7 +1,10 @@
 use std::{path::Path, time::Instant};
 
 use exec::{
-    commit::CommitBuilder, prove::ProveBuilder, setup::SetupBuilder, verify::VerifyBuilder,
+    prove::ProveBuilder,
+    setup::SetupBuilder,
+    test_utils::resolve_oracle_path_blocking,
+    verify::VerifyBuilder,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tpch_data::preprocess_parquet;
@@ -47,12 +50,12 @@ const QUERIES: &[QuerySpec] = &[
     QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
-        sql: "SELECT COUNT(*) FROM {table}",
+        sql: "SELECT count(*) FROM {table}",
     },
     QuerySpec {
         name: "aggregate_sum",
         dir: "aggregate_sum",
-        sql: "SELECT a, SUM(b) FROM {table} GROUP BY a",
+        sql: "SELECT SUM(a) FROM {table}",
     },
     QuerySpec {
         name: "join",
@@ -67,7 +70,7 @@ fn ensure_dir(path: &Path) {
         .unwrap_or_else(|err| panic!("failed to create directory {}: {err}", dir.display()));
 }
 
-fn parquet_paths(
+fn parquet_paths_for(
     bench_root: &Path,
     pow: u32,
     query_dir: &str,
@@ -91,25 +94,11 @@ fn main() {
         for query in QUERIES {
             let is_join = query.name == "join";
             let (parquet_path, preprocessed_path) =
-                parquet_paths(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_A);
+                parquet_paths_for(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_A);
             let (parquet_path_b, preprocessed_path_b) = if is_join {
-                parquet_paths(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_B)
+                parquet_paths_for(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_B)
             } else {
                 (std::path::PathBuf::new(), std::path::PathBuf::new())
-            };
-            let oracle_path = bench_root
-                .join(ORACLE_DIR)
-                .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
-                .join(query.dir)
-                .join(format!("{JOIN_TABLE_PREFIX_A}_{pow}.oracle"));
-            let oracle_path_b = if is_join {
-                bench_root
-                    .join(ORACLE_DIR)
-                    .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
-                    .join(query.dir)
-                    .join(format!("{JOIN_TABLE_PREFIX_B}_{pow}.oracle"))
-            } else {
-                std::path::PathBuf::new()
             };
             let proof_path = bench_root
                 .join(ORACLE_DIR)
@@ -179,30 +168,20 @@ fn main() {
                 println!("preprocess_ms: {}", start.elapsed().as_millis());
             }
 
-            ensure_dir(&oracle_path);
             let start = Instant::now();
-            let runner = CommitBuilder::new()
-                .with_parquet_path(preprocessed_path.clone())
-                .with_pk_path(pk_path.clone())
-                .with_output_path(Some(oracle_path.clone()))
-                .build()
-                .expect("build commit");
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            rt.block_on(runner.run()).expect("tt commit");
+            let oracle_path =
+                resolve_oracle_path_blocking(&preprocessed_path, &pk_path).expect("resolve oracle");
             println!("commit_ms: {}", start.elapsed().as_millis());
-            if is_join {
-                ensure_dir(&oracle_path_b);
+            let oracle_path_b = if is_join {
                 let start = Instant::now();
-                let runner = CommitBuilder::new()
-                    .with_parquet_path(preprocessed_path_b.clone())
-                    .with_pk_path(pk_path.clone())
-                    .with_output_path(Some(oracle_path_b.clone()))
-                    .build()
-                    .expect("build commit");
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                rt.block_on(runner.run()).expect("tt commit");
+                let oracle =
+                    resolve_oracle_path_blocking(&preprocessed_path_b, &pk_path)
+                        .expect("resolve oracle");
                 println!("commit_ms: {}", start.elapsed().as_millis());
-            }
+                oracle
+            } else {
+                std::path::PathBuf::new()
+            };
 
             let table_name = preprocessed_path
                 .file_stem()
