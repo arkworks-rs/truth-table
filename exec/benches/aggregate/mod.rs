@@ -33,6 +33,11 @@ fn aggregate_cases() -> &'static [BenchCase] {
                 query: r#"SELECT l_suppkey, MIN(l_suppkey) FROM lineitem GROUP BY l_suppkey,l_orderkey"#,
                 tables: &["lineitem"],
             },
+            BenchCase {
+                name: "aggr",
+                query: r#"SELECT COUNT(*) FROM lineitem"#,
+                tables: &["lineitem"],
+            },
         ];
         Box::leak(cases.into_boxed_slice())
     })

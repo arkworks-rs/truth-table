@@ -72,6 +72,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // DataFusion may insert identity projections (exprs is empty). In that case,
+        // the projection is a pure pass-through, so we forward the input payload.
+        if self.exprs.is_empty() {
+            let input_id = self.input.id();
+            let input_table = match virtualized_ir.payload_for_node(&input_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection input missing tracked table payload"),
+            };
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+            return Ok(());
+        }
+
         // Collect the tracked tables produced by each projection expression.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();
         let mut activator: Option<(datafusion::arrow::datatypes::FieldRef, _)> = None;
@@ -198,6 +211,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Mirror the prover behavior: identity projections pass through the input payload.
+        if self.exprs.is_empty() {
+            let input_id = self.input.id();
+            let input_table = match virtualized_ir.payload_for_node(&input_id) {
+                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                _ => panic!("Projection input missing tracked oracle payload"),
+            };
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(input_table)));
+            return Ok(());
+        }
+
         // Mirror the prover behavior: stitch together the projection outputs from the
         // tracked oracles produced by each expression node.
         let mut output_cols: IndexMap<_, _> = IndexMap::new();

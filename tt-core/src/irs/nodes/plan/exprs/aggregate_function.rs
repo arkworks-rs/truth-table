@@ -255,6 +255,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                 return Ok(());
             }
+            // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
+            // a constant-one column aligned with the parent input activator.
+            let parent_payload = virtualized_ir
+                .payload_for_node(&parent_node.id())
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                });
+            if let Some(parent_table) = parent_payload {
+                let count_table =
+                    constant_one_table::<B>(&parent_table, &self.output_column_name_in_parent());
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                return Ok(());
+            }
         }
 
         let parent_node = self
@@ -459,6 +474,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 );
                 // Emit a virtual table named after the COUNT output column, backed by
                 // the multiplicity oracle (plus system columns).
+                virtualized_ir
+                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                return Ok(());
+            }
+            // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
+            // a constant-one oracle aligned with the parent input activator.
+            let parent_payload = virtualized_ir
+                .payload_for_node(&parent_node.id())
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                });
+            if let Some(parent_table) = parent_payload {
+                let count_table = constant_one_table_oracle::<B>(
+                    &parent_table,
+                    &self.output_column_name_in_parent(),
+                );
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                 return Ok(());

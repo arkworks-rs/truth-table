@@ -292,32 +292,35 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         // columns here instead of materializing separate aggregates.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
         if !count_output_names.is_empty() {
-            let multiplicities_table =
+            // COUNT(*) uses lookup multiplicities when available; otherwise the
+            // AggregateFunction node injects a constant-one column.
+            if let Some(multiplicities_table) =
                 lookup_super_multiplicities_table(&self.gadget, virtualized_ir)
-                    .expect("Lookup super multiplicities missing for count aggregate");
-            let data_indices = multiplicities_table.data_tracked_polys_indices();
-            if data_indices.len() != 1 {
-                panic!("Lookup multiplicities must have exactly one data column");
-            }
-            let multiplicity_col = multiplicities_table.tracked_col_by_ind(data_indices[0]);
-            let multiplicity_field = multiplicity_col
-                .field_ref()
-                .expect("Lookup multiplicity column should have field metadata");
-            let multiplicity_poly = multiplicity_col.data_tracked_poly();
+            {
+                let data_indices = multiplicities_table.data_tracked_polys_indices();
+                if data_indices.len() != 1 {
+                    panic!("Lookup multiplicities must have exactly one data column");
+                }
+                let multiplicity_col = multiplicities_table.tracked_col_by_ind(data_indices[0]);
+                let multiplicity_field = multiplicity_col
+                    .field_ref()
+                    .expect("Lookup multiplicity column should have field metadata");
+                let multiplicity_poly = multiplicity_col.data_tracked_poly();
 
-            for col_name in count_output_names {
-                let field_ref = merged_polys
-                    .keys()
-                    .find(|field| *field.name() == col_name)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        Arc::new(Field::new(
-                            col_name,
-                            multiplicity_field.data_type().clone(),
-                            multiplicity_field.is_nullable(),
-                        ))
-                    });
-                merged_polys.insert(field_ref, multiplicity_poly.clone());
+                for col_name in count_output_names {
+                    let field_ref = merged_polys
+                        .keys()
+                        .find(|field| *field.name() == col_name)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            Arc::new(Field::new(
+                                col_name,
+                                multiplicity_field.data_type().clone(),
+                                multiplicity_field.is_nullable(),
+                            ))
+                        });
+                    merged_polys.insert(field_ref, multiplicity_poly.clone());
+                }
             }
         }
 
@@ -476,32 +479,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         // columns here instead of materializing separate aggregates.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
         if !count_output_names.is_empty() {
-            let multiplicities_table =
+            // COUNT(*) uses lookup multiplicities when available; otherwise the
+            // AggregateFunction node injects a constant-one oracle.
+            if let Some(multiplicities_table) =
                 lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir)
-                    .expect("Lookup super multiplicities missing for count aggregate");
-            let data_indices = multiplicities_table.data_tracked_oracles_indices();
-            if data_indices.len() != 1 {
-                panic!("Lookup multiplicities must have exactly one data column");
-            }
-            let multiplicity_col = multiplicities_table.tracked_col_oracle_by_ind(data_indices[0]);
-            let multiplicity_field = multiplicity_col
-                .field_ref()
-                .expect("Lookup multiplicity column should have field metadata");
-            let multiplicity_oracle = multiplicity_col.data_tracked_oracle();
+            {
+                let data_indices = multiplicities_table.data_tracked_oracles_indices();
+                if data_indices.len() != 1 {
+                    panic!("Lookup multiplicities must have exactly one data column");
+                }
+                let multiplicity_col =
+                    multiplicities_table.tracked_col_oracle_by_ind(data_indices[0]);
+                let multiplicity_field = multiplicity_col
+                    .field_ref()
+                    .expect("Lookup multiplicity column should have field metadata");
+                let multiplicity_oracle = multiplicity_col.data_tracked_oracle();
 
-            for col_name in count_output_names {
-                let field_ref = merged_oracles
-                    .keys()
-                    .find(|field| *field.name() == col_name)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        Arc::new(Field::new(
-                            col_name,
-                            multiplicity_field.data_type().clone(),
-                            multiplicity_field.is_nullable(),
-                        ))
-                    });
-                merged_oracles.insert(field_ref, multiplicity_oracle.clone());
+                for col_name in count_output_names {
+                    let field_ref = merged_oracles
+                        .keys()
+                        .find(|field| *field.name() == col_name)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            Arc::new(Field::new(
+                                col_name,
+                                multiplicity_field.data_type().clone(),
+                                multiplicity_field.is_nullable(),
+                            ))
+                        });
+                    merged_oracles.insert(field_ref, multiplicity_oracle.clone());
+                }
             }
         }
 
