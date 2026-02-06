@@ -47,12 +47,12 @@ const QUERIES: &[QuerySpec] = &[
     QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
-        sql: "SELECT a, COUNT(a) AS count_a FROM {table} GROUP BY a",
+        sql: "SELECT COUNT(*) FROM {table}",
     },
     QuerySpec {
         name: "aggregate_sum",
         dir: "aggregate_sum",
-        sql: "SELECT a, SUM(a) AS sum_a FROM {table} GROUP BY a",
+        sql: "SELECT a, SUM(b) FROM {table} GROUP BY a",
     },
     QuerySpec {
         name: "join",
@@ -90,12 +90,8 @@ fn main() {
     for pow in TABLE_POW_MIN..=TABLE_POW_MAX {
         for query in QUERIES {
             let is_join = query.name == "join";
-            let (parquet_path, preprocessed_path) = parquet_paths(
-                bench_root,
-                pow,
-                query.dir,
-                JOIN_TABLE_PREFIX_A,
-            );
+            let (parquet_path, preprocessed_path) =
+                parquet_paths(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_A);
             let (parquet_path_b, preprocessed_path_b) = if is_join {
                 parquet_paths(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_B)
             } else {

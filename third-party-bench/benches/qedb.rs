@@ -38,12 +38,12 @@ const QUERIES: &[QuerySpec] = &[
     QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
-        sql: "SELECT COUNT(a) FROM {table}",
+        sql: "SELECT COUNT(b) FROM {table}",
     },
     QuerySpec {
         name: "aggregate_sum",
         dir: "aggregate_sum",
-        sql: "SELECT SUM(a) FROM {table}",
+        sql: "SELECT SUM(b) FROM {table}",
     },
 ];
 

@@ -86,22 +86,29 @@ fn custom_queries() -> Vec<QueryEntry> {
 
     let agg_table = TableDefinition {
         name: "bench_table",
-        columns: vec![(
-            "a",
-            ColumnType::BigInt,
-            Some(|size| (size / 10).max(10) as i64),
-        )],
+        columns: vec![
+            (
+                "a",
+                ColumnType::BigInt,
+                Some(|size| (size / 10).max(10) as i64),
+            ),
+            (
+                "b",
+                ColumnType::BigInt,
+                Some(|size| (size / 10).max(10) as i64),
+            ),
+        ],
     };
 
     queries.push((
         "aggregate_count",
-        "SELECT COUNT(a) FROM bench_table;",
+        "SELECT COUNT(b) FROM bench_table;",
         vec![agg_table.clone()],
         vec![],
     ));
     queries.push((
         "aggregate_sum",
-        "SELECT SUM(a) FROM bench_table;",
+        "SELECT SUM(b) FROM bench_table;",
         vec![agg_table.clone()],
         vec![],
     ));
