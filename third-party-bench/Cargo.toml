@@ -22,6 +22,7 @@ parquet = { version = "57" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-tree = "0.3"
+arrow = { version = "57" }
 
 [[bench]]
 name = "sxt_proof_of_sql"

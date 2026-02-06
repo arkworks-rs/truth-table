@@ -71,14 +71,32 @@ where
     ) -> Option<CommittedPayload<B>> {
         match payload? {
             ArithPayload::PlanPayload(arith_table) => {
-                if node.name() == "TableScan"
-                    && let Some(schema) = arith_table.schema()
-                    && let Some(oracle) = self.ctx_oracles.table_oracle(&schema)
-                {
-                    debug!( node = %node.name(), num=%oracle.comitments().len(), "commitment loaded");
-                    self.total_ctx_loaded
-                        .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
-                    return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                if node.name() == "TableScan" {
+                    if let Some(schema) = arith_table.schema() {
+                        if let Some(oracle) = self.ctx_oracles.table_oracle(&schema) {
+                            debug!(
+                                node = %node.name(),
+                                num = %oracle.comitments().len(),
+                                "commitment loaded"
+                            );
+                            self.total_ctx_loaded
+                                .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
+                            return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                        }
+                        if let Some(oracle) = self
+                            .ctx_oracles
+                            .table_oracles()
+                            .iter()
+                            .find_map(|(ctx_schema, oracle)| {
+                                schema_eq_ignoring_metadata(ctx_schema, &schema)
+                                    .then_some(oracle)
+                            })
+                        {
+                            self.total_ctx_loaded
+                                .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
+                            return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                        }
+                    }
                 }
                 let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
                 debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
@@ -148,6 +166,22 @@ fn arith_to_oracle<B: SnarkBackend>(
 
     let schema = enrich_schema_with_constraint_summary(arith_table.schema());
     ArithTableOracle::new(schema, commitments, arith_table.log_size())
+}
+
+fn schema_eq_ignoring_metadata(left: &Schema, right: &Schema) -> bool {
+    if left.fields().len() != right.fields().len() {
+        return false;
+    }
+    left
+        .fields()
+        .iter()
+        .zip(right.fields().iter())
+        .all(|(l, r)| {
+            l.name() == r.name()
+                && l.data_type() == r.data_type()
+                && l.is_nullable() == r.is_nullable()
+                && l.metadata() == r.metadata()
+        })
 }
 
 fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {

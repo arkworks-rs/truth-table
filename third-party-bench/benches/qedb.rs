@@ -22,23 +22,13 @@ struct QuerySpec {
 const QUERIES: &[QuerySpec] = &[
     QuerySpec {
         name: "filter",
-        dir: "Filter",
-        sql: "SELECT a FROM {table} WHERE b=4379",
-    },
-    QuerySpec {
-        name: "filter_complex_and",
-        dir: "filter_complex_and",
-        sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2 AND c = 3 AND d = 4",
+        dir: "filter",
+        sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2",
     },
     QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
         sql: "SELECT COUNT(b) FROM {table}",
-    },
-    QuerySpec {
-        name: "aggregate_sum",
-        dir: "aggregate_sum",
-        sql: "SELECT SUM(b) FROM {table}",
     },
 ];
 

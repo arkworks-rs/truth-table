@@ -62,6 +62,6 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
-        Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
+        // Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
     ]
 }

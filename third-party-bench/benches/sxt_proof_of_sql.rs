@@ -27,9 +27,6 @@ enum BenchScheme {
 
 fn custom_queries() -> Vec<QueryEntry> {
     let mut queries = Vec::new();
-    if let Some(filter) = get_query("Filter") {
-        queries.push(filter);
-    }
     if let Some(join) = get_query("Join") {
         queries.push(join);
     }
@@ -64,15 +61,10 @@ fn custom_queries() -> Vec<QueryEntry> {
     };
 
     queries.push((
-        "filter_complex_and",
-        "SELECT * FROM bench_table WHERE a = $1 AND b = $2 AND c = $3 AND d = $4;",
+        "filter",
+        "SELECT * FROM bench_table WHERE a = $1 AND b = $2;",
         vec![table.clone()],
-        vec![
-            LiteralValue::BigInt(1),
-            LiteralValue::BigInt(2),
-            LiteralValue::BigInt(3),
-            LiteralValue::BigInt(4),
-        ],
+        vec![LiteralValue::BigInt(1), LiteralValue::BigInt(2)],
     ));
 
     let agg_table = TableDefinition {
@@ -97,13 +89,6 @@ fn custom_queries() -> Vec<QueryEntry> {
         vec![agg_table.clone()],
         vec![],
     ));
-    queries.push((
-        "aggregate_sum",
-        "SELECT SUM(b) FROM bench_table;",
-        vec![agg_table.clone()],
-        vec![],
-    ));
-
     queries
 }
 

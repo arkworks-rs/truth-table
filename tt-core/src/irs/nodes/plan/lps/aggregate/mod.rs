@@ -301,15 +301,22 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             merged_polys.insert(field.clone(), poly.clone());
         }
 
-        // COUNT outputs are sourced from lookup multiplicities; override those
-        // columns here instead of materializing separate aggregates.
+        // COUNT outputs may be sourced from lookup multiplicities when present.
+        // Only inject multiplicities if the COUNT column is missing from the
+        // materialized aggregate output.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
-        if !count_output_names.is_empty() {
-            // COUNT(*) uses lookup multiplicities when available; otherwise the
-            // AggregateFunction node injects a constant-one column.
-            if let Some(multiplicities_table) =
-                lookup_super_multiplicities_table(&self.gadget, virtualized_ir)
-            {
+        if !count_output_names.is_empty()
+            && lookup_super_multiplicities_table(&self.gadget, virtualized_ir).is_some()
+        {
+            let missing_count_outputs: Vec<String> = count_output_names
+                .iter()
+                .filter(|name| merged_polys.keys().all(|field| field.name() != *name))
+                .cloned()
+                .collect();
+            if !missing_count_outputs.is_empty() {
+                let multiplicities_table =
+                    lookup_super_multiplicities_table(&self.gadget, virtualized_ir)
+                        .expect("multiplicities should be available");
                 let data_indices = multiplicities_table.data_tracked_polys_indices();
                 if data_indices.len() != 1 {
                     panic!("Lookup multiplicities must have exactly one data column");
@@ -320,18 +327,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                     .expect("Lookup multiplicity column should have field metadata");
                 let multiplicity_poly = multiplicity_col.data_tracked_poly();
 
-                for col_name in count_output_names {
-                    let field_ref = merged_polys
-                        .keys()
-                        .find(|field| *field.name() == col_name)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            Arc::new(Field::new(
-                                col_name,
-                                multiplicity_field.data_type().clone(),
-                                multiplicity_field.is_nullable(),
-                            ))
-                        });
+                for col_name in missing_count_outputs {
+                    let field_ref = Arc::new(Field::new(
+                        col_name,
+                        multiplicity_field.data_type().clone(),
+                        multiplicity_field.is_nullable(),
+                    ));
                     merged_polys.insert(field_ref, multiplicity_poly.clone());
                 }
             }
@@ -415,16 +416,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
-        // COUNT outputs are supplied by lookup multiplicities, so they should
-        // remain virtual (do not materialize them here).
-        let count_output_names: std::collections::HashSet<String> =
-            count_output_names(&self.aggregate.aggr_expr)
-                .into_iter()
-                .collect();
         let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
             .iter()
             .map(|field| field.name().to_string())
-            .filter(|name| !count_output_names.contains(name))
             .collect();
         let should_materialize: IndexMap<FieldRef, bool> = output
             .schema()
@@ -501,15 +495,22 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             merged_oracles.insert(field.clone(), oracle.clone());
         }
 
-        // COUNT outputs are sourced from lookup multiplicities; override those
-        // columns here instead of materializing separate aggregates.
+        // COUNT outputs may be sourced from lookup multiplicities when present.
+        // Only inject multiplicities if the COUNT column is missing from the
+        // materialized aggregate output.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
-        if !count_output_names.is_empty() {
-            // COUNT(*) uses lookup multiplicities when available; otherwise the
-            // AggregateFunction node injects a constant-one oracle.
-            if let Some(multiplicities_table) =
-                lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir)
-            {
+        if !count_output_names.is_empty()
+            && lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir).is_some()
+        {
+            let missing_count_outputs: Vec<String> = count_output_names
+                .iter()
+                .filter(|name| merged_oracles.keys().all(|field| field.name() != *name))
+                .cloned()
+                .collect();
+            if !missing_count_outputs.is_empty() {
+                let multiplicities_table =
+                    lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir)
+                        .expect("multiplicities should be available");
                 let data_indices = multiplicities_table.data_tracked_oracles_indices();
                 if data_indices.len() != 1 {
                     panic!("Lookup multiplicities must have exactly one data column");
@@ -521,18 +522,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                     .expect("Lookup multiplicity column should have field metadata");
                 let multiplicity_oracle = multiplicity_col.data_tracked_oracle();
 
-                for col_name in count_output_names {
-                    let field_ref = merged_oracles
-                        .keys()
-                        .find(|field| *field.name() == col_name)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            Arc::new(Field::new(
-                                col_name,
-                                multiplicity_field.data_type().clone(),
-                                multiplicity_field.is_nullable(),
-                            ))
-                        });
+                for col_name in missing_count_outputs {
+                    let field_ref = Arc::new(Field::new(
+                        col_name,
+                        multiplicity_field.data_type().clone(),
+                        multiplicity_field.is_nullable(),
+                    ));
                     merged_oracles.insert(field_ref, multiplicity_oracle.clone());
                 }
             }

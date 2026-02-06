@@ -25,8 +25,8 @@ const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
-const TABLE_POW_MIN: u32 = 10;
-const TABLE_POW_MAX: u32 = 16;
+const TABLE_POW_MIN: u32 = 18;
+const TABLE_POW_MAX: u32 = 18;
 
 struct QuerySpec {
     name: &'static str,
@@ -38,28 +38,13 @@ struct QuerySpec {
 const QUERIES: &[QuerySpec] = &[
     QuerySpec {
         name: "filter",
-        dir: "Filter",
-        sql: "SELECT a FROM {table} WHERE b=4379",
-    },
-    QuerySpec {
-        name: "filter_complex_and",
-        dir: "filter_complex_and",
-        sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2 AND c = 3 AND d = 4",
+        dir: "filter",
+        sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2",
     },
     // QuerySpec {
-    //     name: "filter_complex_or",
-    //     dir: "filter_complex_or",
-    //     sql: "SELECT * FROM {table} WHERE a = 1 OR b = 2 OR c = 3 OR d = 4",
-    // },
-    QuerySpec {
-        name: "aggregate_count",
-        dir: "aggregate_count",
-        sql: "SELECT count(*) FROM {table}",
-    },
-    // QuerySpec {
-    //     name: "aggregate_sum",
-    //     dir: "aggregate_sum",
-    //     sql: "SELECT SUM(a) FROM {table}",
+    //     name: "aggregate_count",
+    //     dir: "aggregate_count",
+    //     sql: "SELECT count(*) FROM {table}",
     // },
     // QuerySpec {
     //     name: "join",
@@ -103,6 +88,7 @@ fn main() {
     for pow in TABLE_POW_MIN..=TABLE_POW_MAX {
         for query in QUERIES {
             let is_join = query.name == "join";
+            let table_size = 1usize << pow;
             let (parquet_path, preprocessed_path) =
                 parquet_paths_for(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_A);
             let (parquet_path_b, preprocessed_path_b) = if is_join {
@@ -137,7 +123,8 @@ fn main() {
             let total_rows = builder.metadata().file_metadata().num_rows() as usize;
             let mut log_size = (total_rows.max(1) as f64).log2().ceil() as usize;
             if is_join {
-                log_size = 7+(total_rows.max(1) as f64).log2().ceil() as usize;
+                let base = (total_rows.max(1) as f64).log2().ceil() as usize;
+                log_size = (base + 1).max(16);
             }
             let pk_path = bench_root
                 .join(PARQUET_DIR)
@@ -282,7 +269,6 @@ fn init_bench_tracing() {
         let tree_layer = HierarchicalLayer::default()
             .with_targets(false)
             .with_timer(tracing_tree::time::Uptime::default())
-            .with_indent_lines(true)
             .with_deferred_spans(true)
             .with_writer(std::io::stdout);
 
