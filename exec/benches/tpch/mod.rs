@@ -14,31 +14,31 @@ fn tpch_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let q1 = query_spec(1, false);
-        println!("TPCH Q1 SQL: {}", q1.sql);
+        // println!("TPCH Q1 SQL: {}", q1.sql);
         let q1_poneglyph = query_spec(1, true);
-        println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
+        // println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
         let q3 = query_spec(3, false);
-        println!("TPCH Q3 SQL: {}", q3.sql);
+        // println!("TPCH Q3 SQL: {}", q3.sql);
         let q3_poneglyph = query_spec(3, true);
-        println!("TPCH Q3 Poneglyph SQL: {}", q3_poneglyph.sql);
+        // println!("TPCH Q3 Poneglyph SQL: {}", q3_poneglyph.sql);
         let q5 = query_spec(5, false);
-        println!("TPCH Q5 SQL: {}", q5.sql);
+        // println!("TPCH Q5 SQL: {}", q5.sql);
         let q5_poneglyph = query_spec(5, true);
-        println!("TPCH Q5 Poneglyph SQL: {}", q5_poneglyph.sql);
+        // println!("TPCH Q5 Poneglyph SQL: {}", q5_poneglyph.sql);
         let q8 = query_spec(8, false);
-        println!("TPCH Q8 SQL: {}", q8.sql);
+        // println!("TPCH Q8 SQL: {}", q8.sql);
         let q8_poneglyph = query_spec(8, true);
-        println!("TPCH Q8 Poneglyph SQL: {}", q8_poneglyph.sql);
+        // println!("TPCH Q8 Poneglyph SQL: {}", q8_poneglyph.sql);
         let q9 = query_spec(9, false);
-        println!("TPCH Q9 SQL: {}", q9.sql);
+        // println!("TPCH Q9 SQL: {}", q9.sql);
         let q9_poneglyph = query_spec(9, true);
-        println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
+        // println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
         let q18 = query_spec(18, false);
-        println!("TPCH Q18 SQL: {}", q18.sql);
+        // println!("TPCH Q18 SQL: {}", q18.sql);
         let q18_poneglyph = query_spec(18, true);
-        println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
+        // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
         let q19 = query_spec(19, false);
-        println!("TPCH Q19 SQL: {}", q19.sql);
+        // println!("TPCH Q19 SQL: {}", q19.sql);
 
         let cases = vec![
             BenchCase {
