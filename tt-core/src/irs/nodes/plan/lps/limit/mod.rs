@@ -19,10 +19,10 @@ use crate::{
 use ark_ff::BigInteger;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::Limit;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 /// The implementation of a filter node in the prover proof tree.
 pub struct LpNode<B>
 where
@@ -34,6 +34,7 @@ where
 }
 
 const LIMIT_CONTIG_S_PREFIX: &str = "limit_contig_s";
+const LIMIT_CONTIG_SUM_PREFIX: &str = "limit_contig_sum";
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
@@ -152,12 +153,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 .find(|field| field.name() == ACTIVATOR_COL_NAME)
                 .cloned()
                 .unwrap_or_else(|| arithmetic::ACTIVATOR_FIELD.clone());
-            merged_polys.insert(activator_field, output_act);
+            merged_polys.insert(activator_field, output_act.clone());
 
             let key = format!("{LIMIT_CONTIG_S_PREFIX}_{}", limit_key(&self.limit));
             tracker_rc
                 .borrow_mut()
                 .insert_miscellaneous_field(key, B::F::from(s as u64));
+            // Store the actual sum of the output activator for the sumcheck claim.
+            let sum_key = format!("{LIMIT_CONTIG_SUM_PREFIX}_{}", limit_key(&self.limit));
+            let output_sum = output_act.evaluations().iter().copied().sum::<B::F>();
+            tracker_rc
+                .borrow_mut()
+                .insert_miscellaneous_field(sum_key, output_sum);
         }
 
         let updated_table = TrackedTable::new(schema, merged_polys, log_size);

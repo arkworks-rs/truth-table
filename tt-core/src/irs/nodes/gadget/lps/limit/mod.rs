@@ -104,14 +104,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let output_act = output_table
-            .activator_tracked_poly()
-            .expect("Limit gadget missing output activator");
+        let data_indices = output_table.data_tracked_polys_indices();
+        let output_act = match data_indices.as_slice() {
+            [idx] => output_table.tracked_col_by_ind(*idx).data_tracked_poly(),
+            _ => panic!("Limit gadget expects a single output activator column"),
+        };
 
-        let s_key = format!("limit_contig_s_{}", limit_key(&self.limit));
-        let s = prover.miscellaneous_field_element(&s_key)?;
+        let sum_key = format!("limit_contig_sum_{}", limit_key(&self.limit));
+        let claimed_sum = prover.miscellaneous_field_element(&sum_key)?;
 
-        prover.add_mv_sumcheck_claim(output_act.id(), s)?;
+        prover.add_mv_sumcheck_claim(output_act.id(), claimed_sum)?;
         Ok(())
     }
 
@@ -141,14 +143,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let output_act = output_table
-            .activator_tracked_poly()
-            .expect("Limit gadget missing output activator");
+        let data_indices = output_table.data_tracked_oracles_indices();
+        let output_act = match data_indices.as_slice() {
+            [idx] => output_table.tracked_col_oracle_by_ind(*idx).data_tracked_oracle(),
+            _ => panic!("Limit gadget expects a single output activator column"),
+        };
 
-        let s_key = format!("limit_contig_s_{}", limit_key(&self.limit));
-        let s = verifier.miscellaneous_field_element(&s_key)?;
+        let sum_key = format!("limit_contig_sum_{}", limit_key(&self.limit));
+        let claimed_sum = verifier.miscellaneous_field_element(&sum_key)?;
 
-        verifier.add_sumcheck_claim(output_act.id(), s);
+        verifier.add_sumcheck_claim(output_act.id(), claimed_sum);
         Ok(())
     }
 
