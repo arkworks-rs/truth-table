@@ -31,11 +31,6 @@ const QUERIES: &[QuerySpec] = &[
         sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2 AND c = 3 AND d = 4",
     },
     QuerySpec {
-        name: "filter_complex_or",
-        dir: "filter_complex_or",
-        sql: "SELECT * FROM {table} WHERE a = 1 OR b = 2 OR c = 3 OR d = 4",
-    },
-    QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
         sql: "SELECT COUNT(b) FROM {table}",

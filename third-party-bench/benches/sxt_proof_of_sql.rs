@@ -33,6 +33,9 @@ fn custom_queries() -> Vec<QueryEntry> {
     if let Some(join) = get_query("Join") {
         queries.push(join);
     }
+    if let Some(limit_offset) = get_query("Limit Offset") {
+        queries.push(limit_offset);
+    }
 
     let table = TableDefinition {
         name: "bench_table",
@@ -64,18 +67,6 @@ fn custom_queries() -> Vec<QueryEntry> {
         "filter_complex_and",
         "SELECT * FROM bench_table WHERE a = $1 AND b = $2 AND c = $3 AND d = $4;",
         vec![table.clone()],
-        vec![
-            LiteralValue::BigInt(1),
-            LiteralValue::BigInt(2),
-            LiteralValue::BigInt(3),
-            LiteralValue::BigInt(4),
-        ],
-    ));
-
-    queries.push((
-        "filter_complex_or",
-        "SELECT * FROM bench_table WHERE a = $1 OR b = $2 OR c = $3 OR d = $4;",
-        vec![table],
         vec![
             LiteralValue::BigInt(1),
             LiteralValue::BigInt(2),

@@ -19,6 +19,9 @@ tpch-data = { path = "../tpch-data" }
 exec = { path = "../exec" }
 tokio = { version = "1", features = ["rt", "macros"] }
 parquet = { version = "57" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-tree = "0.3"
 
 [[bench]]
 name = "sxt_proof_of_sql"

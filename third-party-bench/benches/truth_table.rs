@@ -8,6 +8,10 @@ use exec::{
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tpch_data::preprocess_parquet;
+use tracing::Metadata;
+use tracing_subscriber::{filter::filter_fn, fmt::format::FmtSpan, prelude::*, EnvFilter};
+use tracing_tree::HierarchicalLayer;
+use std::sync::OnceLock;
 
 // Paths for input/output artifacts.
 const PARQUET_DIR: &str = "artifact";
@@ -22,7 +26,7 @@ const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
 const TABLE_POW_MIN: u32 = 10;
-const TABLE_POW_MAX: u32 = 20;
+const TABLE_POW_MAX: u32 = 16;
 
 struct QuerySpec {
     name: &'static str,
@@ -42,26 +46,31 @@ const QUERIES: &[QuerySpec] = &[
         dir: "filter_complex_and",
         sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2 AND c = 3 AND d = 4",
     },
-    QuerySpec {
-        name: "filter_complex_or",
-        dir: "filter_complex_or",
-        sql: "SELECT * FROM {table} WHERE a = 1 OR b = 2 OR c = 3 OR d = 4",
-    },
+    // QuerySpec {
+    //     name: "filter_complex_or",
+    //     dir: "filter_complex_or",
+    //     sql: "SELECT * FROM {table} WHERE a = 1 OR b = 2 OR c = 3 OR d = 4",
+    // },
     QuerySpec {
         name: "aggregate_count",
         dir: "aggregate_count",
         sql: "SELECT count(*) FROM {table}",
     },
-    QuerySpec {
-        name: "aggregate_sum",
-        dir: "aggregate_sum",
-        sql: "SELECT SUM(a) FROM {table}",
-    },
-    QuerySpec {
-        name: "join",
-        dir: "Join",
-        sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
-    },
+    // QuerySpec {
+    //     name: "aggregate_sum",
+    //     dir: "aggregate_sum",
+    //     sql: "SELECT SUM(a) FROM {table}",
+    // },
+    // QuerySpec {
+    //     name: "join",
+    //     dir: "Join",
+    //     sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
+    // },
+    // QuerySpec {
+    //     name: "limit_offset",
+    //     dir: "Limit_Offset",
+    //     sql: "SELECT * FROM {table} LIMIT 10",
+    // },
 ];
 
 fn ensure_dir(path: &Path) {
@@ -86,6 +95,7 @@ fn parquet_paths_for(
 }
 
 fn main() {
+    init_bench_tracing();
     let bench_root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     println!("table_sizes: 2^{}..=2^{}", TABLE_POW_MIN, TABLE_POW_MAX);
@@ -125,7 +135,10 @@ fn main() {
             let builder =
                 ParquetRecordBatchReaderBuilder::try_new(raw_file).expect("parquet reader");
             let total_rows = builder.metadata().file_metadata().num_rows() as usize;
-            let log_size = (total_rows.max(1) as f64).log2().ceil() as usize;
+            let mut log_size = (total_rows.max(1) as f64).log2().ceil() as usize;
+            if is_join {
+                log_size = 7+(total_rows.max(1) as f64).log2().ceil() as usize;
+            }
             let pk_path = bench_root
                 .join(PARQUET_DIR)
                 .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
@@ -249,4 +262,40 @@ fn main() {
             println!("----------------------------------------");
         }
     }
+}
+
+fn init_bench_tracing() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        // Default to off; honor RUST_LOG when set.
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+        let mut filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("off"));
+        if !rust_log.contains("datafusion") {
+            filter = filter.add_directive("datafusion=off".parse().expect("datafusion directive"));
+            filter = filter.add_directive("datafusion_=off".parse().expect("datafusion directive"));
+        }
+        if !rust_log.contains("sqlparser") {
+            filter = filter.add_directive("sqlparser=off".parse().expect("sqlparser directive"));
+        }
+
+        let tree_layer = HierarchicalLayer::default()
+            .with_targets(false)
+            .with_timer(tracing_tree::time::Uptime::default())
+            .with_indent_lines(true)
+            .with_deferred_spans(true)
+            .with_writer(std::io::stdout);
+
+        let span_timing_layer = tracing_subscriber::fmt::layer()
+            .with_span_events(FmtSpan::CLOSE)
+            .with_timer(tracing_subscriber::fmt::time::Uptime::default())
+            .with_target(false)
+            .with_filter(filter_fn(|metadata: &Metadata<'_>| metadata.is_span()));
+
+        let _ = tracing_subscriber::registry()
+            .with(filter)
+            .with(tree_layer)
+            .with(span_timing_layer)
+            .try_init();
+    });
 }
