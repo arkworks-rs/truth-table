@@ -1,0 +1,49 @@
+pow: 10 query: filter
+prove_ms: 344
+verify_ms: 42
+proof_bytes: 3558
+----------------------------------------
+pow: 10 query: aggregate_count
+prove_ms: 362
+verify_ms: 10
+proof_bytes: 492
+----------------------------------------
+pow: 11 query: filter
+prove_ms: 631
+verify_ms: 46
+proof_bytes: 3558
+----------------------------------------
+pow: 11 query: aggregate_count
+prove_ms: 652
+verify_ms: 11
+proof_bytes: 492
+----------------------------------------
+pow: 12 query: filter
+prove_ms: 1425
+verify_ms: 74
+proof_bytes: 3558
+----------------------------------------
+pow: 12 query: aggregate_count
+prove_ms: 1205
+verify_ms: 13
+proof_bytes: 492
+----------------------------------------
+pow: 13 query: filter
+prove_ms: 2308
+verify_ms: 77
+proof_bytes: 3558
+----------------------------------------
+pow: 13 query: aggregate_count
+prove_ms: 2215
+verify_ms: 16
+proof_bytes: 492
+----------------------------------------
+pow: 14 query: filter
+prove_ms: 3943
+verify_ms: 122
+proof_bytes: 3558
+----------------------------------------
+pow: 14 query: aggregate_count
+prove_ms: 4056
+verify_ms: 26
+proof_bytes: 492

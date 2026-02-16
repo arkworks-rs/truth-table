@@ -1,0 +1,281 @@
+table_sizes: 2^10..=2^20
+pow: 10 query: filter parquet_rows: 1024 log_size: 10
+commit_ms: 0
+prove_ms: 49
+proof_bytes: 5018
+proof verified successfully
+verify_ms: 9
+----------------------------------------
+pow: 10 query: aggregate_count parquet_rows: 1024 log_size: 10
+commit_ms: 0
+prove_ms: 14
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 10 query: join parquet_rows: 512 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 5194
+proof_bytes: 16173
+proof verified successfully
+verify_ms: 39
+----------------------------------------
+pow: 10 query: limit_offset parquet_rows: 1024 log_size: 10
+commit_ms: 0
+prove_ms: 9
+proof_bytes: 3101
+proof verified successfully
+verify_ms: 7
+----------------------------------------
+pow: 11 query: filter parquet_rows: 2048 log_size: 11
+commit_ms: 0
+prove_ms: 66
+proof_bytes: 5418
+proof verified successfully
+verify_ms: 11
+----------------------------------------
+pow: 11 query: aggregate_count parquet_rows: 2048 log_size: 11
+commit_ms: 0
+prove_ms: 16
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 11 query: join parquet_rows: 1024 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 5826
+proof_bytes: 16172
+proof verified successfully
+verify_ms: 32
+----------------------------------------
+pow: 11 query: limit_offset parquet_rows: 2048 log_size: 11
+commit_ms: 0
+prove_ms: 10
+proof_bytes: 3333
+proof verified successfully
+verify_ms: 6
+----------------------------------------
+pow: 12 query: filter parquet_rows: 4096 log_size: 12
+commit_ms: 0
+prove_ms: 94
+proof_bytes: 5818
+proof verified successfully
+verify_ms: 10
+----------------------------------------
+pow: 12 query: aggregate_count parquet_rows: 4096 log_size: 12
+commit_ms: 0
+prove_ms: 20
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 12 query: join parquet_rows: 2048 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 4320
+proof_bytes: 16172
+proof verified successfully
+verify_ms: 32
+----------------------------------------
+pow: 12 query: limit_offset parquet_rows: 4096 log_size: 12
+commit_ms: 0
+prove_ms: 18
+proof_bytes: 3565
+proof verified successfully
+verify_ms: 8
+----------------------------------------
+pow: 13 query: filter parquet_rows: 8192 log_size: 13
+commit_ms: 0
+prove_ms: 167
+proof_bytes: 6218
+proof verified successfully
+verify_ms: 10
+----------------------------------------
+pow: 13 query: aggregate_count parquet_rows: 8192 log_size: 13
+commit_ms: 0
+prove_ms: 23
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 13 query: join parquet_rows: 4096 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 5402
+proof_bytes: 16173
+proof verified successfully
+verify_ms: 34
+----------------------------------------
+pow: 13 query: limit_offset parquet_rows: 8192 log_size: 13
+commit_ms: 0
+prove_ms: 18
+proof_bytes: 3797
+proof verified successfully
+verify_ms: 6
+----------------------------------------
+pow: 14 query: filter parquet_rows: 16384 log_size: 14
+commit_ms: 0
+prove_ms: 309
+proof_bytes: 6618
+proof verified successfully
+verify_ms: 10
+----------------------------------------
+pow: 14 query: aggregate_count parquet_rows: 16384 log_size: 14
+commit_ms: 0
+prove_ms: 34
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 14 query: join parquet_rows: 8192 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 6093
+proof_bytes: 16172
+proof verified successfully
+verify_ms: 32
+----------------------------------------
+pow: 14 query: limit_offset parquet_rows: 16384 log_size: 14
+commit_ms: 0
+prove_ms: 31
+proof_bytes: 4029
+proof verified successfully
+verify_ms: 7
+----------------------------------------
+pow: 15 query: filter parquet_rows: 32768 log_size: 15
+commit_ms: 0
+prove_ms: 562
+proof_bytes: 7018
+proof verified successfully
+verify_ms: 11
+----------------------------------------
+pow: 15 query: aggregate_count parquet_rows: 32768 log_size: 15
+commit_ms: 0
+prove_ms: 57
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 15 query: join parquet_rows: 16384 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 7947
+proof_bytes: 16173
+proof verified successfully
+verify_ms: 40
+----------------------------------------
+pow: 15 query: limit_offset parquet_rows: 32768 log_size: 15
+commit_ms: 0
+prove_ms: 72
+proof_bytes: 4261
+proof verified successfully
+verify_ms: 9
+----------------------------------------
+pow: 16 query: filter parquet_rows: 65536 log_size: 16
+commit_ms: 0
+prove_ms: 1094
+proof_bytes: 7418
+proof verified successfully
+verify_ms: 12
+----------------------------------------
+pow: 16 query: aggregate_count parquet_rows: 65536 log_size: 16
+commit_ms: 0
+prove_ms: 105
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 16 query: join parquet_rows: 32768 log_size: 16
+commit_ms: 0
+commit_ms: 0
+prove_ms: 9793
+proof_bytes: 16173
+proof verified successfully
+verify_ms: 33
+----------------------------------------
+pow: 16 query: limit_offset parquet_rows: 65536 log_size: 16
+commit_ms: 0
+prove_ms: 102
+proof_bytes: 4493
+proof verified successfully
+verify_ms: 8
+----------------------------------------
+pow: 17 query: filter parquet_rows: 131072 log_size: 17
+commit_ms: 0
+prove_ms: 1972
+proof_bytes: 7818
+proof verified successfully
+verify_ms: 12
+----------------------------------------
+pow: 17 query: aggregate_count parquet_rows: 131072 log_size: 17
+commit_ms: 0
+prove_ms: 200
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 17 query: join parquet_rows: 65536 log_size: 17
+commit_ms: 0
+commit_ms: 0
+prove_ms: 18990
+proof_bytes: 16604
+proof verified successfully
+verify_ms: 33
+----------------------------------------
+pow: 17 query: limit_offset parquet_rows: 131072 log_size: 17
+commit_ms: 0
+prove_ms: 206
+proof_bytes: 4725
+proof verified successfully
+verify_ms: 8
+----------------------------------------
+pow: 18 query: filter parquet_rows: 262144 log_size: 18
+commit_ms: 0
+prove_ms: 3794
+proof_bytes: 8218
+proof verified successfully
+verify_ms: 13
+----------------------------------------
+pow: 18 query: aggregate_count parquet_rows: 262144 log_size: 18
+commit_ms: 0
+prove_ms: 430
+proof_bytes: 562
+proof verified successfully
+verify_ms: 4
+----------------------------------------
+pow: 18 query: join parquet_rows: 131072 log_size: 18
+commit_ms: 0
+commit_ms: 0
+prove_ms: 35723
+proof_bytes: 17036
+proof verified successfully
+verify_ms: 33
+----------------------------------------
+pow: 18 query: limit_offset parquet_rows: 262144 log_size: 18
+commit_ms: 0
+prove_ms: 399
+proof_bytes: 4957
+proof verified successfully
+verify_ms: 8
+----------------------------------------
+pow: 19 query: filter parquet_rows: 524288 log_size: 19
+commit_ms: 0
+prove_ms: 7839
+proof_bytes: 8618
+proof verified successfully
+verify_ms: 13
+----------------------------------------
+pow: 19 query: aggregate_count parquet_rows: 524288 log_size: 19
+commit_ms: 0
+prove_ms: 848
+proof_bytes: 562
+proof verified successfully
+verify_ms: 6
+----------------------------------------
+pow: 19 query: join parquet_rows: 262144 log_size: 19
+commit_ms: 0
+commit_ms: 0
+prove_ms: 70837
+proof_bytes: 17468
