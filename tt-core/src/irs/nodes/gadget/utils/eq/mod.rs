@@ -6,10 +6,9 @@
 //! 3. Masking with the shared activator (if present).
 //! 4. Emitting a zero-check claim in both prover and verifier flows.
 
-use std::marker::PhantomData;
-use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
+use std::marker::PhantomData;
 
 use crate::{
     irs::{
@@ -132,7 +131,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
         );
         let activator = left_input.activator_tracked_poly();
-        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let mut challenges = Vec::with_capacity(left_data_inds.len());
+        for _ in 0..left_data_inds.len() {
+            challenges.push(prover.get_and_append_challenge(b"eq_fold")?);
+        }
         let left_col = left_input.fold_all_data_columns(&challenges);
         let right_col = right_input.fold_all_data_columns(&challenges);
         // Form the polynomial that should be zero if the two folded table views are equal
@@ -192,7 +194,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
         );
         let activator = left_input.activator_tracked_poly();
-        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let mut challenges = Vec::with_capacity(left_data_inds.len());
+        for _ in 0..left_data_inds.len() {
+            challenges.push(verifier.get_and_append_challenge(b"eq_fold")?);
+        }
         let left_col = left_input.fold_all_data_oracles(&challenges);
         let right_col = right_input.fold_all_data_oracles(&challenges);
         // Form the oracle that should be zero if the two folded table views are equal.
@@ -223,8 +228,4 @@ impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self(PhantomData)
     }
-}
-
-fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
 }

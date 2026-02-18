@@ -1,4 +1,11 @@
-use std::marker::PhantomData;
+//! Inequality gadget for table-shaped inputs.
+//!
+//! This module enforces inequality between two input tables on activated rows by:
+//! 1. Folding all data columns on each side with random challenges.
+//! 2. Subtracting folded right from folded left.
+//! 3. Shifting non-activated rows with a verifier challenge so only activated
+//!    rows are constrained to be non-zero.
+//! 4. Emitting a non-zero-check claim in both prover and verifier flows.
 
 use crate::{
     irs::{
@@ -8,13 +15,13 @@ use crate::{
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
-use arithmetic::col::TrackedCol;
+use ark_ff::One;
 use ark_ff::Zero;
-use ark_ff::{One, PrimeField, batch_inversion};
-use ark_piop::{SnarkBackend, arithmetic::mat_poly::mle::MLE};
-use datafusion::functions::unicode::left;
+use ark_piop::SnarkBackend;
 use either::Either::{Left, Right};
 use indexmap::IndexMap;
+
+use std::marker::PhantomData;
 /// Label for the left input to the neq gadget
 pub const LEFT_LABEL: &str = "left";
 /// Label for the right input to the neq gadget
@@ -22,10 +29,6 @@ pub const RIGHT_LABEL: &str = "right";
 
 /// A gadget node that enforces that two tables are not equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
-
-fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
-}
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -120,7 +123,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let mut challenges = Vec::with_capacity(left_data_inds.len());
+        for _ in 0..left_data_inds.len() {
+            challenges.push(prover.get_and_append_challenge(b"neq_fold")?);
+        }
         let left_col = left_input.fold_all_data_columns(&challenges);
         let right_col = right_input.fold_all_data_columns(&challenges);
         let non_zero_poly = &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
@@ -144,7 +150,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
+        prover: &mut ark_piop::prover::ArgProver<B>,
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
@@ -166,7 +172,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let mut challenges = Vec::with_capacity(left_data_inds.len());
+        for _ in 0..left_data_inds.len() {
+            challenges.push(prover.get_and_append_challenge(b"neq_fold")?);
+        }
         let left_col = left_input.fold_all_data_columns(&challenges);
         let right_col = right_input.fold_all_data_columns(&challenges);
         let left_vals = left_col.data_tracked_poly().evaluations();
@@ -217,7 +226,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let mut challenges = Vec::with_capacity(left_data_inds.len());
+        for _ in 0..left_data_inds.len() {
+            challenges.push(verifier.get_and_append_challenge(b"neq_fold")?);
+        }
         let left_col = left_input.fold_all_data_oracles(&challenges);
         let right_col = right_input.fold_all_data_oracles(&challenges);
         let non_zero_oracle = &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
