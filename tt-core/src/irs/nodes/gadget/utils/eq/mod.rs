@@ -1,5 +1,12 @@
-use std::marker::PhantomData;
+//! Equality gadget for table-shaped inputs.
+//!
+//! This module enforces equality between two input tables on activated rows by:
+//! 1. Folding all data columns on each side with random challenges.
+//! 2. Subtracting the folded left and right results.
+//! 3. Masking with the shared activator (if present).
+//! 4. Emitting a zero-check claim in both prover and verifier flows.
 
+use std::marker::PhantomData;
 use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
@@ -13,14 +20,13 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// Label for the left input to the eq gadget
 pub const LEFT_LABEL: &str = "left";
+/// Label for the right input to the eq gadget
 pub const RIGHT_LABEL: &str = "right";
 
+/// A gadget node that enforces that two tables are equal on all activated rows.
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
-
-fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
-}
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -217,4 +223,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self(PhantomData)
     }
+}
+
+fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
+    (0..count).map(|i| F::from((i + 1) as u64)).collect()
 }
