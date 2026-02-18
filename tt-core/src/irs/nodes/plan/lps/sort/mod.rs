@@ -92,6 +92,15 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
             .iter()
             .map(|sort_expr| sort_expr.expr.clone())
             .collect();
+        if input_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME)
+        {
+            // Preserve activator semantics for top-k/filter pipelines.
+            exprs.push(col(ACTIVATOR_COL_NAME));
+        }
         // Keep row-id only for deterministic ordering; payloads strip it later.
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 

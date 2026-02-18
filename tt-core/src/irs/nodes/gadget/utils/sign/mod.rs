@@ -336,7 +336,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             let evals = input_col.data_tracked_poly().evaluations();
             for (idx, eval) in evals.iter().enumerate() {
                 if let Some(act) = activator.as_ref()
-                    && act[idx] != B::F::one()
+                    && act[idx].is_zero()
                 {
                     continue;
                 }
@@ -363,9 +363,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                         ),
                     ));
                 }
-                if matches!(sign, Sign::Positive | Sign::Negative)
-                    && !Self::eval_matches_sign(data_type, check_sign, check_val)
-                {
+                if !Self::eval_matches_sign(data_type, check_sign, check_val) {
                     let (signed_val, unsigned_val, bit_width) =
                         Self::eval_debug_values(data_type, check_val);
                     tracing::error!(
@@ -385,11 +383,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
                             ark_piop::prover::errors::HonestProverError::FalseClaim,
                         ),
                     ));
-                }
-                if matches!(sign, Sign::NonNegative | Sign::NonPositive)
-                    && !Self::eval_matches_sign(data_type, check_sign, check_val)
-                {
-                    continue;
                 }
             }
         }

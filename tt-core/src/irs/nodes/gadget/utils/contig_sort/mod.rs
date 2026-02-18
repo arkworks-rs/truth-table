@@ -817,7 +817,7 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    _diff_table: Option<&TrackedTable<B>>,
+    diff_table: Option<&TrackedTable<B>>,
     tie_table: &TrackedTable<B>,
     input_table: &TrackedTable<B>,
     rotated_table: &TrackedTable<B>,
@@ -836,6 +836,7 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
         rotated_indices.len(),
         "Sort sign gadget expects matching input and rotated column counts."
     );
+    let diff_indices = diff_table.map(|table| ordered_data_indices_prover(table, sort_specs));
 
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
@@ -872,10 +873,24 @@ fn populate_sign_payloads_prover<B: SnarkBackend>(
             }
         };
 
-        // Build the diff directly from input/rotated columns.
-        // This keeps the sign constraints bound to the exact rotated relation and
-        // avoids stale/mismatched auxiliary diff payloads.
-        let (diff_poly, diff_field) = if is_asc {
+        // Prefer precomputed diff columns when available; they are generated from
+        // the same sorted hint relation used by contig-sort planning.
+        let diff_from_payload = diff_table.and_then(|table| {
+            diff_indices
+                .as_ref()
+                .and_then(|inds| inds.get(pos).copied())
+                .map(|idx| table.tracked_col_by_ind(idx))
+        });
+        let (diff_poly, diff_field) = if let Some(diff_col) = diff_from_payload {
+            (
+                diff_col.data_tracked_poly(),
+                diff_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort diff input")
+                    .as_ref()
+                    .clone(),
+            )
+        } else if is_asc {
             (
                 &rotated_col.data_tracked_poly() - &input_col.data_tracked_poly(),
                 input_col
@@ -932,7 +947,7 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
     sign_gadget: &Arc<Node<B>>,
     sort_config: &SortConfig,
     sort_specs: &[(String, bool, bool)],
-    _diff_table: Option<&TrackedTableOracle<B>>,
+    diff_table: Option<&TrackedTableOracle<B>>,
     tie_table: &TrackedTableOracle<B>,
     input_table: &TrackedTableOracle<B>,
     rotated_table: &TrackedTableOracle<B>,
@@ -951,6 +966,7 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
         rotated_indices.len(),
         "Sort sign gadget expects matching input and rotated column counts."
     );
+    let diff_indices = diff_table.map(|table| ordered_data_indices_verifier(table, sort_specs));
 
     let mut data_cols = IndexMap::new();
     let input_activator = input_table.activator_tracked_poly();
@@ -987,9 +1003,22 @@ fn populate_sign_payloads_verifier<B: SnarkBackend>(
             }
         };
 
-        // Mirror prover logic: compute diff from input/rotated oracles directly so
-        // verifier constraints match prover-side construction exactly.
-        let (diff_oracle, diff_field) = if is_asc {
+        let diff_from_payload = diff_table.and_then(|table| {
+            diff_indices
+                .as_ref()
+                .and_then(|inds| inds.get(pos).copied())
+                .map(|idx| table.tracked_col_oracle_by_ind(idx))
+        });
+        let (diff_oracle, diff_field) = if let Some(diff_col) = diff_from_payload {
+            (
+                diff_col.data_tracked_oracle(),
+                diff_col
+                    .field_ref()
+                    .expect("Expected field ref for Sort diff input")
+                    .as_ref()
+                    .clone(),
+            )
+        } else if is_asc {
             (
                 &rotated_col.data_tracked_oracle() - &input_col.data_tracked_oracle(),
                 input_col
