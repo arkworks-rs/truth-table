@@ -122,6 +122,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let left_col = left_input.tracked_col_by_ind(left_data_ind);
         let right_col = right_input.tracked_col_by_ind(right_data_ind);
         // Form the polynomial that should be zero if the two columns are equal
+        //TODO: Don't unroll the multiplication, use the paranthesis as described in the paper
         let zero_poly =
             &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
         // Emit the zero-check claim for this polynomial
