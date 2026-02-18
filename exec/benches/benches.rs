@@ -2,6 +2,7 @@
 mod aggregate;
 mod filter;
 mod limit;
+mod order_by;
 mod prover;
 mod support;
 mod tpch;
