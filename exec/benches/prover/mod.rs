@@ -1,5 +1,6 @@
 use std::{fmt, future::Future, path::PathBuf, sync::OnceLock};
 
+use crate::support::emit_benchmark_stats_row;
 use ark_piop::DefaultSnarkBackend;
 use divan::black_box;
 use exec::{
@@ -106,10 +107,14 @@ fn prove_command(bencher: divan::Bencher, spec: BenchQuery) {
     bencher
         .with_inputs(move || prepare_iteration_state(prepare_prover_inputs(spec)))
         .bench_local_values(run_prove_iteration);
+    emit_benchmark_stats_row("prove_command", spec.name);
 }
 
 fn run_prove_iteration(iteration: ProverBenchIteration) {
     // Run proof generation once and black-box the output to keep work alive.
+    let _query_span =
+        tracing::info_span!(target: "bench_stats", "bench_query", query = iteration.query)
+            .entered();
     let (_table, proof) =
         block_on(iteration.prover.prove(iteration.query)).expect("prove for benchmark");
     black_box(proof);

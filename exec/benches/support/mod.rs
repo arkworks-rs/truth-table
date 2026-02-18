@@ -7,6 +7,8 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
+mod stats_layer;
+
 use anyhow::{Context, Result};
 use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
@@ -30,6 +32,8 @@ use indexmap::IndexMap;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
+
+pub use stats_layer::emit_benchmark_stats_row;
 
 pub type B = DefaultSnarkBackend;
 
@@ -114,12 +118,18 @@ pub fn init_bench_tracing() {
             filter =
                 filter.add_directive("sqlparser=off".parse().expect("parse sqlparser directive"));
         }
+        // Keep bench stats events enabled even when the default log level is off.
+        filter = filter.add_directive(
+            "bench_stats=info"
+                .parse()
+                .expect("parse bench stats directive"),
+        );
 
         // Use tracing-tree for hierarchical spans in bench logs.
         let tree_layer = tracing_tree::HierarchicalLayer::default()
             .with_targets(false)
             .with_timer(tracing_tree::time::Uptime::default())
-            .with_indent_lines(true)
+            // .with_indent_lines(true)
             .with_deferred_spans(true)
             .with_writer(std::io::stdout);
 
@@ -130,11 +140,28 @@ pub fn init_bench_tracing() {
             .with_target(false)
             .with_filter(filter_fn(|metadata| metadata.is_span()));
 
-        let _ = tracing_subscriber::registry()
+        let stats_layer = match stats_layer::BenchStatsCsvLayer::new_default() {
+            Ok(layer) => Some(layer),
+            Err(err) => {
+                eprintln!(
+                    "failed to initialize bench stats csv layer at {}: {}",
+                    stats_layer::default_csv_path().display(),
+                    err
+                );
+                None
+            }
+        };
+
+        let registry = tracing_subscriber::registry()
             .with(filter)
             .with(tree_layer)
-            .with(span_timing_layer)
-            .try_init();
+            .with(span_timing_layer);
+
+        if let Some(stats_layer) = stats_layer {
+            let _ = registry.with(stats_layer).try_init();
+        } else {
+            let _ = registry.try_init();
+        }
     });
 }
 
@@ -197,6 +224,9 @@ pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
 
 pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
     // Time only the proving call to avoid counting setup.
+    let _query_span =
+        tracing::info_span!(target: "bench_stats", "bench_query", query = %iteration.query)
+            .entered();
     let (_table, snark_proof) =
         block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
     snark_proof
@@ -290,9 +320,7 @@ pub fn build_verifier_state(assets: &BenchAssets, proof_bytes: Vec<u8>) -> Verif
     let proof = proof_from_bytes(&proof_bytes);
     let (_stages, arg_verifier) = block_on(verifier.build_ir_stages(assets.case.query, &proof))
         .expect("build verifier stages for bench");
-    VerifierBenchState {
-        arg_verifier,
-    }
+    VerifierBenchState { arg_verifier }
 }
 
 pub fn fork_arg_verifier(state: &VerifierBenchState) -> ArgVerifier<B> {
@@ -305,7 +333,10 @@ pub fn run_arg_verifier_once(verifier: ArgVerifier<B>) {
     verifier.verify().expect("verify for bench");
 }
 
-pub fn build_verifier_full_state(assets: &BenchAssets, proof_bytes: Vec<u8>) -> VerifierFullBenchState {
+pub fn build_verifier_full_state(
+    assets: &BenchAssets,
+    proof_bytes: Vec<u8>,
+) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
     let proof = proof_from_bytes(&proof_bytes);

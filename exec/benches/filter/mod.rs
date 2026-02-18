@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use divan::Bencher;
 
 use crate::support::{
-    BenchCase, build_verifier_state, ensure_proof, fork_arg_verifier, log_proof_size_once,
-    prepare_assets, prepare_prover_iteration, run_arg_verifier_once, run_prover_iteration,
-    warmup_proof,
+    BenchCase, build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
+    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_arg_verifier_once,
+    run_prover_iteration, warmup_proof,
 };
 
 fn filter_cases() -> &'static [BenchCase] {
@@ -39,6 +39,7 @@ fn bench_filter_prover(bencher: Bencher, case: BenchCase) {
         .bench_local_values(|iteration| {
             let _proof = run_prover_iteration(iteration);
         });
+    emit_benchmark_stats_row("bench_filter_prover", case.name);
 }
 
 #[divan::bench(args = filter_cases(), sample_size = 10)]
@@ -52,4 +53,5 @@ fn bench_filter_verifier(bencher: Bencher, case: BenchCase) {
     bencher
         .with_inputs(|| fork_arg_verifier(&state))
         .bench_local_values(run_arg_verifier_once);
+    emit_benchmark_stats_row("bench_filter_verifier", case.name);
 }

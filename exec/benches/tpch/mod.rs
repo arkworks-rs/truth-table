@@ -4,9 +4,9 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    BenchCase, build_verifier_full_state, ensure_proof, log_proof_size_once, prepare_assets,
-    prepare_prover_iteration, run_full_verifier_once, run_preprocess_once, run_prover_iteration,
-    warmup_proof,
+    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof,
+    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_full_verifier_once,
+    run_preprocess_once, run_prover_iteration, warmup_proof,
 };
 
 fn tpch_cases() -> &'static [BenchCase] {
@@ -122,6 +122,7 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
         .bench_local_values(|iteration| {
             let _proof = run_prover_iteration(iteration);
         });
+    emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
@@ -135,6 +136,7 @@ fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     bencher.bench_local(|| {
         run_preprocess_once(&state);
     });
+    emit_benchmark_stats_row("bench_tpch_verifier_preprocess", case.name);
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
@@ -151,6 +153,7 @@ fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
     bencher.bench_local(|| {
         run_full_verifier_once(&state);
     });
+    emit_benchmark_stats_row("bench_tpch_verifier_core", case.name);
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
@@ -165,4 +168,5 @@ fn bench_tpch_verifier_full(bencher: Bencher, case: BenchCase) {
         run_preprocess_once(&state);
         run_full_verifier_once(&state);
     });
+    emit_benchmark_stats_row("bench_tpch_verifier_full", case.name);
 }
