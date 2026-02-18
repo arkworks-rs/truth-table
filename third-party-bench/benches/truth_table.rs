@@ -1,4 +1,7 @@
-use std::{path::Path, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use exec::{
     prove::ProveBuilder,
@@ -12,6 +15,9 @@ use tracing::Metadata;
 use tracing_subscriber::{filter::filter_fn, fmt::format::FmtSpan, prelude::*, EnvFilter};
 use tracing_tree::HierarchicalLayer;
 use std::sync::OnceLock;
+
+#[path = "../../exec/benches/support/stats_layer.rs"]
+mod stats_layer;
 
 // Paths for input/output artifacts.
 const PARQUET_DIR: &str = "artifact";
@@ -199,6 +205,9 @@ fn main() {
             } else {
                 query.sql.replace("{table}", table_name)
             };
+            let _query_span =
+                tracing::info_span!(target: "bench_stats", "bench_query", query = %query_sql)
+                    .entered();
 
             let start = Instant::now();
             let runner = ProveBuilder::new()
@@ -265,6 +274,11 @@ fn init_bench_tracing() {
         if !rust_log.contains("sqlparser") {
             filter = filter.add_directive("sqlparser=off".parse().expect("sqlparser directive"));
         }
+        filter = filter.add_directive(
+            "bench_stats=info"
+                .parse()
+                .expect("bench stats directive"),
+        );
 
         let tree_layer = HierarchicalLayer::default()
             .with_targets(false)
@@ -278,10 +292,32 @@ fn init_bench_tracing() {
             .with_target(false)
             .with_filter(filter_fn(|metadata: &Metadata<'_>| metadata.is_span()));
 
-        let _ = tracing_subscriber::registry()
+        let stats_csv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|root| root.join("exec").join("target").join("bench_stats.csv"))
+            .unwrap_or_else(|| PathBuf::from(stats_layer::BENCH_STATS_CSV_PATH));
+
+        let stats_layer = match stats_layer::BenchStatsCsvLayer::new(stats_csv_path.clone()) {
+            Ok(layer) => Some(layer),
+            Err(err) => {
+                eprintln!(
+                    "failed to initialize bench stats csv layer at {}: {}",
+                    stats_csv_path.display(),
+                    err
+                );
+                None
+            }
+        };
+
+        let registry = tracing_subscriber::registry()
             .with(filter)
             .with(tree_layer)
-            .with(span_timing_layer)
-            .try_init();
+            .with(span_timing_layer);
+
+        if let Some(stats_layer) = stats_layer {
+            let _ = registry.with(stats_layer).try_init();
+        } else {
+            let _ = registry.try_init();
+        }
     });
 }
