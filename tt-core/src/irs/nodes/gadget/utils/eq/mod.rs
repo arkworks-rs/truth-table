@@ -115,6 +115,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             1,
             "Eq gadget supports one tracked polynomial per input."
         );
+        debug_assert_eq!(
+            left_input.activator_tracked_poly(),
+            right_input.activator_tracked_poly(),
+            "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
+        );
+        let activator = left_input.activator_tracked_poly();
         // Extract the indices corresponding to the left and right data tracked polynomials
         let left_data_ind = left_input.data_tracked_polys_indices()[0];
         let right_data_ind = right_input.data_tracked_polys_indices()[0];
@@ -122,9 +128,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let left_col = left_input.tracked_col_by_ind(left_data_ind);
         let right_col = right_input.tracked_col_by_ind(right_data_ind);
         // Form the polynomial that should be zero if the two columns are equal
-        //TODO: Don't unroll the multiplication, use the paranthesis as described in the paper
-        let zero_poly =
-            &left_col.activated_data_tracked_poly() - &right_col.activated_data_tracked_poly();
+        let zero_poly = match activator {
+            Some(activator_tracked_poly) => {
+                &(&left_col.data_tracked_poly() - &right_col.data_tracked_poly())
+                    * &activator_tracked_poly
+            }
+            None => &left_col.data_tracked_poly() - &right_col.data_tracked_poly(),
+        };
         // Emit the zero-check claim for this polynomial
         prover.add_mv_zerocheck_claim(zero_poly.id())?;
         Ok(())
@@ -168,6 +178,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             1,
             "Eq gadget supports one tracked oracle per input."
         );
+        debug_assert_eq!(
+            left_input.activator_tracked_poly(),
+            right_input.activator_tracked_poly(),
+            "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
+        );
+        let activator = left_input.activator_tracked_poly();
         // Extract the indices corresponding to the left and right data tracked oracles.
         let left_data_ind = left_input.data_tracked_oracles_indices()[0];
         let right_data_ind = right_input.data_tracked_oracles_indices()[0];
@@ -175,8 +191,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let left_col = left_input.tracked_col_oracle_by_ind(left_data_ind);
         let right_col = right_input.tracked_col_oracle_by_ind(right_data_ind);
         // Form the oracle that should be zero if the two columns are equal.
-        let zero_oracle =
-            &left_col.activated_data_tracked_oracle() - &right_col.activated_data_tracked_oracle();
+        let zero_oracle = match activator {
+            Some(activator_tracked_poly) => {
+                &(&left_col.data_tracked_oracle() - &right_col.data_tracked_oracle())
+                    * &activator_tracked_poly
+            }
+            None => &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle(),
+        };
         // Emit the zero-check claim for this oracle.
         verifier.add_zerocheck_claim(zero_oracle.id());
         Ok(())
