@@ -212,11 +212,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
                 TrackedTable::new(schema, polys, data_log_size)
             };
 
-        // Compute the activator for the true branch.
-        // let true_activator = match &shared_activator {
-        //     Some(poly) => poly * &output_poly,
-        //     None => output_poly.clone(),
-        // };
         let true_activator = output_poly.clone();
         let true_input = build_table_with_activator(&diff_data_poly, &true_activator.clone());
         let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
@@ -337,11 +332,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
                 arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, data_log_size)
             };
 
-        // Build the true-branch gadget inputs.
-        // let true_activator = match &shared_activator {
-        //     Some(oracle) => oracle * &output_oracle,
-        //     None => output_oracle.clone(),
-        // };
         let true_activator = output_oracle.clone();
         let true_input = build_table_with_activator(&diff_data_oracle, &true_activator);
         let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
