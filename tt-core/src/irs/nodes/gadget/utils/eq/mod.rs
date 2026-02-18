@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use ark_ff::PrimeField;
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
@@ -16,6 +17,10 @@ pub const LEFT_LABEL: &str = "left";
 pub const RIGHT_LABEL: &str = "right";
 
 pub struct GadgetNode<B: SnarkBackend>(PhantomData<B>);
+
+fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
+    (0..count).map(|i| F::from((i + 1) as u64)).collect()
+}
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     fn name(&self) -> String {
@@ -104,16 +109,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             panic!("Expected left and right inputs for Eq gadget");
         };
-        // Each of the left and right inputs should have exactly one data tracked polynomial, Because we are checking the equality of two columns
+        let left_data_inds = left_input.data_tracked_polys_indices();
+        let right_data_inds = right_input.data_tracked_polys_indices();
         debug_assert_eq!(
-            left_input.data_tracked_polys_indices().len(),
-            1,
-            "Eq gadget supports one tracked polynomial per input."
+            left_data_inds.len(),
+            right_data_inds.len(),
+            "Eq gadget expects the same number of data columns on left and right."
         );
-        debug_assert_eq!(
-            right_input.data_tracked_polys_indices().len(),
-            1,
-            "Eq gadget supports one tracked polynomial per input."
+        debug_assert!(
+            !left_data_inds.is_empty(),
+            "Eq gadget expects at least one data column per input."
         );
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
@@ -121,13 +126,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
         );
         let activator = left_input.activator_tracked_poly();
-        // Extract the indices corresponding to the left and right data tracked polynomials
-        let left_data_ind = left_input.data_tracked_polys_indices()[0];
-        let right_data_ind = right_input.data_tracked_polys_indices()[0];
-        // Fetch the tracked columns corresponding to those indices
-        let left_col = left_input.tracked_col_by_ind(left_data_ind);
-        let right_col = right_input.tracked_col_by_ind(right_data_ind);
-        // Form the polynomial that should be zero if the two columns are equal
+        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let left_col = left_input.fold_all_data_columns(&challenges);
+        let right_col = right_input.fold_all_data_columns(&challenges);
+        // Form the polynomial that should be zero if the two folded table views are equal
         let zero_poly = match activator {
             Some(activator_tracked_poly) => {
                 &(&left_col.data_tracked_poly() - &right_col.data_tracked_poly())
@@ -167,16 +169,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         ) else {
             panic!("Expected left and right inputs for Eq gadget");
         };
-        // Each of the left and right inputs should have exactly one data tracked oracle.
+        let left_data_inds = left_input.data_tracked_oracles_indices();
+        let right_data_inds = right_input.data_tracked_oracles_indices();
         debug_assert_eq!(
-            left_input.data_tracked_oracles_indices().len(),
-            1,
-            "Eq gadget supports one tracked oracle per input."
+            left_data_inds.len(),
+            right_data_inds.len(),
+            "Eq gadget expects the same number of data columns on left and right."
         );
-        debug_assert_eq!(
-            right_input.data_tracked_oracles_indices().len(),
-            1,
-            "Eq gadget supports one tracked oracle per input."
+        debug_assert!(
+            !left_data_inds.is_empty(),
+            "Eq gadget expects at least one data column per input."
         );
         debug_assert_eq!(
             left_input.activator_tracked_poly(),
@@ -184,13 +186,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             "Eq gadget expects the same activator for the left and right inputs, since they should be activated on the same rows."
         );
         let activator = left_input.activator_tracked_poly();
-        // Extract the indices corresponding to the left and right data tracked oracles.
-        let left_data_ind = left_input.data_tracked_oracles_indices()[0];
-        let right_data_ind = right_input.data_tracked_oracles_indices()[0];
-        // Fetch the tracked column oracles corresponding to those indices.
-        let left_col = left_input.tracked_col_oracle_by_ind(left_data_ind);
-        let right_col = right_input.tracked_col_oracle_by_ind(right_data_ind);
-        // Form the oracle that should be zero if the two columns are equal.
+        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let left_col = left_input.fold_all_data_oracles(&challenges);
+        let right_col = right_input.fold_all_data_oracles(&challenges);
+        // Form the oracle that should be zero if the two folded table views are equal.
         let zero_oracle = match activator {
             Some(activator_tracked_poly) => {
                 &(&left_col.data_tracked_oracle() - &right_col.data_tracked_oracle())

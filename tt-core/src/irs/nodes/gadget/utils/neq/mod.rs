@@ -120,16 +120,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let (left_col, right_col) = if left_data_inds.len() == 1 {
-            let left_col = left_input.tracked_col_by_ind(left_data_inds[0]);
-            let right_col = right_input.tracked_col_by_ind(right_data_inds[0]);
-            (left_col, right_col)
-        } else {
-            let challenges = folding_challenges::<B::F>(left_data_inds.len());
-            let left_col = left_input.fold_all_data_columns(&challenges);
-            let right_col = right_input.fold_all_data_columns(&challenges);
-            (left_col, right_col)
-        };
+        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let left_col = left_input.fold_all_data_columns(&challenges);
+        let right_col = right_input.fold_all_data_columns(&challenges);
         let non_zero_poly = &left_col.data_tracked_poly() - &right_col.data_tracked_poly();
         let one_minus_non_zero_activator = match left_col.activator_tracked_poly() {
             Some(activator) => {
@@ -173,16 +166,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let (left_col, right_col) = if left_data_inds.len() == 1 {
-            let left_col = left_input.tracked_col_by_ind(left_data_inds[0]);
-            let right_col = right_input.tracked_col_by_ind(right_data_inds[0]);
-            (left_col, right_col)
-        } else {
-            let challenges = folding_challenges::<B::F>(left_data_inds.len());
-            let left_col = left_input.fold_all_data_columns(&challenges);
-            let right_col = right_input.fold_all_data_columns(&challenges);
-            (left_col, right_col)
-        };
+        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let left_col = left_input.fold_all_data_columns(&challenges);
+        let right_col = right_input.fold_all_data_columns(&challenges);
         let left_vals = left_col.data_tracked_poly().evaluations();
         let right_vals = right_col.data_tracked_poly().evaluations();
         let activator = left_col
@@ -231,16 +217,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             right_data_inds.len(),
             "Neq gadget expects the same number of data columns on left and right."
         );
-        let (left_col, right_col) = if left_data_inds.len() == 1 {
-            let left_col = left_input.tracked_col_oracle_by_ind(left_data_inds[0]);
-            let right_col = right_input.tracked_col_oracle_by_ind(right_data_inds[0]);
-            (left_col, right_col)
-        } else {
-            let challenges = folding_challenges::<B::F>(left_data_inds.len());
-            let left_col = left_input.fold_all_data_oracles(&challenges);
-            let right_col = right_input.fold_all_data_oracles(&challenges);
-            (left_col, right_col)
-        };
+        let challenges = folding_challenges::<B::F>(left_data_inds.len());
+        let left_col = left_input.fold_all_data_oracles(&challenges);
+        let right_col = right_input.fold_all_data_oracles(&challenges);
         let non_zero_oracle = &left_col.data_tracked_oracle() - &right_col.data_tracked_oracle();
         let one_minus_activator = match left_col.activator_tracked_oracle() {
             Some(activator) => activator
