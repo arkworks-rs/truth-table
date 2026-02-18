@@ -218,15 +218,33 @@ impl<B: SnarkBackend> TrackedTableOracle<B> {
     /// polynomial as the original tracked table oracle (if any) and does
     /// not have any datatype
     pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedColOracle<B> {
-        let mut folded: TrackedOracle<B> = self
-            .tracked_col_oracle_by_ind(col_inds[0])
-            .data_tracked_oracle()
-            .mul_scalar_oracle(challs[0]);
-        for i in 1..col_inds.len() {
-            let col_oracle = self
-                .tracked_col_oracle_by_ind(col_inds[i])
-                .data_tracked_oracle();
-            folded += &col_oracle.mul_scalar_oracle(challs[i]);
+        let first_idx = *col_inds
+            .first()
+            .expect("fold requires at least one column index");
+        let (_, first_oracle) = self
+            .tracked_oracles
+            .get_index(first_idx)
+            .expect("column oracle index out of bounds");
+        if col_inds.len() == 1 {
+            return TrackedColOracle::new(
+                first_oracle.clone(),
+                self.activator_tracked_poly(),
+                None,
+            );
+        }
+
+        debug_assert_eq!(col_inds.len(), challs.len());
+        let first_chall = challs
+            .first()
+            .copied()
+            .expect("fold requires at least one challenge");
+        let mut folded: TrackedOracle<B> = first_oracle.mul_scalar_oracle(first_chall);
+        for (&col_idx, &chall) in col_inds.iter().zip(challs).skip(1) {
+            let (_, col_oracle) = self
+                .tracked_oracles
+                .get_index(col_idx)
+                .expect("column oracle index out of bounds");
+            folded += &col_oracle.mul_scalar_oracle(chall);
         }
         TrackedColOracle::new(folded, self.activator_tracked_poly(), None)
     }

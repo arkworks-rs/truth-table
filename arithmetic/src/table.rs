@@ -209,18 +209,22 @@ impl<B: SnarkBackend> TrackedTable<B> {
     /// output tracked column will have the same activator polynomial as the
     /// original table (if any) and does not have any datatype
     pub fn fold(&self, col_inds: &[usize], challs: &[B::F]) -> TrackedCol<B> {
-        debug_assert_eq!(col_inds.len(), challs.len());
         let first_idx = *col_inds
             .first()
             .expect("fold requires at least one column index");
-        let first_chall = challs
-            .first()
-            .copied()
-            .expect("fold requires at least one challenge");
         let (_, first_poly) = self
             .tracked_polys
             .get_index(first_idx)
             .expect("column index out of bounds");
+        if col_inds.len() == 1 {
+            return TrackedCol::new(first_poly.clone(), self.activator_tracked_poly(), None);
+        }
+
+        debug_assert_eq!(col_inds.len(), challs.len());
+        let first_chall = challs
+            .first()
+            .copied()
+            .expect("fold requires at least one challenge");
         let mut folded: TrackedPoly<B> = first_poly.mul_scalar_poly(first_chall);
         for (&col_idx, &chall) in col_inds.iter().zip(challs).skip(1) {
             let (_, poly) = self
