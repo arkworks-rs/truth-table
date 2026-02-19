@@ -11,7 +11,8 @@ use crate::irs::nodes::NodeId;
 use crate::irs::nodes::cost::ProvingCost;
 use crate::irs::nodes::hints::HintDF;
 use crate::irs::nodes::{
-    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::sign,
+    IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+    gadget::utils::{bool, sign},
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -38,6 +39,7 @@ pub struct BinCmpNode<B: SnarkBackend> {
     op: BinCmpOp,
     true_sign: Arc<Node<B>>,
     false_sign: Arc<Node<B>>,
+    bool_check: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> BinCmpNode<B> {
@@ -49,10 +51,12 @@ impl<B: SnarkBackend> BinCmpNode<B> {
         let false_sign_gadget = Arc::new(Node::<B>::Gadget(Arc::new(sign::SignNode::new(
             sign::SignConfig::Uniform(false_sign),
         ))));
+        let bool_check_gadget = Arc::new(Node::<B>::Gadget(Arc::new(bool::GadgetNode::<B>::new())));
         Self {
             op,
             true_sign: true_sign_gadget,
             false_sign: false_sign_gadget,
+            bool_check: bool_check_gadget,
         }
     }
 
@@ -118,7 +122,11 @@ impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.true_sign.clone(), self.false_sign.clone()]
+        vec![
+            self.bool_check.clone(),
+            self.true_sign.clone(),
+            self.false_sign.clone(),
+        ]
     }
 }
 
@@ -233,6 +241,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
         virtualized_ir.set_payload_for_node(
             self.false_sign.id(),
             Some(PayloadStructure::GadgetPayload(false_payload)),
+        );
+
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_check.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.bool_check.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
         Ok(())
     }
@@ -353,6 +371,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
         virtualized_ir.set_payload_for_node(
             self.false_sign.id(),
             Some(PayloadStructure::GadgetPayload(false_payload)),
+        );
+
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_check.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.bool_check.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
         Ok(())
     }
