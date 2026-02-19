@@ -31,8 +31,8 @@ const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
-const TABLE_POW_MIN: u32 = 18;
-const TABLE_POW_MAX: u32 = 18;
+const TABLE_POW_MIN: u32 = 10;
+const TABLE_POW_MAX: u32 = 19;
 
 struct QuerySpec {
     name: &'static str,
@@ -47,21 +47,21 @@ const QUERIES: &[QuerySpec] = &[
         dir: "filter",
         sql: "SELECT * FROM {table} WHERE a = 1 AND b = 2",
     },
-    // QuerySpec {
-    //     name: "aggregate_count",
-    //     dir: "aggregate_count",
-    //     sql: "SELECT count(*) FROM {table}",
-    // },
-    // QuerySpec {
-    //     name: "join",
-    //     dir: "Join",
-    //     sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
-    // },
-    // QuerySpec {
-    //     name: "limit_offset",
-    //     dir: "Limit_Offset",
-    //     sql: "SELECT * FROM {table} LIMIT 10",
-    // },
+    QuerySpec {
+        name: "aggregate_count",
+        dir: "aggregate_count",
+        sql: "SELECT count(*) FROM {table}",
+    },
+    QuerySpec {
+        name: "join",
+        dir: "Join",
+        sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
+    },
+    QuerySpec {
+        name: "limit_offset",
+        dir: "Limit_Offset",
+        sql: "SELECT * FROM {table} LIMIT 10",
+    },
 ];
 
 fn ensure_dir(path: &Path) {
