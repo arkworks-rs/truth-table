@@ -538,13 +538,8 @@ impl<B: SnarkBackend> SignNode<B> {
         prover: &mut ArgProver<B>,
         col: &TrackedCol<B>,
         nv: usize,
-        use_activator: bool,
     ) -> SnarkResult<()> {
-        let col_activated_poly = if use_activator {
-            col.activated_data_tracked_poly()
-        } else {
-            col.data_tracked_poly()
-        };
+        let col_activated_poly = col.data_tracked_poly();
         let label = Self::range_poly_label(nv);
         let range_poly = match prover.indexed_tracked_poly(label.clone()) {
             Ok(poly) => poly,
@@ -583,13 +578,8 @@ impl<B: SnarkBackend> SignNode<B> {
         verifier: &mut ArgVerifier<B>,
         col: &TrackedColOracle<B>,
         nv: usize,
-        use_activator: bool,
     ) -> SnarkResult<()> {
-        let col_activated_oracle = if use_activator {
-            col.activated_data_tracked_oracle()
-        } else {
-            col.data_tracked_oracle()
-        };
+        let col_activated_oracle = col.data_tracked_oracle();
         let label = Self::range_poly_label(nv);
         let range_oracle = match verifier.indexed_oracle(label.clone()) {
             Ok(oracle) => oracle,
@@ -611,41 +601,41 @@ impl<B: SnarkBackend> SignNode<B> {
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_inclusion(prover, col, 8, true)?;
+                Self::add_range_inclusion(prover, col, 8)?;
             }
             DataType::Int8 => {
-                Self::add_range_inclusion(prover, col, 7, true)?;
+                Self::add_range_inclusion(prover, col, 7)?;
             }
             DataType::UInt16 => {
-                Self::add_range_inclusion(prover, col, 16, true)?;
+                Self::add_range_inclusion(prover, col, 16)?;
             }
             DataType::Int16 => {
-                Self::add_range_inclusion(prover, col, 15, true)?;
+                Self::add_range_inclusion(prover, col, 15)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint32(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16, false)?;
+                    Self::add_range_inclusion(prover, &segment, 16)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int32(prover, col)?;
-                Self::add_range_inclusion(prover, &chunk3, 15, false)?;
+                Self::add_range_inclusion(prover, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16, false)?;
+                    Self::add_range_inclusion(prover, &segment, 16)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_uint64(prover, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16, false)?;
+                    Self::add_range_inclusion(prover, &segment, 16)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::prove_non_neg_int64(prover, col)?;
-                Self::add_range_inclusion(prover, &chunk3, 15, false)?;
+                Self::add_range_inclusion(prover, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion(prover, &segment, 16, false)?;
+                    Self::add_range_inclusion(prover, &segment, 16)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -653,15 +643,15 @@ impl<B: SnarkBackend> SignNode<B> {
                 let (top, rest) = chunks
                     .split_first()
                     .expect("chunked integer representation must be non-empty");
-                Self::add_range_inclusion(prover, top, 15, false)?;
+                Self::add_range_inclusion(prover, top, 15)?;
                 for segment in rest {
-                    Self::add_range_inclusion(prover, segment, 16, false)?;
+                    Self::add_range_inclusion(prover, segment, 16)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = Self::prove_non_neg_uint256(prover, col)?;
                 for segment in segments {
-                    Self::add_range_inclusion(prover, &segment, 16, false)?;
+                    Self::add_range_inclusion(prover, &segment, 16)?;
                 }
             }
             _ => {
@@ -684,41 +674,41 @@ impl<B: SnarkBackend> SignNode<B> {
         let data_type = field_ref.data_type();
         match data_type {
             DataType::UInt8 => {
-                Self::add_range_inclusion_oracle(verifier, col, 8, true)?;
+                Self::add_range_inclusion_oracle(verifier, col, 8)?;
             }
             DataType::Int8 => {
-                Self::add_range_inclusion_oracle(verifier, col, 7, true)?;
+                Self::add_range_inclusion_oracle(verifier, col, 7)?;
             }
             DataType::UInt16 => {
-                Self::add_range_inclusion_oracle(verifier, col, 16, true)?;
+                Self::add_range_inclusion_oracle(verifier, col, 16)?;
             }
             DataType::Int16 => {
-                Self::add_range_inclusion_oracle(verifier, col, 15, true)?;
+                Self::add_range_inclusion_oracle(verifier, col, 15)?;
             }
             DataType::UInt32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint32(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int32 | DataType::Date32 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int32(verifier, col)?;
-                Self::add_range_inclusion_oracle(verifier, &chunk3, 15, false)?;
+                Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::UInt64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_uint64(verifier, col)?;
                 for segment in [chunk3, chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Int64 => {
                 let (chunk3, chunk2, chunk1, chunk0) = Self::verify_non_neg_int64(verifier, col)?;
-                Self::add_range_inclusion_oracle(verifier, &chunk3, 15, false)?;
+                Self::add_range_inclusion_oracle(verifier, &chunk3, 15)?;
                 for segment in [chunk2, chunk1, chunk0] {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             DataType::Decimal128(..) => {
@@ -726,15 +716,15 @@ impl<B: SnarkBackend> SignNode<B> {
                 let (top, rest) = segments
                     .split_first()
                     .expect("chunked integer representation must be non-empty");
-                Self::add_range_inclusion_oracle(verifier, top, 15, false)?;
+                Self::add_range_inclusion_oracle(verifier, top, 15)?;
                 for segment in rest {
-                    Self::add_range_inclusion_oracle(verifier, segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, segment, 16)?;
                 }
             }
             DataType::Utf8View => {
                 let segments = Self::verify_non_neg_uint256(verifier, col)?;
                 for segment in segments {
-                    Self::add_range_inclusion_oracle(verifier, &segment, 16, false)?;
+                    Self::add_range_inclusion_oracle(verifier, &segment, 16)?;
                 }
             }
             _ => {
