@@ -284,7 +284,8 @@ fn init_bench_tracing() {
             .with_targets(false)
             .with_timer(tracing_tree::time::Uptime::default())
             .with_deferred_spans(true)
-            .with_writer(std::io::stdout);
+            .with_writer(std::io::stdout)
+            .with_filter(filter_fn(|metadata: &Metadata<'_>| metadata.is_span()));
 
         let span_timing_layer = tracing_subscriber::fmt::layer()
             .with_span_events(FmtSpan::CLOSE)

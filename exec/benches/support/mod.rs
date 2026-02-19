@@ -131,7 +131,8 @@ pub fn init_bench_tracing() {
             .with_timer(tracing_tree::time::Uptime::default())
             // .with_indent_lines(true)
             .with_deferred_spans(true)
-            .with_writer(std::io::stdout);
+            .with_writer(std::io::stdout)
+            .with_filter(filter_fn(|metadata| metadata.is_span()));
 
         // Emit span close events with elapsed time so span durations are visible.
         let span_timing_layer = tracing_subscriber::fmt::layer()
