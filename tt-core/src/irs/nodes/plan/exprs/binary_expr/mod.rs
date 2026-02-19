@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{is_system_column, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::{BinaryExpr, Expr};
+use datafusion_expr::{expr_fn::when, lit, BinaryExpr, Expr};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -13,11 +13,11 @@ use crate::irs::{
 };
 use crate::{
     irs::nodes::{
-        NodeId,
         gadget::exprs::{
             bin_cmp::{self, BinCmpOp},
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
         },
+        NodeId,
     },
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,
@@ -80,6 +80,37 @@ impl<B: SnarkBackend> ExprNode<B> {
             datafusion_expr::Operator::Or => None,
             _ => panic!("Unsupported operator for binary expression gadget"),
         }
+    }
+
+    fn activator_expr_for_df(input_df: &datafusion::prelude::DataFrame) -> Option<Expr> {
+        let activator_exprs: Vec<Expr> = input_df
+            .schema()
+            .iter()
+            .filter_map(|(qualifier, field)| {
+                if field.name() != arithmetic::ACTIVATOR_COL_NAME {
+                    return None;
+                }
+                Some(Expr::Column(datafusion_common::Column::new(
+                    qualifier.cloned(),
+                    arithmetic::ACTIVATOR_COL_NAME,
+                )))
+            })
+            .collect();
+        if activator_exprs.is_empty() {
+            return None;
+        }
+        let mut qualified: Vec<Expr> = activator_exprs
+            .iter()
+            .filter(|&expr| matches!(expr, Expr::Column(col) if col.relation.is_some()))
+            .cloned()
+            .collect();
+        if !qualified.is_empty() {
+            return Some(qualified.remove(0));
+        }
+        if activator_exprs.len() == 1 {
+            return Some(activator_exprs[0].clone());
+        }
+        None
     }
 }
 
@@ -468,7 +499,21 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
             crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
                 .expect("binary expr row-id sort should succeed");
 
-        let mut exprs = vec![Expr::BinaryExpr(self.binary_expression.clone())];
+        let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
+        let output_expr = if self.should_materialize() {
+            // Comparison outputs should be false on inactive rows.
+            if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
+                when(activator_expr, output_expr)
+                    .otherwise(lit(false))
+                    .expect("binary expression masking case should succeed")
+            } else {
+                output_expr
+            }
+        } else {
+            output_expr
+        };
+
+        let mut exprs = vec![output_expr];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
         crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
 

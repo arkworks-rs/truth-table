@@ -1,13 +1,13 @@
 use super::*;
 use std::sync::Arc;
 
-use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::errors::SnarkResult;
-use ark_piop::prover::ArgProver;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
+use ark_piop::prover::ArgProver;
 use ark_piop::structs::TrackerID;
 use ark_piop::test_utils::test_prelude;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
@@ -17,7 +17,7 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
-use datafusion_expr::{Expr, col};
+use datafusion_expr::{col, Expr};
 use indexmap::IndexMap;
 type Backend = DefaultSnarkBackend;
 const LOG_SIZE: usize = 2;
@@ -357,5 +357,84 @@ fn end_to_end_binary_expr_lt() {
 
     for (expr, evals) in cases {
         end_to_end_binary_expr(expr, &evals).unwrap();
+    }
+}
+
+#[test]
+fn comparison_output_is_false_on_inactive_rows() {
+    let ctx = SessionContext::new();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int32Array::from(vec![5_i32, 5, 5, 5])) as ArrayRef,
+            Arc::new(BooleanArray::from(vec![true, false, true, false])) as ArrayRef,
+        ],
+    )
+    .expect("record batch creation should succeed");
+    let df = ctx.read_batch(batch).expect("read batch should succeed");
+    let projected = df
+        .select(vec![col("a").gt(Expr::Literal(ScalarValue::Int32(Some(0))))])
+        .expect("projection should build");
+    let plan = projected.logical_plan().clone();
+    let tree = Tree::<Backend>::from_logical_plan(&plan);
+    let root = tree.root().clone();
+    let expr_node = root
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "BinaryExpr")
+        .expect("projection should include binary expr node");
+
+    let hint = match expr_node.as_ref() {
+        Node::Plan(plan_node) => plan_node.output(),
+        _ => panic!("binary expression node should be a plan node"),
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime creation should succeed");
+    let batches = rt
+        .block_on(hint.data_frame().clone().collect())
+        .expect("collect should succeed");
+    let batch = batches
+        .first()
+        .expect("binary expr output should contain one batch");
+    let data_idx = batch
+        .schema()
+        .fields()
+        .iter()
+        .position(|field| !arithmetic::is_system_column(field.name()))
+        .expect("output should include one non-system data column");
+    let activator_idx = batch
+        .schema()
+        .fields()
+        .iter()
+        .position(|field| field.name() == ACTIVATOR_COL_NAME)
+        .expect("output should include activator column");
+    let data = batch.column(data_idx);
+    let activator = batch.column(activator_idx);
+    let data = data
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .expect("comparison output should be boolean");
+    let activator = activator
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .expect("activator should be boolean");
+    for row in 0..batch.num_rows() {
+        if !activator.value(row) {
+            assert!(
+                !data.value(row),
+                "inactive row {row} should have false comparison output"
+            );
+        } else {
+            assert!(
+                data.value(row),
+                "active row {row} should preserve true comparison output"
+            );
+        }
     }
 }
