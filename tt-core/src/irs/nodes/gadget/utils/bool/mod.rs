@@ -107,11 +107,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         for idx in table.data_tracked_polys_indices() {
             let col = table.tracked_col_by_ind(idx);
             // BinaryCheck only needs the predicate polynomial, so we pass the activated column.
-            let predicate = col.activated_data_tracked_poly();
-            let one_minus_sel = predicate
+            let predicate_data = col.data_tracked_poly();
+            let predicate_activator = col.activator_tracked_poly();
+            let one_minus_data = predicate_data
                 .mul_scalar_poly(B::F::one().neg())
                 .add_scalar_poly(B::F::one());
-            let check_poly = &predicate * &one_minus_sel;
+            let check_poly = match predicate_activator {
+                Some(actv) => &(&predicate_data * &one_minus_data) * &actv,
+                None => &predicate_data * &one_minus_data,
+            };
+
             match check_poly.id_or_const() {
                 either::Either::Left(id) => {
                     prover.add_mv_zerocheck_claim(id)?;
@@ -154,11 +159,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         for idx in table.data_tracked_oracles_indices() {
             let col = table.tracked_col_oracle_by_ind(idx);
             // BinaryCheck only needs the predicate oracle, so we pass the activated column.
-            let predicate_oracle = col.activated_data_tracked_oracle();
-            let one_minus_sel = predicate_oracle
+            let predicate_data = col.data_tracked_oracle();
+            let predicate_activator = col.activator_tracked_oracle();
+            let one_minus_data = predicate_data
                 .mul_scalar_oracle(B::F::one().neg())
                 .add_scalar_oracle(B::F::one());
-            let check_poly = &predicate_oracle * &one_minus_sel;
+            let check_poly = match predicate_activator {
+                Some(actv) => &(&predicate_data * &one_minus_data) * &actv,
+                None => &predicate_data * &one_minus_data,
+            };
             match check_poly.id_or_const() {
                 either::Either::Left(id) => {
                     verifier.add_zerocheck_claim(id);
