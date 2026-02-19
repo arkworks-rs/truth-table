@@ -93,6 +93,13 @@ fn custom_queries() -> Vec<QueryEntry> {
 }
 
 fn main() {
+    // SAFETY: we set the environment variable once at process startup,
+    // before any benchmark work or threads are spawned.
+    unsafe {
+        std::env::set_var("BLITZAR_BACKEND", "cpu");
+    }
+    println!("BLITZAR_BACKEND=cpu");
+
     let iterations = BENCH_ITERS;
     let ppot_path = BENCH_PPOT_PATH.filter(|path| Path::new(path).exists());
 
