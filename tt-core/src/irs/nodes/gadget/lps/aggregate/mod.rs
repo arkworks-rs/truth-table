@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion_expr::Aggregate;
 use indexmap::IndexMap;
 
-use crate::irs::nodes::gadget::utils::supp;
+use crate::irs::nodes::gadget::utils::{bool, supp};
 use crate::irs::nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps};
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -12,9 +14,11 @@ use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
+const PREDICATE_COL_NAME: &str = "predicate";
 
 pub struct GadgetNode<B: SnarkBackend> {
     supp_gadget: Option<Arc<Node<B>>>,
+    bool_gadget: Option<Arc<Node<B>>>,
     aggregate: Aggregate,
 }
 
@@ -76,7 +80,10 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         if self.has_groups() {
-            vec![self.supp_gadget.as_ref().unwrap().clone()]
+            vec![
+                self.supp_gadget.as_ref().unwrap().clone(),
+                self.bool_gadget.as_ref().unwrap().clone(),
+            ]
         } else {
             vec![]
         }
@@ -128,6 +135,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),
         );
+
+        let bool_table = bool_table_from_output_prover(&output_table);
+        let mut bool_payload =
+            match virtualized_ir.payload_for_node(&self.bool_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
+        virtualized_ir.set_payload_for_node(
+            self.bool_gadget.as_ref().unwrap().id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
+        );
         Ok(())
     }
 }
@@ -169,11 +188,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             };
 
         supp_payload.insert(supp::ORIG_LABEL.to_string(), input_table);
-        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_table.clone());
 
         virtualized_ir.set_payload_for_node(
             self.supp_gadget.as_ref().unwrap().id(),
             Some(PayloadStructure::GadgetPayload(supp_payload)),
+        );
+
+        let bool_table = bool_table_from_output_verifier(&output_table);
+        let mut bool_payload =
+            match virtualized_ir.payload_for_node(&self.bool_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), bool_table);
+        virtualized_ir.set_payload_for_node(
+            self.bool_gadget.as_ref().unwrap().id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
         Ok(())
     }
@@ -214,20 +245,44 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 }
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(aggregate: Aggregate) -> Self {
-        let supp_gadget = if aggregate.group_expr.is_empty() {
-            None
+        let (supp_gadget, bool_gadget) = if aggregate.group_expr.is_empty() {
+            (None, None)
         } else {
-            Some(Arc::new(Node::<B>::Gadget(Arc::new(
-                crate::irs::nodes::gadget::utils::supp::GadgetNode::new(),
-            ))))
+            (
+                Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                    crate::irs::nodes::gadget::utils::supp::GadgetNode::new(),
+                )))),
+                Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                    crate::irs::nodes::gadget::utils::bool::GadgetNode::<B>::new(),
+                )))),
+            )
         };
         Self {
             supp_gadget,
             aggregate,
+            bool_gadget,
         }
     }
 
     fn has_groups(&self) -> bool {
         !self.aggregate.group_expr.is_empty()
     }
+}
+
+fn bool_table_from_output_prover<B: SnarkBackend>(output: &TrackedTable<B>) -> TrackedTable<B> {
+    let predicate_poly = output
+        .activator_tracked_poly()
+        .expect("Aggregate output should carry an activator column");
+    let predicate_field = Arc::new(Field::new(PREDICATE_COL_NAME, DataType::Boolean, false));
+    TrackedTable::single_column_with_activator(predicate_field, predicate_poly, None)
+}
+
+fn bool_table_from_output_verifier<B: SnarkBackend>(
+    output: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let predicate_oracle = output
+        .activator_tracked_poly()
+        .expect("Aggregate output should carry an activator column");
+    let predicate_field = Arc::new(Field::new(PREDICATE_COL_NAME, DataType::Boolean, false));
+    TrackedTableOracle::single_column_with_activator(predicate_field, predicate_oracle, None)
 }
