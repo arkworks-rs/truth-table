@@ -285,13 +285,17 @@ fn init_bench_tracing() {
             .with_timer(tracing_tree::time::Uptime::default())
             .with_deferred_spans(true)
             .with_writer(std::io::stdout)
-            .with_filter(filter_fn(|metadata: &Metadata<'_>| metadata.is_span()));
+            .with_filter(filter_fn(|metadata: &Metadata<'_>| {
+                metadata.is_span() && metadata.target() != "bench_stats"
+            }));
 
         let span_timing_layer = tracing_subscriber::fmt::layer()
             .with_span_events(FmtSpan::CLOSE)
             .with_timer(tracing_subscriber::fmt::time::Uptime::default())
             .with_target(false)
-            .with_filter(filter_fn(|metadata: &Metadata<'_>| metadata.is_span()));
+            .with_filter(filter_fn(|metadata: &Metadata<'_>| {
+                metadata.is_span() && metadata.target() != "bench_stats"
+            }));
 
         let stats_csv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

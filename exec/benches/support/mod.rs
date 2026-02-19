@@ -132,14 +132,18 @@ pub fn init_bench_tracing() {
             // .with_indent_lines(true)
             .with_deferred_spans(true)
             .with_writer(std::io::stdout)
-            .with_filter(filter_fn(|metadata| metadata.is_span()));
+            .with_filter(filter_fn(|metadata| {
+                metadata.is_span() && metadata.target() != "bench_stats"
+            }));
 
         // Emit span close events with elapsed time so span durations are visible.
         let span_timing_layer = tracing_subscriber::fmt::layer()
             .with_span_events(FmtSpan::CLOSE)
             .with_timer(tracing_subscriber::fmt::time::Uptime::default())
             .with_target(false)
-            .with_filter(filter_fn(|metadata| metadata.is_span()));
+            .with_filter(filter_fn(|metadata| {
+                metadata.is_span() && metadata.target() != "bench_stats"
+            }));
 
         let stats_layer = match stats_layer::BenchStatsCsvLayer::new_default() {
             Ok(layer) => Some(layer),
