@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::irs::nodes::{
     IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-    gadget::utils::{eq, neq},
+    gadget::utils::{bool, eq, neq},
 };
 use crate::irs::payloads::PayloadStructure;
 use crate::prover::irs::GadgetReadyIr;
@@ -25,6 +25,7 @@ mod tests;
 pub struct BinEqNode<B: SnarkBackend> {
     eq: Arc<Node<B>>,
     neq: Arc<Node<B>>,
+    bool_check: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for BinEqNode<B> {
@@ -54,7 +55,7 @@ impl<B: SnarkBackend> IsNode<B> for BinEqNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.eq.clone(), self.neq.clone()]
+        vec![self.bool_check.clone(), self.eq.clone(), self.neq.clone()]
     }
 }
 
@@ -167,6 +168,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinEqNode<B> {
         virtualized_ir.set_payload_for_node(
             self.neq.id(),
             Some(PayloadStructure::GadgetPayload(neq_payload)),
+        );
+
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_check.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.bool_check.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
         Ok(())
     }
@@ -298,6 +309,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
             self.neq.id(),
             Some(PayloadStructure::GadgetPayload(neq_payload)),
         );
+
+        let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_check.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        bool_payload.insert(bool::TABLE_LABEL.to_string(), output);
+        virtualized_ir.set_payload_for_node(
+            self.bool_check.id(),
+            Some(PayloadStructure::GadgetPayload(bool_payload)),
+        );
         Ok(())
     }
 }
@@ -428,9 +449,11 @@ impl<B: SnarkBackend> BinEqNode<B> {
     {
         let col_eq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(eq::GadgetNode::new())));
         let col_neq_gadget = Arc::new(Node::<B>::Gadget(Arc::new(neq::GadgetNode::new())));
+        let bool_check_gadget = Arc::new(Node::<B>::Gadget(Arc::new(bool::GadgetNode::<B>::new())));
         Self {
             eq: col_eq_gadget,
             neq: col_neq_gadget,
+            bool_check: bool_check_gadget,
         }
     }
 }
