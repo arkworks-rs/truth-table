@@ -87,7 +87,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             .unwrap_or(false);
         self.cache_is_pk(is_pk);
 
-        dbg!(self.is_pk());
 
         if self.is_pk() {
             // PK inputs are guaranteed to have no duplicates, so we can skip
