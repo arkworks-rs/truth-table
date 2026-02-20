@@ -19,6 +19,7 @@ use indexmap::IndexMap;
 
 pub const INPUT_LABEL: &str = "_input_";
 pub const LEX_SORTED_LABEL: &str = "_lex_sorted_";
+const PK_METADATA_KEY: &str = "tt.pk";
 /// Prefix for the prover->verifier side channel that carries the number
 /// of active input rows for SortNoDup.
 const SORT_NODUP_ACTIVE_INPUT_ROWS_PREFIX: &str = "sort_nodup_active_input_rows";
@@ -44,6 +45,7 @@ pub enum Gadgets<B: SnarkBackend> {
 pub struct SortNoDupGadgets<B: SnarkBackend>(Arc<Node<B>>);
 
 pub struct GadgetNode<B: SnarkBackend> {
+    is_pk: Mutex<bool>,
     gadgets: Gadgets<B>,
     /// Cached during planning from the concrete input hint. Later phases can
     /// build a virtual contiguous activator without recollecting the input DF.
@@ -73,6 +75,26 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Determine whether all data columns of the NoDup input are PK columns.
+        // "Data columns" exclude system columns (activator/row_id).
+        let is_pk = planned_ir
+            .payload_for_node(&id)
+            .and_then(|payload| match payload {
+                PayloadStructure::GadgetPayload(payload) => payload.get(INPUT_LABEL),
+                PayloadStructure::PlanPayload(_) => None,
+            })
+            .map(nodup_input_is_pk)
+            .unwrap_or(false);
+        self.cache_is_pk(is_pk);
+
+        dbg!(self.is_pk());
+
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
+
         // SortNoDup is the only mode that uses planner hints/virtual witnesses.
         let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
@@ -108,6 +130,11 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return vec![];
+        }
         match &self.gadgets {
             Gadgets::BezoutNoDup => vec![],
             Gadgets::SortNoDup(g) => vec![g.0.clone()],
@@ -121,6 +148,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
         };
@@ -164,6 +196,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
@@ -191,6 +228,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
         };
@@ -234,6 +276,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
@@ -262,6 +309,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         match self.gadgets {
             Gadgets::BezoutNoDup => Self::prove_nodup_bezout(prover, gadget_ready_ir, id),
             Gadgets::SortNoDup(_) => Ok(()),
@@ -274,6 +326,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         match self.gadgets {
             Gadgets::BezoutNoDup => Self::honest_check_no_dup_active(prover, gadget_ready_ir, id),
             // SortNoDup is enforced compositionally by its child gadgets
@@ -289,6 +346,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        if self.is_pk() {
+            // PK inputs are guaranteed to have no duplicates, so we can skip
+            // adding any gadgets and checks in this case.
+            return Ok(());
+        }
         match self.gadgets {
             Gadgets::BezoutNoDup => Self::verify_nodup_bezout(verifier, gadget_ready_ir, id),
             Gadgets::SortNoDup(_) => Ok(()),
@@ -310,10 +372,12 @@ impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new(mode: Mode) -> Self {
         match mode {
             Mode::BezoutBased => Self {
+                is_pk: Mutex::new(false),
                 gadgets: Gadgets::BezoutNoDup,
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
             Mode::SortBased => Self {
+                is_pk: Mutex::new(false),
                 gadgets: Gadgets::SortNoDup(SortNoDupGadgets(Arc::new(Node::<B>::Gadget(
                     Arc::new(
                         crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new_preserve_row_id(
@@ -329,6 +393,20 @@ impl<B: SnarkBackend> GadgetNode<B> {
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
         }
+    }
+
+    fn cache_is_pk(&self, is_pk: bool) {
+        *self
+            .is_pk
+            .lock()
+            .expect("NoDup pk lock should not be poisoned") = is_pk;
+    }
+
+    fn is_pk(&self) -> bool {
+        *self
+            .is_pk
+            .lock()
+            .expect("NoDup pk lock should not be poisoned")
     }
 
     fn cache_sort_nodup_active_rows(&self, rows: usize) {
@@ -404,6 +482,26 @@ fn payload_value_or_panic<T: Clone>(
         .get(label)
         .unwrap_or_else(|| panic!("{context} for label '{label}' at node {:?}", id))
         .clone()
+}
+
+fn nodup_input_is_pk(input_hint: &crate::irs::nodes::hints::HintDF) -> bool {
+    let data_fields: Vec<_> = input_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME)
+        .collect();
+    if data_fields.is_empty() {
+        return false;
+    }
+    data_fields.into_iter().all(|field| {
+        field
+            .metadata()
+            .get(PK_METADATA_KEY)
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false)
+    })
 }
 
 /// Count active rows in a hint. If no activator exists, all rows are active.

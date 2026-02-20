@@ -145,6 +145,14 @@ pub fn init_bench_tracing() {
                 metadata.is_span() && metadata.target() != "bench_stats"
             }));
 
+        // Emit regular events (e.g. debug!/info! logs) alongside span output.
+        let event_layer = tracing_subscriber::fmt::layer()
+            .with_timer(tracing_subscriber::fmt::time::Uptime::default())
+            .with_target(false)
+            .with_filter(filter_fn(|metadata| {
+                metadata.is_event() && metadata.target() != "bench_stats"
+            }));
+
         let stats_layer = match stats_layer::BenchStatsCsvLayer::new_default() {
             Ok(layer) => Some(layer),
             Err(err) => {
@@ -160,7 +168,8 @@ pub fn init_bench_tracing() {
         let registry = tracing_subscriber::registry()
             .with(filter)
             .with(tree_layer)
-            .with(span_timing_layer);
+            .with(span_timing_layer)
+            .with(event_layer);
 
         if let Some(stats_layer) = stats_layer {
             let _ = registry.with(stats_layer).try_init();
