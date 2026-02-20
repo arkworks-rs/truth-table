@@ -12,7 +12,6 @@ use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 pub const INPUT_ACTIVATOR_LABEL: &str = "__input_activator__";
 pub const OUTPUT_ACTIVATOR_LABEL: &str = "__output_activator__";
-use ark_ff::Zero;
 pub struct GadgetNode<B: SnarkBackend> {
     pub phantom: std::marker::PhantomData<B>,
     limit: Limit,
@@ -145,7 +144,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let data_indices = output_table.data_tracked_oracles_indices();
         let output_act = match data_indices.as_slice() {
-            [idx] => output_table.tracked_col_oracle_by_ind(*idx).data_tracked_oracle(),
+            [idx] => output_table
+                .tracked_col_oracle_by_ind(*idx)
+                .data_tracked_oracle(),
             _ => panic!("Limit gadget expects a single output activator column"),
         };
 
