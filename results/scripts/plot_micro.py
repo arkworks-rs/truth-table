@@ -35,7 +35,7 @@ def normalize_q(name: str) -> str:
     return q
 
 df["q_norm"] = df["Q"].apply(normalize_q)
-df["system_norm"] = df["System"].str.strip()
+df["system_norm"] = df["System"].str.strip().str.lower()
 
 # Fix to table log size 18 for all systems.
 df = df[df["table log size"] == 18]
@@ -44,7 +44,7 @@ query_order = ["filter", "aggregate", "join", "limit"]
 queries = [q for q in query_order if q in set(df["q_norm"])]
 query_labels = [q.title() for q in queries]
 
-systems = ["TT", "PoSQL", "qedb"]
+systems = ["tt", "posql", "qedb"]
 system_labels = ["TT", "PoSQL", "QEDB"]
 
 def pick_time(q_name: str, system: str) -> float:
@@ -62,21 +62,25 @@ group_width = 3 * bar_width + group_gap
 x = np.arange(len(queries)) * group_width
 
 plt.figure(figsize=(10, 5.2))
-colors = plt.get_cmap("tab10").colors
-light_colors = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
-hatches = ["/", "x", "\\\\"]
+palette = {
+    "tt": {"edge": "#1f77b4", "face": "#d7e6f5"},
+    "posql": {"edge": "#e31a1c", "face": "#f9d6d6"},
+    "qedb": {"edge": "#33a02c", "face": "#d9efd6"},
+}
+hatches = ["/", "x", "\\"]
 legend_handles = []
 legend_labels = []
 
-for i, (label, heights) in enumerate(zip(system_labels, series)):
+for i, (system, label, heights) in enumerate(zip(systems, system_labels, series)):
+    style = palette[system]
     plt.bar(
         x + i * bar_width,
         heights,
         width=bar_width,
         label=label,
         alpha=1.0,
-        facecolor=light_colors[i],
-        edgecolor=colors[i],
+        facecolor=style["face"],
+        edgecolor=style["edge"],
         hatch=hatches[i],
         linewidth=0.8,
     )
@@ -85,8 +89,8 @@ for i, (label, heights) in enumerate(zip(system_labels, series)):
             (0, 0),
             1,
             1,
-            facecolor=light_colors[i],
-            edgecolor=colors[i],
+            facecolor=style["face"],
+            edgecolor=style["edge"],
             hatch=hatches[i],
             linewidth=0.8,
         )
@@ -97,6 +101,10 @@ for i, (label, heights) in enumerate(zip(system_labels, series)):
 plt.xticks(x + bar_width, query_labels)
 plt.xlabel("Micro Benchmark")
 plt.ylabel("Prover Time (s)")
+ax = plt.gca()
+ax.set_yscale("log")
+ax.yaxis.set_major_locator(LogLocator(base=10))
+ax.yaxis.set_major_formatter(LogFormatterMathtext(base=10))
 plt.gca().tick_params(axis="x", pad=10)
 plt.gca().tick_params(axis="y", pad=10)
 plt.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)

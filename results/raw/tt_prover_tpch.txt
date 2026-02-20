@@ -1,47 +1,49 @@
-     scaling factor = 0.01, Max-Deg=6 
-      ├─ tpch_q1             27.86 s       │ 27.86 s       │ 27.86 s       │ 27.86 s       │ 1       │ 1
-      ├─ tpch_q1_poneglyph   18.76 s       │ 18.76 s       │ 18.76 s       │ 18.76 s       │ 1       │ 1
-      ├─ tpch_q3             23.16 s       │ 23.16 s       │ 23.16 s       │ 23.16 s       │ 1       │ 1
-      ├─ tpch_q3_poneglyph   22.56 s       │ 22.56 s       │ 22.56 s       │ 22.56 s       │ 1       │ 1
-      ├─ tpch_q5             23.27 s       │ 23.27 s       │ 23.27 s       │ 23.27 s       │ 1       │ 1
-      ├─ tpch_q5_poneglyph   22.42 s       │ 22.42 s       │ 22.42 s       │ 22.42 s       │ 1       │ 1
-      ├─ tpch_q8_poneglyph   48.74 s       │ 48.74 s       │ 48.74 s       │ 48.74 s       │ 1       │ 1
-      ├─ tpch_q8_tt          48.93 s       │ 48.93 s       │ 48.93 s       │ 48.93 s       │ 1       │ 1
-      ├─ tpch_q9_poneglyph   50.47 s       │ 50.47 s       │ 50.47 s       │ 50.47 s       │ 1       │ 1
-      ├─ tpch_q9_tt          50.93 s       │ 50.93 s       │ 50.93 s       │ 50.93 s       │ 1       │ 1
-      ├─ tpch_q18            1.048 m       │ 1.048 m       │ 1.048 m       │ 1.048 m       │ 1       │ 1
-      ├─ tpch_q18_poneglyph  39.64 s       │ 39.64 s       │ 39.64 s       │ 39.64 s       │ 1       │ 1
-
+   
+  scaling factor = 0.01 
+   ╰─ bench_tpch_prover                    │               │               │               │         │
+      ├─ tpch_q1             20.29 s       │ 20.29 s       │ 20.29 s       │ 20.29 s       │ 1       │ 1
+      ├─ tpch_q1_poneglyph   15.05 s       │ 15.05 s       │ 15.05 s       │ 15.05 s       │ 1       │ 1
+      ├─ tpch_q3             23.45 s       │ 23.45 s       │ 23.45 s       │ 23.45 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   22.41 s       │ 22.41 s       │ 22.41 s       │ 22.41 s       │ 1       │ 1
+      ├─ tpch_q5             16.16 s       │ 16.16 s       │ 16.16 s       │ 16.16 s       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   16.42 s       │ 16.42 s       │ 16.42 s       │ 16.42 s       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   33.62 s       │ 33.62 s       │ 33.62 s       │ 33.62 s       │ 1       │ 1
+      ├─ tpch_q8_tt          31.63 s       │ 31.63 s       │ 31.63 s       │ 31.63 s       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   44.61 s       │ 44.61 s       │ 44.61 s       │ 44.61 s       │ 1       │ 1
+      ├─ tpch_q9_tt          43.28 s       │ 43.28 s       │ 43.28 s       │ 43.28 s       │ 1       │ 1
+      ├─ tpch_q18            47.39 s       │ 47.39 s       │ 47.39 s       │ 47.39 s       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  27.65 s       │ 27.65 s       │ 27.65 s       │ 27.65 s       │ 1       │ 1
+      ╰─ tpch_q19            1.018 m       │ 1.018 m       │ 1.018 m       │ 1.018 m       │ 1       │ 1
 scaling factor = 0.02
 
    ╰─ bench_tpch_prover                    │               │               │               │         │
-      ├─ tpch_q1             55.39 s       │ 55.39 s       │ 55.39 s       │ 55.39 s       │ 1       │ 1
-      ├─ tpch_q1_poneglyph   35.77 s       │ 35.77 s       │ 35.77 s       │ 35.77 s       │ 1       │ 1
-      ├─ tpch_q3             43.48 s       │ 43.48 s       │ 43.48 s       │ 43.48 s       │ 1       │ 1
-      ├─ tpch_q3_poneglyph   43.1 s        │ 43.1 s        │ 43.1 s        │ 43.1 s        │ 1       │ 1
-      ├─ tpch_q5             43.75 s       │ 43.75 s       │ 43.75 s       │ 43.75 s       │ 1       │ 1
-      ├─ tpch_q5_poneglyph   42.16 s       │ 42.16 s       │ 42.16 s       │ 42.16 s       │ 1       │ 1
-      ├─ tpch_q8_poneglyph   1.549 m       │ 1.549 m       │ 1.549 m       │ 1.549 m       │ 1       │ 1
-      ├─ tpch_q8_tt          1.532 m       │ 1.532 m       │ 1.532 m       │ 1.532 m       │ 1       │ 1
-      ├─ tpch_q9_poneglyph   1.601 m       │ 1.601 m       │ 1.601 m       │ 1.601 m       │ 1       │ 1
-      ├─ tpch_q9_tt          1.63 m        │ 1.63 m        │ 1.63 m        │ 1.63 m        │ 1       │ 1
-      ├─ tpch_q18            2.048 m       │ 2.048 m       │ 2.048 m       │ 2.048 m       │ 1       │ 1
-      ├─ tpch_q18_poneglyph  1.289 m       │ 1.289 m       │ 1.289 m       │ 1.289 m       │ 1       │ 1
-
+      ├─ tpch_q1             35.8 s        │ 35.8 s        │ 35.8 s        │ 35.8 s        │ 1       │ 1
+      ├─ tpch_q1_poneglyph   25.55 s       │ 25.55 s       │ 25.55 s       │ 25.55 s       │ 1       │ 1
+      ├─ tpch_q3             42.57 s       │ 42.57 s       │ 42.57 s       │ 42.57 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   41.02 s       │ 41.02 s       │ 41.02 s       │ 41.02 s       │ 1       │ 1
+      ├─ tpch_q5             28.93 s       │ 28.93 s       │ 28.93 s       │ 28.93 s       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   28.32 s       │ 28.32 s       │ 28.32 s       │ 28.32 s       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   55.36 s       │ 55.36 s       │ 55.36 s       │ 55.36 s       │ 1       │ 1
+      ├─ tpch_q8_tt          55.74 s       │ 55.74 s       │ 55.74 s       │ 55.74 s       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   1.281 m       │ 1.281 m       │ 1.281 m       │ 1.281 m       │ 1       │ 1
+      ├─ tpch_q9_tt          1.296 m       │ 1.296 m       │ 1.296 m       │ 1.296 m       │ 1       │ 1
+      ├─ tpch_q18            1.526 m       │ 1.526 m       │ 1.526 m       │ 1.526 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  53.66 s       │ 53.66 s       │ 53.66 s       │ 53.66 s       │ 1       │ 1
 
 scaling factor = 0.04
 
 
-        ╰─ bench_tpch_prover                    │               │               │               │         │
-      ├─ tpch_q1             1.74 m        │ 1.74 m        │ 1.74 m        │ 1.74 m        │ 1       │ 1
-      ├─ tpch_q1_poneglyph   1.138 m       │ 1.138 m       │ 1.138 m       │ 1.138 m       │ 1       │ 1
-      ├─ tpch_q3             1.419 m       │ 1.419 m       │ 1.419 m       │ 1.419 m       │ 1       │ 1
-      ├─ tpch_q3_poneglyph   1.391 m       │ 1.391 m       │ 1.391 m       │ 1.391 m       │ 1       │ 1
-      ├─ tpch_q5             1.399 m       │ 1.399 m       │ 1.399 m       │ 1.399 m       │ 1       │ 1
-      ├─ tpch_q5_poneglyph   1.36 m        │ 1.36 m        │ 1.36 m        │ 1.36 m        │ 1       │ 1
-      ├─ tpch_q8_poneglyph   2.985 m       │ 2.985 m       │ 2.985 m       │ 2.985 m       │ 1       │ 1
-      ├─ tpch_q8_tt          2.977 m       │ 2.977 m       │ 2.977 m       │ 2.977 m       │ 1       │ 1
-      ├─ tpch_q9_poneglyph   3.114 m       │ 3.114 m       │ 3.114 m       │ 3.114 m       │ 1       │ 1
-      ├─ tpch_q9_tt          3.158 m       │ 3.158 m       │ 3.158 m       │ 3.158 m       │ 1       │ 1
-      ├─ tpch_q18            3.967 m       │ 3.967 m       │ 3.967 m       │ 3.967 m       │ 1       │ 1
-      ├─ tpch_q18_poneglyph  2.514 m       │ 2.514 m       │ 2.514 m       │ 2.514 m       │ 1       │ 1
+   ╰─ bench_tpch_prover                    │               │               │               │         │
+      ├─ tpch_q1             1.136 m       │ 1.136 m       │ 1.136 m       │ 1.136 m       │ 1       │ 1
+      ├─ tpch_q1_poneglyph   48.71 s       │ 48.71 s       │ 48.71 s       │ 48.71 s       │ 1       │ 1
+      ├─ tpch_q3             1.377 m       │ 1.377 m       │ 1.377 m       │ 1.377 m       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   1.308 m       │ 1.308 m       │ 1.308 m       │ 1.308 m       │ 1       │ 1
+      ├─ tpch_q5             55.04 s       │ 55.04 s       │ 55.04 s       │ 55.04 s       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   53.01 s       │ 53.01 s       │ 53.01 s       │ 53.01 s       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   1.785 m       │ 1.785 m       │ 1.785 m       │ 1.785 m       │ 1       │ 1
+      ├─ tpch_q8_tt          1.754 m       │ 1.754 m       │ 1.754 m       │ 1.754 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   2.466 m       │ 2.466 m       │ 2.466 m       │ 2.466 m       │ 1       │ 1
+      ├─ tpch_q9_tt          2.488 m       │ 2.488 m       │ 2.488 m       │ 2.488 m       │ 1       │ 1
+      ├─ tpch_q18            2.933 m       │ 2.933 m       │ 2.933 m       │ 2.933 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  1.752 m       │ 1.752 m       │ 1.752 m       │ 1.752 m       │ 1       │ 1
+      ╰─ tpch_q19            3.845 m       │ 3.845 m       │ 3.845 m       │ 3.845 m       │ 1       │ 1
