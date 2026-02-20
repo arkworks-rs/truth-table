@@ -257,12 +257,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one column aligned with the parent input activator.
-            let parent_payload = virtualized_ir
-                .payload_for_node(&parent_node.id())
-                .and_then(|payload| match payload {
+            let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
+                |payload| match payload {
                     PayloadStructure::PlanPayload(table) => Some(table.clone()),
                     _ => None,
-                });
+                },
+            );
             if let Some(parent_table) = parent_payload {
                 let count_table =
                     constant_one_table::<B>(&parent_table, &self.output_column_name_in_parent());
@@ -322,63 +322,64 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             _ => panic!("AggregateFunction payload missing"),
         };
 
-        let (orig_rlc, super_rlc) =
-            if let Some(supp_node) = supp_child_from_aggregate_parent(&parent_node) {
-                let supp_payload = virtualized_ir
-                    .payload_for_node(&supp_node.id())
-                    .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
-                let supp_payload = match supp_payload {
-                    PayloadStructure::GadgetPayload(map) => map,
-                    _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
-                };
-                let orig_rlc = supp_payload
-                    .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
-                    });
-                let super_rlc = supp_payload
-                    .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
-                    });
-                (orig_rlc, super_rlc)
-            } else if self.aggregate_function.func.name() == "sum" {
-                // For SUM, the input selector must come from the input table,
-                // while the output selector comes from the output table.
-                let input_table = self
-                    .args
-                    .first()
-                    .and_then(|arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
+        let (orig_rlc, super_rlc) = if let Some(supp_node) =
+            supp_child_from_aggregate_parent(&parent_node)
+        {
+            let supp_payload = virtualized_ir
+                .payload_for_node(&supp_node.id())
+                .unwrap_or_else(|| panic!("Supp gadget payload missing for AggregateFunction"));
+            let supp_payload = match supp_payload {
+                PayloadStructure::GadgetPayload(map) => map,
+                _ => panic!("Supp payload must be a GadgetPayload for AggregateFunction"),
+            };
+            let orig_rlc = supp_payload
+                .get(crate::irs::nodes::gadget::utils::supp::ORIG_RLC_LABEL)
+                .cloned()
+                .unwrap_or_else(|| {
+                    panic!("Supp payload missing ORIG_RLC_LABEL for AggregateFunction")
+                });
+            let super_rlc = supp_payload
+                .get(crate::irs::nodes::gadget::utils::supp::SUPER_RLC_LABEL)
+                .cloned()
+                .unwrap_or_else(|| {
+                    panic!("Supp payload missing SUPER_RLC_LABEL for AggregateFunction")
+                });
+            (orig_rlc, super_rlc)
+        } else if self.aggregate_function.func.name() == "sum" {
+            // For SUM, the input selector must come from the input table,
+            // while the output selector comes from the output table.
+            let input_table = self
+                .args
+                .first()
+                .and_then(
+                    |arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
                         Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
                         _ => None,
-                    })
-                    .unwrap_or_else(|| {
-                        panic!("Sum AggregateFunction expects an input table payload")
-                    });
-                (
-                    constant_one_table::<B>(
-                        &input_table,
-                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
-                    ),
-                    constant_one_table::<B>(
-                        &aggr_expr_table,
-                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
-                    ),
+                    },
                 )
-            } else {
-                (
-                    constant_one_table::<B>(
-                        &aggr_expr_table,
-                        crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
-                    ),
-                    constant_one_table::<B>(
-                        &aggr_expr_table,
-                        crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
-                    ),
-                )
-            };
+                .unwrap_or_else(|| panic!("Sum AggregateFunction expects an input table payload"));
+            (
+                constant_one_table::<B>(
+                    &input_table,
+                    crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                ),
+                constant_one_table::<B>(
+                    &aggr_expr_table,
+                    crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                ),
+            )
+        } else {
+            (
+                constant_one_table::<B>(
+                    &aggr_expr_table,
+                    crate::irs::nodes::gadget::exprs::aggregate_function::INPUT_RLC_LABEL,
+                ),
+                constant_one_table::<B>(
+                    &aggr_expr_table,
+                    crate::irs::nodes::gadget::exprs::aggregate_function::OUTPUT_RLC_LABEL,
+                ),
+            )
+        };
 
         if let Some(gadget) = &self.gadget {
             let mut gadget_payload = match virtualized_ir.payload_for_node(&gadget.id()) {
@@ -503,12 +504,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one oracle aligned with the parent input activator.
-            let parent_payload = virtualized_ir
-                .payload_for_node(&parent_node.id())
-                .and_then(|payload| match payload {
+            let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
+                |payload| match payload {
                     PayloadStructure::PlanPayload(table) => Some(table.clone()),
                     _ => None,
-                });
+                },
+            );
             if let Some(parent_table) = parent_payload {
                 let count_table = constant_one_table_oracle::<B>(
                     &parent_table,
@@ -596,10 +597,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 let input_table = self
                     .args
                     .first()
-                    .and_then(|arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
-                        Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
-                        _ => None,
-                    })
+                    .and_then(
+                        |arg_node| match virtualized_ir.payload_for_node(&arg_node.id()) {
+                            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+                            _ => None,
+                        },
+                    )
                     .unwrap_or_else(|| {
                         panic!("Sum AggregateFunction expects an input oracle table payload")
                     });
@@ -728,7 +731,6 @@ fn constant_one_table<B: SnarkBackend>(
     )
 }
 
-
 fn constant_one_table_oracle<B: SnarkBackend>(
     base: &arithmetic::table_oracle::TrackedTableOracle<B>,
     label: &str,
@@ -758,7 +760,6 @@ fn constant_one_table_oracle<B: SnarkBackend>(
         log_size,
     )
 }
-
 
 fn lookup_child_from_aggregate_parent<B: SnarkBackend>(
     parent_node: &Arc<Node<B>>,

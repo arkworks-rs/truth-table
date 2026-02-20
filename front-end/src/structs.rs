@@ -108,7 +108,10 @@ impl<B: SnarkBackend> TTProof<B> {
             .mv_pcs_subproof
             .query_map
             .serialized_size(Compress::Yes);
-        let mv_pcs_subproof = self.snark_proof.mv_pcs_subproof.serialized_size(Compress::Yes);
+        let mv_pcs_subproof = self
+            .snark_proof
+            .mv_pcs_subproof
+            .serialized_size(Compress::Yes);
 
         let uv_opening_proof = self
             .snark_proof
@@ -125,7 +128,10 @@ impl<B: SnarkBackend> TTProof<B> {
             .uv_pcs_subproof
             .query_map
             .serialized_size(Compress::Yes);
-        let uv_pcs_subproof = self.snark_proof.uv_pcs_subproof.serialized_size(Compress::Yes);
+        let uv_pcs_subproof = self
+            .snark_proof
+            .uv_pcs_subproof
+            .serialized_size(Compress::Yes);
 
         let miscellaneous_field_elements = self
             .snark_proof

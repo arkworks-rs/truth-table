@@ -10,8 +10,8 @@ use arrow::{
     array::{
         Array, ArrayRef, BooleanBuilder, Date32Array, Date64Array, Decimal128Array, Float32Array,
         Float64Array, Int32Builder, Int64Builder, RecordBatch, TimestampMicrosecondArray,
-        TimestampMillisecondArray, UInt64Builder,
-        TimestampNanosecondArray, TimestampSecondArray, new_null_array,
+        TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt64Builder,
+        new_null_array,
     },
     datatypes::{
         DataType, Date64Type, Field, Schema, TimeUnit, TimestampMicrosecondType,
@@ -792,7 +792,11 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         ));
         write_parquet_raw(orig_out.join("nation.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("nation.parquet"), &schema, &mut it);
-        write_parquet_poneglyph(out.join("nation_poneglyph.parquet"), &schema, &mut it_poneglyph);
+        write_parquet_poneglyph(
+            out.join("nation_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // region
     {
@@ -810,7 +814,11 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         ));
         write_parquet_raw(orig_out.join("region.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("region.parquet"), &schema, &mut it);
-        write_parquet_poneglyph(out.join("region_poneglyph.parquet"), &schema, &mut it_poneglyph);
+        write_parquet_poneglyph(
+            out.join("region_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // part
     {
@@ -828,7 +836,11 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         ));
         write_parquet_raw(orig_out.join("part.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("part.parquet"), &schema, &mut it);
-        write_parquet_poneglyph(out.join("part_poneglyph.parquet"), &schema, &mut it_poneglyph);
+        write_parquet_poneglyph(
+            out.join("part_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // supplier
     {
@@ -912,7 +924,11 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         ));
         write_parquet_raw(orig_out.join("orders.parquet"), &schema, &mut it_raw);
         write_parquet(out.join("orders.parquet"), &schema, &mut it);
-        write_parquet_poneglyph(out.join("orders_poneglyph.parquet"), &schema, &mut it_poneglyph);
+        write_parquet_poneglyph(
+            out.join("orders_poneglyph.parquet"),
+            &schema,
+            &mut it_poneglyph,
+        );
     }
     // lineitem
     {
@@ -1318,7 +1334,11 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
                 cached_tpch_sql(&TPCH_Q3_SQL, 3)
             },
             tables: if poneglyph {
-                &["customer_poneglyph", "orders_poneglyph", "lineitem_poneglyph"]
+                &[
+                    "customer_poneglyph",
+                    "orders_poneglyph",
+                    "lineitem_poneglyph",
+                ]
             } else {
                 &["customer", "orders", "lineitem"]
             },
@@ -1438,7 +1458,11 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
                 cached_tpch_sql(&TPCH_Q18_SQL, 18)
             },
             tables: if poneglyph {
-                &["customer_poneglyph", "orders_poneglyph", "lineitem_poneglyph"]
+                &[
+                    "customer_poneglyph",
+                    "orders_poneglyph",
+                    "lineitem_poneglyph",
+                ]
             } else {
                 &["customer", "orders", "lineitem"]
             },

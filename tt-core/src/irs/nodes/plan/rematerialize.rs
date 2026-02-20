@@ -2,23 +2,23 @@ use crate::irs::nodes::{
     IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
 };
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD};
+use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use ark_std::One;
-use ark_ff::BigInteger;
 
+use datafusion::arrow::datatypes::Schema;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
     Expr, LogicalPlan, col, lit,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
+use indexmap::IndexMap;
 use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::sync::Arc;
-use datafusion::arrow::datatypes::Schema;
-use indexmap::IndexMap;
 
 const REMAT_CONTIG_S_PREFIX: &str = "remat_contig_s";
 
@@ -98,11 +98,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             fields.push(ACTIVATOR_FIELD.as_ref().clone().into());
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
-        let updated = arithmetic::table::TrackedTable::new(
-            schema,
-            polys,
-            current_table.log_size(),
-        );
+        let updated = arithmetic::table::TrackedTable::new(schema, polys, current_table.log_size());
         virtualized_ir.set_payload_for_node(
             id,
             Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),

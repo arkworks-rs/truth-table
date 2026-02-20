@@ -119,7 +119,9 @@ where
             .remove("sumcheck_degree_distribution")
             .unwrap_or_default();
         let lookup_claims = fields.remove("lookup_claims").unwrap_or_default();
-        let reduce_degree_max_degree = fields.remove("reduce_degree_max_degree").unwrap_or_default();
+        let reduce_degree_max_degree = fields
+            .remove("reduce_degree_max_degree")
+            .unwrap_or_default();
         let reduce_degree_num_commited = fields
             .remove("reduce_degree_num_commited")
             .unwrap_or_default();

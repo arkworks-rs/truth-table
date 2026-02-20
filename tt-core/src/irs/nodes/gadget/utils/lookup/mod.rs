@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,

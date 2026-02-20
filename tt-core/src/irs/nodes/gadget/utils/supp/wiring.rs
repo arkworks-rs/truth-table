@@ -205,18 +205,17 @@ pub(super) fn io_rlc_prover<B: SnarkBackend>(
     let orig_order = data_col_names_prover(orig_table);
     let orig_rlc =
         fold_table_to_single_col_with_challs(orig_table, ORIG_RLC_LABEL, &folding_challs);
-    let super_rlc = if let Some(aligned_super_indices) =
-        aligned_indices_prover(super_table, &orig_order)
-    {
-        fold_table_to_single_col_with_indices(
-            super_table,
-            SUPER_RLC_LABEL,
-            &aligned_super_indices,
-            &folding_challs,
-        )
-    } else {
-        fold_table_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs)
-    };
+    let super_rlc =
+        if let Some(aligned_super_indices) = aligned_indices_prover(super_table, &orig_order) {
+            fold_table_to_single_col_with_indices(
+                super_table,
+                SUPER_RLC_LABEL,
+                &aligned_super_indices,
+                &folding_challs,
+            )
+        } else {
+            fold_table_to_single_col_with_challs(super_table, SUPER_RLC_LABEL, &folding_challs)
+        };
     (orig_rlc, super_rlc)
 }
 
@@ -268,14 +267,18 @@ pub(super) fn io_rlc_verifier<B: SnarkBackend>(
 fn data_col_names_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<String> {
     table
         .tracked_polys_iter()
-        .filter_map(|(field, _)| (!is_system_column(field.name())).then_some(field.name().to_string()))
+        .filter_map(|(field, _)| {
+            (!is_system_column(field.name())).then_some(field.name().to_string())
+        })
         .collect()
 }
 
 fn data_col_names_verifier<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<String> {
     table
         .tracked_oracles_iter()
-        .filter_map(|(field, _)| (!is_system_column(field.name())).then_some(field.name().to_string()))
+        .filter_map(|(field, _)| {
+            (!is_system_column(field.name())).then_some(field.name().to_string())
+        })
         .collect()
 }
 

@@ -589,7 +589,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             );
 
             let count_output_names: std::collections::HashSet<String> =
-                count_output_names(&aggregate.aggr_expr).into_iter().collect();
+                count_output_names(&aggregate.aggr_expr)
+                    .into_iter()
+                    .collect();
             for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
                 let column_name = expr.schema_name().to_string();
                 if count_output_names.contains(&column_name) {
@@ -796,7 +798,9 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
     );
 
     let count_output_names: std::collections::HashSet<String> =
-        count_output_names(&aggregate.aggr_expr).into_iter().collect();
+        count_output_names(&aggregate.aggr_expr)
+            .into_iter()
+            .collect();
     for (expr, expr_node) in aggregate.aggr_expr.iter().zip(aggr_exprs.iter()) {
         let column_name = expr.schema_name().to_string();
         if count_output_names.contains(&column_name) {
@@ -879,7 +883,12 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
             let data_indices = table.data_tracked_polys_indices();
             let col_evals = data_indices
                 .iter()
-                .map(|idx| table.tracked_col_by_ind(*idx).data_tracked_poly().evaluations())
+                .map(|idx| {
+                    table
+                        .tracked_col_by_ind(*idx)
+                        .data_tracked_poly()
+                        .evaluations()
+                })
                 .collect::<Vec<_>>();
             let mut out = Vec::new();
             for i in 0..row_count {
@@ -925,7 +934,8 @@ fn populate_aggregate_gadget<B: SnarkBackend>(
             for (field, _) in output_table.tracked_polys_iter() {
                 *names.entry(field.name().to_string()).or_insert(0) += 1;
             }
-            names.into_iter()
+            names
+                .into_iter()
                 .filter(|(_, c)| *c > 1)
                 .collect::<Vec<_>>()
         };

@@ -83,15 +83,11 @@ where
                                 .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
                             return Some(CommittedPayload::PlanPayload(oracle.clone()));
                         }
-                        if let Some(oracle) = self
-                            .ctx_oracles
-                            .table_oracles()
-                            .iter()
-                            .find_map(|(ctx_schema, oracle)| {
-                                schema_eq_ignoring_metadata(ctx_schema, &schema)
-                                    .then_some(oracle)
-                            })
-                        {
+                        if let Some(oracle) = self.ctx_oracles.table_oracles().iter().find_map(
+                            |(ctx_schema, oracle)| {
+                                schema_eq_ignoring_metadata(ctx_schema, &schema).then_some(oracle)
+                            },
+                        ) {
                             self.total_ctx_loaded
                                 .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
                             return Some(CommittedPayload::PlanPayload(oracle.clone()));
@@ -172,8 +168,7 @@ fn schema_eq_ignoring_metadata(left: &Schema, right: &Schema) -> bool {
     if left.fields().len() != right.fields().len() {
         return false;
     }
-    left
-        .fields()
+    left.fields()
         .iter()
         .zip(right.fields().iter())
         .all(|(l, r)| {

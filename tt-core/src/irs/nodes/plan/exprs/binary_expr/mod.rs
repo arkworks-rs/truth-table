@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use arithmetic::{is_system_column, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
+use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::{expr_fn::when, lit, BinaryExpr, Expr};
+use datafusion_expr::{BinaryExpr, Expr, expr_fn::when, lit};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -13,11 +13,11 @@ use crate::irs::{
 };
 use crate::{
     irs::nodes::{
+        NodeId,
         gadget::exprs::{
             bin_cmp::{self, BinCmpOp},
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
         },
-        NodeId,
     },
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
     verifier::irs::VirtualizedIr as VerifierVirtualizedIr,

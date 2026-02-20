@@ -69,9 +69,8 @@ where
         }
         match node {
             Node::Gadget(gadget_node) => {
-                let should_log_parent =
-                    tracing::level_enabled!(tracing::Level::DEBUG)
-                        || tracing::level_enabled!(tracing::Level::INFO);
+                let should_log_parent = tracing::level_enabled!(tracing::Level::DEBUG)
+                    || tracing::level_enabled!(tracing::Level::INFO);
                 let parent_name = if should_log_parent {
                     let gadget_ready_ir = self.gadget_ready_ir.borrow();
                     parent_name_for(gadget_ready_ir.tree(), id)

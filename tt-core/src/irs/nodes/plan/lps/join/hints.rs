@@ -1,5 +1,5 @@
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use crate::irs::nodes::plan::lps::join::modes::JoinMode;
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::Column;
@@ -127,10 +127,7 @@ pub fn build_partial_output_dataframe(
 ) -> DataFrame {
     // In partial mode, keep FK-side rows (including inactive ones) and attach PK-side
     // columns via LEFT JOIN. This guarantees PK materialized columns share FK log-size.
-    let fk_is_left = matches!(
-        mode,
-        JoinMode::MANY_TO_ONE
-    );
+    let fk_is_left = matches!(mode, JoinMode::MANY_TO_ONE);
 
     let (fk_df_raw, pk_df_raw) = if fk_is_left {
         (left_df, right_df)

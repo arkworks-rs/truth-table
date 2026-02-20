@@ -1,13 +1,13 @@
 use super::*;
 use std::sync::Arc;
 
+use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::errors::SnarkResult;
-use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::prover::ArgProver;
+use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::structs::TrackerID;
 use ark_piop::test_utils::test_prelude;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
@@ -17,7 +17,7 @@ use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
-use datafusion_expr::{col, Expr};
+use datafusion_expr::{Expr, col};
 use indexmap::IndexMap;
 type Backend = DefaultSnarkBackend;
 const LOG_SIZE: usize = 2;
@@ -377,7 +377,9 @@ fn comparison_output_is_false_on_inactive_rows() {
     .expect("record batch creation should succeed");
     let df = ctx.read_batch(batch).expect("read batch should succeed");
     let projected = df
-        .select(vec![col("a").gt(Expr::Literal(ScalarValue::Int32(Some(0))))])
+        .select(vec![
+            col("a").gt(Expr::Literal(ScalarValue::Int32(Some(0)))),
+        ])
         .expect("projection should build");
     let plan = projected.logical_plan().clone();
     let tree = Tree::<Backend>::from_logical_plan(&plan);
