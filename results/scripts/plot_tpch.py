@@ -111,4 +111,4 @@ plt.legend(
 )
 
 plt.tight_layout()
-plt.savefig(figures_dir / "prover_time_tpch_0p04.pdf")
+plt.savefig(figures_dir / "tpch_prover.pdf")

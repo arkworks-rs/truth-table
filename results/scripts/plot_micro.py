@@ -99,7 +99,7 @@ for i, (system, label, heights) in enumerate(zip(systems, system_labels, series)
 
 # Axes and labels
 plt.xticks(x + bar_width, query_labels)
-plt.xlabel("Micro Benchmark")
+plt.xlabel("SQL Operator")
 plt.ylabel("Prover Time (s)")
 ax = plt.gca()
 ax.set_yscale("log")
