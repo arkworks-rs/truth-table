@@ -17,14 +17,22 @@ fn tpch_cases() -> &'static [BenchCase] {
         // println!("TPCH Q1 SQL: {}", q1.sql);
         let q1_poneglyph = query_spec(1, true);
         // println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
+        let q2 = query_spec(2, false);
+        // println!("TPCH Q2 SQL: {}", q2.sql);
         let q3 = query_spec(3, false);
         // println!("TPCH Q3 SQL: {}", q3.sql);
         let q3_poneglyph = query_spec(3, true);
         // println!("TPCH Q3 Poneglyph SQL: {}", q3_poneglyph.sql);
+        let q4 = query_spec(4, false);
+        // println!("TPCH Q4 SQL: {}", q4.sql);
         let q5 = query_spec(5, false);
         // println!("TPCH Q5 SQL: {}", q5.sql);
         let q5_poneglyph = query_spec(5, true);
         // println!("TPCH Q5 Poneglyph SQL: {}", q5_poneglyph.sql);
+        let q6 = query_spec(6, false);
+        // println!("TPCH Q6 SQL: {}", q6.sql);
+        let q7 = query_spec(7, false);
+        // println!("TPCH Q7 SQL: {}", q7.sql);
         let q8 = query_spec(8, false);
         // println!("TPCH Q8 SQL: {}", q8.sql);
         let q8_poneglyph = query_spec(8, true);
@@ -33,12 +41,34 @@ fn tpch_cases() -> &'static [BenchCase] {
         // println!("TPCH Q9 SQL: {}", q9.sql);
         let q9_poneglyph = query_spec(9, true);
         // println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
+        let q10 = query_spec(10, false);
+        // println!("TPCH Q10 SQL: {}", q10.sql);
+        let q11 = query_spec(11, false);
+        // println!("TPCH Q11 SQL: {}", q11.sql);
+        let q12 = query_spec(12, false);
+        // println!("TPCH Q12 SQL: {}", q12.sql);
+        let q13 = query_spec(13, false);
+        // println!("TPCH Q13 SQL: {}", q13.sql);
+        let q14 = query_spec(14, false);
+        // println!("TPCH Q14 SQL: {}", q14.sql);
+        let q15 = query_spec(15, false);
+        // println!("TPCH Q15 SQL: {}", q15.sql);
+        let q16 = query_spec(16, false);
+        // println!("TPCH Q16 SQL: {}", q16.sql);
+        let q17 = query_spec(17, false);
+        // println!("TPCH Q17 SQL: {}", q17.sql);
         let q18 = query_spec(18, false);
         // println!("TPCH Q18 SQL: {}", q18.sql);
         let q18_poneglyph = query_spec(18, true);
         // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
         let q19 = query_spec(19, false);
         // println!("TPCH Q19 SQL: {}", q19.sql);
+        let q20 = query_spec(20, false);
+        // println!("TPCH Q20 SQL: {}", q20.sql);
+        let q21 = query_spec(21, false);
+        // println!("TPCH Q21 SQL: {}", q21.sql);
+        let q22 = query_spec(22, false);
+        println!("TPCH Q22 SQL: {}", q22.sql);
 
         let cases = vec![
             BenchCase {
@@ -51,6 +81,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q1_poneglyph.sql,
                 tables: q1_poneglyph.tables,
             },
+            // BenchCase {
+            //     name: "tpch_q2",
+            //     query: q2.sql,
+            //     tables: q2.tables,
+            // },
             BenchCase {
                 name: "tpch_q3_poneglyph",
                 query: q3_poneglyph.sql,
@@ -61,6 +96,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q3.sql,
                 tables: q3.tables,
             },
+            // BenchCase {
+            //     name: "tpch_q4",
+            //     query: q4.sql,
+            //     tables: q4.tables,
+            // },
             BenchCase {
                 name: "tpch_q5",
                 query: q5.sql,
@@ -71,6 +111,16 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q5_poneglyph.sql,
                 tables: q5_poneglyph.tables,
             },
+            BenchCase {
+                name: "tpch_q6",
+                query: q6.sql,
+                tables: q6.tables,
+            },
+            // BenchCase {
+            //     name: "tpch_q7",
+            //     query: q7.sql,
+            //     tables: q7.tables,
+            // },
             BenchCase {
                 name: "tpch_q8_tt",
                 query: q8.sql,
@@ -92,6 +142,46 @@ fn tpch_cases() -> &'static [BenchCase] {
                 tables: q9_poneglyph.tables,
             },
             BenchCase {
+                name: "tpch_q10",
+                query: q10.sql,
+                tables: q10.tables,
+            },
+            // BenchCase {
+            //     name: "tpch_q11",
+            //     query: q11.sql,
+            //     tables: q11.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q12",
+            //     query: q12.sql,
+            //     tables: q12.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q13",
+            //     query: q13.sql,
+            //     tables: q13.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q14",
+            //     query: q14.sql,
+            //     tables: q14.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q15",
+            //     query: q15.sql,
+            //     tables: q15.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q16",
+            //     query: q16.sql,
+            //     tables: q16.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q17",
+            //     query: q17.sql,
+            //     tables: q17.tables,
+            // },
+            BenchCase {
                 name: "tpch_q18_poneglyph",
                 query: q18_poneglyph.sql,
                 tables: q18_poneglyph.tables,
@@ -106,7 +196,23 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q19.sql,
                 tables: q19.tables,
             },
+            // BenchCase {
+            //     name: "tpch_q20",
+            //     query: q20.sql,
+            //     tables: q20.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q21",
+            //     query: q21.sql,
+            //     tables: q21.tables,
+            // },
+            BenchCase {
+                name: "tpch_q22",
+                query: q22.sql,
+                tables: q22.tables,
+            },
         ];
+        // println!("Loaded {} TPCH benchmark cases", cases.len());
         Box::leak(cases.into_boxed_slice())
     })
 }

@@ -5,6 +5,7 @@ pub mod binary_expr;
 pub mod case;
 pub mod cast;
 pub mod column;
+pub mod exists;
 pub mod in_list;
 pub mod in_subquery;
 pub mod literal;

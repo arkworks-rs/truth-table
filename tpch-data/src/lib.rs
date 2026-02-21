@@ -1042,7 +1042,6 @@ fn normalize_tpch_sql(number: u8, sql: String) -> String {
 }
 
 static TPCH_Q1_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q2_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q3_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q4_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q5_SQL: OnceLock<&'static str> = OnceLock::new();
@@ -1060,7 +1059,6 @@ static TPCH_Q18_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q19_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q20_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q21_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q22_SQL: OnceLock<&'static str> = OnceLock::new();
 
 const TPCH_Q1_PONEGLYPH_SQL: &str = r#"
 SELECT
@@ -1078,6 +1076,86 @@ GROUP BY
     l_returnflag
 ORDER BY
     l_returnflag
+"#;
+
+const TPCH_Q2_SQL_REWRITTEN: &str = r#"
+SELECT
+    s_acctbal,
+    s_name,
+    n_name,
+    p_partkey,
+    p_mfgr,
+    s_address,
+    s_phone,
+    s_comment
+FROM
+    part,
+    supplier,
+    partsupp,
+    nation,
+    region
+WHERE
+    p_partkey = ps_partkey
+    AND s_suppkey = ps_suppkey
+    AND p_size = 15
+    AND s_nationkey = n_nationkey
+    AND n_regionkey = r_regionkey
+    AND r_name = 'EUROPE'
+    AND ps_supplycost = (
+        SELECT
+            min(ps_supplycost)
+        FROM
+            partsupp,
+            supplier,
+            nation,
+            region
+        WHERE
+            p_partkey = ps_partkey
+            AND s_suppkey = ps_suppkey
+            AND s_nationkey = n_nationkey
+            AND n_regionkey = r_regionkey
+            AND r_name = 'EUROPE')
+ORDER BY
+    s_acctbal DESC,
+    n_name,
+    s_name,
+    p_partkey
+LIMIT 100;
+"#;
+
+const TPCH_Q22_SQL_REWRITTEN: &str = r#"
+SELECT
+    cntrycode,
+    count(*) AS numcust,
+    sum(c_acctbal) AS totacctbal
+FROM (
+    SELECT
+        c_phone AS cntrycode,
+        c_acctbal
+    FROM
+        customer
+    WHERE
+        c_phone IN ('13', '31', '23', '29', '30', '18', '17')
+        AND
+        c_acctbal > (
+            SELECT
+                avg(c_acctbal)
+            FROM
+                customer
+            WHERE
+                c_acctbal > 0.00
+                AND c_phone IN ('13', '31', '23', '29', '30', '18', '17'))
+        AND NOT EXISTS (
+            SELECT
+                *
+            FROM
+                orders
+            WHERE
+                o_custkey = c_custkey)) AS custsale
+GROUP BY
+    cntrycode
+ORDER BY
+    cntrycode;
 "#;
 
 const TPCH_Q3_PONEGLYPH_SQL: &str = r#"
@@ -1324,7 +1402,7 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         2 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q2_SQL, 2),
+            sql: TPCH_Q2_SQL_REWRITTEN,
             tables: &["part", "supplier", "partsupp", "nation", "region"],
         },
         3 => TpchQuerySpec {
@@ -1480,7 +1558,7 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["supplier", "nation", "lineitem", "orders"],
         },
         22 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q22_SQL, 22),
+            sql: TPCH_Q22_SQL_REWRITTEN,
             tables: &["customer", "orders"],
         },
         _ => panic!("unsupported TPC-H query number: {number}"),

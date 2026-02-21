@@ -11,8 +11,8 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{
-                aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
-                in_subquery, literal, scalar_function,
+                aggregate_function, alias, between, binary_expr, case, cast, column, exists,
+                in_list, in_subquery, literal, scalar_function,
             },
             lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
             rematerialize,
@@ -226,6 +226,7 @@ impl<B: SnarkBackend> Node<B> {
         parent: Option<Weak<Node<B>>>,
         scope: Vec<Weak<Node<B>>>,
     ) -> Arc<Self> {
+        dbg!(expr);
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node = column::ExprNode::from_expr(
@@ -327,6 +328,7 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
+            
             _ => todo!(),
         }
     }
