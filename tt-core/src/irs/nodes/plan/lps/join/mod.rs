@@ -1,4 +1,4 @@
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use crate::irs::{
     nodes::{
@@ -8,8 +8,10 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
+use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
+use datafusion::arrow::array::Array;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
@@ -29,6 +31,9 @@ where
     join: Join,
     // Single source of truth for join optimization/materialization mode.
     join_mode: modes::JoinMode,
+    // Cached from `output()` so full-materialized add_virtual_witness can rebuild
+    // a contiguous activator deterministically on prover and verifier.
+    full_materialized_active_rows: Mutex<Option<usize>>,
 }
 
 impl<B: SnarkBackend> LpNode<B> {
@@ -55,6 +60,20 @@ impl<B: SnarkBackend> LpNode<B> {
             modes::JoinMode::ONE_TO_ONE => Some(&self.right),
             modes::JoinMode::MANY_TO_MANY => None,
         }
+    }
+
+    fn cache_full_materialized_active_rows(&self, n: usize) {
+        if let Ok(mut slot) = self.full_materialized_active_rows.lock() {
+            *slot = Some(n);
+        }
+    }
+
+    fn cached_full_materialized_active_rows(&self) -> usize {
+        self.full_materialized_active_rows
+            .lock()
+            .ok()
+            .and_then(|slot| *slot)
+            .expect("full-materialized join active-row count was not cached during output()")
     }
 }
 
@@ -158,8 +177,32 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Full-materialized joins already contain all output columns.
         if self.should_fully_materialize() {
+            let current_table = virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let Some(tracker_rc) = current_table
+                .tracked_polys_iter()
+                .next()
+                .map(|(_, poly)| poly.tracker())
+            else {
+                return Ok(());
+            };
+            let active_rows = self.cached_full_materialized_active_rows();
+            let key = full_materialized_active_rows_misc_key(id, virtualized_ir.tree());
+            tracker_rc
+                .borrow_mut()
+                .insert_miscellaneous_field(key, B::F::from(active_rows as u64));
+            let contig_activator = tracker_rc
+                .borrow_mut()
+                .get_or_build_contig_one_poly(current_table.log_size(), active_rows)?;
+            let updated_table = append_activator_prover(&current_table, contig_activator);
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
             return Ok(());
         }
 
@@ -296,6 +339,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
                 self.join_mode(),
             )
         };
+        if full_materialization {
+            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(&joined));
+        }
 
         let left_fields = left_hint_df
             .data_frame()
@@ -318,7 +364,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = if name == ROW_ID_COL_NAME {
+                let mat = if name == ROW_ID_COL_NAME || (full_materialization && name == ACTIVATOR_COL_NAME) {
                     false
                 } else if full_materialization {
                     true
@@ -347,8 +393,30 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Full-materialized joins already contain all output columns.
         if self.should_fully_materialize() {
+            let current_table = virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let Some(tracker_rc) = current_table
+                .tracked_oracles_iter()
+                .next()
+                .map(|(_, oracle)| oracle.tracker())
+            else {
+                return Ok(());
+            };
+            let key = full_materialized_active_rows_misc_key(id, virtualized_ir.tree());
+            let active_rows_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
+            let active_rows = field_to_usize::<B::F>(active_rows_field)?;
+            let contig_activator = tracker_rc
+                .borrow_mut()
+                .get_or_build_contig_one_oracle(current_table.log_size(), active_rows)?;
+            let updated_table = append_activator_verifier(&current_table, contig_activator);
+            virtualized_ir
+                .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
             return Ok(());
         }
 
@@ -516,10 +584,186 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
             gadget,
             join,
             join_mode,
+            full_materialized_active_rows: Mutex::new(None),
         }
     }
 
     fn lp(&self) -> LogicalPlan {
         LogicalPlan::Join(self.join.clone())
+    }
+}
+
+const JOIN_FULL_MATERIALIZED_ACTIVE_ROWS_PREFIX: &str = "join_full_materialized_active_rows";
+
+fn full_materialized_active_rows_misc_key<B: SnarkBackend>(
+    target_id: crate::irs::nodes::NodeId,
+    tree: &Tree<B>,
+) -> String {
+    fn dfs_rank<B: SnarkBackend>(
+        node: &Arc<Node<B>>,
+        target_id: crate::irs::nodes::NodeId,
+        rank: &mut usize,
+        found: &mut Option<usize>,
+    ) {
+        if found.is_some() {
+            return;
+        }
+        let is_join_plan = matches!(node.as_ref(), Node::Plan(_)) && node.name() == "Join";
+        if is_join_plan {
+            if node.id() == target_id {
+                *found = Some(*rank);
+                return;
+            }
+            *rank += 1;
+        }
+        for child in node.children() {
+            dfs_rank(&child, target_id, rank, found);
+            if found.is_some() {
+                return;
+            }
+        }
+    }
+
+    let mut rank = 0usize;
+    let mut found = None;
+    dfs_rank(tree.root(), target_id, &mut rank, &mut found);
+    let join_rank = found.unwrap_or_else(|| {
+        panic!(
+            "Join node id {:?} was not found while computing misc key",
+            target_id
+        )
+    });
+    format!("{JOIN_FULL_MATERIALIZED_ACTIVE_ROWS_PREFIX}_{join_rank}")
+}
+
+fn append_activator_prover<B: SnarkBackend>(
+    table: &arithmetic::table::TrackedTable<B>,
+    activator: ark_piop::prover::structs::polynomial::TrackedPoly<B>,
+) -> arithmetic::table::TrackedTable<B> {
+    let mut polys = table.tracked_polys();
+    let activator_field = polys
+        .keys()
+        .find(|field| field.name() == ACTIVATOR_COL_NAME)
+        .cloned()
+        .unwrap_or_else(|| ACTIVATOR_FIELD.clone());
+    polys.insert(activator_field, activator);
+    let schema = table.schema_ref().map(|schema| {
+        let fields = polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    arithmetic::table::TrackedTable::new(schema, polys, table.log_size())
+}
+
+fn append_activator_verifier<B: SnarkBackend>(
+    table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    activator: ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+) -> arithmetic::table_oracle::TrackedTableOracle<B> {
+    let mut oracles = table.tracked_oracles();
+    let activator_field = oracles
+        .keys()
+        .find(|field| field.name() == ACTIVATOR_COL_NAME)
+        .cloned()
+        .unwrap_or_else(|| ACTIVATOR_FIELD.clone());
+    oracles.insert(activator_field, activator);
+    let schema = table.schema_ref().map(|schema| {
+        let fields = oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        Schema::new_with_metadata(fields, schema.metadata().clone())
+    });
+    arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, table.log_size())
+}
+
+fn active_row_count_from_dataframe(df: &datafusion::prelude::DataFrame) -> usize {
+    let batches = collect_blocking(df.clone()).expect("Join output-hint collection should succeed");
+    let has_activator = df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    if !has_activator {
+        return batches.iter().map(|batch| batch.num_rows()).sum();
+    }
+    batches
+        .into_iter()
+        .map(|batch| {
+            let activator_idx = batch
+                .schema()
+                .fields()
+                .iter()
+                .position(|field| field.name() == ACTIVATOR_COL_NAME)
+                .expect("Join output batch missing activator column");
+            let activator = batch
+                .column(activator_idx)
+                .as_any()
+                .downcast_ref::<datafusion::arrow::array::BooleanArray>()
+                .expect("Join activator column should be boolean");
+            (0..activator.len())
+                .filter(|&i| activator.is_valid(i) && activator.value(i))
+                .count()
+        })
+        .sum()
+}
+
+fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
+    let big = value.into_bigint();
+    let bytes = big.to_bytes_le();
+    let mut out: usize = 0;
+    let max = std::mem::size_of::<usize>();
+    for (i, byte) in bytes.iter().enumerate() {
+        if i >= max {
+            if *byte != 0u8 {
+                return Err(ark_piop::errors::SnarkError::VerifierError(
+                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                        "join contig n does not fit into usize".to_string(),
+                    ),
+                ));
+            }
+            continue;
+        }
+        out |= (*byte as usize) << (8 * i);
+    }
+    Ok(out)
+}
+
+fn collect_blocking(
+    df: datafusion::prelude::DataFrame,
+) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(df.collect()))
+            }
+            tokio::runtime::RuntimeFlavor::CurrentThread => {
+                let df_clone = df.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| {
+                            datafusion_common::DataFusionError::Execution(e.to_string())
+                        })?;
+                    rt.block_on(df_clone.collect())
+                })
+                .join()
+                .map_err(|_| {
+                    datafusion_common::DataFusionError::Execution(
+                        "dataframe collection thread panicked".to_string(),
+                    )
+                })?
+            }
+            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
+        },
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| datafusion_common::DataFusionError::Execution(e.to_string()))?;
+            rt.block_on(df.collect())
+        }
     }
 }
