@@ -41,14 +41,10 @@ fn tpch_cases() -> &'static [BenchCase] {
         // println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
         let q10 = query_spec(10, false);
         // println!("TPCH Q10 SQL: {}", q10.sql);
-        let q11 = query_spec(11, false);
-        // println!("TPCH Q11 SQL: {}", q11.sql);
         let q12 = query_spec(12, false);
         // println!("TPCH Q12 SQL: {}", q12.sql);
         let q14 = query_spec(14, false);
         // println!("TPCH Q14 SQL: {}", q14.sql);
-        let q15 = query_spec(15, false);
-        // println!("TPCH Q15 SQL: {}", q15.sql);
         let q17 = query_spec(17, false);
         // println!("TPCH Q17 SQL: {}", q17.sql);
         let q18 = query_spec(18, false);
@@ -57,7 +53,6 @@ fn tpch_cases() -> &'static [BenchCase] {
         // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
         let q19 = query_spec(19, false);
         // println!("TPCH Q19 SQL: {}", q19.sql);
-
 
         let cases = vec![
             BenchCase {
@@ -130,11 +125,6 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q10.sql,
                 tables: q10.tables,
             },
-            // BenchCase {
-            //     name: "tpch_q11",
-            //     query: q11.sql,
-            //     tables: q11.tables,
-            // },
             BenchCase {
                 name: "tpch_q12",
                 query: q12.sql,
@@ -145,11 +135,6 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q14.sql,
                 tables: q14.tables,
             },
-            // BenchCase {
-            //     name: "tpch_q15",
-            //     query: q15.sql,
-            //     tables: q15.tables,
-            // },
             // BenchCase {
             //     name: "tpch_q17",
             //     query: q17.sql,
