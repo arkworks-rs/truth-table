@@ -226,7 +226,6 @@ impl<B: SnarkBackend> Node<B> {
         parent: Option<Weak<Node<B>>>,
         scope: Vec<Weak<Node<B>>>,
     ) -> Arc<Self> {
-        dbg!(expr);
         match expr.clone() {
             Expr::Column(_) => Arc::new_cyclic(|weak_self| {
                 let node = column::ExprNode::from_expr(
@@ -328,7 +327,7 @@ impl<B: SnarkBackend> Node<B> {
                 );
                 Node::Plan(PlanNode::ExprBased(Arc::new(node)))
             }),
-            
+
             _ => todo!(),
         }
     }
