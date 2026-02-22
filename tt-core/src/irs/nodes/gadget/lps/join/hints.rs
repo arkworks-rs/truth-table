@@ -1,17 +1,34 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
-use datafusion::arrow::datatypes::DataType;
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, TableReference};
-use datafusion_expr::{Expr, ExprFunctionExt, Join, JoinType, col, expr_fn::try_cast, lit};
+use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
+use datafusion_expr::{Expr, ExprFunctionExt, Join, col, lit};
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
 pub(crate) fn build_source_dfs(
     left: DataFrame,
     right: DataFrame,
-    output: DataFrame,
+    _output: DataFrame,
     join: &Join,
+) -> DataFusionResult<(DataFrame, DataFrame)> {
+    // Prefer aliased row ids to avoid `__row_id__` collisions after optimizer
+    // rewrites (e.g. scalar-subquery joins). Fall back only when DataFusion still
+    // reports an ambiguity on this version.
+    build_source_dfs_impl(left.clone(), right.clone(), join, true).or_else(|err| {
+        if should_retry_source_mapping_without_aliased_row_ids(&err) {
+            build_source_dfs_impl(left, right, join, false)
+        } else {
+            Err(err)
+        }
+    })
+}
+
+fn build_source_dfs_impl(
+    left: DataFrame,
+    right: DataFrame,
+    join: &Join,
+    aliased_row_ids: bool,
 ) -> DataFusionResult<(DataFrame, DataFrame)> {
     // Build join predicates (equi-join pairs plus optional filter).
     let mut join_exprs: Vec<Expr> = join
@@ -35,87 +52,67 @@ pub(crate) fn build_source_dfs(
         join_exprs.push(filter.clone());
     }
 
-    let (left, left_row_id) = prepare_input(left, "left", "__left_row_id__")?;
-    let (right, right_row_id) = prepare_input(right, "right", "__right_row_id__")?;
+    let (left, left_row_id) = if aliased_row_ids {
+        prepare_input_aliased(left, "left", "tt_src_left_row_id")?
+    } else {
+        prepare_input(left, "left", "tt_src_left_row_id")?
+    };
+    let (right, right_row_id) = if aliased_row_ids {
+        prepare_input_aliased(right, "right", "tt_src_right_row_id")?
+    } else {
+        prepare_input(right, "right", "tt_src_right_row_id")?
+    };
 
     // Execute the join so we can recover which left/right row_id contributed to each output row.
-    let joined = left
-        .join_on(right, join.join_type, join_exprs)
-        .expect("join source mapping should succeed");
+    let joined = left.join_on(right, join.join_type, join_exprs)?;
+    let joined_left_row_id = resolve_column_like(&joined, &left_row_id)?;
+    let joined_right_row_id = resolve_column_like(&joined, &right_row_id)?;
 
     // Sort by left/right row_id to match the plan-side ordering.
     let row_id_sort_exprs = vec![
-        Expr::Column(left_row_id.clone()).sort(true, true),
-        Expr::Column(right_row_id.clone()).sort(true, true),
+        Expr::Column(joined_left_row_id).sort(true, true),
+        Expr::Column(joined_right_row_id).sort(true, true),
     ];
     let sorted = joined.sort(row_id_sort_exprs.clone())?;
+    let sorted_left_row_id = resolve_column_like(&sorted, &left_row_id)?;
+    let sorted_right_row_id = resolve_column_like(&sorted, &right_row_id)?;
+    let sorted_row_id_sort_exprs = vec![
+        Expr::Column(sorted_left_row_id.clone()).sort(true, true),
+        Expr::Column(sorted_right_row_id.clone()).sort(true, true),
+    ];
 
     // Assign a fresh row number in sorted order so we can align with the output row_id.
     let row_number_expr = row_number()
         .partition_by(Vec::new())
-        .order_by(row_id_sort_exprs)
+        .order_by(sorted_row_id_sort_exprs)
         .build()?
         .alias("__row_number__");
     let indexed = sorted.select(vec![
-        Expr::Column(left_row_id).alias("left_row_id"),
-        Expr::Column(right_row_id).alias("right_row_id"),
+        Expr::Column(sorted_left_row_id).alias("left_row_id"),
+        Expr::Column(sorted_right_row_id).alias("right_row_id"),
         row_number_expr,
     ])?;
 
-    // Align the mapping with the output's __row_id__ so src_* match output rows.
+    // `mapping` already matches the join output row order because both derive from
+    // the same sorted join plus the same row_number assignment.
     let mapping = indexed
         .select(vec![
             col("left_row_id"),
             col("right_row_id"),
             (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
-        ])?
-        .alias("__mapping__")?;
-    let output = output.alias("__output__")?;
-    let output = output.filter(
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ACTIVATOR_COL_NAME,
-        ))
-        .eq(lit(true)),
-    )?;
-    let join_on = vec![
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ROW_ID_COL_NAME,
-        ))
-        .eq(Expr::Column(Column::new(
-            Some(TableReference::bare("__mapping__")),
-            ROW_ID_COL_NAME,
-        ))),
-    ];
-    let aligned = output.join_on(mapping, JoinType::Inner, join_on)?;
-    let aligned = aligned.sort(vec![
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ROW_ID_COL_NAME,
-        ))
-        .sort(true, true),
-    ])?;
+        ])?;
 
-    let left_src = aligned.clone().select(vec![
-        try_cast(
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__mapping__")),
-                "left_row_id",
-            )),
-            DataType::Int64,
-        )
-        .alias(SRC_LEFT_COL_NAME),
-    ])?;
-    let right_src = aligned.select(vec![
-        try_cast(
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__mapping__")),
-                "right_row_id",
-            )),
-            DataType::Int64,
-        )
-        .alias(SRC_RIGHT_COL_NAME),
+    let left_src = mapping
+        .clone()
+        .select(vec![
+            col("left_row_id").alias(SRC_LEFT_COL_NAME),
+            lit(true).alias(ACTIVATOR_COL_NAME),
+            col(ROW_ID_COL_NAME),
+        ])?;
+    let right_src = mapping.select(vec![
+        col("right_row_id").alias(SRC_RIGHT_COL_NAME),
+        lit(true).alias(ACTIVATOR_COL_NAME),
+        col(ROW_ID_COL_NAME),
     ])?;
     Ok((left_src, right_src))
 }
@@ -123,8 +120,25 @@ pub(crate) fn build_source_dfs(
 pub(crate) fn build_nodup_input_df(
     left: DataFrame,
     right: DataFrame,
-    output: DataFrame,
+    _output: DataFrame,
     join: &Join,
+) -> DataFusionResult<DataFrame> {
+    // Keep nodup input construction in lockstep with source mapping so both use
+    // the same row-id disambiguation strategy.
+    build_nodup_input_df_impl(left.clone(), right.clone(), join, true).or_else(|err| {
+        if should_retry_source_mapping_without_aliased_row_ids(&err) {
+            build_nodup_input_df_impl(left, right, join, false)
+        } else {
+            Err(err)
+        }
+    })
+}
+
+fn build_nodup_input_df_impl(
+    left: DataFrame,
+    right: DataFrame,
+    join: &Join,
+    aliased_row_ids: bool,
 ) -> DataFusionResult<DataFrame> {
     // Reuse the join mapping so nodup inputs align with the output rows.
     let mut join_exprs: Vec<Expr> = join
@@ -148,26 +162,40 @@ pub(crate) fn build_nodup_input_df(
         join_exprs.push(filter.clone());
     }
 
-    let (left, left_row_id) = prepare_input(left, "left", "__left_row_id__")?;
-    let (right, right_row_id) = prepare_input(right, "right", "__right_row_id__")?;
+    let (left, left_row_id) = if aliased_row_ids {
+        prepare_input_aliased(left, "left", "tt_src_left_row_id")?
+    } else {
+        prepare_input(left, "left", "tt_src_left_row_id")?
+    };
+    let (right, right_row_id) = if aliased_row_ids {
+        prepare_input_aliased(right, "right", "tt_src_right_row_id")?
+    } else {
+        prepare_input(right, "right", "tt_src_right_row_id")?
+    };
 
-    let joined = left
-        .join_on(right, join.join_type, join_exprs)
-        .expect("join source mapping should succeed");
+    let joined = left.join_on(right, join.join_type, join_exprs)?;
+    let joined_left_row_id = resolve_column_like(&joined, &left_row_id)?;
+    let joined_right_row_id = resolve_column_like(&joined, &right_row_id)?;
     let row_id_sort_exprs = vec![
-        Expr::Column(left_row_id.clone()).sort(true, true),
-        Expr::Column(right_row_id.clone()).sort(true, true),
+        Expr::Column(joined_left_row_id).sort(true, true),
+        Expr::Column(joined_right_row_id).sort(true, true),
     ];
     let sorted = joined.sort(row_id_sort_exprs.clone())?;
+    let sorted_left_row_id = resolve_column_like(&sorted, &left_row_id)?;
+    let sorted_right_row_id = resolve_column_like(&sorted, &right_row_id)?;
+    let sorted_row_id_sort_exprs = vec![
+        Expr::Column(sorted_left_row_id.clone()).sort(true, true),
+        Expr::Column(sorted_right_row_id.clone()).sort(true, true),
+    ];
 
     let row_number_expr = row_number()
         .partition_by(Vec::new())
-        .order_by(row_id_sort_exprs)
+        .order_by(sorted_row_id_sort_exprs)
         .build()?
         .alias("__row_number__");
     let indexed = sorted.select(vec![
-        Expr::Column(left_row_id).alias("left_row_id"),
-        Expr::Column(right_row_id).alias("right_row_id"),
+        Expr::Column(sorted_left_row_id).alias("left_row_id"),
+        Expr::Column(sorted_right_row_id).alias("right_row_id"),
         row_number_expr,
     ])?;
     let mapping = indexed
@@ -175,72 +203,91 @@ pub(crate) fn build_nodup_input_df(
             col("left_row_id"),
             col("right_row_id"),
             (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
-        ])?
-        .alias("__mapping__")?;
+        ])?;
 
-    let output = output.alias("__output__")?;
-    let output = output.filter(
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ACTIVATOR_COL_NAME,
-        ))
-        .eq(lit(true)),
-    )?;
-    let join_on = vec![
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ROW_ID_COL_NAME,
-        ))
-        .eq(Expr::Column(Column::new(
-            Some(TableReference::bare("__mapping__")),
-            ROW_ID_COL_NAME,
-        ))),
-    ];
-    let aligned = output.join_on(mapping, JoinType::Inner, join_on)?;
-    let aligned = aligned.sort(vec![
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ROW_ID_COL_NAME,
-        ))
-        .sort(true, true),
-    ])?;
-
-    aligned.select(vec![
-        try_cast(
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__mapping__")),
-                "left_row_id",
-            )),
-            DataType::Int64,
-        )
-        .alias(SRC_LEFT_COL_NAME),
-        try_cast(
-            Expr::Column(Column::new(
-                Some(TableReference::bare("__mapping__")),
-                "right_row_id",
-            )),
-            DataType::Int64,
-        )
-        .alias(SRC_RIGHT_COL_NAME),
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ACTIVATOR_COL_NAME,
-        ))
-        .alias(ACTIVATOR_COL_NAME),
-        Expr::Column(Column::new(
-            Some(TableReference::bare("__output__")),
-            ROW_ID_COL_NAME,
-        ))
-        .alias(ROW_ID_COL_NAME),
+    mapping.select(vec![
+        col("left_row_id").alias(SRC_LEFT_COL_NAME),
+        col("right_row_id").alias(SRC_RIGHT_COL_NAME),
+        lit(true).alias(ACTIVATOR_COL_NAME),
+        col(ROW_ID_COL_NAME),
     ])
 }
 
 fn prepare_input(
     df: DataFrame,
     side: &str,
+    _row_id_alias: &str,
+) -> DataFusionResult<(DataFrame, Column)> {
+    let activator_cols: Vec<Column> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            (field.name() == ACTIVATOR_COL_NAME)
+                .then_some(Column::new(qualifier.cloned(), ACTIVATOR_COL_NAME))
+        })
+        .collect();
+    if activator_cols.len() > 1 {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input has multiple {ACTIVATOR_COL_NAME} columns"
+        )));
+    }
+    let Some(activator_col) = activator_cols.into_iter().next() else {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input is missing {ACTIVATOR_COL_NAME}"
+        )));
+    };
+    let df = df.filter(Expr::Column(activator_col).eq(lit(true)))?;
+    let mut projection_exprs = Vec::new();
+    let row_id_cols: Vec<Column> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name() == ACTIVATOR_COL_NAME {
+                return None;
+            }
+            let col = Column::new(qualifier.cloned(), field.name());
+            projection_exprs.push(Expr::Column(col.clone()));
+            (field.name() == ROW_ID_COL_NAME).then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
+        })
+        .collect();
+    if row_id_cols.len() > 1 {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input has multiple {ROW_ID_COL_NAME} columns"
+        )));
+    }
+    let Some(row_id_col) = row_id_cols.into_iter().next() else {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input is missing {ROW_ID_COL_NAME}"
+        )));
+    };
+    let df = df.select(projection_exprs)?;
+    Ok((df, row_id_col))
+}
+
+fn prepare_input_aliased(
+    df: DataFrame,
+    side: &str,
     row_id_alias: &str,
 ) -> DataFusionResult<(DataFrame, Column)> {
-    let df = df.filter(col(ACTIVATOR_COL_NAME).eq(lit(true)))?;
+    let activator_cols: Vec<Column> = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            (field.name() == ACTIVATOR_COL_NAME)
+                .then_some(Column::new(qualifier.cloned(), ACTIVATOR_COL_NAME))
+        })
+        .collect();
+    if activator_cols.len() > 1 {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input has multiple {ACTIVATOR_COL_NAME} columns"
+        )));
+    }
+    let Some(activator_col) = activator_cols.into_iter().next() else {
+        return Err(DataFusionError::Plan(format!(
+            "Join {side} input is missing {ACTIVATOR_COL_NAME}"
+        )));
+    };
+    let df = df.filter(Expr::Column(activator_col).eq(lit(true)))?;
     let mut projection_exprs = Vec::new();
     let mut row_id_col: Option<Column> = None;
     for (qualifier, field) in df.schema().iter() {
@@ -256,7 +303,6 @@ fn prepare_input(
             projection_exprs.push(
                 Expr::Column(Column::new(qualifier.cloned(), ROW_ID_COL_NAME)).alias(row_id_alias),
             );
-            // Alias columns are unqualified in the projection.
             row_id_col = Some(Column::from_name(row_id_alias));
             continue;
         }
@@ -275,6 +321,53 @@ fn expr_has_system_column(expr: &Expr) -> bool {
     expr.column_refs()
         .iter()
         .any(|col| col.name == ACTIVATOR_COL_NAME || col.name == ROW_ID_COL_NAME)
+}
+
+fn should_retry_source_mapping_without_aliased_row_ids(err: &DataFusionError) -> bool {
+    let msg = format!("{err:?}");
+    msg.contains(ROW_ID_COL_NAME) && msg.contains("AmbiguousReference")
+}
+
+fn resolve_column_like(df: &DataFrame, template: &Column) -> DataFusionResult<Column> {
+    let mut exact = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name().as_str() == template.name.as_str()
+                && qualifier == template.relation.as_ref()
+            {
+                Some(Column::new(qualifier.cloned(), field.name()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if exact.len() == 1 {
+        return Ok(exact.remove(0));
+    }
+
+    let mut matches = df
+        .schema()
+        .iter()
+        .filter_map(|(qualifier, field)| {
+            if field.name().as_str() == template.name.as_str() {
+                Some(Column::new(qualifier.cloned(), field.name()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(DataFusionError::Plan(format!(
+            "Join source mapping column {} not found after join",
+            template.name
+        ))),
+        _ => Err(DataFusionError::Plan(format!(
+            "Join source mapping column {} is ambiguous after join",
+            template.name
+        ))),
+    }
 }
 
 #[cfg(test)]

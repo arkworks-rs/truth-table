@@ -11,10 +11,11 @@ use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::SnarkBackend;
+use ark_piop::{SnarkBackend, piop::PIOP};
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
+use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
@@ -33,6 +34,39 @@ pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
 pub use crate::irs::nodes::plan::lps::join::modes::JoinMode;
+
+fn force_materialize_row_id(hint: &crate::irs::nodes::hints::HintDF) -> crate::irs::nodes::hints::HintDF {
+    // Source-row mapping reconstructs provenance from concrete row ids, so row_id
+    // must be materialized even when the original hint marks it virtual.
+    let mut should_materialize = hint
+        .field_materialization_iter()
+        .map(|(field, materialized)| {
+            (
+                field.clone(),
+                if field.name() == arithmetic::ROW_ID_COL_NAME {
+                    true
+                } else {
+                    *materialized
+                },
+            )
+        })
+        .collect::<IndexMap<_, _>>();
+    // Preserve shape even if the hint unexpectedly lacks row-id.
+    if should_materialize.is_empty() {
+        should_materialize = IndexMap::new();
+    }
+    crate::irs::nodes::hints::HintDF::new(hint.data_frame().clone(), should_materialize)
+}
+
+fn force_materialize_all(hint: &crate::irs::nodes::hints::HintDF) -> crate::irs::nodes::hints::HintDF {
+    // The source-row hint builder replays the join in DataFusion, so it needs the
+    // full concrete left/right/output rows (including activators) at this stage.
+    let should_materialize = hint
+        .field_materialization_iter()
+        .map(|(field, _)| (field.clone(), true))
+        .collect::<IndexMap<_, _>>();
+    crate::irs::nodes::hints::HintDF::new(hint.data_frame().clone(), should_materialize)
+}
 
 pub enum Gadgets<B: SnarkBackend> {
     // Full join proof stack: bool + nodup + match-pair utilities.
@@ -92,6 +126,9 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df.clone(),
                 None => return Ok(()),
             };
+            let left_hint = force_materialize_all(&force_materialize_row_id(&left_hint));
+            let right_hint = force_materialize_all(&force_materialize_row_id(&right_hint));
+            let output_hint = force_materialize_all(&output_hint);
 
             // Build source-row tables aligned with the join output.
             let (left_src_df, right_src_df) = hints::build_source_dfs(
@@ -112,6 +149,11 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
             };
+            // Overwrite with the concretized hints so later join-subgadgets (and
+            // provenance checks) see the same materialized inputs used to derive
+            // source-row hints.
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(
                 SRC_LEFT_LABEL.to_string(),
                 crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
@@ -310,6 +352,9 @@ fn index_tracked_poly<B: SnarkBackend>(
     prover: &mut ark_piop::prover::ArgProver<B>,
     table: &TrackedTable<B>,
 ) -> TrackedPoly<B> {
+    if let Some(row_id_col) = table.tracked_col_by_name(arithmetic::ROW_ID_COL_NAME) {
+        return row_id_col.data_tracked_poly();
+    }
     let log_size = table.log_size();
     let index_mle = MLE::from_evaluations_vec(
         log_size,
@@ -391,6 +436,9 @@ fn index_tracked_oracle<B: SnarkBackend>(
     _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     table: &TrackedTableOracle<B>,
 ) -> TrackedOracle<B> {
+    if let Some(row_id_col) = table.tracked_col_oracle_by_name(arithmetic::ROW_ID_COL_NAME) {
+        return row_id_col.data_tracked_oracle();
+    }
     let data_col = table
         .data_tracked_oracles_indices()
         .first()
@@ -422,9 +470,10 @@ fn output_base_from_output<B: SnarkBackend>(
     // between output-derived rows and input rows in lookup checks.
     let mut filtered = IndexMap::new();
     for left_field in left_fields.iter() {
-        if left_field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || left_field.name() == arithmetic::ROW_ID_COL_NAME
-        {
+        // Keep the activator for provenance lookups so padded rows stay inactive
+        // after folding. We only drop row_id because we append the source/index
+        // column separately.
+        if left_field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
         if let Some((out_field, out_poly)) = output_cols
@@ -455,9 +504,8 @@ fn input_base_from_output<B: SnarkBackend>(
     let input_cols = input.tracked_polys();
     let mut filtered = IndexMap::new();
     for (field, poly) in input_cols.iter() {
-        if field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || field.name() == arithmetic::ROW_ID_COL_NAME
-        {
+        // Keep the activator for the same reason as output_base_from_output().
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
         if !output_cols
@@ -497,9 +545,8 @@ fn output_base_from_output_oracle<B: SnarkBackend>(
     // Mirror prover ordering for deterministic folding alignment.
     let mut filtered = IndexMap::new();
     for left_field in left_fields.iter() {
-        if left_field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || left_field.name() == arithmetic::ROW_ID_COL_NAME
-        {
+        // Mirror prover behavior: keep activator, exclude only row_id.
+        if left_field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
         if let Some((out_field, out_oracle)) = output_cols
@@ -530,9 +577,8 @@ fn input_base_from_output_oracle<B: SnarkBackend>(
     let input_cols = input.tracked_oracles();
     let mut filtered = IndexMap::new();
     for (field, oracle) in input_cols.iter() {
-        if field.name() == arithmetic::ACTIVATOR_COL_NAME
-            || field.name() == arithmetic::ROW_ID_COL_NAME
-        {
+        // Mirror prover behavior: keep activator, exclude only row_id.
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
             continue;
         }
         if !output_cols
@@ -626,10 +672,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_cols());
             let input_folded = input_left.fold_all_data_columns(&input_challs);
 
-            // output_left is a subtable of input_left after folding, so add lookup claim.
-            prover.add_mv_lookup_claim(
-                input_folded.data_tracked_poly().id(),
-                output_folded.data_tracked_poly().id(),
+            // Use activator-aware lookup so empty joins / padded rows do not
+            // create false provenance claims.
+            LookupPIOP::<B>::prove(
+                prover,
+                LookupProverInput {
+                    included_cols: vec![output_folded],
+                    super_col: input_folded,
+                },
             )?;
 
             // Purpose: Every row in the output table must consist of columns that come from some row in the right table.
@@ -654,9 +704,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let input_right_challs =
                 folding_challenges::<B::F>(input_right.num_data_tracked_cols());
             let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
-            prover.add_mv_lookup_claim(
-                input_right_folded.data_tracked_poly().id(),
-                output_right_folded.data_tracked_poly().id(),
+            LookupPIOP::<B>::prove(
+                prover,
+                LookupProverInput {
+                    included_cols: vec![output_right_folded],
+                    super_col: input_right_folded,
+                },
             )?;
             Ok(())
         } else {
@@ -718,9 +771,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 folding_challenges::<B::F>(input_left.num_data_tracked_col_oracles());
             let input_folded = input_left.fold_all_data_oracles(&input_challs);
 
-            verifier.add_mv_lookup_claim(
-                input_folded.data_tracked_oracle().id(),
-                output_folded.data_tracked_oracle().id(),
+            LookupPIOP::<B>::verify(
+                verifier,
+                LookupVerifierInput {
+                    included_tracked_col_oracles: vec![output_folded],
+                    super_tracked_col_oracle: input_folded,
+                },
             )?;
 
             let (right_src_field, right_src_oracle) =
@@ -744,9 +800,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 folding_challenges::<B::F>(input_right.num_data_tracked_col_oracles());
             let input_right_folded = input_right.fold_all_data_oracles(&input_right_challs);
 
-            verifier.add_mv_lookup_claim(
-                input_right_folded.data_tracked_oracle().id(),
-                output_right_folded.data_tracked_oracle().id(),
+            LookupPIOP::<B>::verify(
+                verifier,
+                LookupVerifierInput {
+                    included_tracked_col_oracles: vec![output_right_folded],
+                    super_tracked_col_oracle: input_right_folded,
+                },
             )?;
             Ok(())
         } else {

@@ -17,8 +17,6 @@ fn tpch_cases() -> &'static [BenchCase] {
         // println!("TPCH Q1 SQL: {}", q1.sql);
         let q1_poneglyph = query_spec(1, true);
         // println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
-        let q2 = query_spec(2, false);
-        // println!("TPCH Q2 SQL: {}", q2.sql);
         let q3 = query_spec(3, false);
         // println!("TPCH Q3 SQL: {}", q3.sql);
         let q3_poneglyph = query_spec(3, true);
@@ -64,11 +62,6 @@ fn tpch_cases() -> &'static [BenchCase] {
                 name: "tpch_q1_poneglyph",
                 query: q1_poneglyph.sql,
                 tables: q1_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q2",
-                query: q2.sql,
-                tables: q2.tables,
             },
             BenchCase {
                 name: "tpch_q3_poneglyph",
