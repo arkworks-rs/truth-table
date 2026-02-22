@@ -68,7 +68,7 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q21 = query_spec(21, false);
         // println!("TPCH Q21 SQL: {}", q21.sql);
         let q22 = query_spec(22, false);
-        println!("TPCH Q22 SQL: {}", q22.sql);
+        // println!("TPCH Q22 SQL: {}", q22.sql);
 
         let cases = vec![
             BenchCase {
@@ -116,11 +116,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q6.sql,
                 tables: q6.tables,
             },
-            // BenchCase {
-            //     name: "tpch_q7",
-            //     query: q7.sql,
-            //     tables: q7.tables,
-            // },
+            BenchCase {
+                name: "tpch_q7",
+                query: q7.sql,
+                tables: q7.tables,
+            },
             BenchCase {
                 name: "tpch_q8_tt",
                 query: q8.sql,
@@ -151,31 +151,31 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q11.sql,
             //     tables: q11.tables,
             // },
-            // BenchCase {
-            //     name: "tpch_q12",
-            //     query: q12.sql,
-            //     tables: q12.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q13",
-            //     query: q13.sql,
-            //     tables: q13.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q14",
-            //     query: q14.sql,
-            //     tables: q14.tables,
-            // },
+            BenchCase {
+                name: "tpch_q12",
+                query: q12.sql,
+                tables: q12.tables,
+            },
+            BenchCase {
+                name: "tpch_q13",
+                query: q13.sql,
+                tables: q13.tables,
+            },
+            BenchCase {
+                name: "tpch_q14",
+                query: q14.sql,
+                tables: q14.tables,
+            },
             // BenchCase {
             //     name: "tpch_q15",
             //     query: q15.sql,
             //     tables: q15.tables,
             // },
-            // BenchCase {
-            //     name: "tpch_q16",
-            //     query: q16.sql,
-            //     tables: q16.tables,
-            // },
+            BenchCase {
+                name: "tpch_q16",
+                query: q16.sql,
+                tables: q16.tables,
+            },
             // BenchCase {
             //     name: "tpch_q17",
             //     query: q17.sql,
@@ -206,11 +206,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q21.sql,
             //     tables: q21.tables,
             // },
-            BenchCase {
-                name: "tpch_q22",
-                query: q22.sql,
-                tables: q22.tables,
-            },
+            // BenchCase {
+            //     name: "tpch_q22",
+            //     query: q22.sql,
+            //     tables: q22.tables,
+            // },
         ];
         // println!("Loaded {} TPCH benchmark cases", cases.len());
         Box::leak(cases.into_boxed_slice())

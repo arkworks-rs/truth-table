@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_expr::{BinaryExpr, Expr, expr_fn::when, lit};
+use datafusion::arrow::datatypes::{DataType, FieldRef, Schema};
+use datafusion_common::ScalarValue;
+use datafusion_expr::{BinaryExpr, Expr, ExprSchemable, expr_fn::when, lit};
 use indexmap::IndexMap;
 
 use crate::irs::{
@@ -16,6 +17,7 @@ use crate::{
         NodeId,
         gadget::exprs::{
             bin_cmp::{self, BinCmpOp},
+            bin_neq,
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
         },
     },
@@ -52,6 +54,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 | datafusion_expr::Operator::LtEq
                 | datafusion_expr::Operator::Gt
                 | datafusion_expr::Operator::GtEq
+                | datafusion_expr::Operator::Divide
         )
     }
     /// Dispatches to the appropriate gadget node based on the binary operator.
@@ -60,6 +63,9 @@ impl<B: SnarkBackend> ExprNode<B> {
         match op {
             datafusion_expr::Operator::Eq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_eq::BinEqNode::new(),
+            )))),
+            datafusion_expr::Operator::NotEq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
+                bin_neq::BinNeqNode::new(),
             )))),
             datafusion_expr::Operator::GtEq => Some(Arc::new(Node::<B>::Gadget(Arc::new(
                 bin_cmp::BinCmpNode::new(BinCmpOp::Geq),
@@ -74,6 +80,7 @@ impl<B: SnarkBackend> ExprNode<B> {
                 bin_cmp::BinCmpNode::new(BinCmpOp::Lt),
             )))),
             datafusion_expr::Operator::Multiply => None,
+            datafusion_expr::Operator::Divide => None,
             datafusion_expr::Operator::Plus => None,
             datafusion_expr::Operator::Minus => None,
             datafusion_expr::Operator::And => None,
@@ -503,8 +510,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
         let output_expr = if self.should_materialize() {
             // Comparison outputs should be false on inactive rows.
             if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
+                let else_expr = match output_expr.get_type(input_df.schema()).ok() {
+                    Some(DataType::Boolean) => lit(false),
+                    _ => lit(ScalarValue::Null),
+                };
                 when(activator_expr, output_expr)
-                    .otherwise(lit(false))
+                    .otherwise(else_expr)
                     .expect("binary expression masking case should succeed")
             } else {
                 output_expr

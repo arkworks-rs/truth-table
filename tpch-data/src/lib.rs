@@ -1046,18 +1046,12 @@ static TPCH_Q3_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q4_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q5_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q6_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q7_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q10_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q11_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q12_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q13_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q14_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q15_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q16_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q17_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q18_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q19_SQL: OnceLock<&'static str> = OnceLock::new();
-static TPCH_Q20_SQL: OnceLock<&'static str> = OnceLock::new();
 static TPCH_Q21_SQL: OnceLock<&'static str> = OnceLock::new();
 
 const TPCH_Q1_PONEGLYPH_SQL: &str = r#"
@@ -1121,6 +1115,164 @@ ORDER BY
     s_name,
     p_partkey
 LIMIT 100;
+"#;
+
+const TPCH_Q7_SQL_REWRITTEN: &str = r#"
+SELECT
+    supp_nation,
+    cust_nation,
+    l_year,
+    sum(volume) AS revenue
+FROM (
+    SELECT
+        n1.n_name AS supp_nation,
+        n2.n_name AS cust_nation,
+        l_shipdate_year AS l_year,
+        l_extendedprice * (1 - l_discount) AS volume
+    FROM
+        supplier,
+        lineitem,
+        orders,
+        customer,
+        nation n1,
+        nation n2
+    WHERE
+        s_suppkey = l_suppkey
+        AND o_orderkey = l_orderkey
+        AND c_custkey = o_custkey
+        AND s_nationkey = n1.n_nationkey
+        AND c_nationkey = n2.n_nationkey
+        AND ((n1.n_name = 'FRANCE'
+                AND n2.n_name = 'GERMANY')
+            OR (n1.n_name = 'GERMANY'
+                AND n2.n_name = 'FRANCE'))
+        AND l_shipdate BETWEEN CAST('1995-01-01' AS date)
+        AND CAST('1996-12-31' AS date)) AS shipping
+GROUP BY
+    supp_nation,
+    cust_nation,
+    l_year
+ORDER BY
+    supp_nation,
+    cust_nation,
+    l_year;
+"#;
+
+const TPCH_Q13_SQL_REWRITTEN: &str = r#"
+SELECT
+    c_count,
+    count(*) AS custdist
+FROM (
+    SELECT
+        c_custkey,
+        count(o_orderkey)
+    FROM
+        customer
+    LEFT OUTER JOIN orders ON c_custkey = o_custkey
+GROUP BY
+    c_custkey) AS c_orders (c_custkey,
+        c_count)
+GROUP BY
+    c_count
+ORDER BY
+    custdist DESC,
+    c_count DESC;
+"#;
+
+const TPCH_Q14_SQL_REWRITTEN: &str = r#"
+SELECT
+    CAST(100.00 AS DECIMAL(15, 2)) * sum(l_extendedprice * (1 - l_discount))
+        / sum(l_extendedprice * (1 - l_discount)) AS promo_revenue
+FROM
+    lineitem,
+    part
+WHERE
+    l_partkey = p_partkey
+    AND l_shipdate >= date '1995-09-01'
+    AND l_shipdate < CAST('1995-10-01' AS date);
+"#;
+
+const TPCH_Q16_SQL_REWRITTEN: &str = r#"
+SELECT
+    p_brand,
+    p_type,
+    p_size,
+    count(DISTINCT ps_suppkey) AS supplier_cnt
+FROM
+    partsupp,
+    part
+WHERE
+    p_partkey = ps_partkey
+    AND p_brand <> 'Brand#45'
+    AND p_size IN (49, 14, 23, 45, 19, 3, 36, 9)
+    AND ps_suppkey NOT IN (
+        SELECT
+            s_suppkey
+        FROM
+            supplier)
+GROUP BY
+    p_brand,
+    p_type,
+    p_size
+ORDER BY
+    supplier_cnt DESC,
+    p_brand,
+    p_type,
+    p_size;
+"#;
+
+const TPCH_Q17_SQL_REWRITTEN: &str = r#"
+SELECT
+    sum(l_extendedprice) / CAST(7.0 AS DECIMAL(15, 2)) AS avg_yearly
+FROM
+    lineitem,
+    part
+WHERE
+    p_partkey = l_partkey
+    AND p_brand = 'Brand#23'
+    AND p_container = 'MED BOX'
+    AND l_quantity < (
+        SELECT
+            CAST(0.2 AS DECIMAL(15, 2)) * avg(l_quantity)
+        FROM
+            lineitem
+        WHERE
+            l_partkey = p_partkey);
+"#;
+
+const TPCH_Q20_SQL_REWRITTEN: &str = r#"
+SELECT
+    s_name,
+    s_address
+FROM
+    supplier,
+    nation
+WHERE
+    s_suppkey IN (
+        SELECT
+            ps_suppkey
+        FROM
+            partsupp
+        WHERE
+            ps_partkey IN (
+                SELECT
+                    p_partkey
+                FROM
+                    part)
+            AND ps_availqty > (
+                SELECT
+                    CAST(0.5 AS DECIMAL(15, 2)) * sum(l_quantity)
+                FROM
+                    lineitem
+                WHERE
+                    l_partkey = ps_partkey
+                    AND l_suppkey = ps_suppkey
+                    AND l_shipdate >= CAST('1994-01-01' AS date)
+                    AND l_shipdate < CAST('1995-01-01' AS date)))
+    AND s_nationkey = n_nationkey
+    AND n_name = 'CANADA'
+ORDER BY
+    s_name;
 "#;
 
 const TPCH_Q22_SQL_REWRITTEN: &str = r#"
@@ -1451,7 +1603,7 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["lineitem"],
         },
         7 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q7_SQL, 7),
+            sql: TPCH_Q7_SQL_REWRITTEN,
             tables: &["customer", "orders", "lineitem", "nation", "supplier"],
         },
         8 => TpchQuerySpec {
@@ -1510,11 +1662,11 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["orders", "lineitem"],
         },
         13 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q13_SQL, 13),
+            sql: TPCH_Q13_SQL_REWRITTEN,
             tables: &["customer", "orders"],
         },
         14 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q14_SQL, 14),
+            sql: TPCH_Q14_SQL_REWRITTEN,
             tables: &["lineitem", "part"],
         },
         15 => TpchQuerySpec {
@@ -1522,11 +1674,11 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["lineitem", "supplier"],
         },
         16 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q16_SQL, 16),
-            tables: &["part", "partsupp"],
+            sql: TPCH_Q16_SQL_REWRITTEN,
+            tables: &["part", "partsupp", "supplier"],
         },
         17 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q17_SQL, 17),
+            sql: TPCH_Q17_SQL_REWRITTEN,
             tables: &["part", "lineitem"],
         },
         18 => TpchQuerySpec {
@@ -1550,8 +1702,8 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["part", "lineitem"],
         },
         20 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q20_SQL, 20),
-            tables: &["supplier", "nation", "partsupp", "lineitem"],
+            sql: TPCH_Q20_SQL_REWRITTEN,
+            tables: &["supplier", "nation", "partsupp", "lineitem", "part"],
         },
         21 => TpchQuerySpec {
             sql: cached_tpch_sql(&TPCH_Q21_SQL, 21),
