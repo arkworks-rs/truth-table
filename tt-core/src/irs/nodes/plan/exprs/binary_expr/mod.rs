@@ -17,8 +17,8 @@ use crate::{
         NodeId,
         gadget::exprs::{
             bin_cmp::{self, BinCmpOp},
-            bin_neq,
             bin_eq::{self, LEFT_INPUT_LABEL, OUTPUT_LABEL, RIGHT_INPUT_LABEL},
+            bin_neq,
         },
     },
     prover::irs::VirtualizedIr as ProverVirtualizedIr,
@@ -141,14 +141,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
-    }
-
-    fn initialize_gadget_plans(
-        &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -322,6 +314,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         }
         Ok(())
     }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
@@ -483,6 +483,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 Some(PayloadStructure::GadgetPayload(gadget_payload)),
             );
         }
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }

@@ -43,14 +43,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![
             self.bool_check_gadget.clone(),
@@ -93,6 +85,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         populate_perm_payloads_prover(&self.perm_check_gadget, &input, &output, virtualized_ir)?;
         Ok(())
     }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
@@ -126,6 +126,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
         populate_bool_payload_verifier(&self.bool_check_gadget, &output, virtualized_ir)?;
         populate_perm_payloads_verifier(&self.perm_check_gadget, &input, &output, virtualized_ir)?;
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }

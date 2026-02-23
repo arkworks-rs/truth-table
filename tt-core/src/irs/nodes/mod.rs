@@ -11,8 +11,8 @@ use crate::{
         hints::HintDF,
         plan::{
             exprs::{
-                aggregate_function, alias, between, binary_expr, case, cast, column, exists,
-                in_list, in_subquery, literal, scalar_function,
+                aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
+                in_subquery, literal, scalar_function,
             },
             lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
             rematerialize,
@@ -90,12 +90,6 @@ where
     fn display(&self) -> String;
     /// Estimates the proving cost of this node given statistics and schema.
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost;
-    /// Optional hook for pre-order gadget planning.
-    fn initialize_gadget_plans(
-        &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> SnarkResult<()>;
     /// Returns this node's children.
     fn children(&self) -> Vec<Arc<Node<B>>>;
     /// Optional human-readable labels for each child edge.
@@ -129,6 +123,13 @@ where
         prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut ProverVirtualizedIr<B>,
     ) -> SnarkResult<()>;
+
+    /// Optional hook for pre-order gadget planning.
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()>;
 }
 
 pub trait VerifierNodeOps<B>: IsNode<B>
@@ -147,6 +148,13 @@ where
         id: NodeId,
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
+    ) -> SnarkResult<()>;
+
+    /// Optional hook for pre-order gadget planning.
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()>;
 }
 
@@ -356,16 +364,6 @@ impl<B: SnarkBackend> IsNode<B> for Node<B> {
             Node::Gadget(gadget_node) => gadget_node.cost(statistics, schema),
         }
     }
-    fn initialize_gadget_plans(
-        &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> SnarkResult<()> {
-        match &self {
-            Node::Plan(plan_node) => plan_node.initialize_gadget_plans(id, planned_ir),
-            Node::Gadget(gadget_node) => gadget_node.initialize_gadget_plans(id, planned_ir),
-        }
-    }
 
     /// Returns the children plan nodes of this plan node. Note that the child of a plan node is a plan node, not a gadget.
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -414,6 +412,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
             }
         }
     }
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => {
+                ProverNodeOps::initialize_gadget_plans(plan_node, id, planned_ir)
+            }
+            Node::Gadget(gadget_node) => {
+                ProverNodeOps::initialize_gadget_plans(gadget_node.as_ref(), id, planned_ir)
+            }
+        }
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
@@ -448,6 +460,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
                 verifier,
                 virtualized_ir,
             ),
+        }
+    }
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            Node::Plan(plan_node) => {
+                VerifierNodeOps::initialize_gadget_plans(plan_node, id, planned_ir)
+            }
+            Node::Gadget(gadget_node) => {
+                VerifierNodeOps::initialize_gadget_plans(gadget_node.as_ref(), id, planned_ir)
+            }
         }
     }
 }
@@ -489,17 +515,6 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> SnarkResult<()> {
-        match &self {
-            PlanNode::LpBased(lp_node) => lp_node.initialize_gadget_plans(id, planned_ir),
-            PlanNode::ExprBased(expr_node) => expr_node.initialize_gadget_plans(id, planned_ir),
-        }
-    }
-
     /// Returns the gadget associated with this plan node, if any.
     fn gadget(&self) -> Option<Node<B>> {
         match &self {
@@ -528,14 +543,6 @@ impl<B: SnarkBackend> IsNode<B> for PlanNode<B> {
 
     fn cost(&self, statistics: Statistics, schema: SchemaRef) -> ProvingCost {
         PlanNode::cost(self, statistics, schema)
-    }
-
-    fn initialize_gadget_plans(
-        &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> SnarkResult<()> {
-        PlanNode::initialize_gadget_plans(self, id, planned_ir)
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -578,6 +585,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
             }
         }
     }
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                ProverNodeOps::initialize_gadget_plans(lp_node.as_ref(), id, planned_ir)
+            }
+            PlanNode::ExprBased(expr_node) => {
+                ProverNodeOps::initialize_gadget_plans(expr_node.as_ref(), id, planned_ir)
+            }
+        }
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
@@ -612,6 +633,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
                 verifier,
                 virtualized_ir,
             ),
+        }
+    }
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> SnarkResult<()> {
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                VerifierNodeOps::initialize_gadget_plans(lp_node.as_ref(), id, planned_ir)
+            }
+            PlanNode::ExprBased(expr_node) => {
+                VerifierNodeOps::initialize_gadget_plans(expr_node.as_ref(), id, planned_ir)
+            }
         }
     }
 }

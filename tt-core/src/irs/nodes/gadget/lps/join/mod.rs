@@ -11,10 +11,10 @@ use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::PrimeField;
-use ark_piop::{SnarkBackend, piop::PIOP};
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
+use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
@@ -35,7 +35,9 @@ pub const SRC_LEFT_COL_NAME: &str = "src_left";
 pub const SRC_RIGHT_COL_NAME: &str = "src_right";
 pub use crate::irs::nodes::plan::lps::join::modes::JoinMode;
 
-fn force_materialize_row_id(hint: &crate::irs::nodes::hints::HintDF) -> crate::irs::nodes::hints::HintDF {
+fn force_materialize_row_id(
+    hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
     // Source-row mapping reconstructs provenance from concrete row ids, so row_id
     // must be materialized even when the original hint marks it virtual.
     let mut should_materialize = hint
@@ -58,7 +60,9 @@ fn force_materialize_row_id(hint: &crate::irs::nodes::hints::HintDF) -> crate::i
     crate::irs::nodes::hints::HintDF::new(hint.data_frame().clone(), should_materialize)
 }
 
-fn force_materialize_all(hint: &crate::irs::nodes::hints::HintDF) -> crate::irs::nodes::hints::HintDF {
+fn force_materialize_all(
+    hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
     // The source-row hint builder replays the join in DataFusion, so it needs the
     // full concrete left/right/output rows (including activators) at this stage.
     let should_materialize = hint
@@ -104,6 +108,20 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
+    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
+        if let Some(gadgets) = self.many_to_many_gadgets() {
+            vec![
+                gadgets.bool_gadget.clone(),
+                gadgets.nodup_gadget.clone(),
+                gadgets.match_pair_gadget.clone(),
+            ]
+        } else {
+            vec![]
+        }
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -198,21 +216,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             Ok(())
         }
     }
-
-    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        if let Some(gadgets) = self.many_to_many_gadgets() {
-            vec![
-                gadgets.bool_gadget.clone(),
-                gadgets.nodup_gadget.clone(),
-                gadgets.match_pair_gadget.clone(),
-            ]
-        } else {
-            vec![]
-        }
-    }
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -273,6 +276,100 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        if let Some(gadgets) = self.many_to_many_gadgets() {
+            let gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => return Ok(()),
+            };
+            let left_hint = match gadget_payload.get(LEFT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let right_hint = match gadget_payload.get(RIGHT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let left_hint = force_materialize_all(&force_materialize_row_id(&left_hint));
+            let right_hint = force_materialize_all(&force_materialize_row_id(&right_hint));
+            let output_hint = force_materialize_all(&output_hint);
+
+            // Build source-row tables aligned with the join output.
+            let (left_src_df, right_src_df) = hints::build_source_dfs(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join source dataframe derivation should succeed");
+            let nodup_input_df = hints::build_nodup_input_df(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join nodup dataframe derivation should succeed");
+            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            // Overwrite with the concretized hints so later join-subgadgets (and
+            // provenance checks) see the same materialized inputs used to derive
+            // source-row hints.
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
+            gadget_payload.insert(
+                SRC_LEFT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
+            );
+            gadget_payload.insert(
+                SRC_RIGHT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
+            );
+            planned_ir
+                .set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+
+            let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            nodup_payload.insert(
+                crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
+            );
+            planned_ir.set_payload_for_node(
+                gadgets.nodup_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
+
+            let (match_left, match_right, match_out) =
+                build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
+                    .expect("match-pair hint derivation should succeed");
+            let mut match_payload =
+                match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+            match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
+            match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
+            match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
+            planned_ir.set_payload_for_node(
+                gadgets.match_pair_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(match_payload)),
+            );
+            Ok(())
+        } else {
+            Ok(())
+        }
+    }
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

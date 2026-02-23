@@ -171,7 +171,11 @@ impl<B: SnarkBackend> LpNode<B> {
                         .collect::<Vec<_>>(),
                 ))
             });
-        arithmetic::table_oracle::TrackedTableOracle::new(schema, tracked_oracles, current.log_size())
+        arithmetic::table_oracle::TrackedTableOracle::new(
+            schema,
+            tracked_oracles,
+            current.log_size(),
+        )
     }
 }
 
@@ -211,48 +215,6 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         _schema: arrow_schema::SchemaRef,
     ) -> crate::irs::nodes::cost::ProvingCost {
         todo!()
-    }
-
-    fn initialize_gadget_plans(
-        &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-
-        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(
-            join_gadget::LEFT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
-        );
-        gadget_payload.insert(
-            join_gadget::RIGHT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
-        );
-        gadget_payload.insert(
-            join_gadget::OUTPUT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
-        );
-
-        planned_ir.set_payload_for_node(
-            self.gadget.id(),
-            Some(PayloadStructure::GadgetPayload(gadget_payload)),
-        );
-        Ok(())
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
@@ -394,10 +356,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        let left_table = Self::preserve_row_id_prover(
-            &left_table,
-            gadget_payload.get(join_gadget::LEFT_LABEL),
-        );
+        let left_table =
+            Self::preserve_row_id_prover(&left_table, gadget_payload.get(join_gadget::LEFT_LABEL));
         let right_table = Self::preserve_row_id_prover(
             &right_table,
             gadget_payload.get(join_gadget::RIGHT_LABEL),
@@ -410,6 +370,47 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
 
+        Ok(())
+    }
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            join_gadget::LEFT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::RIGHT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::OUTPUT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+        );
+
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 }
@@ -470,7 +471,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = if name == ROW_ID_COL_NAME || (full_materialization && name == ACTIVATOR_COL_NAME) {
+                let mat = if name == ROW_ID_COL_NAME
+                    || (full_materialization && name == ACTIVATOR_COL_NAME)
+                {
                     false
                 } else if full_materialization {
                     true
@@ -494,6 +497,47 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            join_gadget::LEFT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::RIGHT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::OUTPUT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+        );
+
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        Ok(())
+    }
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,

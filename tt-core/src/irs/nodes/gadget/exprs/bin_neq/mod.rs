@@ -42,14 +42,6 @@ impl<B: SnarkBackend> IsNode<B> for BinNeqNode<B> {
         todo!()
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.bool_check.clone(), self.eq.clone(), self.neq.clone()]
     }
@@ -171,6 +163,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinNeqNode<B> {
             self.bool_check.id(),
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }
@@ -307,6 +307,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinNeqNode<B> {
             self.bool_check.id(),
             Some(PayloadStructure::GadgetPayload(bool_payload)),
         );
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }

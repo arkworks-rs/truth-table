@@ -32,14 +32,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.geq.clone()]
     }
@@ -112,6 +104,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         );
         Ok(())
     }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
@@ -178,6 +178,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             self.geq.id(),
             Some(PayloadStructure::GadgetPayload(geq_payload)),
         );
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
 }

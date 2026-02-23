@@ -40,14 +40,6 @@ impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
         todo!()
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        _id: NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![self.expr.clone()]
     }
@@ -67,6 +59,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         _id: NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -95,6 +95,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         _id: NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

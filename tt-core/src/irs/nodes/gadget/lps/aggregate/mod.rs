@@ -40,6 +40,19 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
+    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
+        if self.has_groups() {
+            vec![
+                self.supp_gadget.as_ref().unwrap().clone(),
+                self.bool_gadget.as_ref().unwrap().clone(),
+            ]
+        } else {
+            vec![]
+        }
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -78,19 +91,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         Ok(())
     }
 
-    fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        if self.has_groups() {
-            vec![
-                self.supp_gadget.as_ref().unwrap().clone(),
-                self.bool_gadget.as_ref().unwrap().clone(),
-            ]
-        } else {
-            vec![]
-        }
-    }
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -152,6 +152,44 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        if !self.has_groups() {
+            return Ok(());
+        }
+        let aggregate_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+
+        let input_hint = match aggregate_payload.get(INPUT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let output_hint = match aggregate_payload.get(OUTPUT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+
+        let mut supp_payload =
+            match planned_ir.payload_for_node(&self.supp_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_hint);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_hint);
+
+        planned_ir.set_payload_for_node(
+            self.supp_gadget.as_ref().unwrap().id(),
+            Some(PayloadStructure::GadgetPayload(supp_payload)),
+        );
+        Ok(())
+    }
+
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

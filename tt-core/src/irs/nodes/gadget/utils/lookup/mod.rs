@@ -52,6 +52,12 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        Vec::new()
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -90,13 +96,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
-
-    fn children(&self) -> Vec<Arc<Node<B>>> {
-        Vec::new()
-    }
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -116,6 +115,44 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+
+        let included_hint = match gadget_payload.get(INCLUDED_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let super_hint = match gadget_payload.get(SUPER_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+
+        let multiplicities_df = multiplicity_once_per_active_key(
+            super_hint.data_frame().clone(),
+            included_hint.data_frame().clone(),
+        )
+        .expect("lookup multiplicity hint planning should succeed");
+
+        let should_materialize = multiplicities_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), !is_system_column(field.name())))
+            .collect();
+        let multiplicities_hint =
+            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
+
+        gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        Ok(())
+    }
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

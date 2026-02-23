@@ -19,7 +19,7 @@ use tt_core::{
         nodes::{Node, NodeId},
         payloads::PayloadStructure,
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-        shared_passes::{GadgetPlanningPass, OutputPlanningPass},
+        shared_passes::OutputPlanningPass,
         tree::Tree,
     },
     prover::{
@@ -29,8 +29,10 @@ use tt_core::{
         },
         passes::{
             arithmetization::ArithmetizationPass, commitment::CommitmentPass,
-            gadget_initialization::GadgetInitializationPass, materialization::MaterializationPass,
-            proving::ProvingPass, tracking::TrackingPass, virtualization::VirtualizationPass,
+            gadget_initialization::GadgetInitializationPass,
+            gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
+            materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
+            virtualization::VirtualizationPass,
         },
         payloads::ArithPayload,
     },
@@ -62,8 +64,11 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn output_planning_pass(&self) -> OutputPlanningPass<B> {
         OutputPlanningPass::new()
     }
-    pub fn gadget_planning_pass(&self, planned_ir: &OutputPlannedIr<B>) -> GadgetPlanningPass<B> {
-        GadgetPlanningPass::new(planned_ir)
+    pub fn gadget_planning_pass(
+        &self,
+        planned_ir: &OutputPlannedIr<B>,
+    ) -> ProverGadgetPlanningPass<B> {
+        ProverGadgetPlanningPass::new(planned_ir)
     }
     pub fn materialization_pass(&self) -> MaterializationPass<B> {
         MaterializationPass::new()

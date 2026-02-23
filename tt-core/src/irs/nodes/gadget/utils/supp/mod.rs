@@ -45,6 +45,12 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
+    fn children(&self) -> Vec<Arc<Node<B>>> {
+        vec![self.lookup.clone(), self.nodup.clone()]
+    }
+}
+
+impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
@@ -59,12 +65,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         Ok(())
     }
 
-    fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.lookup.clone(), self.nodup.clone()]
-    }
-}
-
-impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,
@@ -99,6 +99,20 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        // First fetch the original and support hints from the payload.
+        let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
+        // Then populate the nodup plans
+        hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
+        // Finally populate the lookup plans
+        hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
+        Ok(())
+    }
+
     fn add_virtual_witness(
         &self,
         _id: crate::irs::nodes::NodeId,

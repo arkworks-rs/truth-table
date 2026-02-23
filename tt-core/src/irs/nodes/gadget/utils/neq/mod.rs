@@ -47,14 +47,6 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         todo!()
     }
 
-    fn initialize_gadget_plans(
-        &self,
-        _id: crate::irs::nodes::NodeId,
-        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
-    ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
-    }
-
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
         vec![]
     }
@@ -77,6 +69,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
@@ -92,6 +92,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _id: crate::irs::nodes::NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+    ) -> ark_piop::errors::SnarkResult<()> {
+        Ok(())
+    }
+
+    fn initialize_gadget_plans(
+        &self,
+        id: crate::irs::nodes::NodeId,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

@@ -2,15 +2,15 @@ use std::cell::RefCell;
 
 use crate::irs::{
     ir::LocalPass,
-    nodes::{IsNode, Node, NodeId},
+    nodes::{Node, NodeId, VerifierNodeOps},
     payloads::{HintDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };
 use ark_piop::SnarkBackend;
 
-/// A planning pass that initializes the IR with hint DataFrames.
+/// Verifier-side gadget planning pass.
 ///
-/// This pass converts an IR with empty payloads into an IR with Hint DataFrames.
+/// This pass executes pre-order and lets each node update verifier planning hints.
 pub struct GadgetPlanningPass<B: SnarkBackend> {
     planned_ir: RefCell<OutputPlannedIr<B>>,
 }
@@ -27,7 +27,7 @@ impl<B: SnarkBackend> GadgetPlanningPass<B> {
 
 impl<B: SnarkBackend> Default for GadgetPlanningPass<B> {
     fn default() -> Self {
-        todo!("GadgetPlanningPass requires an initialized planned IR")
+        todo!("Verifier GadgetPlanningPass requires an initialized planned IR")
     }
 }
 
@@ -35,6 +35,7 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
     fn order(&self) -> crate::irs::ir::PassOrder {
         crate::irs::ir::PassOrder::PreOrder
     }
+
     fn transform(
         &self,
         node: &Node<B>,
@@ -46,8 +47,8 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
             ir.set_payload_for_node(id, payload.cloned());
         }
 
-        node.initialize_gadget_plans(id, &mut ir)
-            .expect("gadget planning should succeed");
+        VerifierNodeOps::initialize_gadget_plans(node, id, &mut ir)
+            .expect("verifier gadget planning should succeed");
 
         let updated = ir.payloads().get(&id).cloned().flatten();
         if updated.is_some() {
