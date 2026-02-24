@@ -458,7 +458,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                 self.join_mode(),
             )
         };
-        if full_materialization {
+        if full_materialization && !crate::irs::nodes::is_verifier_planning_mode() {
             self.cache_full_materialized_active_rows(active_row_count_from_dataframe(&joined));
         }
 
@@ -590,17 +590,12 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             left_hint.schema().metadata().clone(),
         ));
 
-        let input_log_size = match self.fk_side_input() {
-            Some(input_node) => match input_node.as_ref() {
-                Node::Plan(plan_node) => {
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
-                        plan_node,
-                    )
-                    .log_size()
-                }
-                Node::Gadget(_) => 0,
-            },
-            None => left_hint.log_size(),
+        // Reuse already-computed child hints to avoid re-traversing subtrees.
+        let input_log_size = match self.join_mode() {
+            modes::JoinMode::ONE_TO_MANY => right_hint.log_size(),
+            modes::JoinMode::MANY_TO_ONE => left_hint.log_size(),
+            modes::JoinMode::ONE_TO_ONE => right_hint.log_size(),
+            modes::JoinMode::MANY_TO_MANY => left_hint.log_size(),
         };
 
         crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(schema, field_materialization, input_log_size)

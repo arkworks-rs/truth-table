@@ -115,6 +115,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         }
 
         let initial_ir = proof.optimized_ir().clone();
+        tt_core::irs::nodes::set_verifier_planning_mode(true);
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
@@ -122,6 +123,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
                 .verifier_config()
                 .gadget_planning_pass(&output_planned_ir),
         );
+        tt_core::irs::nodes::set_verifier_planning_mode(false);
 
         self.gadget_plan_cache
             .lock()
@@ -139,6 +141,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
+        tt_core::irs::nodes::clear_verifier_output_cache();
         // Fast path used by production verification and verifier-full benches.
         // This avoids materializing debug IR stage snapshots and only runs the
         // passes required to reach cryptographic verification.
@@ -190,11 +193,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: &TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
+        tt_core::irs::nodes::clear_verifier_output_cache();
         let snark_proof = proof.as_inner();
         let initial_ir = proof.optimized_ir().clone();
         // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
+        tt_core::irs::nodes::set_verifier_planning_mode(true);
         let output_planned_ir =
             initial_ir.apply_local_pass_parallel(&self.verifier_config().planning_pass());
+        tt_core::irs::nodes::set_verifier_planning_mode(false);
         // debug!(
         //     "output planned ir:\n{}",
         //     output_planned_ir.display_graphviz(true)

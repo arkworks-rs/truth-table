@@ -1,8 +1,13 @@
 use std::{
     any::Any,
+    cell::RefCell,
+    collections::HashMap,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::{
@@ -53,6 +58,23 @@ pub enum Node<B: SnarkBackend> {
 pub enum PlanNode<B: SnarkBackend> {
     LpBased(Arc<dyn IsLpNode<B>>),
     ExprBased(Arc<dyn IsExprNode<B>>),
+}
+
+thread_local! {
+    static VERIFIER_OUTPUT_CACHE: RefCell<HashMap<usize, VerifierHint>> = RefCell::new(HashMap::new());
+}
+static VERIFIER_PLANNING_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn clear_verifier_output_cache() {
+    VERIFIER_OUTPUT_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
+pub fn set_verifier_planning_mode(enabled: bool) {
+    VERIFIER_PLANNING_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_verifier_planning_mode() -> bool {
+    VERIFIER_PLANNING_MODE.load(Ordering::Relaxed)
 }
 
 impl<B: SnarkBackend> Hash for Node<B> {
@@ -565,14 +587,25 @@ impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
     fn output(&self) -> VerifierHint {
-        match &self {
+        let cache_key = self as *const PlanNode<B> as usize;
+        if let Some(cached) =
+            VERIFIER_OUTPUT_CACHE.with(|cache| cache.borrow().get(&cache_key).cloned())
+        {
+            return cached;
+        }
+
+        let output = match &self {
             PlanNode::LpBased(lp_node) => {
                 <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
             }
             PlanNode::ExprBased(expr_node) => {
                 <dyn IsExprNode<B> as IsVerifierPlanNode<B>>::output(expr_node.as_ref())
             }
-        }
+        };
+        VERIFIER_OUTPUT_CACHE.with(|cache| {
+            cache.borrow_mut().insert(cache_key, output.clone());
+        });
+        output
     }
 }
 
