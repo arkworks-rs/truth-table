@@ -94,7 +94,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Subquery alias input cannot be a gadget node"),
         };
 
@@ -110,8 +114,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+        todo!()
     }
 }
 
@@ -143,7 +147,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

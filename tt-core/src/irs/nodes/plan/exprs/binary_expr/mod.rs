@@ -329,113 +329,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut VerifierVirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Pull activator from the left child.
-        let left_table = match virtualized_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Expected PlanPayload for left child in BinaryExprNode"),
-        };
-        let left_activator = left_table.activator_tracked_poly();
-
-        // Pull activator from the right child.
-        let right_table = match virtualized_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => panic!("Expected PlanPayload for right child in BinaryExprNode"),
-        };
-        let right_activator = right_table.activator_tracked_poly();
-
-        // Assert that the left and right activators are the same.
-        debug_assert!(
-            match (left_activator.as_ref(), right_activator.as_ref()) {
-                (Some(l), Some(r)) => l == r,
-                (None, None) => true,
-                _ => false,
-            },
-            "Left and right activators should match in BinaryExprNode"
-        );
-
-        let output_activator = left_activator.clone();
-        let output_table = if self.should_materialize() {
-            None
-        } else {
-            let left_data_indices = left_table.data_tracked_oracles_indices();
-            let right_data_indices = right_table.data_tracked_oracles_indices();
-            debug_assert_eq!(
-                left_data_indices.len(),
-                1,
-                "BinaryExpr virtual ops expect one left data column"
-            );
-            debug_assert_eq!(
-                right_data_indices.len(),
-                1,
-                "BinaryExpr virtual ops expect one right data column"
-            );
-
-            let left_col = left_table.tracked_col_oracle_by_ind(left_data_indices[0]);
-            let right_col = right_table.tracked_col_oracle_by_ind(right_data_indices[0]);
-            Some(virtual_ops::output_virtual_table_oracle(
-                &self.binary_expression,
-                &left_col.data_tracked_oracle(),
-                &right_col.data_tracked_oracle(),
-            ))
-        };
-
-        // Start from existing payload (if any).
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        let mut merged_oracles = current_table.tracked_oracles();
-        if let Some(output_oracle) = output_table {
-            let output_field = <Self as crate::irs::nodes::IsVerifierPlanNode<B>>::output(self)
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .find(|field| !is_system_column(field.name()))
-                .cloned()
-                .expect("BinaryExpr output should include a data column");
-            merged_oracles.insert(output_field, output_oracle);
-        }
-        if let Some((row_id_field, row_id_oracle)) = left_table
-            .tracked_oracles_iter()
-            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-        {
-            merged_oracles
-                .entry(row_id_field.clone())
-                .or_insert_with(|| row_id_oracle.clone());
-        }
-        if let Some(activator) = output_activator {
-            merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
-        }
-
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| left_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-        let fields = merged_oracles
-            .keys()
-            .map(|f| f.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        let log_size = match (current_table.log_size(), left_table.log_size()) {
-            (0, other) => other,
-            (curr, 0) => curr,
-            (curr, left) => {
-                debug_assert_eq!(curr, left, "BinaryExpr log sizes should agree");
-                curr
-            }
-        };
-
-        let updated_table =
-            arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
-        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
-        Ok(())
+        todo!()
     }
     fn initialize_gadgets(
         &self,
@@ -487,9 +381,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        todo!()
     }
 }
 
@@ -506,7 +400,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
             .upgrade()
             .expect("BinaryExpr scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
@@ -565,8 +463,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+        todo!()
     }
 }
 

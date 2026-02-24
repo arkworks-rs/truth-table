@@ -388,7 +388,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -501,7 +501,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinCmpNode<B> {
         Ok(())
     }
 
-    fn hints(&self) -> indexmap::IndexMap<String, HintDF> {
+    fn prover_hints(&self) -> IndexMap<String, HintDF> {
+        IndexMap::new()
+    }
+
+    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::verifier_hint::VerifierHint> {
         IndexMap::new()
     }
 }

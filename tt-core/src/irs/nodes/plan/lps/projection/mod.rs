@@ -196,7 +196,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         // Evaluate the projection against the virtual/physical data produced by the
         // child node, then keep the result virtual (no eager materialization).
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
         };
 
@@ -208,8 +212,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+        todo!()
     }
 }
 
@@ -332,9 +336,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        todo!()
     }
 }
 

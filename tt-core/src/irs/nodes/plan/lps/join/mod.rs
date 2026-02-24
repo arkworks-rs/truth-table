@@ -424,11 +424,19 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let left_hint_df = match self.left.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Join left input cannot be a gadget node"),
         };
         let right_hint_df = match self.right.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
         };
         let full_materialization = self.should_fully_materialize();
@@ -499,8 +507,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+        todo!()
     }
 }
 
@@ -508,43 +516,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-
-        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(
-            join_gadget::LEFT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
-        );
-        gadget_payload.insert(
-            join_gadget::RIGHT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
-        );
-        gadget_payload.insert(
-            join_gadget::OUTPUT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
-        );
-
-        planned_ir.set_payload_for_node(
-            self.gadget.id(),
-            Some(PayloadStructure::GadgetPayload(gadget_payload)),
-        );
-        Ok(())
+        todo!()
     }
     fn add_virtual_witness(
         &self,

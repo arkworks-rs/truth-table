@@ -407,7 +407,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Aggregate input cannot be a gadget node"),
         };
 
@@ -440,8 +444,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+        todo!()
     }
 }
 
@@ -449,80 +453,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("aggregate input row-id sort should succeed");
-        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            output_hint_df.data_frame().clone(),
-        )
-        .expect("aggregate output row-id sort should succeed");
-
-        let mut input_projection_exprs = self.aggregate.group_expr.clone();
-        crate::irs::nodes::hints::append_activator_exprs_if_present(
-            &input_df,
-            &mut input_projection_exprs,
-        );
-        crate::irs::nodes::hints::append_row_id_expr_if_present(
-            &input_df,
-            &mut input_projection_exprs,
-        );
-
-        let mut output_projection_exprs = self.aggregate.group_expr.clone();
-        crate::irs::nodes::hints::append_activator_exprs_if_present(
-            &output_df,
-            &mut output_projection_exprs,
-        );
-        crate::irs::nodes::hints::append_row_id_expr_if_present(
-            &output_df,
-            &mut output_projection_exprs,
-        );
-
-        let input_projected = input_df
-            .select(input_projection_exprs)
-            .expect("aggregate input group projection should succeed");
-        let output_projected = output_df
-            .select(output_projection_exprs)
-            .expect("aggregate output group projection should succeed");
-
-        let input_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(input_projected)
-            .expect("aggregate input group sort should succeed");
-        let output_projected =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
-                .expect("aggregate output group sort should succeed");
-
-        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
-        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
-
-        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::lps::aggregate::INPUT_LABEL.to_string(),
-            input_groups_hint,
-        );
-        gadget_payload.insert(
-            crate::irs::nodes::gadget::lps::aggregate::OUTPUT_LABEL.to_string(),
-            output_groups_hint,
-        );
-
-        planned_ir.set_payload_for_node(
-            self.gadget.id(),
-            Some(PayloadStructure::GadgetPayload(gadget_payload)),
-        );
-        Ok(())
+        todo!()
     }
 
     fn add_virtual_witness(

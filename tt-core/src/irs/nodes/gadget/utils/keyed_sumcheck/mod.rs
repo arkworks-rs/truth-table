@@ -109,7 +109,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         Ok(())
     }
@@ -254,7 +254,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         Ok(())
     }
 
-    fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
+    fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
+        IndexMap::new()
+    }
+
+    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::verifier_hint::VerifierHint> {
         IndexMap::new()
     }
 }

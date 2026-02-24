@@ -338,49 +338,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let input_hint = match gadget_payload.get(TABLE_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let sort_specs = sort_specs_for_hint(&self.sort_config, &input_hint);
-        let sorted_input_hint = {
-            let sorted_df =
-                crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
-                    &input_hint,
-                    &sort_specs,
-                )
-                .expect("contig sort ordering should succeed");
-            let padded_df = pad_df_to_power_of_two(sorted_df)
-                .expect("contig sort input padding should succeed");
-            let mut should_materialize = IndexMap::new();
-            for field in padded_df.schema().fields() {
-                let materialized = input_hint
-                    .field_materialization_iter()
-                    .find(|(orig_field, _)| orig_field.name() == field.name())
-                    .map(|(_, materialized)| *materialized)
-                    .unwrap_or(true);
-                should_materialize.insert(field.clone(), materialized);
-            }
-            crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
-        };
-        populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        let input_hint = if self.strip_row_id {
-            // Strip row-id before storing to avoid exposing it in gadget payloads.
-            crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
-        } else {
-            sorted_input_hint.clone()
-        };
-        gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-        Ok(())
+        todo!()
     }
     fn add_virtual_witness(
         &self,
@@ -660,7 +620,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         Ok(())
     }
 
-    fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
+    fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
+        IndexMap::new()
+    }
+
+    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::verifier_hint::VerifierHint> {
         IndexMap::new()
     }
 }

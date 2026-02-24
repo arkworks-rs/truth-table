@@ -56,7 +56,7 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
         }
 
         match node {
-            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.hints())),
+            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.prover_hints())),
             _ => payload.cloned(),
         }
     }

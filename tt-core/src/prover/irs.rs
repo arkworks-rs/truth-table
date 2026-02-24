@@ -42,6 +42,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 mod test {
     use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::EmptyIr;
+    use crate::prover::irs::OutputPlannedIr;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::commitment::CommitmentPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
@@ -49,7 +50,6 @@ mod test {
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
-    use crate::verifier::irs::OutputPlannedIr;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::DefaultSnarkBackend;

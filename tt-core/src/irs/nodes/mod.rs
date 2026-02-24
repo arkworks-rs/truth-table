@@ -6,19 +6,24 @@ use std::{
 };
 
 use crate::{
-    irs::nodes::{
-        cost::ProvingCost,
-        hints::HintDF,
-        plan::{
-            exprs::{
-                aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
-                in_subquery, literal, scalar_function,
+    irs::{
+        nodes::{
+            cost::ProvingCost,
+            hints::HintDF,
+            plan::{
+                exprs::{
+                    aggregate_function, alias, between, binary_expr, case, cast, column, in_list,
+                    in_subquery, literal, scalar_function,
+                },
+                lps::{
+                    aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
+                },
+                rematerialize,
             },
-            lps::{aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan},
-            rematerialize,
+            verifier_hint::VerifierHint,
         },
+        tree::Tree,
     },
-    irs::tree::Tree,
     prover::irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
     verifier::irs::{
         GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
@@ -34,6 +39,7 @@ pub mod cost;
 pub mod gadget;
 pub mod hints;
 pub mod plan;
+pub mod verifier_hint;
 
 pub type NodeId = u64;
 #[derive(Derivative)]
@@ -180,7 +186,7 @@ where
     B: SnarkBackend,
 {
     /// Verifier-side output hint.
-    fn output(&self) -> HintDF;
+    fn output(&self) -> VerifierHint;
 }
 
 impl<B: SnarkBackend> Node<B> {
@@ -536,7 +542,6 @@ impl<B: SnarkBackend> PlanNode<B> {
             PlanNode::ExprBased(expr_node) => expr_node.gadget(),
         }
     }
-
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for PlanNode<B> {
@@ -559,7 +564,7 @@ impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
 }
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
-    fn output(&self) -> HintDF {
+    fn output(&self) -> VerifierHint {
         match &self {
             PlanNode::LpBased(lp_node) => {
                 <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
@@ -718,14 +723,11 @@ where
         gadget_ready_ir: &mut VerifierGadgetReadyIr<B>,
         id: NodeId,
     ) -> SnarkResult<()>;
-    fn hints(&self) -> IndexMap<String, HintDF>;
+    fn prover_hints(&self) -> IndexMap<String, HintDF>;
+    fn verifier_hints(&self) -> IndexMap<String, VerifierHint>;
 }
 pub trait IsLpNode<B>:
-    IsPlanNode<B>
-    + IsProverPlanNode<B>
-    + IsVerifierPlanNode<B>
-    + ProverNodeOps<B>
-    + VerifierNodeOps<B>
+    IsPlanNode<B> + IsProverPlanNode<B> + IsVerifierPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
 where
     B: SnarkBackend,
 {
@@ -739,11 +741,7 @@ where
 }
 
 pub trait IsExprNode<B>:
-    IsPlanNode<B>
-    + IsProverPlanNode<B>
-    + IsVerifierPlanNode<B>
-    + ProverNodeOps<B>
-    + VerifierNodeOps<B>
+    IsPlanNode<B> + IsProverPlanNode<B> + IsVerifierPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
 where
     B: SnarkBackend,
 {

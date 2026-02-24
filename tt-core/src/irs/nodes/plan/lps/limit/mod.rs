@@ -8,7 +8,7 @@ use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            gadget::lps::limit, hints::HintDF,
+            gadget::lps::limit, hints::HintDF, verifier_hint::VerifierHint,
         },
         payloads::PayloadStructure,
         tree::Tree,
@@ -375,9 +375,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        Ok(())
+        todo!()
     }
 }
 
@@ -390,7 +390,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Limit input cannot be a gadget node"),
         };
 
@@ -402,8 +406,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> VerifierHint {
+        todo!()
     }
 }
 

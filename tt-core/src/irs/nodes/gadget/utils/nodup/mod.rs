@@ -223,58 +223,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Determine whether all data columns of the NoDup input are PK columns.
-        // "Data columns" exclude system columns (activator/row_id).
-        let is_pk = planned_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::GadgetPayload(payload) => payload.get(INPUT_LABEL),
-                PayloadStructure::PlanPayload(_) => None,
-            })
-            .map(nodup_input_is_pk)
-            .unwrap_or(false);
-        self.cache_is_pk(is_pk);
-
-        if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
-            return Ok(());
-        }
-
-        // SortNoDup is the only mode that uses planner hints/virtual witnesses.
-        let Gadgets::SortNoDup(_) = &self.gadgets else {
-            return Ok(());
-        };
-        let mut self_payload = gadget_payload_or_panic(
-            id,
-            planned_ir.payload_for_node(&id).cloned(),
-            "No gadget payload found for NoDup gadget",
-        );
-        let input_hint =
-            payload_value_or_panic(id, &self_payload, INPUT_LABEL, "No input hint found");
-        self.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
-        let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
-        self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
-
-        // The child sort gadget should consume the same table as virtual data.
-        // We intentionally keep activator virtual so prover/verifier can rebuild
-        // it deterministically from active-row count.
-        let lex_sorted_virtual_hint =
-            crate::irs::nodes::hints::HintDF::new_virtual(lex_sorted_hint.data_frame().clone());
-        let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
-            return Ok(());
-        };
-        let sort_id = gadgets.0.id();
-        let sort_payload = with_sort_table_label(
-            planned_ir.payload_for_node(&sort_id).cloned(),
-            lex_sorted_virtual_hint,
-        );
-        planned_ir
-            .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
-        Ok(())
+        todo!()
     }
     fn add_virtual_witness(
         &self,
@@ -410,7 +361,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
     }
 
-    fn hints(&self) -> indexmap::IndexMap<String, crate::irs::nodes::hints::HintDF> {
+    fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
+        IndexMap::new()
+    }
+
+    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::verifier_hint::VerifierHint> {
         IndexMap::new()
     }
 }

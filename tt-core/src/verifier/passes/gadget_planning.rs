@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use crate::irs::{
     ir::LocalPass,
     nodes::{Node, NodeId, VerifierNodeOps},
-    payloads::{HintDFPayload, PayloadStructure},
+    payloads::{HintDFPayload, PayloadStructure, VerifierHintDFPayload},
 };
 use crate::verifier::irs::OutputPlannedIr;
 use ark_piop::SnarkBackend;
@@ -31,7 +31,9 @@ impl<B: SnarkBackend> Default for GadgetPlanningPass<B> {
     }
 }
 
-impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlanningPass<B> {
+impl<B: SnarkBackend> LocalPass<B, VerifierHintDFPayload, VerifierHintDFPayload>
+    for GadgetPlanningPass<B>
+{
     fn order(&self) -> crate::irs::ir::PassOrder {
         crate::irs::ir::PassOrder::PreOrder
     }
@@ -40,8 +42,8 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
         &self,
         node: &Node<B>,
         id: NodeId,
-        payload: Option<&HintDFPayload>,
-    ) -> Option<HintDFPayload> {
+        payload: Option<&VerifierHintDFPayload>,
+    ) -> Option<VerifierHintDFPayload> {
         let mut ir = self.planned_ir.borrow_mut();
         if ir.payloads().get(&id).is_none() {
             ir.set_payload_for_node(id, payload.cloned());
@@ -56,7 +58,9 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
         }
 
         match node {
-            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.hints())),
+            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(
+                gadget_node.verifier_hints(),
+            )),
             _ => payload.cloned(),
         }
     }

@@ -7,6 +7,7 @@ use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
+use crate::irs::nodes::verifier_hint::VerifierHint;
 use crate::{
     irs::{
         nodes::{
@@ -255,52 +256,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("sort input row-id sort should succeed");
-
-        let mut exprs: Vec<Expr> = self
-            .sort
-            .expr
-            .iter()
-            .map(|sort_expr| sort_expr.expr.clone())
-            .collect();
-        if input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            // Preserve activator semantics for top-k/filter pipelines.
-            exprs.push(col(ACTIVATOR_COL_NAME));
-        }
-        // Keep row-id only for deterministic ordering; payloads strip it later.
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let sort_exprs_df = input_df
-            .select(exprs)
-            .expect("sort expr projection should succeed");
-        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
-            .expect("sort expr output sort should succeed");
-        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
-
-        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(sort::INPUT_SORT_EXPRS.to_string(), sort_exprs_hint);
-        planned_ir.set_payload_for_node(
-            self.gadget.id(),
-            Some(PayloadStructure::GadgetPayload(gadget_payload)),
-        );
-        Ok(())
+        todo!()
     }
 }
 
@@ -513,7 +471,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
@@ -541,8 +503,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+    fn output(&self) -> VerifierHint {
+        todo!()
     }
 }
 
