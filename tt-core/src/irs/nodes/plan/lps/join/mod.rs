@@ -419,14 +419,16 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         Some(self.gadget.as_ref().clone())
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let left_hint_df = match self.left.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Join left input cannot be a gadget node"),
         };
         let right_hint_df = match self.right.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
         };
         let full_materialization = self.should_fully_materialize();
@@ -493,6 +495,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             })
             .collect();
         crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

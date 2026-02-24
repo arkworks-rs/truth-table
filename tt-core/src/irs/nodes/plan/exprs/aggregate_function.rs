@@ -434,9 +434,11 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        let parent_hint_df = self.parent().output();
+        let parent_hint_df = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(&self.parent());
         let column_name = self.output_column_name_in_parent();
         let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
             parent_hint_df.data_frame().clone(),
@@ -454,6 +456,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("aggregate function output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

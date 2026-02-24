@@ -219,8 +219,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
         let mut merged_polys = current_table.tracked_polys();
         if let Some(output_poly) = output_tracked_poly {
-            let output_field = self
-                .output()
+            let output_field = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
                 .data_frame()
                 .schema()
                 .fields()
@@ -391,8 +390,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
         let mut merged_oracles = current_table.tracked_oracles();
         if let Some(output_oracle) = output_table {
-            let output_field = self
-                .output()
+            let output_field = <Self as crate::irs::nodes::IsVerifierPlanNode<B>>::output(self)
                 .data_frame()
                 .schema()
                 .fields()
@@ -499,14 +497,16 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         self.gadget.as_ref().map(|gadget| gadget.as_ref().clone())
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Project the binary expression result alongside the activator from the scope.
         let scope = self.scope[0]
             .upgrade()
             .expect("BinaryExpr scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
@@ -561,6 +561,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("binary expr output sort should succeed");
         crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

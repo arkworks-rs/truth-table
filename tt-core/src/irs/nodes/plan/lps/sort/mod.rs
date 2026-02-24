@@ -508,10 +508,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         Some(self.gadget.as_ref().clone())
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
@@ -535,6 +537,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
             output_df
         };
         HintDF::new_materialized(output_df)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
+    fn output(&self) -> HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

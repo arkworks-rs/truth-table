@@ -6,7 +6,7 @@ use datafusion::prelude::DataFrame;
 use datafusion_common::DataFusionError;
 use tokio::runtime::RuntimeFlavor;
 use tracing::debug;
-use tt_core::irs::nodes::{IsNode, Node};
+use tt_core::irs::nodes::{IsNode, IsProverPlanNode, Node};
 use tt_core::irs::shared_ir::InitialIr;
 use tt_core::irs::tree::Tree;
 

@@ -98,13 +98,15 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         let scope = self.scope[0]
             .upgrade()
             .expect("Case scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Case scope cannot be a gadget node"),
         };
 
@@ -124,6 +126,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
             .expect("case output sort should succeed");
         // Materialize CASE output so aggregate multiplicities can reference it.
         crate::irs::nodes::hints::HintDF::new_materialized(projected)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

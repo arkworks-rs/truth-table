@@ -16,10 +16,9 @@ use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::{
-        nodes::{Node, NodeId},
+        nodes::{IsProverPlanNode, Node, NodeId},
         payloads::PayloadStructure,
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-        shared_passes::OutputPlanningPass,
         tree::Tree,
     },
     prover::{
@@ -28,11 +27,7 @@ use tt_core::{
             TrackedIr, VirtualizedIr as ProverVirtualizedIr,
         },
         passes::{
-            arithmetization::ArithmetizationPass, commitment::CommitmentPass,
-            gadget_initialization::GadgetInitializationPass,
-            gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
-            materialization::MaterializationPass, proving::ProvingPass, tracking::TrackingPass,
-            virtualization::VirtualizationPass,
+            arithmetization::ArithmetizationPass, commitment::CommitmentPass, gadget_initialization::GadgetInitializationPass, gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass, materialization::MaterializationPass, output_planning::OutputPlanningPass as ProverOutputPlanningPass, proving::ProvingPass, tracking::TrackingPass, virtualization::VirtualizationPass
         },
         payloads::ArithPayload,
     },
@@ -61,8 +56,8 @@ impl<B: SnarkBackend> TTProverConfig<B> {
             phantom: std::marker::PhantomData,
         }
     }
-    pub fn output_planning_pass(&self) -> OutputPlanningPass<B> {
-        OutputPlanningPass::new()
+    pub fn output_planning_pass(&self) -> ProverOutputPlanningPass<B> {
+        ProverOutputPlanningPass::new()
     }
     pub fn gadget_planning_pass(
         &self,

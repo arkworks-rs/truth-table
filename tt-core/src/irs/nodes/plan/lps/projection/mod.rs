@@ -189,12 +189,14 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Evaluate the projection against the virtual/physical data produced by the
         // child node, then keep the result virtual (no eager materialization).
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
         };
 
@@ -202,6 +204,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("projection output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

@@ -385,10 +385,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         todo!()
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
         let input_hint_df = match self.input.as_ref() {
-            Node::Plan(plan_node) => plan_node.output(),
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
             Node::Gadget(_) => panic!("Limit input cannot be a gadget node"),
         };
 
@@ -396,6 +398,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
         let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
             .expect("limit output row-id sort should succeed");
         HintDF::new_virtual(output_df)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
+    fn output(&self) -> HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

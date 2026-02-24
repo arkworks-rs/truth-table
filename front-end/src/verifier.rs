@@ -5,7 +5,6 @@ use tt_core::{
     errors::TTResult,
     irs::{
         shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-        shared_passes::OutputPlanningPass,
     },
     verifier::{
         irs::{
@@ -15,6 +14,7 @@ use tt_core::{
         passes::{
             gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
+            output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
             tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
             virtualization::VirtualizationPass as VerifierVirtualizationPass,
         },
@@ -42,8 +42,8 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         }
     }
 
-    pub fn planning_pass(&self) -> OutputPlanningPass<B> {
-        OutputPlanningPass::new()
+    pub fn planning_pass(&self) -> VerifierOutputPlanningPass<B> {
+        VerifierOutputPlanningPass::new()
     }
     pub fn gadget_planning_pass(
         &self,

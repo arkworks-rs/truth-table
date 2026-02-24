@@ -68,7 +68,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
         use indexmap::IndexMap;
@@ -90,6 +92,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for LpNode {
             })
             .collect();
         crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

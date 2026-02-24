@@ -37,10 +37,10 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 mod test {
     use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
-    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::commitment::CommitmentPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
+    use crate::prover::passes::output_planning::OutputPlanningPass;
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;

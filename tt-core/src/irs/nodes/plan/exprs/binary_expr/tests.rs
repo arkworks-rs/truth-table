@@ -94,8 +94,7 @@ fn build_projection_tree(
 
 fn output_field_from_expr(expr_node: &Arc<Node<Backend>>) -> FieldRef {
     match expr_node.as_ref() {
-        Node::Plan(plan_node) => plan_node
-            .output()
+        Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<Backend> as crate::irs::nodes::IsProverPlanNode<Backend>>::output(plan_node)
             .data_frame()
             .schema()
             .fields()
@@ -391,7 +390,7 @@ fn comparison_output_is_false_on_inactive_rows() {
         .expect("projection should include binary expr node");
 
     let hint = match expr_node.as_ref() {
-        Node::Plan(plan_node) => plan_node.output(),
+        Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<Backend> as crate::irs::nodes::IsProverPlanNode<Backend>>::output(plan_node),
         _ => panic!("binary expression node should be a plan node"),
     };
     let rt = tokio::runtime::Builder::new_current_thread()

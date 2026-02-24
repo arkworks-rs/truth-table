@@ -105,7 +105,9 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
         None
     }
+}
 
+impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         // Probe scopes in order and project from the first DataFrame that has this column.
         let scope_hint_df = self
@@ -114,7 +116,7 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
             .filter_map(|scope_weak| scope_weak.upgrade())
             .find_map(|scope| match scope.as_ref() {
                 Node::Plan(plan_node) => {
-                    let hint_df = plan_node.output();
+                    let hint_df = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node);
                     if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
                         Some(hint_df)
                     } else {
@@ -146,6 +148,12 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
             .expect("column projection should succeed");
 
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
+    }
+}
+
+impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

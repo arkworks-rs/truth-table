@@ -4,6 +4,7 @@
 
 pub mod gadget_initialization;
 pub mod gadget_planning;
+pub mod output_planning;
 pub mod tracking;
 pub mod verify;
 pub mod virtualization;

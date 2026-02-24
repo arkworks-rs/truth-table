@@ -26,11 +26,11 @@ mod test {
     use super::*;
     use crate::ctx_oracles::CtxOracles;
     use crate::irs::shared_ir::EmptyIr;
-    use crate::irs::shared_passes::OutputPlanningPass;
     use crate::irs::{payloads::HintDFPayload, tree::Tree};
     use crate::prover::passes::{
         arithmetization::ArithmetizationPass, gadget_initialization::GadgetInitializationPass,
-        materialization::MaterializationPass, proving::ProvingPass,
+        materialization::MaterializationPass, output_planning::OutputPlanningPass,
+        proving::ProvingPass,
         tracking::TrackingPass as ProverTrackingPass,
         virtualization::VirtualizationPass as ProverVirtualizationPass,
     };

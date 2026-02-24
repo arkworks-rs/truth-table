@@ -8,6 +8,7 @@ pub mod gadget_planning;
 pub mod gadget_initialization;
 pub mod honest_prover;
 pub mod materialization;
+pub mod output_planning;
 pub mod proving;
 pub mod tracking;
 pub mod virtualization;

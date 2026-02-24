@@ -165,7 +165,21 @@ where
 {
     /// Returns the gadget associated with this plan node, if any.
     fn gadget(&self) -> Option<Node<B>>;
-    /// Outputs the DataFrame resulting from executing this plan node.
+}
+
+pub trait IsProverPlanNode<B>: IsPlanNode<B>
+where
+    B: SnarkBackend,
+{
+    /// Prover-side output hint.
+    fn output(&self) -> HintDF;
+}
+
+pub trait IsVerifierPlanNode<B>: IsPlanNode<B>
+where
+    B: SnarkBackend,
+{
+    /// Verifier-side output hint.
     fn output(&self) -> HintDF;
 }
 
@@ -523,11 +537,36 @@ impl<B: SnarkBackend> PlanNode<B> {
         }
     }
 
-    /// Outputs the DataFrame resulting from executing this plan node.
-    pub fn output(&self) -> HintDF {
+}
+
+impl<B: SnarkBackend> IsPlanNode<B> for PlanNode<B> {
+    fn gadget(&self) -> Option<Node<B>> {
+        PlanNode::gadget(self)
+    }
+}
+
+impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
+    fn output(&self) -> HintDF {
         match &self {
-            PlanNode::LpBased(lp_node) => lp_node.output(),
-            PlanNode::ExprBased(expr_node) => expr_node.output(),
+            PlanNode::LpBased(lp_node) => {
+                <dyn IsLpNode<B> as IsProverPlanNode<B>>::output(lp_node.as_ref())
+            }
+            PlanNode::ExprBased(expr_node) => {
+                <dyn IsExprNode<B> as IsProverPlanNode<B>>::output(expr_node.as_ref())
+            }
+        }
+    }
+}
+
+impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
+    fn output(&self) -> HintDF {
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
+            }
+            PlanNode::ExprBased(expr_node) => {
+                <dyn IsExprNode<B> as IsVerifierPlanNode<B>>::output(expr_node.as_ref())
+            }
         }
     }
 }
@@ -681,7 +720,12 @@ where
     ) -> SnarkResult<()>;
     fn hints(&self) -> IndexMap<String, HintDF>;
 }
-pub trait IsLpNode<B>: IsPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
+pub trait IsLpNode<B>:
+    IsPlanNode<B>
+    + IsProverPlanNode<B>
+    + IsVerifierPlanNode<B>
+    + ProverNodeOps<B>
+    + VerifierNodeOps<B>
 where
     B: SnarkBackend,
 {
@@ -694,7 +738,12 @@ where
     fn lp(&self) -> LogicalPlan;
 }
 
-pub trait IsExprNode<B>: IsPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>
+pub trait IsExprNode<B>:
+    IsPlanNode<B>
+    + IsProverPlanNode<B>
+    + IsVerifierPlanNode<B>
+    + ProverNodeOps<B>
+    + VerifierNodeOps<B>
 where
     B: SnarkBackend,
 {
