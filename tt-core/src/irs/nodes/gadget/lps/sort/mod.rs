@@ -48,30 +48,42 @@ fn populate_output_expr(
             .expect("sort exprs should accept synthetic activator")
     };
 
-    // Sort by activator first (actives first), then by the sort-expr columns.
-    let mut sort_exprs: Vec<SortExpr> =
-        Vec::with_capacity(1 + sort_input_df.schema().fields().len());
-    sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
-    let data_fields: Vec<_> = sort_input_df
-        .schema()
-        .fields()
-        .iter()
-        .filter(|field| !is_system_column(field.name()))
-        .collect();
-    // Respect the sort spec ordering by column name, falling back to schema order if needed.
-    if !sort_specs.is_empty() {
-        let mut ordered = Vec::with_capacity(sort_specs.len());
-        for (name, asc, nulls_first) in sort_specs {
-            let normalized = normalize_sort_name(name);
-            if let Some(field) = data_fields
-                .iter()
-                .find(|field| normalize_sort_name(field.name()) == normalized)
-            {
-                ordered.push(col(field.name()).sort(*asc, *nulls_first));
+    // Verifier planning only needs shape/materialization metadata, not row values.
+    // Avoid expensive sort planning here when we're in verifier mode.
+    let output_hint = if crate::irs::nodes::is_verifier_planning_mode() {
+        crate::irs::nodes::hints::HintDF::new_materialized(sort_input_df)
+    } else {
+        // Sort by activator first (actives first), then by the sort-expr columns.
+        let mut sort_exprs: Vec<SortExpr> =
+            Vec::with_capacity(1 + sort_input_df.schema().fields().len());
+        sort_exprs.push(col(ACTIVATOR_COL_NAME).sort(false, false));
+        let data_fields: Vec<_> = sort_input_df
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .collect();
+        // Respect the sort spec ordering by column name, falling back to schema order if needed.
+        if !sort_specs.is_empty() {
+            let mut ordered = Vec::with_capacity(sort_specs.len());
+            for (name, asc, nulls_first) in sort_specs {
+                let normalized = normalize_sort_name(name);
+                if let Some(field) = data_fields
+                    .iter()
+                    .find(|field| normalize_sort_name(field.name()) == normalized)
+                {
+                    ordered.push(col(field.name()).sort(*asc, *nulls_first));
+                }
             }
-        }
-        if ordered.len() == data_fields.len() {
-            sort_exprs.extend(ordered);
+            if ordered.len() == data_fields.len() {
+                sort_exprs.extend(ordered);
+            } else {
+                sort_exprs.extend(
+                    data_fields
+                        .iter()
+                        .map(|field| col(field.name()).sort(true, true)),
+                );
+            }
         } else {
             sort_exprs.extend(
                 data_fields
@@ -79,38 +91,32 @@ fn populate_output_expr(
                     .map(|field| col(field.name()).sort(true, true)),
             );
         }
-    } else {
-        sort_exprs.extend(
-            data_fields
-                .iter()
-                .map(|field| col(field.name()).sort(true, true)),
-        );
-    }
 
-    let sort = Sort {
-        expr: sort_exprs,
-        input: Arc::new(sort_input_df.logical_plan().clone()),
-        fetch: None,
+        let sort = Sort {
+            expr: sort_exprs,
+            input: Arc::new(sort_input_df.logical_plan().clone()),
+            fetch: None,
+        };
+
+        let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
+        // Project the data columns and activator (and row_id for deterministic ordering).
+        let projected = sorted_df
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| {
+                field.name() == ACTIVATOR_COL_NAME
+                    || field.name() == ROW_ID_COL_NAME
+                    || !is_system_column(field.name())
+            })
+            .map(|field| col(field.name()))
+            .collect();
+        let sorted_df = sorted_df
+            .select(projected)
+            .expect("sort exprs projection should succeed");
+
+        crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
     };
-
-    let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
-    // Project the data columns and activator (and row_id for deterministic ordering).
-    let projected = sorted_df
-        .schema()
-        .fields()
-        .iter()
-        .filter(|field| {
-            field.name() == ACTIVATOR_COL_NAME
-                || field.name() == ROW_ID_COL_NAME
-                || !is_system_column(field.name())
-        })
-        .map(|field| col(field.name()))
-        .collect();
-    let sorted_df = sorted_df
-        .select(projected)
-        .expect("sort exprs projection should succeed");
-
-    let output_hint = crate::irs::nodes::hints::HintDF::new_materialized(sorted_df);
     // Keep row-id for deterministic tie-breaking, but do not materialize it.
     let mut should_materialize = IndexMap::new();
     for field in output_hint.data_frame().schema().fields() {
