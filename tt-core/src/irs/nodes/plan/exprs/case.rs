@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::Case;
+use datafusion_expr::{Case, Expr};
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -131,8 +133,91 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let scope_hint = self.scope[0]
+            .upgrade()
+            .and_then(|scope| match scope.as_ref() {
+                Node::Plan(plan_node) => Some(
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node),
+                ),
+                Node::Gadget(_) => None,
+            })
+            .expect("Case scope should resolve to a plan node");
+
+        let scope_schema = scope_hint.schema();
+        let case_name = Expr::Case(self.case.clone()).schema_name().to_string();
+        let case_dtype = self
+            .when_then
+            .iter()
+            .find_map(|(_, then_expr)| first_data_field_type_from_node::<B>(then_expr))
+            .or_else(|| {
+                self.else_expr
+                    .as_ref()
+                    .and_then(first_data_field_type_from_node::<B>)
+            })
+            .unwrap_or(DataType::Boolean);
+        let case_field = Arc::new(datafusion::arrow::datatypes::Field::new(
+            case_name,
+            case_dtype,
+            true,
+        ));
+
+        let mut output_fields = vec![case_field.clone()];
+        let mut field_materialization = indexmap::IndexMap::new();
+        field_materialization.insert(case_field, true);
+
+        if scope_hint.has_activator()
+            && let Some(field) = scope_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+                .cloned()
+        {
+            output_fields.push(field.clone());
+            field_materialization.insert(field, false);
+        }
+        if scope_hint.has_row_id()
+            && let Some(field) = scope_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == ROW_ID_COL_NAME)
+                .cloned()
+        {
+            output_fields.push(field.clone());
+            field_materialization.insert(field, false);
+        }
+
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            Arc::new(Schema::new_with_metadata(
+                output_fields
+                    .into_iter()
+                    .map(|field| field.as_ref().clone())
+                    .collect::<Vec<_>>(),
+                scope_schema.metadata().clone(),
+            )),
+            field_materialization,
+            scope_hint.log_size(),
+        )
     }
+}
+
+fn first_data_field_type_from_node<B: SnarkBackend>(node: &Arc<Node<B>>) -> Option<DataType> {
+    let hint = match node.as_ref() {
+        Node::Plan(plan_node) => {
+            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                plan_node,
+            )
+        }
+        Node::Gadget(_) => return None,
+    };
+    hint.schema()
+        .fields()
+        .iter()
+        .find(|field| {
+            field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME
+        })
+        .map(|field| field.data_type().clone())
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {

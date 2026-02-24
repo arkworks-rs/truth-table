@@ -158,35 +158,50 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
-            .collect::<indexmap::IndexMap<_, _>>();
-
-        let scope_log_size = self.scope[0]
+        let scope_hint = self.scope[0]
             .upgrade()
             .and_then(|scope| match scope.as_ref() {
                 Node::Plan(plan_node) => Some(
                     <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
                         B,
-                    >>::output(plan_node)
-                    .log_size(),
+                    >>::output(plan_node),
                 ),
                 Node::Gadget(_) => None,
             })
-            .unwrap_or(0);
+            .expect("Literal scope should resolve to a plan node");
+        let scope_schema = scope_hint.schema();
 
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            scope_log_size,
+        let mut fields = vec![FieldRef::new(Field::new(
+            self.literal.to_string(),
+            self.literal.data_type(),
+            true,
+        ))];
+        if scope_hint.has_activator()
+            && let Some(field) = scope_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == ACTIVATOR_COL_NAME)
+        {
+            fields.push(field.clone());
+        }
+        if scope_hint.has_row_id()
+            && let Some(field) = scope_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == ROW_ID_COL_NAME)
+        {
+            fields.push(field.clone());
+        }
+
+        crate::irs::nodes::verifier_hint::VerifierHint::new_virtual(
+            Arc::new(Schema::new_with_metadata(
+                fields
+                    .into_iter()
+                    .map(|f| f.as_ref().clone())
+                    .collect::<Vec<_>>(),
+                scope_schema.metadata().clone(),
+            )),
+            scope_hint.log_size(),
         )
     }
 }

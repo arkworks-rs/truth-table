@@ -464,27 +464,51 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
-            .collect::<indexmap::IndexMap<_, _>>();
+        let parent_hint =
+            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                &self.parent(),
+            );
+        let parent_schema = parent_hint.schema();
+        let output_name = self.output_column_name_in_parent();
+        let output_field = parent_schema
+            .fields()
+            .iter()
+            .find(|field| field.name() == &output_name)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "AggregateFunction output field '{}' missing in parent verifier schema",
+                    output_name
+                )
+            });
 
-        let log_size = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-            B,
-        >>::output(&self.parent())
-        .log_size();
+        let mut fields = vec![output_field];
+        if parent_hint.has_activator()
+            && let Some(field) = parent_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+        {
+            fields.push(field.clone());
+        }
+        if parent_hint.has_row_id()
+            && let Some(field) = parent_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == arithmetic::ROW_ID_COL_NAME)
+        {
+            fields.push(field.clone());
+        }
 
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            log_size,
+        crate::irs::nodes::verifier_hint::VerifierHint::new_virtual(
+            std::sync::Arc::new(Schema::new_with_metadata(
+                fields
+                    .into_iter()
+                    .map(|f| f.as_ref().clone())
+                    .collect::<Vec<_>>(),
+                parent_schema.metadata().clone(),
+            )),
+            parent_hint.log_size(),
         )
     }
 }

@@ -569,17 +569,90 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
+        let left_hint = match self.left.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("BinaryExpr left input cannot be a gadget node"),
+        };
+
+        let scope_hint = self.scope[0]
+            .upgrade()
+            .and_then(|scope| match scope.as_ref() {
+                Node::Plan(plan_node) => Some(
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node),
+                ),
+                Node::Gadget(_) => None,
+            });
+
+        let output_col_name = Expr::BinaryExpr(self.binary_expression.clone())
+            .schema_name()
+            .to_string();
+        let output_data_type = match self.binary_expression.op {
+            datafusion_expr::Operator::Eq
+            | datafusion_expr::Operator::NotEq
+            | datafusion_expr::Operator::Lt
+            | datafusion_expr::Operator::LtEq
+            | datafusion_expr::Operator::Gt
+            | datafusion_expr::Operator::GtEq
+            | datafusion_expr::Operator::And
+            | datafusion_expr::Operator::Or => DataType::Boolean,
+            _ => left_hint
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| !is_system_column(field.name()))
+                .map(|field| field.data_type().clone())
+                .unwrap_or(DataType::Null),
+        };
+
+        let mut output_fields: Vec<FieldRef> = vec![Arc::new(datafusion::arrow::datatypes::Field::new(
+            output_col_name,
+            output_data_type,
+            true,
+        ))];
+        if let Some(scope_hint) = scope_hint.as_ref() {
+            if let Some(activator) = scope_hint
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+            {
+                output_fields.push(activator.clone());
+            }
+            if let Some(row_id) = scope_hint
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name() == ROW_ID_COL_NAME)
+            {
+                output_fields.push(row_id.clone());
+            }
+        }
+
+        let field_materialization = output_fields
+            .iter()
+            .map(|field| {
+                let mat = if field.name() == arithmetic::ACTIVATOR_COL_NAME
+                    || field.name() == ROW_ID_COL_NAME
+                {
+                    false
+                } else {
+                    self.should_materialize()
+                };
+                (field.clone(), mat)
+            })
             .collect::<indexmap::IndexMap<_, _>>();
+        let schema = Arc::new(Schema::new(
+            output_fields
+                .iter()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ));
 
         let scope_log_size = self.scope[0]
             .upgrade()

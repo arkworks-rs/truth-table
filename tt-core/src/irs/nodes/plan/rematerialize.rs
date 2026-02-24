@@ -154,7 +154,29 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let input_hint = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
+        };
+        let schema = input_hint.schema().clone();
+        let field_materialization = schema
+            .fields()
+            .iter()
+            .map(|field| {
+                let materialize = field.name() != ACTIVATOR_COL_NAME;
+                (field.clone(), materialize)
+            })
+            .collect::<IndexMap<_, _>>();
+
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            schema,
+            field_materialization,
+            input_hint.log_size(),
+        )
     }
 }
 
