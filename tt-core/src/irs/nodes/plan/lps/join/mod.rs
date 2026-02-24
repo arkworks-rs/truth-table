@@ -8,7 +8,9 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
+use arithmetic::{
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, ROW_ID_FIELD, is_system_column,
+};
 use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::array::Array;
@@ -508,44 +510,100 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
+        let left_hint = match self.left.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Join left input cannot be a gadget node"),
+        };
+        let right_hint = match self.right.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
+        };
+
+        let full_materialization = self.should_fully_materialize();
+
+        // Build output schema from child schemas only (metadata path, no DataFrame eval).
+        let mut output_fields: indexmap::IndexMap<String, datafusion::arrow::datatypes::FieldRef> =
+            indexmap::IndexMap::new();
+        for field in left_hint.schema().fields() {
+            if !is_system_column(field.name()) {
+                output_fields.insert(field.name().to_string(), field.clone());
+            }
+        }
+        for field in right_hint.schema().fields() {
+            if !is_system_column(field.name()) {
+                output_fields
+                    .entry(field.name().to_string())
+                    .or_insert_with(|| field.clone());
+            }
+        }
+        output_fields.insert(ACTIVATOR_COL_NAME.to_string(), ACTIVATOR_FIELD.clone());
+        output_fields.insert(ROW_ID_COL_NAME.to_string(), ROW_ID_FIELD.clone());
+
+        let left_fields = left_hint
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| field.name().to_string())
+            .collect::<std::collections::HashSet<_>>();
+        let right_fields = right_hint
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !is_system_column(field.name()))
+            .map(|field| field.name().to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        let field_materialization = output_fields
+            .values()
+            .map(|field| {
+                let name = field.name();
+                let mat = if name == ROW_ID_COL_NAME || (full_materialization && name == ACTIVATOR_COL_NAME) {
+                    false
+                } else if full_materialization {
+                    true
+                } else {
+                    match self.join_mode() {
+                        modes::JoinMode::ONE_TO_MANY => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_ONE => right_fields.contains(name),
+                        modes::JoinMode::ONE_TO_ONE => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_MANY => true,
+                    }
+                };
+                (field.clone(), mat)
+            })
             .collect::<indexmap::IndexMap<_, _>>();
+
+        let schema = std::sync::Arc::new(datafusion::arrow::datatypes::Schema::new_with_metadata(
+            output_fields
+                .values()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+            left_hint.schema().metadata().clone(),
+        ));
 
         let input_log_size = match self.fk_side_input() {
             Some(input_node) => match input_node.as_ref() {
                 Node::Plan(plan_node) => {
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                        B,
-                    >>::output(plan_node)
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                        plan_node,
+                    )
                     .log_size()
                 }
                 Node::Gadget(_) => 0,
             },
-            None => match self.left.as_ref() {
-                Node::Plan(plan_node) => {
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                        B,
-                    >>::output(plan_node)
-                    .log_size()
-                }
-                Node::Gadget(_) => 0,
-            },
+            None => left_hint.log_size(),
         };
 
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            input_log_size,
-        )
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(schema, field_materialization, input_log_size)
     }
 }
 

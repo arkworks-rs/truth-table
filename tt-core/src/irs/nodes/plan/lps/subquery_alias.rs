@@ -115,7 +115,46 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let input_hint = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Subquery alias input cannot be a gadget node"),
+        };
+
+        let alias = self.subquery_alias.alias.to_string();
+        let qualified_fields = input_hint
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| Arc::new(qualify_field(field.as_ref(), &alias)))
+            .collect::<Vec<_>>();
+        let schema = Arc::new(Schema::new_with_metadata(
+            qualified_fields
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+            input_hint.schema().metadata().clone(),
+        ));
+
+        let field_materialization = input_hint
+            .schema()
+            .fields()
+            .iter()
+            .zip(qualified_fields.into_iter())
+            .map(|(old_field, new_field)| {
+                let mat = input_hint.is_materialized(old_field).unwrap_or(false);
+                (new_field, mat)
+            })
+            .collect::<IndexMap<_, _>>();
+
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            schema,
+            field_materialization,
+            input_hint.log_size(),
+        )
     }
 }
 
