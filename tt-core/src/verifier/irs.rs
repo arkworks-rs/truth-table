@@ -4,9 +4,14 @@
 
 use crate::{
     irs::ir::Ir,
+    irs::payloads::HintDFPayload,
     verifier::payloads::{GadgetReadyPayload, TrackedPayload, VirtualizedPayload},
 };
 
+/// The planned Intermediate Representation with verifier-side hint payloads.
+pub type OutputPlannedIr<B> = Ir<B, HintDFPayload>;
+/// The gadget-planned Intermediate Representation with verifier-side hint payloads.
+pub type GadgetPlannedIr<B> = Ir<B, HintDFPayload>;
 /// The tracked Intermediate Representation with tracked table payloads.
 ///
 /// This IR represents the stage in the verifier's pipeline where the proof tree nodes contain tracked tables; i.e. tables that have commited polynomials and already appended to the verifier's transcript.

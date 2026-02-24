@@ -4,8 +4,8 @@ use indexmap::IndexMap;
 use crate::irs::{
     nodes::{NodeId, hints::HintDF},
     payloads::PayloadStructure,
-    shared_ir::OutputPlannedIr,
 };
+use crate::prover::irs::OutputPlannedIr;
 
 use super::{ORIG_LABEL, SUPER_LABEL};
 

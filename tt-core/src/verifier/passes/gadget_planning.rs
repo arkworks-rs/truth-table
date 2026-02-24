@@ -4,8 +4,8 @@ use crate::irs::{
     ir::LocalPass,
     nodes::{Node, NodeId, VerifierNodeOps},
     payloads::{HintDFPayload, PayloadStructure},
-    shared_ir::OutputPlannedIr,
 };
+use crate::verifier::irs::OutputPlannedIr;
 use ark_piop::SnarkBackend;
 
 /// Verifier-side gadget planning pass.

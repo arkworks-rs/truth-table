@@ -99,7 +99,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -164,7 +164,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

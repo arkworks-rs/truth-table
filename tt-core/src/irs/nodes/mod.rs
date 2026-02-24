@@ -128,7 +128,7 @@ where
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()>;
 }
 
@@ -154,7 +154,7 @@ where
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()>;
 }
 
@@ -429,7 +429,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for Node<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => {
@@ -479,7 +479,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             Node::Plan(plan_node) => {
@@ -627,7 +627,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for PlanNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => {
@@ -677,7 +677,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         match &self {
             PlanNode::LpBased(lp_node) => {

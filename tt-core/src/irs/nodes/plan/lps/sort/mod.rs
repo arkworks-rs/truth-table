@@ -145,7 +145,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
@@ -255,7 +255,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
         _id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),

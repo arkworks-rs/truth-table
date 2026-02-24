@@ -3,17 +3,14 @@ use std::{collections::HashMap, sync::Mutex};
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
-    irs::{
-        shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-    },
+    irs::shared_ir::EmptyIr,
     verifier::{
         irs::{
-            GadgetReadyIr as VerifierGadgetReadyIr, TrackedIr as VerifierTrackedIr,
-            VirtualizedIr as VerifierVirtualizedIr,
+            GadgetPlannedIr, GadgetReadyIr as VerifierGadgetReadyIr, OutputPlannedIr, TrackedIr as VerifierTrackedIr, VirtualizedIr as VerifierVirtualizedIr
         },
         passes::{
-            gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
+            gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
             tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
             virtualization::VirtualizationPass as VerifierVirtualizationPass,

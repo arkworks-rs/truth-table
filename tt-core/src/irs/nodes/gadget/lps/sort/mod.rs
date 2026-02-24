@@ -124,7 +124,7 @@ fn populate_output_expr(
 }
 
 fn populate_sort_gadget_table<B: SnarkBackend>(
-    planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     output_sort_exprs: &crate::irs::nodes::hints::HintDF,
 ) {
     let target_type = TypeId::of::<crate::irs::nodes::gadget::utils::contig_sort::GadgetNode<B>>();
@@ -180,7 +180,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -243,7 +243,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),

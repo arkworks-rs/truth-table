@@ -4,6 +4,7 @@
 
 use crate::{
     irs::ir::Ir,
+    irs::payloads::HintDFPayload,
     prover::payloads::{
         ArithPayload, CommittedPayload, GadgetReadyPayload, MaterializedPayload, TrackedPayload,
         VirtualizedPayload,
@@ -15,6 +16,10 @@ use ark_piop::SnarkBackend;
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain materialized in-memory tables resulting from executing the hint dataframes.
 pub type MaterializedIr<B> = Ir<B, MaterializedPayload>;
+/// The planned Intermediate Representation with hint dataframe payloads.
+pub type OutputPlannedIr<B> = Ir<B, HintDFPayload>;
+/// The gadget-planned Intermediate Representation with hint dataframe payloads.
+pub type GadgetPlannedIr<B> = Ir<B, HintDFPayload>;
 /// The arithmetized Intermediate Representation with polynomial payloads.
 ///
 /// This IR represents the stage in the prover's pipeline where the proof tree nodes contain arithmetized polynomials derived from the materialized tables.
@@ -36,7 +41,7 @@ pub type GadgetReadyIr<B> = Ir<B, GadgetReadyPayload<B>>;
 #[cfg(test)]
 mod test {
     use crate::ctx_oracles::CtxOracles;
-    use crate::irs::shared_ir::{EmptyIr, OutputPlannedIr};
+    use crate::irs::shared_ir::EmptyIr;
     use crate::prover::passes::arithmetization::ArithmetizationPass;
     use crate::prover::passes::commitment::CommitmentPass;
     use crate::prover::passes::gadget_initialization::GadgetInitializationPass;
@@ -44,6 +49,7 @@ mod test {
     use crate::prover::passes::proving::ProvingPass;
     use crate::prover::passes::tracking::TrackingPass;
     use crate::prover::passes::virtualization::VirtualizationPass;
+    use crate::verifier::irs::OutputPlannedIr;
     use crate::{irs::tree::Tree, prover::passes::materialization::MaterializationPass};
     use arithmetic::ACTIVATOR_FIELD;
     use ark_piop::DefaultSnarkBackend;
