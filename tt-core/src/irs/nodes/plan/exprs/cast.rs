@@ -4,7 +4,7 @@ use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion_common::Statistics;
 use datafusion_expr::Cast;
 
@@ -170,7 +170,53 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let expr_hint = match self.expr.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Cast input cannot be a gadget node"),
+        };
+
+        let mut cast_applied = false;
+        let mut output_fields = Vec::new();
+        let mut field_materialization = indexmap::IndexMap::new();
+        for field in expr_hint.schema().fields() {
+            let new_field = if !cast_applied
+                && field.name() != ACTIVATOR_COL_NAME
+                && field.name() != ROW_ID_COL_NAME
+            {
+                cast_applied = true;
+                let mut updated = Field::new(
+                    field.name(),
+                    self.cast.data_type.clone(),
+                    field.is_nullable(),
+                );
+                if !field.metadata().is_empty() {
+                    updated = updated.with_metadata(field.metadata().clone());
+                }
+                Arc::new(updated)
+            } else {
+                field.clone()
+            };
+            let is_data =
+                new_field.name() != ACTIVATOR_COL_NAME && new_field.name() != ROW_ID_COL_NAME;
+            output_fields.push(new_field.clone());
+            field_materialization.insert(new_field, is_data);
+        }
+
+        let schema = Arc::new(Schema::new(
+            output_fields
+                .iter()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ));
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            schema,
+            field_materialization,
+            expr_hint.log_size(),
+        )
     }
 }
 

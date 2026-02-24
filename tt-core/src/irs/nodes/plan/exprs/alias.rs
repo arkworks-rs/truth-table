@@ -157,7 +157,53 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let expr_hint = match self.expr.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Alias input cannot be a gadget node"),
+        };
+
+        let alias_name = self.alias.name.clone();
+        let mut alias_applied = false;
+        let mut schema_fields = Vec::new();
+        let mut field_materialization = IndexMap::new();
+        for field in expr_hint.schema().fields() {
+            let new_field = if !alias_applied
+                && field.name() != ACTIVATOR_COL_NAME
+                && field.name() != ROW_ID_COL_NAME
+            {
+                alias_applied = true;
+                let mut updated = Field::new(
+                    alias_name.clone(),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                );
+                if !field.metadata().is_empty() {
+                    updated = updated.with_metadata(field.metadata().clone());
+                }
+                Arc::new(updated)
+            } else {
+                field.clone()
+            };
+            let mat = expr_hint.is_materialized(field).unwrap_or(false);
+            schema_fields.push(new_field.clone());
+            field_materialization.insert(new_field, mat);
+        }
+
+        let schema = Arc::new(Schema::new(
+            schema_fields
+                .into_iter()
+                .map(|field| field.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ));
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            schema,
+            field_materialization,
+            expr_hint.log_size(),
+        )
     }
 }
 

@@ -97,16 +97,14 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
+        let schema = self.table_scan.source.schema();
+        let field_materialization = schema
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = field.name() != arithmetic::ROW_ID_COL_NAME;
+                (field.clone(), mat)
+            })
             .collect::<indexmap::IndexMap<_, _>>();
         crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
             schema,

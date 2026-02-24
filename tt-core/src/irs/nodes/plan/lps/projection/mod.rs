@@ -1,7 +1,7 @@
 use std::sync::{Arc, Weak};
 
 use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{LogicalPlan, Projection};
@@ -213,18 +213,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
-        let schema = std::sync::Arc::new(
-            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
-                prover_hint.data_frame().schema(),
-            )
-            .clone(),
-        );
-        let field_materialization = prover_hint
-            .field_materialization_iter()
-            .map(|(field, mat)| (field.clone(), *mat))
-            .collect::<indexmap::IndexMap<_, _>>();
-
         let input_log_size = match self.input.as_ref() {
             Node::Plan(plan_node) => {
                 <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
@@ -234,6 +222,81 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             }
             Node::Gadget(_) => 0,
         };
+
+        if self.exprs.is_empty() {
+            let input_hint = match self.input.as_ref() {
+                Node::Plan(plan_node) => {
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node)
+                }
+                Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
+            };
+            let schema = input_hint.schema_owned();
+            let field_materialization = schema
+                .fields()
+                .iter()
+                .map(|field| (field.clone(), false))
+                .collect::<indexmap::IndexMap<_, _>>();
+            return crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+                schema,
+                field_materialization,
+                input_hint.log_size(),
+            );
+        }
+
+        let mut data_fields = indexmap::IndexMap::<String, datafusion::arrow::datatypes::FieldRef>::new();
+        let mut row_id_field: Option<datafusion::arrow::datatypes::FieldRef> = None;
+        let mut activator_field: Option<datafusion::arrow::datatypes::FieldRef> = None;
+        for expr_node in &self.exprs {
+            let expr_hint = match expr_node.as_ref() {
+                Node::Plan(plan_node) => {
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node)
+                }
+                Node::Gadget(_) => panic!("Projection expression cannot be a gadget node"),
+            };
+            for field in expr_hint.schema().fields() {
+                if field.name() == ROW_ID_COL_NAME {
+                    if row_id_field.is_none() {
+                        row_id_field = Some(field.clone());
+                    }
+                    continue;
+                }
+                if field.name() == ACTIVATOR_COL_NAME {
+                    if activator_field.is_none() {
+                        activator_field = Some(field.clone());
+                    }
+                    continue;
+                }
+                if !is_system_column(field.name()) {
+                    data_fields
+                        .entry(field.name().to_string())
+                        .or_insert_with(|| field.clone());
+                }
+            }
+        }
+
+        let mut output_fields = data_fields
+            .into_values()
+            .collect::<Vec<datafusion::arrow::datatypes::FieldRef>>();
+        if let Some(row_id) = row_id_field {
+            output_fields.push(row_id);
+        }
+        if let Some(activator) = activator_field {
+            output_fields.push(activator);
+        }
+        let schema = std::sync::Arc::new(Schema::new(
+            output_fields
+                .iter()
+                .map(|f| f.as_ref().clone())
+                .collect::<Vec<_>>(),
+        ));
+        let field_materialization = output_fields
+            .into_iter()
+            .map(|field| (field, false))
+            .collect::<indexmap::IndexMap<_, _>>();
 
         crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
             schema,
