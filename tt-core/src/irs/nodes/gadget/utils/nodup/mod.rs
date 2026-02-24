@@ -118,7 +118,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         );
         let input_hint =
             payload_value_or_panic(id, &self_payload, INPUT_LABEL, "No input hint found");
-        self.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
+        if crate::irs::nodes::is_verifier_planning_mode() {
+            // Verifier planning path should avoid eager DataFrame collection.
+            self.cache_sort_nodup_active_rows(0);
+        } else {
+            self.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
+        }
         let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
         self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
@@ -658,6 +663,11 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
 fn collect_blocking(
     df: datafusion::prelude::DataFrame,
 ) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {
+    if crate::irs::nodes::is_verifier_planning_mode() {
+        return Err(datafusion_common::DataFusionError::Execution(
+            "verifier planning must not collect DataFrames".to_string(),
+        ));
+    }
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
             tokio::runtime::RuntimeFlavor::MultiThread => {

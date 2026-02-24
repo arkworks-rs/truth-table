@@ -85,6 +85,19 @@ pub(crate) fn sort_input_for_contig_sort(
 }
 
 pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult<DataFrame> {
+    if crate::irs::nodes::is_verifier_planning_mode() {
+        // Verifier planning should not collect or materialize data.
+        // Keep only the non-row-id columns with the same schema shape expected by
+        // the downstream gadgets.
+        let projected: Vec<Expr> = df
+            .schema()
+            .fields()
+            .iter()
+            .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+            .collect();
+        return df.select(projected);
+    }
+
     // Important: we rotate *after* power-of-two padding.
     // If rotation happens first, the wrap row gets buried by appended rows and the
     // prescribed permutation no longer matches the intended cyclic shift.
@@ -146,6 +159,11 @@ pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult
 }
 
 fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
+    if crate::irs::nodes::is_verifier_planning_mode() {
+        return Err(DataFusionError::Execution(
+            "verifier planning must not collect DataFrames".to_string(),
+        ));
+    }
     // This helper is used from both async and sync call paths; avoid creating nested
     // runtimes in multithread contexts and keep behavior consistent in tests.
     match tokio::runtime::Handle::try_current() {

@@ -210,8 +210,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     &sort_specs,
                 )
                 .expect("contig sort ordering should succeed");
-            let padded_df = pad_df_to_power_of_two(sorted_df)
-                .expect("contig sort input padding should succeed");
+            let padded_df = if crate::irs::nodes::is_verifier_planning_mode() {
+                // Verifier planning path should avoid eager collection/padding.
+                sorted_df
+            } else {
+                pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed")
+            };
             let mut should_materialize = IndexMap::new();
             for field in padded_df.schema().fields() {
                 let materialized = input_hint

@@ -878,6 +878,14 @@ fn build_key_df(
 }
 
 fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
+    if crate::irs::nodes::is_verifier_planning_mode() {
+        // Verifier planning only needs schema/materialization shape. Avoid
+        // any eager collection and padding work here.
+        let mut output_exprs: Vec<Expr> = key_names.iter().map(col).collect();
+        output_exprs.push(lit(true).alias(arithmetic::ACTIVATOR_COL_NAME));
+        return df.select(output_exprs);
+    }
+
     let batches = collect_blocking(df.clone())?;
     let schema_ref = if batches.is_empty() {
         Arc::new(df.schema().as_arrow().clone())
@@ -936,6 +944,11 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
 }
 
 fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
+    if crate::irs::nodes::is_verifier_planning_mode() {
+        return Err(DataFusionError::Execution(
+            "verifier planning must not collect DataFrames".to_string(),
+        ));
+    }
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => match handle.runtime_flavor() {
             RuntimeFlavor::MultiThread => {
