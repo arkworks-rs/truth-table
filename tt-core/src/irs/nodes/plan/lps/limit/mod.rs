@@ -377,13 +377,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: NodeId,
         planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let _ = (id, planned_ir);
+        Ok(())
     }
 }
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        todo!()
+        Some(self.gadget.as_ref().clone())
     }
 }
 
@@ -407,7 +408,29 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> VerifierHint {
-        todo!()
+        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
+        let schema = std::sync::Arc::new(
+            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
+                prover_hint.data_frame().schema(),
+            )
+            .clone(),
+        );
+        let field_materialization = prover_hint
+            .field_materialization_iter()
+            .map(|(field, mat)| (field.clone(), *mat))
+            .collect::<indexmap::IndexMap<_, _>>();
+
+        let input_log_size = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                    B,
+                >>::output(plan_node)
+                .log_size()
+            }
+            Node::Gadget(_) => 0,
+        };
+
+        VerifierHint::from_field_materialization(schema, field_materialization, input_log_size)
     }
 }
 

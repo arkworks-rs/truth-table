@@ -464,7 +464,28 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        todo!()
+        let prover_hint = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self);
+        let schema = std::sync::Arc::new(
+            <datafusion_common::DFSchema as AsRef<datafusion::arrow::datatypes::Schema>>::as_ref(
+                prover_hint.data_frame().schema(),
+            )
+            .clone(),
+        );
+        let field_materialization = prover_hint
+            .field_materialization_iter()
+            .map(|(field, mat)| (field.clone(), *mat))
+            .collect::<indexmap::IndexMap<_, _>>();
+
+        let log_size = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+            B,
+        >>::output(&self.parent())
+        .log_size();
+
+        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
+            schema,
+            field_materialization,
+            log_size,
+        )
     }
 }
 
@@ -474,7 +495,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         id: NodeId,
         planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        let _ = (id, planned_ir);
+        Ok(())
     }
 
     fn add_virtual_witness(
