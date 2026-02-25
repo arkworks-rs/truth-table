@@ -1,10 +1,44 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_window::expr_fn::row_number;
-use datafusion::prelude::DataFrame;
+use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, ExprFunctionExt, Join, col, lit};
+use std::sync::Arc;
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
+
+/// Verifier planning fast path: produce minimal DataFrames with source-df schema.
+pub(crate) fn build_source_dfs_schema_only() -> DataFusionResult<(DataFrame, DataFrame)> {
+    let left_fields = vec![
+        Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false),
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+    ];
+    let right_fields = vec![
+        Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, false),
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+    ];
+    let left_schema = Arc::new(Schema::new(left_fields));
+    let right_schema = Arc::new(Schema::new(right_fields));
+    let left_df = SessionContext::new().read_batch(RecordBatch::new_empty(left_schema))?;
+    let right_df = SessionContext::new().read_batch(RecordBatch::new_empty(right_schema))?;
+    Ok((left_df, right_df))
+}
+
+/// Verifier planning fast path: produce minimal DataFrame with nodup input schema.
+pub(crate) fn build_nodup_input_df_schema_only() -> DataFusionResult<DataFrame> {
+    let fields = vec![
+        Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false),
+        Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, false),
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+    ];
+    let schema = Arc::new(Schema::new(fields));
+    SessionContext::new().read_batch(RecordBatch::new_empty(schema))
+}
 
 pub(crate) fn build_source_dfs(
     left: DataFrame,

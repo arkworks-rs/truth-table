@@ -121,6 +121,10 @@ where
             }
         }
     }
+
+    fn name(&self) -> &'static str {
+        "Prover Commitment"
+    }
 }
 
 fn arith_to_oracle<B: SnarkBackend>(

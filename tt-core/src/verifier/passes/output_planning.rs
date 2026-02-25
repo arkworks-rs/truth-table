@@ -41,4 +41,8 @@ where
             Node::Gadget(_) => None,
         }
     }
+    
+    fn name(&self) -> &'static str {
+        "Verifier Output Planning"
+    }
 }

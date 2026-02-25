@@ -81,4 +81,8 @@ where
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
         Some(PayloadStructure::PlanPayload(TrackedTable::default()))
     }
+    
+    fn name(&self) -> &'static str {
+        "Prover Virtualization"
+    }
 }

@@ -84,6 +84,10 @@ where
             }
         }
     }
+
+    fn name(&self) -> &'static str {
+        "Verifier Tracking"
+    }
 }
 
 fn track_hint_df<B: SnarkBackend>(

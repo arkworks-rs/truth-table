@@ -233,8 +233,18 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             &sort_specs,
             planned_ir.skip_collection(),
         );
-        populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+        populate_tie_indicator(
+            &mut gadget_payload,
+            &sorted_input_hint,
+            &sort_specs,
+            planned_ir.skip_collection(),
+        );
+        populate_diff(
+            &mut gadget_payload,
+            &sorted_input_hint,
+            &sort_specs,
+            planned_ir.skip_collection(),
+        );
         let input_hint = if self.strip_row_id {
             // Strip row-id before storing to avoid exposing it in gadget payloads.
             crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)

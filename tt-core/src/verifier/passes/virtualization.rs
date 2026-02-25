@@ -78,4 +78,8 @@ where
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<TrackedPayload<B>> {
         Some(PayloadStructure::PlanPayload(TrackedTableOracle::default()))
     }
+
+    fn name(&self) -> &'static str {
+        "Verifier Virtualization"
+    }
 }

@@ -7,8 +7,10 @@ use arithmetic::{
 };
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::functions_window::expr_fn::row_number;
-use datafusion::prelude::DataFrame;
+use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, Result as DataFusionResult};
 use datafusion_expr::{Expr, ExprFunctionExt, JoinType, col, expr_fn::when, lit};
 use datafusion_functions_aggregate::expr_fn::count;
@@ -77,11 +79,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let multiplicities_df = multiplicity_once_per_active_key(
-            super_hint.data_frame().clone(),
-            included_hint.data_frame().clone(),
-        )
-        .expect("lookup multiplicity hint planning should succeed");
+        let multiplicities_df = if planned_ir.skip_collection() {
+            multiplicity_schema_only().expect("lookup multiplicity schema-only should succeed")
+        } else {
+            multiplicity_once_per_active_key(
+                super_hint.data_frame().clone(),
+                included_hint.data_frame().clone(),
+            )
+            .expect("lookup multiplicity hint planning should succeed")
+        };
 
         let should_materialize = multiplicities_df
             .schema()
@@ -382,6 +388,18 @@ impl<B: SnarkBackend> GadgetNode<B> {
             .map(|idx| table.tracked_col_oracle_by_ind(idx).data_tracked_oracle())
             .collect()
     }
+}
+
+/// Verifier planning fast path: produce a minimal DataFrame with multiplicity schema
+/// without building expensive filter/aggregate/join plans.
+fn multiplicity_schema_only() -> DataFusionResult<DataFrame> {
+    let fields = vec![
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        Field::new("multiplicity", DataType::Int64, false),
+    ];
+    let schema = Arc::new(Schema::new(fields));
+    let empty_batch = RecordBatch::new_empty(schema);
+    SessionContext::new().read_batch(empty_batch)
 }
 
 /// Compute a per-row multiplicity table for lookup constraints.

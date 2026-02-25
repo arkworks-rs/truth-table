@@ -113,6 +113,10 @@ where
             }
         }
     }
+    
+    fn name(&self) -> &'static str {
+        "Prover Tracking"
+    }
 }
 
 fn arith_to_tracked_with_commitment<B: SnarkBackend>(

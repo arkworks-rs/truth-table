@@ -156,6 +156,10 @@ where
             }
         }
     }
+    
+    fn name(&self) -> &'static str {
+        "Prover Materialization"
+    }
 }
 
 fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<MaterializedTable> {

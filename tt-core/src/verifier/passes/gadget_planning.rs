@@ -61,4 +61,8 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
             _ => payload.cloned(),
         }
     }
+
+    fn name(&self) -> &'static str {
+        "Verifier Gadget Planning"
+    }
 }

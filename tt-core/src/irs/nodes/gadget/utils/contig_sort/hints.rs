@@ -5,7 +5,7 @@ use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
     array::{ArrayRef, BooleanArray, Int64Array, new_null_array},
     compute::{concat, concat_batches},
-    datatypes::DataType,
+    datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
 use datafusion::logical_expr::Expr;
@@ -13,7 +13,7 @@ use datafusion::logical_expr::col;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::DataFrame;
 use datafusion::prelude::SessionContext;
-use datafusion_common::{DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion_common::{DataFusionError, DFSchema, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ExprFunctionExt;
 use datafusion_expr::SortExpr;
 use datafusion_expr::when;
@@ -21,6 +21,7 @@ use datafusion_expr::{Cast, Operator, expr::BinaryExpr};
 
 use datafusion::functions_window::expr_fn::{first_value, lead};
 use indexmap::IndexMap;
+use std::sync::Arc;
 pub(crate) fn populate_rotated(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
@@ -44,10 +45,16 @@ pub(crate) fn populate_tie_indicator(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
+    skip_collection: bool,
 ) {
-    let order_by = sort_order_from_hint(input_hint, sort_specs);
-    let tie_df = tie_indicator(input_hint.data_frame().clone(), order_by, sort_specs)
-        .expect("sort tie indicator planning should succeed");
+    let tie_df = if skip_collection {
+        tie_indicator_schema_only(input_hint.data_frame().schema(), sort_specs)
+            .expect("tie indicator schema-only should succeed")
+    } else {
+        let order_by = sort_order_from_hint(input_hint, sort_specs);
+        tie_indicator(input_hint.data_frame().clone(), order_by, sort_specs)
+            .expect("sort tie indicator planning should succeed")
+    };
     let should_materialize = tie_df
         .schema()
         .fields()
@@ -62,11 +69,17 @@ pub(crate) fn populate_diff(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
+    skip_collection: bool,
 ) {
-    // Materialize per-column diffs so sign checks see in-range values.
-    let order_by = sort_order_from_hint(input_hint, sort_specs);
-    let diff_df = diff_input(input_hint.data_frame().clone(), order_by, sort_specs)
-        .expect("sort diff planning should succeed");
+    let diff_df = if skip_collection {
+        diff_input_schema_only(input_hint.data_frame().schema())
+            .expect("diff input schema-only should succeed")
+    } else {
+        // Materialize per-column diffs so sign checks see in-range values.
+        let order_by = sort_order_from_hint(input_hint, sort_specs);
+        diff_input(input_hint.data_frame().clone(), order_by, sort_specs)
+            .expect("sort diff planning should succeed")
+    };
     let should_materialize = diff_df
         .schema()
         .fields()
@@ -385,6 +398,83 @@ pub(crate) fn diff_input(
     }
 
     ordered.select(diff_cols)
+}
+
+/// Verifier planning fast path: produce a minimal DataFrame with tie-indicator schema
+/// without building expensive sort/window plans.
+fn tie_indicator_schema_only(
+    schema: &DFSchema,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<DataFrame> {
+    let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema).clone();
+    let mut data_cols: Vec<String> = arrow_schema
+        .fields()
+        .iter()
+        .map(|f| f.name().to_string())
+        .filter(|name| !is_system_column(name))
+        .collect();
+    if !sort_specs.is_empty() {
+        let mut ordered = Vec::with_capacity(data_cols.len());
+        for (name, _, _) in sort_specs {
+            let normalized = normalize_sort_name(name);
+            if let Some(col_name) = data_cols
+                .iter()
+                .find(|col_name| normalize_sort_name(col_name) == normalized)
+            {
+                ordered.push(col_name.clone());
+            }
+        }
+        if ordered.len() == data_cols.len() {
+            data_cols = ordered;
+        }
+    }
+    if data_cols.is_empty() {
+        let empty_schema = Arc::new(Schema::new(Vec::<Field>::new()));
+        let empty_batch = RecordBatch::new_empty(empty_schema);
+        return SessionContext::new().read_batch(empty_batch);
+    }
+    let fields: Vec<Field> = if data_cols.len() == 1 {
+        vec![Field::new("tie_0", DataType::Boolean, false)]
+    } else {
+        (1..data_cols.len())
+            .map(|i| Field::new(format!("tie_{}", i), DataType::Boolean, false))
+            .collect()
+    };
+    let out_schema = Arc::new(Schema::new(fields));
+    let empty_batch = RecordBatch::new_empty(out_schema);
+    SessionContext::new().read_batch(empty_batch)
+}
+
+/// Verifier planning fast path: produce a minimal DataFrame with diff-input schema
+/// without building expensive sort/window plans.
+fn diff_input_schema_only(schema: &DFSchema) -> DataFusionResult<DataFrame> {
+    let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(schema).clone();
+    let mut fields = Vec::new();
+    for field in arrow_schema.fields() {
+        if is_system_column(field.name()) {
+            continue;
+        }
+        let diff_type = if field.data_type() == &DataType::Date32 {
+            DataType::Int32
+        } else if is_numeric_type(field.data_type()) {
+            field.data_type().clone()
+        } else {
+            DataType::Int64
+        };
+        fields.push(Field::new(
+            field.name(),
+            diff_type,
+            field.is_nullable(),
+        ));
+    }
+    if fields.is_empty() {
+        let empty_schema = Arc::new(Schema::new(Vec::<Field>::new()));
+        let empty_batch = RecordBatch::new_empty(empty_schema);
+        return SessionContext::new().read_batch(empty_batch);
+    }
+    let out_schema = Arc::new(Schema::new(fields));
+    let empty_batch = RecordBatch::new_empty(out_schema);
+    SessionContext::new().read_batch(empty_batch)
 }
 
 // Keep diff materialization on numeric types to avoid invalid arithmetic in DataFusion.
