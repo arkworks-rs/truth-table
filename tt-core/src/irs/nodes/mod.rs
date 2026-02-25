@@ -556,7 +556,14 @@ impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
     fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
+            }
+            PlanNode::ExprBased(expr_node) => {
+                <dyn IsExprNode<B> as IsVerifierPlanNode<B>>::output(expr_node.as_ref())
+            }
+        }
     }
 }
 

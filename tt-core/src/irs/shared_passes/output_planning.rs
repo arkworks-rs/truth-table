@@ -1,6 +1,6 @@
 use crate::irs::{
     ir::LocalPass,
-    nodes::{Node, NodeId},
+    nodes::{IsProverPlanNode, Node, NodeId, PlanNode},
     payloads::{EmptyPayload, HintDFPayload, PayloadStructure},
 };
 use ark_piop::SnarkBackend;
@@ -36,9 +36,9 @@ where
         _payload: Option<&EmptyPayload>,
     ) -> Option<HintDFPayload> {
         match node {
-            Node::Plan(plan_node) => {
-                Some(PayloadStructure::PlanPayload(plan_node.output().clone()))
-            }
+            Node::Plan(plan_node) => Some(PayloadStructure::PlanPayload(
+                <PlanNode<B> as IsProverPlanNode<B>>::output(plan_node).clone(),
+            )),
             _ => None,
         }
     }

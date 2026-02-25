@@ -381,7 +381,29 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        // Verifier must not collect DataFrames. Use the no-collection variant.
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Filter input cannot be a gadget node"),
+        };
+
+        let output_df =
+            hints::build_output_dataframe_for_verifier(input_hint_df.data_frame(), &self.filter);
+        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
+            .expect("filter output sort should succeed");
+
+        let should_materialize: IndexMap<FieldRef, bool> = output_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), false))
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
     }
 }
 
