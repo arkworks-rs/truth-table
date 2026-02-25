@@ -17,8 +17,7 @@ pub struct GadgetPlanningPass<B: SnarkBackend> {
 
 impl<B: SnarkBackend> GadgetPlanningPass<B> {
     pub fn new(planned_ir: &OutputPlannedIr<B>) -> Self {
-        let planned_ir =
-            OutputPlannedIr::new(planned_ir.tree().clone(), planned_ir.payloads().clone());
+        let planned_ir = planned_ir.clone();
         Self {
             planned_ir: RefCell::new(planned_ir),
         }

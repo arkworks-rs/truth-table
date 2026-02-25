@@ -100,8 +100,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let (key_union, key_names) =
             build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
                 .expect("match-pair key union should succeed");
-        let key_union =
-            pad_key_union_df(key_union, &key_names).expect("match-pair padding should succeed");
+        let key_union = pad_key_union_df(key_union, &key_names, planned_ir.skip_collection())
+            .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
         let (left_cols, right_cols, _) =
             join_key_columns(&join).expect("match-pair join keys should be columns");
@@ -877,8 +877,12 @@ fn build_key_df(
     sort_by_row_id_if_present(with_row_number.select(final_exprs)?)
 }
 
-fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<DataFrame> {
-    if crate::irs::nodes::is_verifier_planning_mode() {
+fn pad_key_union_df(
+    df: DataFrame,
+    key_names: &[String],
+    skip_collection: bool,
+) -> DataFusionResult<DataFrame> {
+    if skip_collection {
         // Verifier planning only needs schema/materialization shape. Avoid
         // any eager collection and padding work here.
         let mut output_exprs: Vec<Expr> = key_names.iter().map(col).collect();
@@ -886,7 +890,7 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
         return df.select(output_exprs);
     }
 
-    let batches = collect_blocking(df.clone())?;
+    let batches = collect_blocking(df.clone(), skip_collection)?;
     let schema_ref = if batches.is_empty() {
         Arc::new(df.schema().as_arrow().clone())
     } else {
@@ -943,8 +947,11 @@ fn pad_key_union_df(df: DataFrame, key_names: &[String]) -> DataFusionResult<Dat
     ctx.read_batch(out_batch)
 }
 
-fn collect_blocking(df: DataFrame) -> DataFusionResult<Vec<RecordBatch>> {
-    if crate::irs::nodes::is_verifier_planning_mode() {
+fn collect_blocking(
+    df: DataFrame,
+    skip_collection: bool,
+) -> DataFusionResult<Vec<RecordBatch>> {
+    if skip_collection {
         return Err(DataFusionError::Execution(
             "verifier planning must not collect DataFrames".to_string(),
         ));

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use ark_piop::SnarkBackend;
 
+use crate::irs::ir::Ir;
 use crate::irs::nodes::VerifierNodeOps;
 use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
@@ -33,7 +34,11 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
             .map(|(id, payload)| (*id, payload.clone()))
             .collect();
 
-        let virtualized_ir = VirtualizedIr::new(tracked_ir.tree().clone(), seeded_payloads);
+        let virtualized_ir = Ir::new_with_skip_collection(
+            tracked_ir.tree().clone(),
+            seeded_payloads,
+            tracked_ir.skip_collection(),
+        );
         Self {
             virtualized_ir: RefCell::new(virtualized_ir),
         }

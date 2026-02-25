@@ -210,7 +210,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     &sort_specs,
                 )
                 .expect("contig sort ordering should succeed");
-            let padded_df = if crate::irs::nodes::is_verifier_planning_mode() {
+            let padded_df = if planned_ir.skip_collection() {
                 // Verifier planning path should avoid eager collection/padding.
                 sorted_df
             } else {
@@ -227,7 +227,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             }
             crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
         };
-        populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+        populate_rotated(
+            &mut gadget_payload,
+            &sorted_input_hint,
+            &sort_specs,
+            planned_ir.skip_collection(),
+        );
         populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
         let input_hint = if self.strip_row_id {

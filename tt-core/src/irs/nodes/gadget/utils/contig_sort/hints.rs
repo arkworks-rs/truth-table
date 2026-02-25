@@ -25,9 +25,10 @@ pub(crate) fn populate_rotated(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
+    skip_collection: bool,
 ) {
     let order_by = sort_order_from_hint(input_hint, sort_specs);
-    let rotated_df = rotate(input_hint.data_frame().clone(), order_by)
+    let rotated_df = rotate(input_hint.data_frame().clone(), order_by, skip_collection)
         .expect("sort rotate planning should succeed");
     let should_materialize = rotated_df
         .schema()
@@ -84,8 +85,12 @@ pub(crate) fn sort_input_for_contig_sort(
     input_hint.data_frame().clone().sort(order_by)
 }
 
-pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult<DataFrame> {
-    if crate::irs::nodes::is_verifier_planning_mode() {
+pub(crate) fn rotate(
+    df: DataFrame,
+    order_by: Vec<SortExpr>,
+    skip_collection: bool,
+) -> DataFusionResult<DataFrame> {
+    if skip_collection {
         // Verifier planning should not collect or materialize data.
         // Keep only the non-row-id columns with the same schema shape expected by
         // the downstream gadgets.
@@ -119,7 +124,7 @@ pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult
     };
     // Collect to Arrow so we can deterministically pad and then perform an explicit
     // cyclic array rotation (DataFusion window + post-padding was the source of mismatch).
-    let batches = collect_blocking(ordered)?;
+    let batches = collect_blocking(ordered, skip_collection)?;
     if batches.is_empty() {
         return Err(DataFusionError::Execution(
             "rotate input produced no batches".to_string(),
@@ -158,8 +163,11 @@ pub(crate) fn rotate(df: DataFrame, order_by: Vec<SortExpr>) -> DataFusionResult
     SessionContext::new().read_batch(out_batch)
 }
 
-fn collect_blocking(df: DataFrame) -> datafusion_common::Result<Vec<RecordBatch>> {
-    if crate::irs::nodes::is_verifier_planning_mode() {
+fn collect_blocking(
+    df: DataFrame,
+    skip_collection: bool,
+) -> datafusion_common::Result<Vec<RecordBatch>> {
+    if skip_collection {
         return Err(DataFusionError::Execution(
             "verifier planning must not collect DataFrames".to_string(),
         ));

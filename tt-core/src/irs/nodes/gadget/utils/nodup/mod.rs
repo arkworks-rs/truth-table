@@ -118,7 +118,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         );
         let input_hint =
             payload_value_or_panic(id, &self_payload, INPUT_LABEL, "No input hint found");
-        if crate::irs::nodes::is_verifier_planning_mode() {
+        if planned_ir.skip_collection() {
             // Verifier planning path should avoid eager DataFrame collection.
             self.cache_sort_nodup_active_rows(0);
         } else {
@@ -519,7 +519,7 @@ fn nodup_input_is_pk(input_hint: &crate::irs::nodes::hints::HintDF) -> bool {
 
 /// Count active rows in a hint. If no activator exists, all rows are active.
 fn active_row_count_from_hint(hint: &crate::irs::nodes::hints::HintDF) -> usize {
-    let batches = collect_blocking(hint.data_frame().clone())
+    let batches = collect_blocking(hint.data_frame().clone(), false)
         .expect("NoDup input-hint collection should succeed");
     let has_activator = hint
         .data_frame()
@@ -662,8 +662,9 @@ fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkRes
 
 fn collect_blocking(
     df: datafusion::prelude::DataFrame,
+    skip_collection: bool,
 ) -> datafusion_common::Result<Vec<datafusion::arrow::record_batch::RecordBatch>> {
-    if crate::irs::nodes::is_verifier_planning_mode() {
+    if skip_collection {
         return Err(datafusion_common::DataFusionError::Execution(
             "verifier planning must not collect DataFrames".to_string(),
         ));

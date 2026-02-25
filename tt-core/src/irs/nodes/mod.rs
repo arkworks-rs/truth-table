@@ -2,10 +2,7 @@ use std::{
     any::Any,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Weak},
 };
 
 use crate::{
@@ -54,16 +51,6 @@ pub enum Node<B: SnarkBackend> {
 pub enum PlanNode<B: SnarkBackend> {
     LpBased(Arc<dyn IsLpNode<B>>),
     ExprBased(Arc<dyn IsExprNode<B>>),
-}
-
-static VERIFIER_PLANNING_MODE: AtomicBool = AtomicBool::new(false);
-
-pub fn set_verifier_planning_mode(enabled: bool) {
-    VERIFIER_PLANNING_MODE.store(enabled, Ordering::Relaxed);
-}
-
-pub fn is_verifier_planning_mode() -> bool {
-    VERIFIER_PLANNING_MODE.load(Ordering::Relaxed)
 }
 
 impl<B: SnarkBackend> Hash for Node<B> {

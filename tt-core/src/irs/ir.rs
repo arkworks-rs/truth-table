@@ -10,6 +10,8 @@ use std::sync::Arc;
 pub struct Ir<B: SnarkBackend, Pd: Payload> {
     tree: Tree<B>,
     payloads: IndexMap<NodeId, Option<Pd>>,
+    /// When true, nodes must not collect DataFrames (verifier planning path).
+    skip_collection: bool,
 }
 
 impl<Pd: Payload + Clone, B: SnarkBackend> Clone for Ir<B, Pd> {
@@ -17,13 +19,39 @@ impl<Pd: Payload + Clone, B: SnarkBackend> Clone for Ir<B, Pd> {
         Self {
             tree: self.tree.clone(),
             payloads: self.payloads.clone(),
+            skip_collection: self.skip_collection,
         }
     }
 }
 
 impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
     pub fn new(tree: Tree<B>, payloads: IndexMap<NodeId, Option<Pd>>) -> Self {
-        Self { tree, payloads }
+        Self {
+            tree,
+            payloads,
+            skip_collection: false,
+        }
+    }
+
+    /// Create IR from tree and payloads, inheriting `skip_collection` from a parent.
+    pub fn new_with_skip_collection(
+        tree: Tree<B>,
+        payloads: IndexMap<NodeId, Option<Pd>>,
+        skip_collection: bool,
+    ) -> Self {
+        Self {
+            tree,
+            payloads,
+            skip_collection,
+        }
+    }
+
+    pub fn skip_collection(&self) -> bool {
+        self.skip_collection
+    }
+
+    pub fn set_skip_collection(&mut self, skip: bool) {
+        self.skip_collection = skip;
     }
 
     pub fn new_empty(tree: Tree<B>) -> Self {
@@ -32,7 +60,11 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
             .keys()
             .map(|id| (*id, None))
             .collect::<IndexMap<_, _>>();
-        Self { tree, payloads }
+        Self {
+            tree,
+            payloads,
+            skip_collection: false,
+        }
     }
 
     pub fn tree(&self) -> &Tree<B> {
@@ -192,6 +224,7 @@ where
         Ir {
             tree: self.tree.clone(),
             payloads: out,
+            skip_collection: self.skip_collection,
         }
     }
 
@@ -236,6 +269,7 @@ where
         Ir {
             tree: self.tree.clone(),
             payloads: out,
+            skip_collection: self.skip_collection,
         }
     }
 }

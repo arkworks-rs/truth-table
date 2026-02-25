@@ -30,6 +30,7 @@ fn populate_output_expr(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
+    skip_collection: bool,
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
     let has_activator = input_df
@@ -50,7 +51,7 @@ fn populate_output_expr(
 
     // Verifier planning only needs shape/materialization metadata, not row values.
     // Avoid expensive sort planning here when we're in verifier mode.
-    let output_hint = if crate::irs::nodes::is_verifier_planning_mode() {
+    let output_hint = if skip_collection {
         crate::irs::nodes::hints::HintDF::new_materialized(sort_input_df)
     } else {
         // Sort by activator first (actives first), then by the sort-expr columns.
@@ -197,7 +198,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint = populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs);
+        let output_hint = populate_output_expr(
+            &mut gadget_payload,
+            &input_hint,
+            &self.sort_specs,
+            planned_ir.skip_collection(),
+        );
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);

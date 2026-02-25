@@ -413,6 +413,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
+        if self.should_fully_materialize() && !planned_ir.skip_collection() {
+            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(
+                output_hint_df.data_frame(),
+            ));
+        }
         Ok(())
     }
 }
@@ -458,9 +463,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                 self.join_mode(),
             )
         };
-        if full_materialization && !crate::irs::nodes::is_verifier_planning_mode() {
-            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(&joined));
-        }
 
         let left_fields = left_hint_df
             .data_frame()
