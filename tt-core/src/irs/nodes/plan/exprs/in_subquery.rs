@@ -234,7 +234,43 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let scope = self.scope[0]
+            .upgrade()
+            .expect("InSubquery scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("InSubquery scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("in-subquery row-id sort should succeed");
+
+        // Verifier must not collect subquery batches during planning. Keep the logical
+        // InSubquery expression instead of rewriting to a literal InList.
+        let in_expr = Expr::InSubquery(self.in_subquery.clone());
+
+        let mut exprs = vec![in_expr];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("in-subquery projection should succeed");
+
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("in-subquery output sort should succeed");
+        let should_materialize = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), !is_system_column(field.name())))
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 
