@@ -119,7 +119,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::prover::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -174,7 +174,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        todo!()
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 
@@ -249,7 +249,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: NodeId,
-        planned_ir: &mut crate::verifier::irs::OutputPlannedIr<B>,
+        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use crate::irs::{
     ir::LocalPass,
     nodes::{Node, NodeId, VerifierNodeOps},
-    payloads::{HintDFPayload, PayloadStructure, HintDFDFPayload},
+    payloads::{HintDFDFPayload, HintDFPayload, PayloadStructure},
+    shared_ir::OutputPlannedIr,
 };
-use crate::verifier::irs::OutputPlannedIr;
 use ark_piop::SnarkBackend;
 
 /// Verifier-side gadget planning pass.
@@ -31,9 +31,7 @@ impl<B: SnarkBackend> Default for GadgetPlanningPass<B> {
     }
 }
 
-impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload>
-    for GadgetPlanningPass<B>
-{
+impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetPlanningPass<B> {
     fn order(&self) -> crate::irs::ir::PassOrder {
         crate::irs::ir::PassOrder::PreOrder
     }

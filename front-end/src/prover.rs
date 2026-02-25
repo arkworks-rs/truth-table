@@ -18,12 +18,13 @@ use tt_core::{
     irs::{
         nodes::{IsProverPlanNode, Node, NodeId},
         payloads::PayloadStructure,
-        shared_ir::EmptyIr,
+        shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
         tree::Tree,
     },
     prover::{
         irs::{
-            ArithmetizedIr, CommittedIr, GadgetPlannedIr, GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr, OutputPlannedIr, TrackedIr, VirtualizedIr as ProverVirtualizedIr
+            ArithmetizedIr, CommittedIr, GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr,
+            TrackedIr, VirtualizedIr as ProverVirtualizedIr,
         },
         passes::{
             arithmetization::ArithmetizationPass, commitment::CommitmentPass,

@@ -5,7 +5,7 @@ use crate::irs::{
     nodes::{NodeId, hints::HintDF},
     payloads::PayloadStructure,
 };
-use crate::prover::irs::OutputPlannedIr;
+use crate::irs::shared_ir::OutputPlannedIr;
 
 use super::{ORIG_LABEL, SUPER_LABEL};
 

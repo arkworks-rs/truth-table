@@ -4,8 +4,8 @@ use crate::irs::{
     ir::LocalPass,
     nodes::{Node, NodeId, ProverNodeOps},
     payloads::{HintDFPayload, PayloadStructure},
+    shared_ir::OutputPlannedIr,
 };
-use crate::prover::irs::OutputPlannedIr;
 use ark_piop::SnarkBackend;
 
 /// Prover-side gadget planning pass.
@@ -56,7 +56,9 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
         }
 
         match node {
-            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(gadget_node.prover_hints())),
+            Node::Gadget(gadget_node) => {
+                Some(PayloadStructure::GadgetPayload(gadget_node.prover_hints()))
+            }
             _ => payload.cloned(),
         }
     }

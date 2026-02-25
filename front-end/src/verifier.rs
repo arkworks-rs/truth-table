@@ -3,13 +3,10 @@ use std::{collections::HashMap, sync::Mutex};
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
-    irs::shared_ir::EmptyIr,
-    prover::{
-        irs::{GadgetPlannedIr, OutputPlannedIr},
-        passes::{
-            gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
-            output_planning::OutputPlanningPass as ProverOutputPlanningPass,
-        },
+    irs::shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
+    prover::passes::{
+        gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
+        output_planning::OutputPlanningPass as ProverOutputPlanningPass,
     },
     verifier::{
         irs::{
