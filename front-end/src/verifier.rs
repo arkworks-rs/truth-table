@@ -4,10 +4,6 @@ use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
     irs::shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
-    prover::passes::{
-        gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
-        output_planning::OutputPlanningPass as ProverOutputPlanningPass,
-    },
     verifier::{
         irs::{
             GadgetReadyIr as VerifierGadgetReadyIr, TrackedIr as VerifierTrackedIr,
@@ -15,6 +11,8 @@ use tt_core::{
         },
         passes::{
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
+            gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
+            output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
             tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
             virtualization::VirtualizationPass as VerifierVirtualizationPass,
         },
@@ -42,14 +40,14 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         }
     }
 
-    pub fn planning_pass(&self) -> ProverOutputPlanningPass<B> {
-        ProverOutputPlanningPass::new()
+    pub fn planning_pass(&self) -> VerifierOutputPlanningPass<B> {
+        VerifierOutputPlanningPass::new()
     }
     pub fn gadget_planning_pass(
         &self,
         planned_ir: &OutputPlannedIr<B>,
-    ) -> ProverGadgetPlanningPass<B> {
-        ProverGadgetPlanningPass::new(planned_ir)
+    ) -> VerifierGadgetPlanningPass<B> {
+        VerifierGadgetPlanningPass::new(planned_ir)
     }
 
     pub fn tracking_pass(

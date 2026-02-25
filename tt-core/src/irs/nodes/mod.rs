@@ -507,14 +507,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        match &self {
-            Node::Plan(plan_node) => {
-                VerifierNodeOps::initialize_gadget_plans(plan_node, id, planned_ir)
-            }
-            Node::Gadget(gadget_node) => {
-                VerifierNodeOps::initialize_gadget_plans(gadget_node.as_ref(), id, planned_ir)
-            }
-        }
+        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
     }
 }
 
@@ -585,25 +578,7 @@ impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
     fn output(&self) -> HintDF {
-        let cache_key = self as *const PlanNode<B> as usize;
-        if let Some(cached) =
-            VERIFIER_OUTPUT_CACHE.with(|cache| cache.borrow().get(&cache_key).cloned())
-        {
-            return cached;
-        }
-
-        let output = match &self {
-            PlanNode::LpBased(lp_node) => {
-                <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
-            }
-            PlanNode::ExprBased(expr_node) => {
-                <dyn IsExprNode<B> as IsVerifierPlanNode<B>>::output(expr_node.as_ref())
-            }
-        };
-        VERIFIER_OUTPUT_CACHE.with(|cache| {
-            cache.borrow_mut().insert(cache_key, output.clone());
-        });
-        output
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 
@@ -715,14 +690,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        match &self {
-            PlanNode::LpBased(lp_node) => {
-                VerifierNodeOps::initialize_gadget_plans(lp_node.as_ref(), id, planned_ir)
-            }
-            PlanNode::ExprBased(expr_node) => {
-                VerifierNodeOps::initialize_gadget_plans(expr_node.as_ref(), id, planned_ir)
-            }
-        }
+        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
     }
 }
 

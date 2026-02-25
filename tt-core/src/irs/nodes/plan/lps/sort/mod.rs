@@ -255,11 +255,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadget_plans(
         &self,
-        _id: NodeId,
+        id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let _ = planned_ir;
-        Ok(())
+        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
     }
 }
 
