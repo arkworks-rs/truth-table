@@ -10,7 +10,6 @@ pub struct OutputPlanningPass<B>(std::marker::PhantomData<B>);
 
 impl<B> OutputPlanningPass<B> {
     pub fn new() -> Self {
-        crate::irs::nodes::clear_verifier_output_cache();
         Self(std::marker::PhantomData)
     }
 }

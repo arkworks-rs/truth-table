@@ -368,7 +368,6 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    state.verifier.clear_preprocess_cache();
     state.verifier.preprocess_query(&state.query, &state.proof);
 }
 

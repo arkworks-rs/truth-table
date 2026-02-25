@@ -1,5 +1,4 @@
 use ark_piop::{verifier::ArgVerifier, SnarkBackend};
-use std::{collections::HashMap, sync::Mutex};
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
@@ -70,8 +69,6 @@ pub struct TTVerifier<B: SnarkBackend> {
     verifier_config: TTVerifierConfig<B>,
     shared_config: TTSharedConfig<B>,
     arg_verifier: ArgVerifier<B>,
-    // Cache expensive planning output for repeated verification of the same query.
-    gadget_plan_cache: Mutex<HashMap<String, GadgetPlannedIr<B>>>,
 }
 
 impl<B: SnarkBackend> TTVerifier<B> {
@@ -84,7 +81,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
             verifier_config,
             shared_config,
             arg_verifier,
-            gadget_plan_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -98,17 +94,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self.arg_verifier
     }
 
-    fn gadget_planned_ir_for_query(&self, query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
-        if let Some(cached) = self
-            .gadget_plan_cache
-            .lock()
-            .expect("gadget plan cache poisoned")
-            .get(query)
-            .cloned()
-        {
-            return cached;
-        }
-
+    fn gadget_planned_ir_for_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
         let initial_ir = proof.optimized_ir().clone();
         tt_core::irs::nodes::set_verifier_planning_mode(true);
         let output_planned_ir =
@@ -119,24 +105,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
                 .gadget_planning_pass(&output_planned_ir),
         );
         tt_core::irs::nodes::set_verifier_planning_mode(false);
-
-        self.gadget_plan_cache
-            .lock()
-            .expect("gadget plan cache poisoned")
-            .insert(query.to_string(), gadget_planned_ir.clone());
         gadget_planned_ir
     }
 
-    /// Clear cached preprocessing artifacts.
-    pub fn clear_preprocess_cache(&self) {
-        self.gadget_plan_cache
-            .lock()
-            .expect("gadget plan cache poisoned")
-            .clear();
-    }
-
     pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
-        tt_core::irs::nodes::clear_verifier_output_cache();
         // Fast path used by production verification and verifier-full benches.
         // This avoids materializing debug IR stage snapshots and only runs the
         // passes required to reach cryptographic verification.
@@ -175,7 +147,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(())
     }
 
-    /// Precompute and cache verifier planning artifacts for a query/proof pair.
+    /// Run verifier planning for a query/proof pair (output + gadget planning only).
     ///
     /// This intentionally excludes tracking/virtualization/gadget-init/verify passes
     /// and excludes cryptographic verification.
@@ -188,7 +160,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: &TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        tt_core::irs::nodes::clear_verifier_output_cache();
         let snark_proof = proof.as_inner();
         let initial_ir = proof.optimized_ir().clone();
         // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));

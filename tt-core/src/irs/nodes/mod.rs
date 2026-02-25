@@ -1,7 +1,5 @@
 use std::{
     any::Any,
-    cell::RefCell,
-    collections::HashMap,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     sync::{
@@ -58,14 +56,7 @@ pub enum PlanNode<B: SnarkBackend> {
     ExprBased(Arc<dyn IsExprNode<B>>),
 }
 
-thread_local! {
-    static VERIFIER_OUTPUT_CACHE: RefCell<HashMap<usize, HintDF>> = RefCell::new(HashMap::new());
-}
 static VERIFIER_PLANNING_MODE: AtomicBool = AtomicBool::new(false);
-
-pub fn clear_verifier_output_cache() {
-    VERIFIER_OUTPUT_CACHE.with(|cache| cache.borrow_mut().clear());
-}
 
 pub fn set_verifier_planning_mode(enabled: bool) {
     VERIFIER_PLANNING_MODE.store(enabled, Ordering::Relaxed);
