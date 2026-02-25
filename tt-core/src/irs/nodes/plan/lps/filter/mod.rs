@@ -381,7 +381,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        todo!()
+        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
     }
 }
 

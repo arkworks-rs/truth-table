@@ -344,7 +344,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        todo!()
+        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
     }
     fn add_virtual_witness(
         &self,
