@@ -1,7 +1,4 @@
-use crate::irs::{
-    nodes::{hints::HintDF, verifier_hint::VerifierHint},
-    tree::Payload,
-};
+use crate::irs::{nodes::hints::HintDF, tree::Payload};
 use indexmap::IndexMap;
 use std::fmt::Display;
 
@@ -21,7 +18,7 @@ impl<T: Clone> Clone for PayloadStructure<T> {
 }
 impl<T: std::fmt::Debug + Display + 'static> Payload for PayloadStructure<T> {}
 pub type HintDFPayload = PayloadStructure<HintDF>;
-pub type VerifierHintDFPayload = PayloadStructure<VerifierHint>;
+pub type HintDFDFPayload = PayloadStructure<HintDF>;
 
 impl<T: std::fmt::Display> std::fmt::Display for PayloadStructure<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

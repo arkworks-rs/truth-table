@@ -444,60 +444,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let input_hint = match self.input.as_ref() {
-            Node::Plan(plan_node) => {
-                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
-                    plan_node,
-                )
-            }
-            Node::Gadget(_) => panic!("Aggregate input cannot be a gadget node"),
-        };
-
-        let schema_fields = self.aggregate.schema.fields();
-        let aggr_count = self.aggregate.aggr_expr.len();
-        let aggr_start = schema_fields.len().saturating_sub(aggr_count);
-        let aggregate_fields: Vec<FieldRef> = schema_fields[aggr_start..]
-            .iter()
-            .map(|f| Arc::new(f.as_ref().clone()))
-            .collect();
-        let aggregate_field_names: std::collections::HashSet<String> = aggregate_fields
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-
-        let mut merged_fields = IndexMap::<String, FieldRef>::new();
-        for field in input_hint.schema().fields() {
-            merged_fields.insert(field.name().to_string(), field.clone());
-        }
-        for field in aggregate_fields {
-            merged_fields.insert(field.name().to_string(), field);
-        }
-        let schema = Arc::new(Schema::new_with_metadata(
-            merged_fields
-                .values()
-                .map(|f| f.as_ref().clone())
-                .collect::<Vec<_>>(),
-            input_hint.schema().metadata().clone(),
-        ));
-
-        let field_materialization = schema
-            .fields()
-            .iter()
-            .map(|field| {
-                (
-                    field.clone(),
-                    field.name() == ACTIVATOR_COL_NAME
-                        || aggregate_field_names.contains(field.name()),
-                )
-            })
-            .collect::<IndexMap<_, _>>();
-
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            input_hint.log_size(),
-        )
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
     }
 }
 

@@ -104,7 +104,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
         todo!()
     }
 }

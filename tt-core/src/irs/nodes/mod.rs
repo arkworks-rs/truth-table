@@ -25,7 +25,6 @@ use crate::{
                 },
                 rematerialize,
             },
-            verifier_hint::VerifierHint,
         },
         tree::Tree,
     },
@@ -44,7 +43,6 @@ pub mod cost;
 pub mod gadget;
 pub mod hints;
 pub mod plan;
-pub mod verifier_hint;
 
 pub type NodeId = u64;
 #[derive(Derivative)]
@@ -61,7 +59,7 @@ pub enum PlanNode<B: SnarkBackend> {
 }
 
 thread_local! {
-    static VERIFIER_OUTPUT_CACHE: RefCell<HashMap<usize, VerifierHint>> = RefCell::new(HashMap::new());
+    static VERIFIER_OUTPUT_CACHE: RefCell<HashMap<usize, HintDF>> = RefCell::new(HashMap::new());
 }
 static VERIFIER_PLANNING_MODE: AtomicBool = AtomicBool::new(false);
 
@@ -208,7 +206,7 @@ where
     B: SnarkBackend,
 {
     /// Verifier-side output hint.
-    fn output(&self) -> VerifierHint;
+    fn output(&self) -> HintDF;
 }
 
 impl<B: SnarkBackend> Node<B> {
@@ -586,7 +584,7 @@ impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
 }
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
-    fn output(&self) -> VerifierHint {
+    fn output(&self) -> HintDF {
         let cache_key = self as *const PlanNode<B> as usize;
         if let Some(cached) =
             VERIFIER_OUTPUT_CACHE.with(|cache| cache.borrow().get(&cache_key).cloned())
@@ -757,7 +755,7 @@ where
         id: NodeId,
     ) -> SnarkResult<()>;
     fn prover_hints(&self) -> IndexMap<String, HintDF>;
-    fn verifier_hints(&self) -> IndexMap<String, VerifierHint>;
+    fn verifier_hints(&self) -> IndexMap<String, HintDF>;
 }
 pub trait IsLpNode<B>:
     IsPlanNode<B> + IsProverPlanNode<B> + IsVerifierPlanNode<B> + ProverNodeOps<B> + VerifierNodeOps<B>

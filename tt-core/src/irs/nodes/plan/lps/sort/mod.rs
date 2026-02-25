@@ -7,12 +7,12 @@ use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-use crate::irs::nodes::verifier_hint::VerifierHint;
+use crate::irs::nodes::hints::HintDF;
 use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            gadget::lps::sort, hints::HintDF,
+            gadget::lps::sort,
         },
         payloads::PayloadStructure,
         tree::Tree,
@@ -504,41 +504,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> VerifierHint {
-        let input_hint = match self.input.as_ref() {
-            Node::Plan(plan_node) => {
-                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                    B,
-                >>::output(plan_node)
-            }
-            Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
-        };
-        let input_log_size = input_hint.log_size();
-
-        // Mirror prover output semantics for sort:
-        // - preserve schema order
-        // - drop row-id if present
-        // - mark everything materialized
-        let output_fields: Vec<FieldRef> = input_hint
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| field.name() != ROW_ID_COL_NAME)
-            .cloned()
-            .collect();
-        let schema = std::sync::Arc::new(datafusion::arrow::datatypes::Schema::new_with_metadata(
-            output_fields
-                .iter()
-                .map(|field| field.as_ref().clone())
-                .collect::<Vec<_>>(),
-            input_hint.schema().metadata().clone(),
-        ));
-        let field_materialization = output_fields
-            .into_iter()
-            .map(|field| (field, true))
-            .collect::<indexmap::IndexMap<_, _>>();
-
-        VerifierHint::from_field_materialization(schema, field_materialization, input_log_size)
+    fn output(&self) -> HintDF {
+        todo!()
     }
 }
 

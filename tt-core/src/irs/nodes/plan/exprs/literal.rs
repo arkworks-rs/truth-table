@@ -135,7 +135,11 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
             .upgrade()
             .expect("Literal scope should be available during output");
         let scope_hint_df = match scope.as_ref() {
-            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
 
@@ -157,52 +161,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let scope_hint = self.scope[0]
-            .upgrade()
-            .and_then(|scope| match scope.as_ref() {
-                Node::Plan(plan_node) => Some(
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                        B,
-                    >>::output(plan_node),
-                ),
-                Node::Gadget(_) => None,
-            })
-            .expect("Literal scope should resolve to a plan node");
-        let scope_schema = scope_hint.schema();
-
-        let mut fields = vec![FieldRef::new(Field::new(
-            self.literal.to_string(),
-            self.literal.data_type(),
-            true,
-        ))];
-        if scope_hint.has_activator()
-            && let Some(field) = scope_schema
-                .fields()
-                .iter()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            fields.push(field.clone());
-        }
-        if scope_hint.has_row_id()
-            && let Some(field) = scope_schema
-                .fields()
-                .iter()
-                .find(|field| field.name() == ROW_ID_COL_NAME)
-        {
-            fields.push(field.clone());
-        }
-
-        crate::irs::nodes::verifier_hint::VerifierHint::new_virtual(
-            Arc::new(Schema::new_with_metadata(
-                fields
-                    .into_iter()
-                    .map(|f| f.as_ref().clone())
-                    .collect::<Vec<_>>(),
-                scope_schema.metadata().clone(),
-            )),
-            scope_hint.log_size(),
-        )
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
     }
 }
 

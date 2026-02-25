@@ -96,21 +96,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let schema = self.table_scan.source.schema();
-        let field_materialization = schema
-            .fields()
-            .iter()
-            .map(|field| {
-                let mat = field.name() != arithmetic::ROW_ID_COL_NAME;
-                (field.clone(), mat)
-            })
-            .collect::<indexmap::IndexMap<_, _>>();
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            0,
-        )
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
     }
 }
 

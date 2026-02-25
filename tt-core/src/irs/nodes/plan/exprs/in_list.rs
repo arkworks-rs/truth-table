@@ -176,61 +176,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let scope_hint = self.scope[0]
-            .upgrade()
-            .and_then(|scope| match scope.as_ref() {
-                Node::Plan(plan_node) => Some(
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                        B,
-                    >>::output(plan_node),
-                ),
-                Node::Gadget(_) => None,
-            })
-            .expect("InList scope should resolve to a plan node");
-        let scope_schema = scope_hint.schema();
-
-        let output_field = FieldRef::new(Field::new(
-            Expr::InList(self.in_list.clone()).schema_name().to_string(),
-            DataType::Boolean,
-            true,
-        ));
-        let mut output_fields = vec![output_field.clone()];
-        let mut field_materialization = IndexMap::new();
-        field_materialization.insert(output_field, true);
-
-        if scope_hint.has_activator()
-            && let Some(field) = scope_schema
-                .fields()
-                .iter()
-                .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-                .cloned()
-        {
-            output_fields.push(field.clone());
-            field_materialization.insert(field, false);
-        }
-        if scope_hint.has_row_id()
-            && let Some(field) = scope_schema
-                .fields()
-                .iter()
-                .find(|field| field.name() == arithmetic::ROW_ID_COL_NAME)
-                .cloned()
-        {
-            output_fields.push(field.clone());
-            field_materialization.insert(field, false);
-        }
-
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            std::sync::Arc::new(Schema::new_with_metadata(
-                output_fields
-                    .into_iter()
-                    .map(|field| field.as_ref().clone())
-                    .collect::<Vec<_>>(),
-                scope_schema.metadata().clone(),
-            )),
-            field_materialization,
-            scope_hint.log_size(),
-        )
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
     }
 }
 

@@ -444,7 +444,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         IndexMap::new()
     }
 
-    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::verifier_hint::VerifierHint> {
+    fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
 }

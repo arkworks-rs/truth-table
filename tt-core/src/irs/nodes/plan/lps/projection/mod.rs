@@ -212,73 +212,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> crate::irs::nodes::verifier_hint::VerifierHint {
-        let input_hint = match self.input.as_ref() {
-            Node::Plan(plan_node) => {
-                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                    B,
-                >>::output(plan_node)
-            }
-            Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
-        };
-
-        // Fast verifier path: use DataFusion's projection output schema directly
-        // instead of recursively re-evaluating every expression subtree.
-        let mut output_fields = self
-            .projection
-            .schema
-            .fields()
-            .iter()
-            .map(|field| {
-                std::sync::Arc::new(datafusion::arrow::datatypes::Field::new(
-                    field.name(),
-                    field.data_type().clone(),
-                    field.is_nullable(),
-                ))
-            })
-            .collect::<Vec<datafusion::arrow::datatypes::FieldRef>>();
-
-        if input_hint.has_row_id()
-            && !output_fields
-                .iter()
-                .any(|field| field.name() == ROW_ID_COL_NAME)
-            && let Some(field) = input_hint
-                .schema()
-                .fields()
-                .iter()
-                .find(|field| field.name() == ROW_ID_COL_NAME)
-        {
-            output_fields.push(field.clone());
-        }
-        if input_hint.has_activator()
-            && !output_fields
-                .iter()
-                .any(|field| field.name() == ACTIVATOR_COL_NAME)
-            && let Some(field) = input_hint
-                .schema()
-                .fields()
-                .iter()
-                .find(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            output_fields.push(field.clone());
-        }
-
-        let schema = std::sync::Arc::new(Schema::new_with_metadata(
-            output_fields
-                .iter()
-                .map(|field| field.as_ref().clone())
-                .collect::<Vec<_>>(),
-            input_hint.schema().metadata().clone(),
-        ));
-        let field_materialization = output_fields
-            .into_iter()
-            .map(|field| (field, false))
-            .collect::<indexmap::IndexMap<_, _>>();
-        crate::irs::nodes::verifier_hint::VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            input_hint.log_size(),
-        )
+    fn output(&self) -> crate::irs::nodes::hints::HintDF {
+        todo!()
     }
 }
 

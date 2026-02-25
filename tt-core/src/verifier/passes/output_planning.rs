@@ -1,7 +1,7 @@
 use crate::irs::{
     ir::LocalPass,
     nodes::{IsVerifierPlanNode, Node, NodeId},
-    payloads::{EmptyPayload, HintDFPayload, PayloadStructure, VerifierHintDFPayload},
+    payloads::{EmptyPayload, HintDFPayload, PayloadStructure, HintDFDFPayload},
 };
 use ark_piop::SnarkBackend;
 
@@ -21,7 +21,7 @@ impl<B> Default for OutputPlanningPass<B> {
     }
 }
 
-impl<B> LocalPass<B, EmptyPayload, VerifierHintDFPayload> for OutputPlanningPass<B>
+impl<B> LocalPass<B, EmptyPayload, HintDFDFPayload> for OutputPlanningPass<B>
 where
     B: SnarkBackend,
 {
@@ -34,7 +34,7 @@ where
         node: &Node<B>,
         _id: NodeId,
         _payload: Option<&EmptyPayload>,
-    ) -> Option<VerifierHintDFPayload> {
+    ) -> Option<HintDFDFPayload> {
         match node {
             Node::Plan(plan_node) => {
                 Some(PayloadStructure::PlanPayload(<crate::irs::nodes::PlanNode<

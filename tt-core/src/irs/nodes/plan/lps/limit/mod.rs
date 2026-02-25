@@ -8,7 +8,7 @@ use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            gadget::lps::limit, hints::HintDF, verifier_hint::VerifierHint,
+            gadget::lps::limit, hints::HintDF, 
         },
         payloads::PayloadStructure,
         tree::Tree,
@@ -407,27 +407,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
-    fn output(&self) -> VerifierHint {
-        let input_hint = match self.input.as_ref() {
-            Node::Plan(plan_node) => {
-                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                    B,
-                >>::output(plan_node)
-            }
-            Node::Gadget(_) => panic!("Limit input cannot be a gadget node"),
-        };
-        let schema = input_hint.schema_owned();
-        let field_materialization = schema
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), false))
-            .collect::<indexmap::IndexMap<_, _>>();
-
-        VerifierHint::from_field_materialization(
-            schema,
-            field_materialization,
-            input_hint.log_size(),
-        )
+    fn output(&self) -> HintDF {
+        todo!()
     }
 }
 

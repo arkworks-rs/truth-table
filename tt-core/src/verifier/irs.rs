@@ -3,14 +3,14 @@
 //! This module defines type aliases for the various IRs the verifier's pipeline, ranging from simple plans for computing the witnesses to fully arithmetized and tracked polynomials ready for a SNARK verifier.
 
 use crate::{
-    irs::{ir::Ir, payloads::{HintDFPayload, VerifierHintDFPayload}},
+    irs::{ir::Ir, payloads::{HintDFPayload, HintDFDFPayload}},
     verifier::payloads::{GadgetReadyPayload, TrackedPayload, VirtualizedPayload},
 };
 
 /// The planned Intermediate Representation with verifier-side hint payloads.
-pub type OutputPlannedIr<B> = Ir<B, VerifierHintDFPayload>;
+pub type OutputPlannedIr<B> = Ir<B, HintDFDFPayload>;
 /// The gadget-planned Intermediate Representation with verifier-side hint payloads.
-pub type GadgetPlannedIr<B> = Ir<B, VerifierHintDFPayload>;
+pub type GadgetPlannedIr<B> = Ir<B, HintDFDFPayload>;
 /// The tracked Intermediate Representation with tracked table payloads.
 ///
 /// This IR represents the stage in the verifier's pipeline where the proof tree nodes contain tracked tables; i.e. tables that have commited polynomials and already appended to the verifier's transcript.
