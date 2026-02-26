@@ -16,9 +16,7 @@ use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::prelude::SessionContext;
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
 use either::Either;
@@ -146,47 +144,25 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df.clone(),
                 None => return Ok(()),
             };
-            let (left_src_df, right_src_df, nodup_input_df, match_hints) = if planned_ir
-                .skip_collection()
-            {
-                // Verifier planning fast path: use schema-only hints.
-                let (left_src, right_src) = hints::build_source_dfs_schema_only()
-                    .expect("join source schema-only should succeed");
-                let nodup = hints::build_nodup_input_df_schema_only()
-                    .expect("join nodup schema-only should succeed");
-                let match_hints = build_match_pair_hints_schema_only();
-                (left_src, right_src, nodup, match_hints)
-            } else {
-                let left_hint =
-                    force_materialize_all(&force_materialize_row_id(&left_hint));
-                let right_hint =
-                    force_materialize_all(&force_materialize_row_id(&right_hint));
-                let output_hint = force_materialize_all(&output_hint);
+            let left_hint = force_materialize_all(&force_materialize_row_id(&left_hint));
+            let right_hint = force_materialize_all(&force_materialize_row_id(&right_hint));
+            let output_hint = force_materialize_all(&output_hint);
 
-                // Build source-row tables aligned with the join output.
-                let (left_src, right_src) = hints::build_source_dfs(
-                    left_hint.data_frame().clone(),
-                    right_hint.data_frame().clone(),
-                    output_hint.data_frame().clone(),
-                    &self.join,
-                )
-                .expect("join source dataframe derivation should succeed");
-                let nodup = hints::build_nodup_input_df(
-                    left_hint.data_frame().clone(),
-                    right_hint.data_frame().clone(),
-                    output_hint.data_frame().clone(),
-                    &self.join,
-                )
-                .expect("join nodup dataframe derivation should succeed");
-                let match_hints = build_match_pair_hints(
-                    &self.join,
-                    &left_hint,
-                    &right_hint,
-                    &output_hint,
-                )
-                .expect("match-pair hint derivation should succeed");
-                (left_src, right_src, nodup, match_hints)
-            };
+            // Build source-row tables aligned with the join output.
+            let (left_src_df, right_src_df) = hints::build_source_dfs(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join source dataframe derivation should succeed");
+            let nodup_input_df = hints::build_nodup_input_df(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join nodup dataframe derivation should succeed");
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -194,14 +170,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             // Overwrite with the concretized hints so later join-subgadgets (and
             // provenance checks) see the same materialized inputs used to derive
             // source-row hints.
-            if !planned_ir.skip_collection() {
-                let left_hint =
-                    force_materialize_all(&force_materialize_row_id(&left_hint));
-                let right_hint =
-                    force_materialize_all(&force_materialize_row_id(&right_hint));
-                gadget_payload.insert(LEFT_LABEL.to_string(), left_hint);
-                gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint);
-            }
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(
                 SRC_LEFT_LABEL.to_string(),
                 crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
@@ -226,7 +196,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
             );
 
-            let (match_left, match_right, match_out) = match_hints;
+            let (match_left, match_right, match_out) =
+                build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
+                    .expect("match-pair hint derivation should succeed");
             let mut match_payload =
                 match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
                     Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -922,25 +894,6 @@ impl<B: SnarkBackend> GadgetNode<B> {
             }
         }
     }
-}
-
-fn build_match_pair_hints_schema_only() -> (
-    crate::irs::nodes::hints::HintDF,
-    crate::irs::nodes::hints::HintDF,
-    crate::irs::nodes::hints::HintDF,
-) {
-    // Minimal schema: activator only. Match-pair verifier only needs schema shape.
-    let fields = vec![Field::new(
-        arithmetic::ACTIVATOR_COL_NAME,
-        DataType::Boolean,
-        false,
-    )];
-    let schema = Arc::new(Schema::new(fields));
-    let df = SessionContext::new()
-        .read_batch(RecordBatch::new_empty(schema))
-        .expect("match-pair schema-only batch should succeed");
-    let hint = crate::irs::nodes::hints::HintDF::new_virtual(df);
-    (hint.clone(), hint.clone(), hint)
 }
 
 fn build_match_pair_hints(

@@ -207,7 +207,6 @@ where
             };
             let input_payload = existing_payload.or(fallback_payload.as_ref());
             debug!(
-                pass = pass.name(),
                 node_id = ?id,
                 node_name = %node.name(),
                 has_payload = input_payload.is_some(),
@@ -215,7 +214,6 @@ where
             );
             let p_out = pass.transform(&node, id, input_payload);
             debug!(
-                pass = pass.name(),
                 node_id = ?id,
                 node_name = %node.name(),
                 produced = p_out.is_some(),
@@ -247,7 +245,6 @@ where
             .map(|(id, node)| {
                 let input_payload = self.payloads.get(id).and_then(|opt| opt.as_ref());
                 debug!(
-                    pass = pass.name(),
                     node_id = ?id,
                     has_payload = input_payload.is_some(),
                     "pass.transform start"
@@ -261,7 +258,6 @@ where
                     None
                 };
                 debug!(
-                    pass = pass.name(),
                     node_id = ?id,
                     produced = maybe.is_some(),
                     "pass.transform end"
@@ -288,7 +284,6 @@ where
     PIn: Payload,
     POut: Payload,
 {
-    fn name(&self) -> &'static str;
     fn transform(&self, node: &Node<B>, id: NodeId, payload: Option<&PIn>) -> Option<POut>;
 
     fn order(&self) -> PassOrder;

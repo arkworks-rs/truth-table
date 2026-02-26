@@ -97,34 +97,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let (key_union, key_names, left_keys_df, right_keys_df) =
-            if planned_ir.skip_collection() {
-                let (_, _, key_names) =
-                    join_key_columns(&join).expect("match-pair join keys should be columns");
-                let (key_union, left_keys, right_keys) =
-                    build_key_union_schema_only(&key_names)
-                        .expect("match-pair schema-only should succeed");
-                (key_union, key_names, left_keys, right_keys)
-            } else {
-                let (key_union, key_names) =
-                    build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
-                        .expect("match-pair key union should succeed");
-                let key_union =
-                    pad_key_union_df(key_union, &key_names, planned_ir.skip_collection())
-                        .expect("match-pair padding should succeed");
-                let (left_cols, right_cols, _) =
-                    join_key_columns(&join).expect("match-pair join keys should be columns");
-                let left_keys =
-                    build_lookup_keys_df(left_hint.data_frame(), &left_cols, &key_names, "left")
-                        .expect("match-pair left key projection should succeed");
-                let right_keys =
-                    build_lookup_keys_df(right_hint.data_frame(), &right_cols, &key_names, "right")
-                        .expect("match-pair right key projection should succeed");
-                (key_union, key_names, left_keys, right_keys)
-            };
+        let (key_union, key_names) =
+            build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
+                .expect("match-pair key union should succeed");
         let key_union = pad_key_union_df(key_union, &key_names, planned_ir.skip_collection())
             .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+        let (left_cols, right_cols, _) =
+            join_key_columns(&join).expect("match-pair join keys should be columns");
+
+        let left_keys_df =
+            build_lookup_keys_df(left_hint.data_frame(), &left_cols, &key_names, "left")
+                .expect("match-pair left key projection should succeed");
+        let right_keys_df =
+            build_lookup_keys_df(right_hint.data_frame(), &right_cols, &key_names, "right")
+                .expect("match-pair right key projection should succeed");
         let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
             .expect("match-pair union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
@@ -728,23 +715,6 @@ fn find_parent_join_plan<B: SnarkBackend>(
             _ => None,
         }
     })
-}
-
-/// Verifier planning fast path: produce minimal DataFrames with key-union schema.
-fn build_key_union_schema_only(
-    key_names: &[String],
-) -> DataFusionResult<(DataFrame, DataFrame, DataFrame)> {
-    use datafusion::arrow::datatypes::DataType;
-    let mut fields: Vec<Field> = key_names
-        .iter()
-        .map(|n| Field::new(n.as_str(), DataType::Int64, false))
-        .collect();
-    fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
-    let schema = Arc::new(Schema::new(fields));
-    let df = SessionContext::new()
-        .read_batch(RecordBatch::new_empty(schema))
-        .expect("key union schema-only should succeed");
-    Ok((df.clone(), df.clone(), df))
 }
 
 fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, Vec<String>)> {
