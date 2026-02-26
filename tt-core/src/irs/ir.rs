@@ -196,6 +196,7 @@ where
         POut: Payload,
         P: LocalPass<B, PIn, POut>,
     {
+        pass.begin_pass(self);
         let mut out: IndexMap<NodeId, Option<POut>> =
             IndexMap::with_capacity(self.tree.arena().len());
         for (id, node) in self.ordered_nodes(pass.order()) {
@@ -223,6 +224,7 @@ where
             );
             out.insert(id, p_out);
         }
+        pass.end_pass();
         Ir {
             tree: self.tree.clone(),
             payloads: out,
@@ -239,6 +241,7 @@ where
         if matches!(pass.order(), PassOrder::PreOrder) {
             panic!("PreOrder passes are not supported in parallel traversal");
         }
+        pass.begin_pass(self);
         use rayon::prelude::*;
         let out_vec: Vec<(NodeId, Option<POut>)> = self
             .tree
@@ -269,6 +272,7 @@ where
                 (*id, maybe)
             })
             .collect();
+        pass.end_pass();
         let out: IndexMap<NodeId, Option<POut>> = out_vec.into_iter().collect();
         Ir {
             tree: self.tree.clone(),
@@ -297,5 +301,9 @@ where
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<PIn> {
         None
     }
+    /// Optional setup hook called once before pass traversal.
+    fn begin_pass(&self, _ir: &Ir<B, PIn>) {}
+    /// Optional teardown hook called once after pass traversal.
+    fn end_pass(&self) {}
     fn name(&self) -> &'static str;
 }

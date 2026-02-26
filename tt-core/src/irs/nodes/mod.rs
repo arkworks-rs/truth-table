@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    cell::RefCell,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     sync::{Arc, Weak},
@@ -185,6 +186,60 @@ where
 {
     /// Verifier-side output hint.
     fn output(&self) -> HintDF;
+}
+
+thread_local! {
+    static PROVER_OUTPUT_CACHE: RefCell<Option<IndexMap<usize, HintDF>>> = const { RefCell::new(None) };
+    static VERIFIER_OUTPUT_CACHE: RefCell<Option<IndexMap<usize, HintDF>>> = const { RefCell::new(None) };
+}
+
+#[inline]
+fn plan_node_cache_key<B: SnarkBackend>(node: &PlanNode<B>) -> usize {
+    match node {
+        PlanNode::LpBased(lp_node) => Arc::as_ptr(lp_node) as *const () as usize,
+        PlanNode::ExprBased(expr_node) => Arc::as_ptr(expr_node) as *const () as usize,
+    }
+}
+
+#[inline]
+fn with_output_cache(
+    cache: &'static std::thread::LocalKey<RefCell<Option<IndexMap<usize, HintDF>>>>,
+    key: usize,
+    compute: impl FnOnce() -> HintDF,
+) -> HintDF {
+    if let Some(cached) = cache.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|cache| cache.get(&key).cloned())
+    }) {
+        return cached;
+    }
+
+    let computed = compute();
+    cache.with(|cell| {
+        if let Some(cache) = cell.borrow_mut().as_mut() {
+            cache.insert(key, computed.clone());
+        }
+    });
+    computed
+}
+
+pub(crate) fn begin_output_cache_scope() {
+    PROVER_OUTPUT_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some(IndexMap::new());
+    });
+    VERIFIER_OUTPUT_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some(IndexMap::new());
+    });
+}
+
+pub(crate) fn end_output_cache_scope() {
+    PROVER_OUTPUT_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    VERIFIER_OUTPUT_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
 impl<B: SnarkBackend> Node<B> {
@@ -543,27 +598,29 @@ impl<B: SnarkBackend> IsPlanNode<B> for PlanNode<B> {
 
 impl<B: SnarkBackend> IsProverPlanNode<B> for PlanNode<B> {
     fn output(&self) -> HintDF {
-        match &self {
+        let key = plan_node_cache_key(self);
+        with_output_cache(&PROVER_OUTPUT_CACHE, key, || match &self {
             PlanNode::LpBased(lp_node) => {
                 <dyn IsLpNode<B> as IsProverPlanNode<B>>::output(lp_node.as_ref())
             }
             PlanNode::ExprBased(expr_node) => {
                 <dyn IsExprNode<B> as IsProverPlanNode<B>>::output(expr_node.as_ref())
             }
-        }
+        })
     }
 }
 
 impl<B: SnarkBackend> IsVerifierPlanNode<B> for PlanNode<B> {
     fn output(&self) -> HintDF {
-        match &self {
+        let key = plan_node_cache_key(self);
+        with_output_cache(&VERIFIER_OUTPUT_CACHE, key, || match &self {
             PlanNode::LpBased(lp_node) => {
                 <dyn IsLpNode<B> as IsVerifierPlanNode<B>>::output(lp_node.as_ref())
             }
             PlanNode::ExprBased(expr_node) => {
                 <dyn IsExprNode<B> as IsVerifierPlanNode<B>>::output(expr_node.as_ref())
             }
-        }
+        })
     }
 }
 

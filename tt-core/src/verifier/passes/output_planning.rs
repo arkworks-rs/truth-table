@@ -1,6 +1,6 @@
 use crate::irs::{
     ir::LocalPass,
-    nodes::{IsVerifierPlanNode, Node, NodeId},
+    nodes::{begin_output_cache_scope, end_output_cache_scope, IsVerifierPlanNode, Node, NodeId},
     payloads::{EmptyPayload, HintDFPayload, PayloadStructure, HintDFDFPayload},
 };
 use ark_piop::SnarkBackend;
@@ -40,6 +40,14 @@ where
             )),
             Node::Gadget(_) => None,
         }
+    }
+
+    fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, EmptyPayload>) {
+        begin_output_cache_scope();
+    }
+
+    fn end_pass(&self) {
+        end_output_cache_scope();
     }
     
     fn name(&self) -> &'static str {
