@@ -512,7 +512,77 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let left_hint_df = match self.left.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Join left input cannot be a gadget node"),
+        };
+        let right_hint_df = match self.right.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Join right input cannot be a gadget node"),
+        };
+        let full_materialization = self.should_fully_materialize();
+        let joined = if full_materialization {
+            hints::build_output_dataframe(
+                left_hint_df.data_frame().clone(),
+                right_hint_df.data_frame().clone(),
+                &self.join,
+            )
+        } else {
+            hints::build_partial_output_dataframe(
+                left_hint_df.data_frame().clone(),
+                right_hint_df.data_frame().clone(),
+                &self.join,
+                self.join_mode(),
+            )
+        };
+
+        let left_fields = left_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<std::collections::HashSet<_>>();
+        let right_fields = right_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<std::collections::HashSet<_>>();
+
+        let should_materialize: IndexMap<_, _> = joined
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let name = field.name();
+                let mat = if name == ROW_ID_COL_NAME
+                    || (full_materialization && name == ACTIVATOR_COL_NAME)
+                {
+                    false
+                } else if full_materialization {
+                    true
+                } else {
+                    match self.join_mode() {
+                        modes::JoinMode::ONE_TO_MANY => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_ONE => right_fields.contains(name),
+                        modes::JoinMode::ONE_TO_ONE => left_fields.contains(name),
+                        modes::JoinMode::MANY_TO_MANY => true,
+                    }
+                };
+                (field.clone(), mat)
+            })
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
     }
 }
 

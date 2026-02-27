@@ -570,7 +570,66 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let scope = self.scope[0]
+            .upgrade()
+            .expect("BinaryExpr scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("binary expr row-id sort should succeed");
+
+        let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
+        let output_expr = if self.should_materialize() {
+            if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
+                let else_expr = match output_expr.get_type(input_df.schema()).ok() {
+                    Some(DataType::Boolean) => lit(false),
+                    _ => lit(ScalarValue::Null),
+                };
+                when(activator_expr, output_expr)
+                    .otherwise(else_expr)
+                    .expect("binary expression masking case should succeed")
+            } else {
+                output_expr
+            }
+        } else {
+            output_expr
+        };
+
+        let mut exprs = vec![output_expr];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("binary expression projection should succeed");
+
+        let should_materialize: IndexMap<FieldRef, bool> = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = if field.name() == arithmetic::ACTIVATOR_COL_NAME
+                    || field.name() == ROW_ID_COL_NAME
+                {
+                    false
+                } else {
+                    self.should_materialize()
+                };
+                (field.clone(), mat)
+            })
+            .collect();
+
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("binary expr output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 

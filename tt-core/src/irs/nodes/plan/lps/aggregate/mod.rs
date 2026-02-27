@@ -445,7 +445,40 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Aggregate input cannot be a gadget node"),
+        };
+
+        let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
+        let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)
+            .expect("aggregate output sort should succeed");
+
+        let schema_fields = self.aggregate.schema.fields();
+        let aggr_count = self.aggregate.aggr_expr.len();
+        let aggr_start = schema_fields.len().saturating_sub(aggr_count);
+        let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
+            .iter()
+            .map(|field| field.name().to_string())
+            .collect();
+        let should_materialize: IndexMap<FieldRef, bool> = output
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    field.name() == ACTIVATOR_COL_NAME
+                        || aggregate_field_names.contains(field.name()),
+                )
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(output, should_materialize)
     }
 }
 
