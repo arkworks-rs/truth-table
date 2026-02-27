@@ -203,13 +203,18 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         None => return Ok(()),
     };
     if is_verifier {
-        // Verifier planning keeps only the primary table hint and skips
-        // derived sort/tie/diff DataFrame plans.
+        // Verifier planning must still provide rotated/tie/diff payload entries so
+        // gadget initialization can wire constraints, but should avoid any eager
+        // collection/materialization work.
         let input_hint = if node.strip_row_id {
             crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint)
         } else {
             input_hint
         };
+        let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
+        populate_rotated(&mut gadget_payload, &input_hint, &sort_specs, true);
+        populate_tie_indicator(&mut gadget_payload, &input_hint, &sort_specs);
+        populate_diff(&mut gadget_payload, &input_hint, &sort_specs);
         gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         return Ok(());
@@ -222,12 +227,8 @@ fn initialize_gadget_plans<B: SnarkBackend>(
                 &sort_specs,
             )
             .expect("contig sort ordering should succeed");
-        let padded_df = if planned_ir.skip_collection() {
-            // Verifier planning path should avoid eager collection/padding.
-            sorted_df
-        } else {
-            pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed")
-        };
+        let padded_df =
+            pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed");
         let mut should_materialize = IndexMap::new();
         for field in padded_df.schema().fields() {
             let materialized = input_hint
@@ -243,7 +244,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         &mut gadget_payload,
         &sorted_input_hint,
         &sort_specs,
-        planned_ir.skip_collection(),
+        false,
     );
     populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
     populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
@@ -370,7 +371,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        initialize_gadget_plans(self, id, planned_ir, false)
+        initialize_gadget_plans(self, id, planned_ir, true)
     }
     fn add_virtual_witness(
         &self,
@@ -390,13 +391,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        if payload.get(TABLE_LABEL).is_some() && payload.get(ROTATED_INPUT_LABEL).is_none() {
+        let input_table = payload.get(TABLE_LABEL).cloned();
+        let rotated_table = payload.get(ROTATED_INPUT_LABEL).cloned();
+        let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
+        let tie_table = payload.get(TIE_INDICATOR_LABEL).cloned();
+
+        if input_table.is_some() && rotated_table.is_none() {
             panic!("Expected rotated input payload for Sort gadget");
         }
-        if let (Some(left), Some(right)) = (
-            payload.get(TABLE_LABEL).cloned(),
-            payload.get(ROTATED_INPUT_LABEL).cloned(),
-        ) {
+        if let (Some(left), Some(right)) = (input_table.clone(), rotated_table.clone()) {
             populate_prescr_perm_payloads_verifier(
                 &self.prescr_perm,
                 verifier,
@@ -405,9 +408,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 virtualized_ir,
             )?;
         }
-        if let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() {
+        let bool_table = if let Some(tie_table) = tie_table {
             let tie_table = prepend_first_tie_indicator_verifier(&tie_table);
             payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_table.clone());
+            Some(tie_table)
+        } else if let Some(input_table) = input_table.as_ref() {
+            // For single-key sorts the tie table can be dropped during materialization; keep
+            // a no-op Bool payload so the Bool gadget doesn't panic.
+            Some(TrackedTableOracle::new(
+                None,
+                IndexMap::new(),
+                input_table.log_size(),
+            ))
+        } else {
+            None
+        };
+
+        if let Some(bool_table) = bool_table {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
             let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -415,34 +432,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             };
             bool_payload.insert(
                 crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
-                tie_table,
-            );
-            virtualized_ir.set_payload_for_node(
-                self.bool_gadget.id(),
-                Some(PayloadStructure::GadgetPayload(bool_payload)),
-            );
-        } else if let Some(input_table) = payload.get(TABLE_LABEL).cloned() {
-            // For single-key sorts the tie table can be dropped during materialization; keep
-            // a no-op Bool payload so the Bool gadget doesn't panic.
-            let mut bool_payload = match virtualized_ir.payload_for_node(&self.bool_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-            bool_payload.insert(
-                crate::irs::nodes::gadget::utils::bool::TABLE_LABEL.to_string(),
-                TrackedTableOracle::new(None, IndexMap::new(), input_table.log_size()),
+                bool_table,
             );
             virtualized_ir.set_payload_for_node(
                 self.bool_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(bool_payload)),
             );
         }
-        if let (Some(tie_table), Some(input_table), Some(rotated_table)) = (
-            payload.get(TIE_INDICATOR_LABEL).cloned(),
-            payload.get(TABLE_LABEL).cloned(),
-            payload.get(ROTATED_INPUT_LABEL).cloned(),
-        ) {
-            let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
+
+        let updated_tie_table = payload.get(TIE_INDICATOR_LABEL).cloned();
+        if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
+            (updated_tie_table, input_table, rotated_table)
+        {
             let sort_specs = sort_specs_for_table_verifier(&self.sort_config, &input_table);
             populate_sign_payloads_verifier(
                 &self.sign_gadget,

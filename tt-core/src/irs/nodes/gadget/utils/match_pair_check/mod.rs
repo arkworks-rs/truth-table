@@ -100,7 +100,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let (key_union, key_names) =
             build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
                 .expect("match-pair key union should succeed");
-        let key_union = pad_key_union_df(key_union, &key_names, planned_ir.skip_collection())
+        let key_union = pad_key_union_df(key_union, &key_names, false)
             .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
         let (left_cols, right_cols, _) =
@@ -273,7 +273,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let (key_union, key_names) =
             build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
                 .expect("match-pair key union should succeed");
-        let key_union = pad_key_union_df(key_union, &key_names, planned_ir.skip_collection())
+        let key_union = pad_key_union_df(key_union, &key_names, true)
             .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
         let (left_cols, right_cols, _) =

@@ -99,8 +99,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         _query: &str,
         proof: &TTProof<B>,
     ) -> GadgetPlannedIr<B> {
-        let mut initial_ir = proof.optimized_ir().clone();
-        initial_ir.set_skip_collection(true);
+        let initial_ir = proof.optimized_ir().clone();
         let output_planned_ir =
             initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
@@ -164,8 +163,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         proof: &TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
         let snark_proof = proof.as_inner();
-        let mut initial_ir = proof.optimized_ir().clone();
-        initial_ir.set_skip_collection(true);
+        let initial_ir = proof.optimized_ir().clone();
         // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());

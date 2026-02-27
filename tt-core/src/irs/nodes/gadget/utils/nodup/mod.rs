@@ -118,16 +118,11 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
         return Ok(());
     };
-    if planned_ir.skip_collection() {
-        // Verifier planning path should avoid eager DataFrame collection.
-        node.cache_sort_nodup_active_rows(0);
-    } else {
+    if !is_verifier {
         node.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
-    }
-    if is_verifier {
-        // Verifier planning skips lex-sort construction and child wiring.
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
-        return Ok(());
+    } else {
+        // Verifier planning should avoid eager DataFrame collection here.
+        node.cache_sort_nodup_active_rows(0);
     }
     let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
@@ -243,7 +238,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        initialize_gadget_plans(self, id, planned_ir, false)
+        initialize_gadget_plans(self, id, planned_ir, true)
     }
     fn add_virtual_witness(
         &self,

@@ -413,7 +413,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
-        if self.should_fully_materialize() && !planned_ir.skip_collection() {
+        if self.should_fully_materialize() {
             self.cache_full_materialized_active_rows(active_row_count_from_dataframe(
                 output_hint_df.data_frame(),
             ));
@@ -626,11 +626,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
-        if self.should_fully_materialize() && !planned_ir.skip_collection() {
-            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(
-                output_hint_df.data_frame(),
-            ));
-        }
         Ok(())
     }
     fn add_virtual_witness(

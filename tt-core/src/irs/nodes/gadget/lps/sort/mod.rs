@@ -202,7 +202,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             &mut gadget_payload,
             &input_hint,
             &self.sort_specs,
-            planned_ir.skip_collection(),
+            false,
         );
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
@@ -270,7 +270,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             &mut gadget_payload,
             &input_hint,
             &self.sort_specs,
-            planned_ir.skip_collection(),
+            true,
         );
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);

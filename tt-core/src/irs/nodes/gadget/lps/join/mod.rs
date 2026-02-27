@@ -282,7 +282,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if let Some(gadgets) = self.many_to_many_gadgets() {
-            let gadget_payload = match planned_ir.payload_for_node(&id) {
+            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => return Ok(()),
             };
@@ -302,24 +302,24 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             let right_hint = force_materialize_all(&force_materialize_row_id(&right_hint));
             let output_hint = force_materialize_all(&output_hint);
 
+            let left_df = left_hint.data_frame().clone();
+            let right_df = right_hint.data_frame().clone();
+            let output_df = output_hint.data_frame().clone();
+
             let (left_src_df, right_src_df) = hints::build_source_dfs(
-                left_hint.data_frame().clone(),
-                right_hint.data_frame().clone(),
-                output_hint.data_frame().clone(),
+                left_df.clone(),
+                right_df.clone(),
+                output_df.clone(),
                 &self.join,
             )
             .expect("join source dataframe derivation should succeed");
             let nodup_input_df = hints::build_nodup_input_df(
-                left_hint.data_frame().clone(),
-                right_hint.data_frame().clone(),
-                output_hint.data_frame().clone(),
+                left_df,
+                right_df,
+                output_df,
                 &self.join,
             )
             .expect("join nodup dataframe derivation should succeed");
-            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(

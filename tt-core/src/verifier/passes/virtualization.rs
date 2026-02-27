@@ -34,11 +34,7 @@ impl<B: SnarkBackend> VirtualizationPass<B> {
             .map(|(id, payload)| (*id, payload.clone()))
             .collect();
 
-        let virtualized_ir = Ir::new_with_skip_collection(
-            tracked_ir.tree().clone(),
-            seeded_payloads,
-            tracked_ir.skip_collection(),
-        );
+        let virtualized_ir = Ir::new(tracked_ir.tree().clone(), seeded_payloads);
         Self {
             virtualized_ir: RefCell::new(virtualized_ir),
         }
