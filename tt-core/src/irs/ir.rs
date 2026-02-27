@@ -1,6 +1,6 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
-use tracing::debug;
+use tracing::{debug, debug_span};
 
 use crate::irs::{
     nodes::{IsNode, Node, NodeId, PlanNode},
@@ -175,20 +175,19 @@ where
                 None
             };
             let input_payload = existing_payload.or(fallback_payload.as_ref());
-            debug!(
+            let span = debug_span!(
+                "pass.transform",
                 pass = pass.name(),
                 node_id = ?id,
                 node_name = %node.name(),
-                has_payload = input_payload.is_some(),
-                "pass.transform start"
+                has_payload = input_payload.is_some()
             );
+            let _span_guard = span.enter();
             let p_out = pass.transform(&node, id, input_payload);
             debug!(
-                pass = pass.name(),
-                node_id = ?id,
                 node_name = %node.name(),
                 produced = p_out.is_some(),
-                "pass.transform end"
+                "pass.transform"
             );
             out.insert(id, p_out);
         }
@@ -216,12 +215,14 @@ where
             .into_par_iter()
             .map(|(id, node)| {
                 let input_payload = self.payloads.get(id).and_then(|opt| opt.as_ref());
-                debug!(
+                let span = debug_span!(
+                    "pass.transform",
                     pass = pass.name(),
                     node_id = ?id,
-                    has_payload = input_payload.is_some(),
-                    "pass.transform start"
+                    node_name = %node.name(),
+                    has_payload = input_payload.is_some()
                 );
+                let _span_guard = span.enter();
                 // Some optimizer passes can temporarily hide subtrees (e.g. mode switches).
                 // Those detached nodes may still exist in arena but have no payload entry.
                 // Skip transforming them in parallel traversal.
@@ -231,10 +232,9 @@ where
                     None
                 };
                 debug!(
-                    pass = pass.name(),
-                    node_id = ?id,
+                    node_name = %node.name(),
                     produced = maybe.is_some(),
-                    "pass.transform end"
+                    "pass.transform"
                 );
                 (*id, maybe)
             })
