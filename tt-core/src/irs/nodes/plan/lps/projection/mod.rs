@@ -213,7 +213,16 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        // Keep verifier output traversal independent from prover traversal.
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
+        };
+
+        let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("projection output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 

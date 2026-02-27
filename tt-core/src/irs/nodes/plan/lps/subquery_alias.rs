@@ -115,7 +115,20 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        // Keep verifier output traversal independent from prover traversal.
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("Subquery alias input cannot be a gadget node"),
+        };
+
+        let aliased_df = input_hint_df
+            .data_frame()
+            .clone()
+            .alias(&self.subquery_alias.alias.to_string())
+            .expect("subquery alias should succeed");
+        let aliased_df = crate::irs::nodes::hints::sort_by_row_id_if_present(aliased_df)
+            .expect("subquery alias output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(aliased_df)
     }
 }
 
