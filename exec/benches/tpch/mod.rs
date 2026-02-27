@@ -168,7 +168,7 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }
 
-#[divan::bench(args = tpch_cases(), max_time = 0.000001)]
+#[divan::bench(args = tpch_cases(), max_time = 10)]
 fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     // Benchmark only one-time verifier preprocessing (planning/gadget-planning cache fill).
     let assets = prepare_assets(case);

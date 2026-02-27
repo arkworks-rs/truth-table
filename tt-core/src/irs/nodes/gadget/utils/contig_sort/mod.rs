@@ -33,7 +33,7 @@ use crate::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
             gadget::utils::contig_sort::hints::{
-                populate_diff, populate_rotated, populate_tie_indicator,
+                populate_rotated, populate_tie_and_diff,
             },
         },
         payloads::PayloadStructure,
@@ -213,8 +213,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         };
         let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
         populate_rotated(&mut gadget_payload, &input_hint, &sort_specs, true);
-        populate_tie_indicator(&mut gadget_payload, &input_hint, &sort_specs);
-        populate_diff(&mut gadget_payload, &input_hint, &sort_specs);
+        populate_tie_and_diff(&mut gadget_payload, &input_hint, &sort_specs);
         gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         return Ok(());
@@ -246,8 +245,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         &sort_specs,
         false,
     );
-    populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-    populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
     let input_hint = if node.strip_row_id {
         // Strip row-id before storing to avoid exposing it in gadget payloads.
         crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)

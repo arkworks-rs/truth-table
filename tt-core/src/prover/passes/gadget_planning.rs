@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use crate::irs::{
     ir::LocalPass,
-    nodes::{Node, NodeId, ProverNodeOps},
+    nodes::{Node, NodeId, ProverNodeOps, gadget::lps::join},
     payloads::{HintDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };
@@ -60,6 +60,14 @@ impl<B: SnarkBackend> LocalPass<B, HintDFPayload, HintDFPayload> for GadgetPlann
             }
             _ => payload.cloned(),
         }
+    }
+
+    fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, HintDFPayload>) {
+        join::begin_join_planning_cache_scope();
+    }
+
+    fn end_pass(&self) {
+        join::end_join_planning_cache_scope();
     }
 
     fn name(&self) -> &'static str {

@@ -77,6 +77,41 @@ pub(crate) fn populate_diff(
     gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
 }
 
+pub(crate) fn populate_tie_and_diff(
+    gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
+    input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(String, bool, bool)],
+) {
+    let order_by = sort_order_from_hint(input_hint, sort_specs);
+    let ordered = input_hint
+        .data_frame()
+        .clone()
+        .sort(order_by.clone())
+        .expect("sort ordering for tie/diff planning should succeed");
+
+    let tie_df = tie_indicator_on_ordered(ordered.clone(), order_by.clone(), sort_specs)
+        .expect("sort tie indicator planning should succeed");
+    let tie_should_materialize = tie_df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+        .collect();
+    let tie_hint = crate::irs::nodes::hints::HintDF::new(tie_df, tie_should_materialize);
+    gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
+
+    let diff_df = diff_input_on_ordered(ordered, order_by, sort_specs)
+        .expect("sort diff planning should succeed");
+    let diff_should_materialize = diff_df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), field.name() != ROW_ID_COL_NAME))
+        .collect();
+    let diff_hint = crate::irs::nodes::hints::HintDF::new(diff_df, diff_should_materialize);
+    gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
+}
+
 pub(crate) fn sort_input_for_contig_sort(
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
@@ -313,6 +348,14 @@ pub(crate) fn diff_input(
     };
 
     let ordered = df.sort(order_by.clone())?;
+    diff_input_on_ordered(ordered, order_by, sort_specs)
+}
+
+fn diff_input_on_ordered(
+    ordered: DataFrame,
+    order_by: Vec<SortExpr>,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<DataFrame> {
     let mut diff_cols = Vec::new();
 
     for field in ordered.schema().fields() {
@@ -452,21 +495,49 @@ pub(crate) fn tie_indicator(
             data_cols = ordered;
         }
     }
+    let ordered = df.sort(order_by.clone())?;
+    tie_indicator_on_ordered(ordered, order_by, sort_specs)
+}
+
+fn tie_indicator_on_ordered(
+    ordered: DataFrame,
+    order_by: Vec<SortExpr>,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<DataFrame> {
+    let mut data_cols: Vec<String> = ordered
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .filter(|name| !is_system_column(name))
+        .collect();
+    if !sort_specs.is_empty() {
+        let mut ordered_cols = Vec::with_capacity(data_cols.len());
+        for (name, _, _) in sort_specs {
+            let normalized = normalize_sort_name(name);
+            if let Some(col_name) = data_cols
+                .iter()
+                .find(|col_name| normalize_sort_name(col_name) == normalized)
+            {
+                ordered_cols.push(col_name.clone());
+            }
+        }
+        if ordered_cols.len() == data_cols.len() {
+            data_cols = ordered_cols;
+        }
+    }
     if data_cols.is_empty() {
-        return df.select(Vec::<Expr>::new());
+        return ordered.select(Vec::<Expr>::new());
     }
     if data_cols.len() == 1 {
         // For a single sort key, tie_0 must be false on the wrap row (last -> first).
         // Otherwise tie-gated consistency checks incorrectly constrain the cyclic boundary.
-        let ordered = df.sort(order_by.clone())?;
         let next_val = lead(col(&data_cols[0]), Some(1), None)
             .order_by(order_by.clone())
             .build()?;
         let tie_0 = when(next_val.is_null(), lit(false)).otherwise(lit(true))?;
         return ordered.select(vec![tie_0.alias("tie_0")]);
     }
-
-    let ordered = df.sort(order_by.clone())?;
 
     let mut prefix = lit(true);
     let mut out = Vec::with_capacity(data_cols.len() - 1);
