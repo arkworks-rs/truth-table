@@ -407,7 +407,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Limit input cannot be a gadget node"),
+        };
+
+        let output_df = hints::build_output_dataframe(input_hint_df.data_frame(), &self.limit);
+        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
+            .expect("limit output row-id sort should succeed");
+        HintDF::new_virtual(output_df)
     }
 }
 

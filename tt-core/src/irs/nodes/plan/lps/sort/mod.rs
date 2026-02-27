@@ -504,7 +504,31 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let input_hint_df = match self.input.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
+        };
+
+        let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
+        let output_df = if output_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ROW_ID_COL_NAME)
+        {
+            let projected = output_df
+                .schema()
+                .fields()
+                .iter()
+                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+                .collect();
+            output_df
+                .select(projected)
+                .expect("sort output projection should succeed")
+        } else {
+            output_df
+        };
+        HintDF::new_materialized(output_df)
     }
 }
 
