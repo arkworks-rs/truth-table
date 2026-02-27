@@ -281,7 +281,90 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        if let Some(gadgets) = self.many_to_many_gadgets() {
+            let gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => return Ok(()),
+            };
+            let left_hint = match gadget_payload.get(LEFT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let right_hint = match gadget_payload.get(RIGHT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
+                Some(hint_df) => hint_df.clone(),
+                None => return Ok(()),
+            };
+            let left_hint = force_materialize_all(&force_materialize_row_id(&left_hint));
+            let right_hint = force_materialize_all(&force_materialize_row_id(&right_hint));
+            let output_hint = force_materialize_all(&output_hint);
+
+            let (left_src_df, right_src_df) = hints::build_source_dfs(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join source dataframe derivation should succeed");
+            let nodup_input_df = hints::build_nodup_input_df(
+                left_hint.data_frame().clone(),
+                right_hint.data_frame().clone(),
+                output_hint.data_frame().clone(),
+                &self.join,
+            )
+            .expect("join nodup dataframe derivation should succeed");
+            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
+            gadget_payload.insert(
+                SRC_LEFT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
+            );
+            gadget_payload.insert(
+                SRC_RIGHT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
+            );
+            planned_ir
+                .set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+
+            let mut nodup_payload = match planned_ir.payload_for_node(&gadgets.nodup_gadget.id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+            nodup_payload.insert(
+                crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
+                crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
+            );
+            planned_ir.set_payload_for_node(
+                gadgets.nodup_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
+
+            let (match_left, match_right, match_out) =
+                build_match_pair_hints(&self.join, &left_hint, &right_hint, &output_hint)
+                    .expect("match-pair hint derivation should succeed");
+            let mut match_payload =
+                match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+            match_payload.insert(match_pair_check::LEFT_LABEL.to_string(), match_left);
+            match_payload.insert(match_pair_check::RIGHT_LABEL.to_string(), match_right);
+            match_payload.insert(match_pair_check::OUT_LABEL.to_string(), match_out);
+            planned_ir.set_payload_for_node(
+                gadgets.match_pair_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(match_payload)),
+            );
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
     fn add_virtual_witness(
         &self,

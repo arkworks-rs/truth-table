@@ -157,7 +157,37 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        if !self.has_groups() {
+            return Ok(());
+        }
+        let aggregate_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+
+        let input_hint = match aggregate_payload.get(INPUT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let output_hint = match aggregate_payload.get(OUTPUT_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+
+        let mut supp_payload =
+            match planned_ir.payload_for_node(&self.supp_gadget.as_ref().unwrap().id()) {
+                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                _ => IndexMap::new(),
+            };
+
+        supp_payload.insert(supp::ORIG_LABEL.to_string(), input_hint);
+        supp_payload.insert(supp::SUPER_LABEL.to_string(), output_hint);
+
+        planned_ir.set_payload_for_node(
+            self.supp_gadget.as_ref().unwrap().id(),
+            Some(PayloadStructure::GadgetPayload(supp_payload)),
+        );
+        Ok(())
     }
 
     fn add_virtual_witness(

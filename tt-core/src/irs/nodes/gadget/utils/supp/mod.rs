@@ -104,7 +104,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        let (orig_hint, support_hint) = hints::io_plans(planned_ir, id);
+        hints::populate_nodup(planned_ir, self.nodup.id(), support_hint.clone());
+        hints::populate_lookup(planned_ir, self.lookup.id(), orig_hint, support_hint);
+        Ok(())
     }
 
     fn add_virtual_witness(

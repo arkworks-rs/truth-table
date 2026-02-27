@@ -257,7 +257,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => return Ok(()),
+        };
+        let input_hint = match gadget_payload.get(INPUT_SORT_EXPRS) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+
+        let output_hint = populate_output_expr(
+            &mut gadget_payload,
+            &input_hint,
+            &self.sort_specs,
+            planned_ir.skip_collection(),
+        );
+        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
+        gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
+        populate_sort_gadget_table(planned_ir, &output_hint);
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        Ok(())
     }
     fn add_virtual_witness(
         &self,

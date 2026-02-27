@@ -246,7 +246,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        Ok(())
     }
 }
 

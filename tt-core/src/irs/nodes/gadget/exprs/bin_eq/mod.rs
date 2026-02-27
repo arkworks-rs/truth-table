@@ -327,7 +327,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        Ok(())
     }
 }
 

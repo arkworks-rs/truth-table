@@ -592,7 +592,46 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            join_gadget::LEFT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::RIGHT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+        );
+        gadget_payload.insert(
+            join_gadget::OUTPUT_LABEL.to_string(),
+            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+        );
+
+        planned_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        if self.should_fully_materialize() && !planned_ir.skip_collection() {
+            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(
+                output_hint_df.data_frame(),
+            ));
+        }
+        Ok(())
     }
     fn add_virtual_witness(
         &self,
