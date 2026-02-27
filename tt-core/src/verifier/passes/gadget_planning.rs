@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 use crate::irs::{
     ir::LocalPass,
@@ -13,6 +14,7 @@ use ark_piop::SnarkBackend;
 /// This pass executes pre-order and lets each node update verifier planning hints.
 pub struct GadgetPlanningPass<B: SnarkBackend> {
     planned_ir: RefCell<OutputPlannedIr<B>>,
+    visited_nodes: RefCell<Option<HashSet<NodeId>>>,
 }
 
 impl<B: SnarkBackend> GadgetPlanningPass<B> {
@@ -20,6 +22,7 @@ impl<B: SnarkBackend> GadgetPlanningPass<B> {
         let planned_ir = planned_ir.clone();
         Self {
             planned_ir: RefCell::new(planned_ir),
+            visited_nodes: RefCell::new(None),
         }
     }
 }
@@ -41,6 +44,27 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
         id: NodeId,
         payload: Option<&HintDFDFPayload>,
     ) -> Option<HintDFDFPayload> {
+        if self
+            .visited_nodes
+            .borrow()
+            .as_ref()
+            .is_some_and(|visited| visited.contains(&id))
+        {
+            return self
+                .planned_ir
+                .borrow()
+                .payloads()
+                .get(&id)
+                .cloned()
+                .flatten()
+                .or_else(|| match node {
+                    Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(
+                        gadget_node.verifier_hints(),
+                    )),
+                    _ => payload.cloned(),
+                });
+        }
+
         let mut ir = self.planned_ir.borrow_mut();
         if ir.payloads().get(&id).is_none() {
             ir.set_payload_for_node(id, payload.cloned());
@@ -49,17 +73,28 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
         VerifierNodeOps::initialize_gadget_plans(node, id, &mut ir)
             .expect("verifier gadget planning should succeed");
 
-        let updated = ir.payloads().get(&id).cloned().flatten();
-        if updated.is_some() {
-            return updated;
+        if let Some(visited) = self.visited_nodes.borrow_mut().as_mut() {
+            visited.insert(id);
         }
 
-        match node {
-            Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(
-                gadget_node.verifier_hints(),
-            )),
-            _ => payload.cloned(),
+        if let Some(updated) = ir.payloads().get(&id).cloned().flatten() {
+            Some(updated)
+        } else {
+            match node {
+                Node::Gadget(gadget_node) => Some(PayloadStructure::GadgetPayload(
+                    gadget_node.verifier_hints(),
+                )),
+                _ => payload.cloned(),
+            }
         }
+    }
+
+    fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, HintDFDFPayload>) {
+        *self.visited_nodes.borrow_mut() = Some(HashSet::new());
+    }
+
+    fn end_pass(&self) {
+        *self.visited_nodes.borrow_mut() = None;
     }
 
     fn name(&self) -> &'static str {

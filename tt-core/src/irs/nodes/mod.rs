@@ -224,7 +224,7 @@ fn with_output_cache(
     computed
 }
 
-pub(crate) fn begin_output_cache_scope() {
+pub(crate) fn begin_verifier_output_cache_scope() {
     PROVER_OUTPUT_CACHE.with(|cell| {
         *cell.borrow_mut() = Some(IndexMap::new());
     });
@@ -233,7 +233,7 @@ pub(crate) fn begin_output_cache_scope() {
     });
 }
 
-pub(crate) fn end_output_cache_scope() {
+pub(crate) fn end_verifier_output_cache_scope() {
     PROVER_OUTPUT_CACHE.with(|cell| {
         *cell.borrow_mut() = None;
     });
@@ -540,7 +540,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for Node<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        match &self {
+            Node::Plan(plan_node) => {
+                VerifierNodeOps::initialize_gadget_plans(plan_node, id, planned_ir)
+            }
+            Node::Gadget(gadget_node) => {
+                VerifierNodeOps::initialize_gadget_plans(gadget_node.as_ref(), id, planned_ir)
+            }
+        }
     }
 }
 
@@ -732,7 +739,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for PlanNode<B> {
         id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        match &self {
+            PlanNode::LpBased(lp_node) => {
+                VerifierNodeOps::initialize_gadget_plans(lp_node.as_ref(), id, planned_ir)
+            }
+            PlanNode::ExprBased(expr_node) => {
+                VerifierNodeOps::initialize_gadget_plans(expr_node.as_ref(), id, planned_ir)
+            }
+        }
     }
 }
 

@@ -188,62 +188,83 @@ fn populate_prescr_perm_payloads_verifier<B: SnarkBackend>(
     Ok(())
 }
 
+fn initialize_gadget_plans<B: SnarkBackend>(
+    node: &GadgetNode<B>,
+    id: crate::irs::nodes::NodeId,
+    planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    is_verifier: bool,
+) -> ark_piop::errors::SnarkResult<()> {
+    let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => return Ok(()),
+    };
+    let input_hint = match gadget_payload.get(TABLE_LABEL) {
+        Some(hint_df) => hint_df.clone(),
+        None => return Ok(()),
+    };
+    if is_verifier {
+        // Verifier planning keeps only the primary table hint and skips
+        // derived sort/tie/diff DataFrame plans.
+        let input_hint = if node.strip_row_id {
+            crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint)
+        } else {
+            input_hint
+        };
+        gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+        return Ok(());
+    }
+    let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
+    let sorted_input_hint = {
+        let sorted_df =
+            crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
+                &input_hint,
+                &sort_specs,
+            )
+            .expect("contig sort ordering should succeed");
+        let padded_df = if planned_ir.skip_collection() {
+            // Verifier planning path should avoid eager collection/padding.
+            sorted_df
+        } else {
+            pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed")
+        };
+        let mut should_materialize = IndexMap::new();
+        for field in padded_df.schema().fields() {
+            let materialized = input_hint
+                .field_materialization_iter()
+                .find(|(orig_field, _)| orig_field.name() == field.name())
+                .map(|(_, materialized)| *materialized)
+                .unwrap_or(true);
+            should_materialize.insert(field.clone(), materialized);
+        }
+        crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
+    };
+    populate_rotated(
+        &mut gadget_payload,
+        &sorted_input_hint,
+        &sort_specs,
+        planned_ir.skip_collection(),
+    );
+    populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    let input_hint = if node.strip_row_id {
+        // Strip row-id before storing to avoid exposing it in gadget payloads.
+        crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
+    } else {
+        sorted_input_hint.clone()
+    };
+    gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
+    planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+    Ok(())
+}
+
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let input_hint = match gadget_payload.get(TABLE_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let sort_specs = sort_specs_for_hint(&self.sort_config, &input_hint);
-        let sorted_input_hint = {
-            let sorted_df =
-                crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
-                    &input_hint,
-                    &sort_specs,
-                )
-                .expect("contig sort ordering should succeed");
-            let padded_df = if planned_ir.skip_collection() {
-                // Verifier planning path should avoid eager collection/padding.
-                sorted_df
-            } else {
-                pad_df_to_power_of_two(sorted_df).expect("contig sort input padding should succeed")
-            };
-            let mut should_materialize = IndexMap::new();
-            for field in padded_df.schema().fields() {
-                let materialized = input_hint
-                    .field_materialization_iter()
-                    .find(|(orig_field, _)| orig_field.name() == field.name())
-                    .map(|(_, materialized)| *materialized)
-                    .unwrap_or(true);
-                should_materialize.insert(field.clone(), materialized);
-            }
-            crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
-        };
-        populate_rotated(
-            &mut gadget_payload,
-            &sorted_input_hint,
-            &sort_specs,
-            planned_ir.skip_collection(),
-        );
-        populate_tie_indicator(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        populate_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
-        let input_hint = if self.strip_row_id {
-            // Strip row-id before storing to avoid exposing it in gadget payloads.
-            crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
-        } else {
-            sorted_input_hint.clone()
-        };
-        gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-        Ok(())
+        initialize_gadget_plans(self, id, planned_ir, false)
     }
     fn add_virtual_witness(
         &self,
@@ -349,7 +370,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        initialize_gadget_plans(self, id, planned_ir, false)
     }
     fn add_virtual_witness(
         &self,

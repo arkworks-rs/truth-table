@@ -83,67 +83,80 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 }
 
+fn initialize_gadget_plans<B: SnarkBackend>(
+    node: &GadgetNode<B>,
+    id: crate::irs::nodes::NodeId,
+    planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    is_verifier: bool,
+) -> ark_piop::errors::SnarkResult<()> {
+    // Determine whether all data columns of the NoDup input are PK columns.
+    // "Data columns" exclude system columns (activator/row_id).
+    let is_pk = planned_ir
+        .payload_for_node(&id)
+        .and_then(|payload| match payload {
+            PayloadStructure::GadgetPayload(payload) => payload.get(INPUT_LABEL),
+            PayloadStructure::PlanPayload(_) => None,
+        })
+        .map(nodup_input_is_pk)
+        .unwrap_or(false);
+    node.cache_is_pk(is_pk);
+
+    if node.is_pk() {
+        // PK inputs are guaranteed to have no duplicates, so we can skip
+        // adding any gadgets and checks in this case.
+        return Ok(());
+    }
+
+    // SortNoDup is the only mode that uses planner hints/virtual witnesses.
+    let Gadgets::SortNoDup(_) = &node.gadgets else {
+        return Ok(());
+    };
+    let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
+        Some(PayloadStructure::GadgetPayload(payload)) => payload,
+        _ => return Ok(()),
+    };
+    let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
+        return Ok(());
+    };
+    if planned_ir.skip_collection() {
+        // Verifier planning path should avoid eager DataFrame collection.
+        node.cache_sort_nodup_active_rows(0);
+    } else {
+        node.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
+    }
+    if is_verifier {
+        // Verifier planning skips lex-sort construction and child wiring.
+        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
+        return Ok(());
+    }
+    let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
+    self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
+    planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
+
+    // The child sort gadget should consume the same table as virtual data.
+    // We intentionally keep activator virtual so prover/verifier can rebuild
+    // it deterministically from active-row count.
+    let lex_sorted_virtual_hint =
+        crate::irs::nodes::hints::HintDF::new_virtual(lex_sorted_hint.data_frame().clone());
+    let Gadgets::SortNoDup(gadgets) = &node.gadgets else {
+        return Ok(());
+    };
+    let sort_id = gadgets.0.id();
+    let sort_payload = with_sort_table_label(
+        planned_ir.payload_for_node(&sort_id).cloned(),
+        lex_sorted_virtual_hint,
+    );
+    planned_ir.set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
+    Ok(())
+}
+
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
     fn initialize_gadget_plans(
         &self,
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Determine whether all data columns of the NoDup input are PK columns.
-        // "Data columns" exclude system columns (activator/row_id).
-        let is_pk = planned_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::GadgetPayload(payload) => payload.get(INPUT_LABEL),
-                PayloadStructure::PlanPayload(_) => None,
-            })
-            .map(nodup_input_is_pk)
-            .unwrap_or(false);
-        self.cache_is_pk(is_pk);
-
-        if self.is_pk() {
-            // PK inputs are guaranteed to have no duplicates, so we can skip
-            // adding any gadgets and checks in this case.
-            return Ok(());
-        }
-
-        // SortNoDup is the only mode that uses planner hints/virtual witnesses.
-        let Gadgets::SortNoDup(_) = &self.gadgets else {
-            return Ok(());
-        };
-        let mut self_payload = gadget_payload_or_panic(
-            id,
-            planned_ir.payload_for_node(&id).cloned(),
-            "No gadget payload found for NoDup gadget",
-        );
-        let input_hint =
-            payload_value_or_panic(id, &self_payload, INPUT_LABEL, "No input hint found");
-        if planned_ir.skip_collection() {
-            // Verifier planning path should avoid eager DataFrame collection.
-            self.cache_sort_nodup_active_rows(0);
-        } else {
-            self.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
-        }
-        let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
-        self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
-
-        // The child sort gadget should consume the same table as virtual data.
-        // We intentionally keep activator virtual so prover/verifier can rebuild
-        // it deterministically from active-row count.
-        let lex_sorted_virtual_hint =
-            crate::irs::nodes::hints::HintDF::new_virtual(lex_sorted_hint.data_frame().clone());
-        let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
-            return Ok(());
-        };
-        let sort_id = gadgets.0.id();
-        let sort_payload = with_sort_table_label(
-            planned_ir.payload_for_node(&sort_id).cloned(),
-            lex_sorted_virtual_hint,
-        );
-        planned_ir
-            .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
-        Ok(())
+        initialize_gadget_plans(self, id, planned_ir, false)
     }
     fn add_virtual_witness(
         &self,
@@ -230,7 +243,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        <Self as ProverNodeOps<B>>::initialize_gadget_plans(self, id, planned_ir)
+        initialize_gadget_plans(self, id, planned_ir, false)
     }
     fn add_virtual_witness(
         &self,
@@ -245,13 +258,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Gadgets::SortNoDup(_) = &self.gadgets else {
             return Ok(());
         };
-        let mut payload = gadget_payload_or_panic(
-            id,
-            virtualized_ir.payload_for_node(&id).cloned(),
-            "No gadget payload found for NoDup gadget",
-        );
-        let lex_sorted_table =
-            payload_value_or_panic(id, &payload, LEX_SORTED_LABEL, "No lex sorted hint found");
+        let mut payload = match virtualized_ir.payload_for_node(&id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            _ => return Ok(()),
+        };
+        let Some(lex_sorted_table) = payload.get(LEX_SORTED_LABEL).cloned() else {
+            return Ok(());
+        };
         let key = active_input_rows_misc_key(id, virtualized_ir.tree());
         let Some(tracker_rc) = lex_sorted_table
             .activator_tracked_poly()
@@ -293,13 +306,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
-        let payload = gadget_payload_or_panic(
-            id,
-            virtualized_ir.payload_for_node(&id).cloned(),
-            "No gadget payload found for NoDup gadget",
-        );
-        let lex_sorted_hint =
-            payload_value_or_panic(id, &payload, LEX_SORTED_LABEL, "No lex sorted hint found");
+        let payload = match virtualized_ir.payload_for_node(&id).cloned() {
+            Some(PayloadStructure::GadgetPayload(payload)) => payload,
+            _ => return Ok(()),
+        };
+        let Some(lex_sorted_hint) = payload.get(LEX_SORTED_LABEL).cloned() else {
+            return Ok(());
+        };
         let sort_id = gadgets.0.id();
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),

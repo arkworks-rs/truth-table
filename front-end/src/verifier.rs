@@ -94,7 +94,11 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self.arg_verifier
     }
 
-    fn gadget_planned_ir_for_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
+    fn gadget_planned_ir_for_query(
+        &self,
+        _query: &str,
+        proof: &TTProof<B>,
+    ) -> GadgetPlannedIr<B> {
         let mut initial_ir = proof.optimized_ir().clone();
         initial_ir.set_skip_collection(true);
         let output_planned_ir =
