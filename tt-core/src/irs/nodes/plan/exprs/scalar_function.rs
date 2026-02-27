@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion_common::Statistics;
-use datafusion_expr::expr::ScalarFunction;
+use datafusion_expr::{Expr, expr::ScalarFunction};
+use indexmap::IndexMap;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -82,13 +84,77 @@ impl<B: SnarkBackend> IsPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let scope = self.scope[0]
+            .upgrade()
+            .expect("ScalarFunction scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("ScalarFunction scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("scalar function row-id sort should succeed");
+
+        let mut exprs = vec![Expr::ScalarFunction(self.scalar_function.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("scalar function projection should succeed");
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("scalar function output sort should succeed");
+
+        let should_materialize: IndexMap<_, _> = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let is_data = field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME;
+                (field.clone(), is_data)
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let scope = self.scope[0]
+            .upgrade()
+            .expect("ScalarFunction scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("ScalarFunction scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("scalar function row-id sort should succeed");
+
+        let mut exprs = vec![Expr::ScalarFunction(self.scalar_function.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("scalar function projection should succeed");
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("scalar function output sort should succeed");
+
+        let should_materialize: IndexMap<_, _> = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let is_data = field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME;
+                (field.clone(), is_data)
+            })
+            .collect();
+
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 

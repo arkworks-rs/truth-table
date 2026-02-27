@@ -133,7 +133,29 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let scope = self.scope[0]
+            .upgrade()
+            .expect("Case scope should be available during output");
+        let scope_hint_df = match scope.as_ref() {
+            Node::Plan(plan_node) => <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node),
+            Node::Gadget(_) => panic!("Case scope cannot be a gadget node"),
+        };
+
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
+                .expect("case row-id sort should succeed");
+
+        let mut exprs = vec![datafusion_expr::Expr::Case(self.case.clone())];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("case projection should succeed");
+
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("case output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_materialized(projected)
     }
 }
 

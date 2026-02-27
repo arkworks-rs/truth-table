@@ -97,7 +97,26 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        use datafusion::dataframe::DataFrame;
+        use indexmap::IndexMap;
+
+        let ctx = SessionContext::new();
+        let df = DataFrame::new(
+            ctx.state(),
+            datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone()),
+        );
+        let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
+            .expect("table scan row-id sort should succeed");
+        let should_materialize: IndexMap<_, _> = df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                let mat = field.name() != arithmetic::ROW_ID_COL_NAME;
+                (field.clone(), mat)
+            })
+            .collect();
+        crate::irs::nodes::hints::HintDF::new(df, should_materialize)
     }
 }
 

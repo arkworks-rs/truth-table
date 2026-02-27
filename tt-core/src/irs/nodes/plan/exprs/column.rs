@@ -153,7 +153,42 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        // Probe scopes in order and project from the first DataFrame that has this column.
+        let scope_hint_df = self
+            .scope
+            .iter()
+            .filter_map(|scope_weak| scope_weak.upgrade())
+            .find_map(|scope| match scope.as_ref() {
+                Node::Plan(plan_node) => {
+                    let hint_df = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node);
+                    if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
+                        Some(hint_df)
+                    } else {
+                        None
+                    }
+                }
+                Node::Gadget(_) => None,
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "Column output could not find column '{}' in any scope",
+                    self.column
+                )
+            });
+
+        let input_df = scope_hint_df.data_frame().clone();
+
+        let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
+        if self.column.name() != ACTIVATOR_COL_NAME {
+            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        }
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("column projection should succeed");
+
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 

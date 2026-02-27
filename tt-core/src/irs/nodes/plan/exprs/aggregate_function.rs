@@ -464,7 +464,27 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+        let parent_hint_df =
+            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                &self.parent(),
+            );
+        let column_name = self.output_column_name_in_parent();
+        let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
+            parent_hint_df.data_frame().clone(),
+        )
+        .expect("aggregate function row-id sort should succeed");
+
+        let mut exprs = vec![Expr::Column(Column::from_name(column_name))];
+        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+
+        let projected = input_df
+            .select(exprs)
+            .expect("aggregate function projection should succeed");
+
+        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
+            .expect("aggregate function output sort should succeed");
+        crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
 
