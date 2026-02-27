@@ -1,6 +1,7 @@
 // Single entry point for all exec benchmarks; module files register the benches.
 mod aggregate;
 mod filter;
+mod join;
 mod limit;
 mod order_by;
 mod prover;
