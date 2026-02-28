@@ -13,8 +13,7 @@ use proof_of_sql_benchlib::{
 // Possible queries: Filter, Complex Filter, Arithmetic, Group By, Aggregate, Boolean Filter,
 // Large Column Set, Complex Condition, Sum Count, Coin, Join, Union All, Limit Offset, Not.
 const BENCH_ITERS: usize = 1;
-const BENCH_TABLE_POW_MIN: u32 = 10;
-const BENCH_TABLE_POW_MAX: u32 = 20;
+const BENCH_TABLE_POWS: &[u32] = &[10, 14, 18];
 const BENCH_PARQUET_DIR: Option<&str> = Some("artifact");
 const BENCH_PPOT_PATH: Option<&str> = None;
 const BENCH_SCHEME: BenchScheme = BenchScheme::HyperKZG;
@@ -109,13 +108,10 @@ fn main() {
         );
     }
     println!("iterations: {iterations}");
-    println!(
-        "table_sizes: 2^{}..=2^{}",
-        BENCH_TABLE_POW_MIN, BENCH_TABLE_POW_MAX
-    );
+    println!("table_sizes: {:?}", BENCH_TABLE_POWS);
 
     let queries = custom_queries();
-    for pow in BENCH_TABLE_POW_MIN..=BENCH_TABLE_POW_MAX {
+    for &pow in BENCH_TABLE_POWS {
         let table_size = 1usize << pow;
         let parquet_dir = BENCH_PARQUET_DIR.map(|dir| format!("{dir}/size_{pow}"));
         let options = BenchOptions {

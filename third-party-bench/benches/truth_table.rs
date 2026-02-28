@@ -31,8 +31,7 @@ const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
-const TABLE_POW_MIN: u32 = 10;
-const TABLE_POW_MAX: u32 = 19;
+const TABLE_POWS: &[u32] = &[10, 14, 18];
 
 struct QuerySpec {
     name: &'static str,
@@ -89,9 +88,9 @@ fn main() {
     init_bench_tracing();
     let bench_root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    println!("table_sizes: 2^{}..=2^{}", TABLE_POW_MIN, TABLE_POW_MAX);
+    println!("table_sizes: {:?}", TABLE_POWS);
 
-    for pow in TABLE_POW_MIN..=TABLE_POW_MAX {
+    for &pow in TABLE_POWS {
         for query in QUERIES {
             let is_join = query.name == "join";
             let table_size = 1usize << pow;

@@ -49,7 +49,7 @@ impl Runnable for DataGen {
         } else if self.bench {
             0.1
         } else {
-            self.scale.unwrap_or(0.01)
+            self.scale.unwrap_or(0.04)
         };
 
         let out_dir = self
