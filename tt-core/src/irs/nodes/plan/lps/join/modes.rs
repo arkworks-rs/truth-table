@@ -90,15 +90,20 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
         right_is_fk_to_left &= right_fk_to_left;
     }
 
-    if left_is_pk && right_is_fk_to_left {
-        JoinMode::ONE_TO_MANY
-    } else if right_is_pk && left_is_fk_to_right {
-        JoinMode::MANY_TO_ONE
-    } else if left_is_pk && right_is_pk {
-        JoinMode::ONE_TO_ONE
-    } else {
+
+
+
+    // if left_is_pk && right_is_fk_to_left {
+    //     JoinMode::ONE_TO_MANY
+    // } else if right_is_pk && left_is_fk_to_right {
+    //     JoinMode::MANY_TO_ONE
+    // } else if left_is_pk && right_is_pk {
+    //     JoinMode::ONE_TO_ONE
+    // } else {
+    //     JoinMode::MANY_TO_MANY
+    // }
+
         JoinMode::MANY_TO_MANY
-    }
 }
 
 fn expr_to_column(expr: &Expr) -> Option<Column> {

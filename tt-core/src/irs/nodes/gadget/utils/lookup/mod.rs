@@ -5,8 +5,11 @@ use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
     is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
+use ark_ff::One;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
+use ark_piop::arithmetic::mat_poly::mle::MLE;
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
+use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult};
@@ -106,10 +109,25 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let mut payload = match virtualized_ir.payload_for_node(&id).cloned() {
+            Some(PayloadStructure::GadgetPayload(map)) => map,
+            _ => return Ok(()),
+        };
+        let (Some(included_table), Some(super_table)) = (
+            payload.get(INCLUDED_LABEL).cloned(),
+            payload.get(SUPER_LABEL).cloned(),
+        ) else {
+            return Ok(());
+        };
+
+        let multiplicities =
+            multiplicities_from_runtime_tables_prover(prover, &super_table, &included_table)?;
+        payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
@@ -162,10 +180,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     }
     fn initialize_gadgets(
         &self,
-        _id: crate::irs::nodes::NodeId,
-        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-        _virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
+        id: crate::irs::nodes::NodeId,
+        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let mut payload = match virtualized_ir.payload_for_node(&id).cloned() {
+            Some(PayloadStructure::GadgetPayload(map)) => map,
+            _ => return Ok(()),
+        };
+        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
+            return Ok(());
+        };
+        let multiplicities =
+            multiplicities_from_runtime_tables_verifier(verifier, &super_table)?;
+        payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
+        virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
 }
@@ -580,4 +609,107 @@ fn combined_activator_expr(df: &DataFrame) -> Expr {
         combined = combined.and(expr);
     }
     combined
+}
+
+fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
+    prover: &mut ArgProver<B>,
+    super_table: &TrackedTable<B>,
+    included_table: &TrackedTable<B>,
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let super_data_indices = super_table.data_tracked_polys_indices();
+    let included_data_indices = included_table.data_tracked_polys_indices();
+    assert_eq!(
+        super_data_indices.len(),
+        included_data_indices.len(),
+        "Lookup included/super data column mismatch while recomputing multiplicities"
+    );
+    let super_values: Vec<Vec<B::F>> = super_data_indices
+        .iter()
+        .map(|idx| {
+            super_table
+                .tracked_col_by_ind(*idx)
+                .data_tracked_poly()
+                .evaluations()
+        })
+        .collect();
+    let included_values: Vec<Vec<B::F>> = included_data_indices
+        .iter()
+        .map(|idx| {
+            included_table
+                .tracked_col_by_ind(*idx)
+                .data_tracked_poly()
+                .evaluations()
+        })
+        .collect();
+
+    let super_activator = super_table
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations());
+    let included_activator = included_table
+        .activator_tracked_poly()
+        .map(|poly| poly.evaluations());
+
+    let mut included_counts = std::collections::HashMap::<String, u64>::new();
+    for row in 0..included_table.size() {
+        let active = included_activator
+            .as_ref()
+            .is_none_or(|vals| vals[row] == B::F::one());
+        if !active {
+            continue;
+        }
+        let key = key_at_row(&included_values, row);
+        *included_counts.entry(key).or_insert(0) += 1;
+    }
+
+    let mut seen_active_super = HashSet::<String>::new();
+    let mut multiplicities = vec![B::F::from(0u64); super_table.size()];
+    for (row, out) in multiplicities.iter_mut().enumerate().take(super_table.size()) {
+        let active = super_activator
+            .as_ref()
+            .is_none_or(|vals| vals[row] == B::F::one());
+        if !active {
+            continue;
+        }
+        let key = key_at_row(&super_values, row);
+        if seen_active_super.insert(key.clone()) {
+            let count = included_counts.get(&key).copied().unwrap_or(0);
+            *out = B::F::from(count);
+        }
+    }
+
+    let multiplicity_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
+        super_table.log_size(),
+        multiplicities,
+    ))?;
+    let multiplicity_field = Arc::new(Field::new("multiplicity", DataType::Int64, false));
+    Ok(TrackedTable::single_column_with_activator(
+        multiplicity_field,
+        multiplicity_poly,
+        super_table.activator_tracked_poly(),
+    ))
+}
+
+fn multiplicities_from_runtime_tables_verifier<B: SnarkBackend>(
+    verifier: &mut ArgVerifier<B>,
+    super_table: &TrackedTableOracle<B>,
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let id = verifier.peek_next_id();
+    let multiplicity_oracle = verifier.track_mv_com_by_id(id)?;
+    let multiplicity_field = Arc::new(Field::new("multiplicity", DataType::Int64, false));
+    Ok(TrackedTableOracle::single_column_with_activator(
+        multiplicity_field,
+        multiplicity_oracle,
+        super_table.activator_tracked_poly(),
+    ))
+}
+
+fn key_at_row<F: core::fmt::Debug>(cols: &[Vec<F>], row: usize) -> String {
+    if cols.is_empty() {
+        return String::new();
+    }
+    let mut parts = Vec::with_capacity(cols.len());
+    for col in cols {
+        parts.push(format!("{:?}", col[row]));
+    }
+    parts.join("|")
 }

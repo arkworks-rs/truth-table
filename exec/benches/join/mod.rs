@@ -37,12 +37,23 @@ fn join_cases() -> &'static [BenchCase] {
             BenchCase {
                 name: "join_orders_customer_basic",
                 query: r#"
-                    SELECT o.o_orderkey, c.c_nationkey
-                    FROM orders o
-                    INNER JOIN customer c
-                        ON o.o_custkey = c.c_custkey
-                "#,
-                tables: &["orders", "customer"],
+                SELECT *
+FROM
+    customer,
+    orders,
+    lineitem,
+    supplier,
+    nation
+WHERE
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+    AND l_suppkey = s_suppkey
+    AND c_nationkey = s_nationkey
+    AND s_nationkey = n_nationkey
+    AND o_orderdate >= CAST('1994-01-01' AS date)
+    AND o_orderdate < CAST('1995-01-01' AS date)
+    "#,
+                tables: &["orders", "customer", "lineitem", "supplier", "nation", "region"],
             },
         ];
         Box::leak(cases.into_boxed_slice())

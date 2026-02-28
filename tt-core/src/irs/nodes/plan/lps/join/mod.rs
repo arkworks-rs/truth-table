@@ -232,7 +232,7 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         children
     }
 }
-
+use ark_ff::Zero;
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
@@ -247,6 +247,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                     _ => None,
                 })
                 .unwrap_or_default();
+
             let Some(tracker_rc) = current_table
                 .tracked_polys_iter()
                 .next()
@@ -413,11 +414,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             self.gadget.id(),
             Some(PayloadStructure::GadgetPayload(gadget_payload)),
         );
-        if self.should_fully_materialize() {
-            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(
-                output_hint_df.data_frame(),
-            ));
-        }
         Ok(())
     }
 }
@@ -463,6 +459,10 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                 self.join_mode(),
             )
         };
+
+        if self.should_fully_materialize() {
+            self.cache_full_materialized_active_rows(active_row_count_from_dataframe(&joined));
+        }
 
         let left_fields = left_hint_df
             .data_frame()

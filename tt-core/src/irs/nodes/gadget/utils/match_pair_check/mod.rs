@@ -486,7 +486,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .get(OUT_LABEL)
             .cloned()
             .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", OUT_LABEL));
-
         // Honest check: sum of pair multiplicities equals output active count.
         let left_counts = active_row_multiset::<B>(&left_keys);
         let right_counts = active_row_multiset::<B>(&right_keys);
@@ -1030,10 +1029,7 @@ fn pad_key_union_df(
     ctx.read_batch(out_batch)
 }
 
-fn collect_blocking(
-    df: DataFrame,
-    skip_collection: bool,
-) -> DataFusionResult<Vec<RecordBatch>> {
+fn collect_blocking(df: DataFrame, skip_collection: bool) -> DataFusionResult<Vec<RecordBatch>> {
     if skip_collection {
         return Err(DataFusionError::Execution(
             "verifier planning must not collect DataFrames".to_string(),
