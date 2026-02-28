@@ -1,8 +1,12 @@
 use std::collections::HashSet;
 
-use crate::irs::nodes::hints::column_constraint_metadata;
+use crate::irs::nodes::hints::{ColumnConstraintMetadata, column_constraint_metadata};
 use datafusion_common::{Column, DFSchemaRef, TableReference};
-use datafusion_expr::{Expr, Join};
+use datafusion_expr::{Expr, Join, JoinType, LogicalPlan};
+
+const PK_METADATA_KEY: &str = "tt.pk";
+const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
+const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +22,17 @@ pub enum JoinMode {
 /// This keeps the plan-side materialization decision and gadget-side optimization
 /// decision sourced from the same place, so they cannot drift.
 pub fn decide_join_mode(join: &Join) -> JoinMode {
+    // HasOne optimization path currently assumes INNER semantics over the FK-side domain.
+    // Keep all other join types on the conservative many-to-many path.
+    if !matches!(join.join_type, JoinType::Inner) {
+        return JoinMode::MANY_TO_MANY;
+    }
+    // For now, only classify direct base-table joins. Derived inputs (especially
+    // chained joins) can invalidate base PK/FK assumptions unless constraints are
+    // propagated through planning, which is not guaranteed at this stage.
+    if !is_base_table_input(join.left.as_ref()) || !is_base_table_input(join.right.as_ref()) {
+        return JoinMode::MANY_TO_MANY;
+    }
     if join.on.is_empty() {
         return JoinMode::MANY_TO_MANY;
     }
@@ -27,10 +42,10 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
     let left_tables = collect_tables_from_schema(left_schema);
     let right_tables = collect_tables_from_schema(right_schema);
 
-    let mut left_is_pk = true;
-    let mut right_is_pk = true;
-    let mut left_is_fk_to_right = true;
-    let mut right_is_fk_to_left = true;
+    let mut left_is_pk_all = true;
+    let mut right_is_pk_all = true;
+    let mut left_is_fk_to_right_all = true;
+    let mut right_is_fk_to_left_all = true;
 
     for (left_expr, right_expr) in &join.on {
         let Some(left_col) = expr_to_column(left_expr) else {
@@ -47,63 +62,61 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
             .or_else(|| infer_table_from_schema(right_schema, right_col.name.as_str()))
             .or_else(|| single_table_name(&right_tables));
 
-        let left_meta = left_table
-            .as_deref()
-            .and_then(|tbl| column_constraint_metadata(tbl, left_col.name.as_str()));
-        let right_meta = right_table
-            .as_deref()
-            .and_then(|tbl| column_constraint_metadata(tbl, right_col.name.as_str()));
+        let Some(left_meta) = resolve_constraint_metadata(left_schema, &left_col, left_table.as_deref()) else {
+            return JoinMode::MANY_TO_MANY;
+        };
+        let Some(right_meta) =
+            resolve_constraint_metadata(right_schema, &right_col, right_table.as_deref())
+        else {
+            return JoinMode::MANY_TO_MANY;
+        };
 
-        let left_pk = left_meta.as_ref().map(|m| m.is_pk).unwrap_or(false);
-        let right_pk = right_meta.as_ref().map(|m| m.is_pk).unwrap_or(false);
-        left_is_pk &= left_pk;
-        right_is_pk &= right_pk;
+        left_is_pk_all &= left_meta.is_pk;
+        right_is_pk_all &= right_meta.is_pk;
 
         let left_fk_to_right = left_meta
+            .fk_ref_table
             .as_ref()
-            .and_then(|m| m.fk_ref_table.as_ref().map(|t| (t, &m.fk_ref_columns)))
-            .map(|(ref_table, ref_cols)| {
+            .map(|ref_table| {
                 right_table
                     .as_deref()
                     .map(|t| table_name_from_qualifier(ref_table) == t)
-                    .unwrap_or(true)
-                    && ref_cols
+                    .unwrap_or(false)
+                    && left_meta
+                        .fk_ref_columns
                         .iter()
                         .any(|c| c.eq_ignore_ascii_case(right_col.name.as_str()))
             })
             .unwrap_or(false);
         let right_fk_to_left = right_meta
+            .fk_ref_table
             .as_ref()
-            .and_then(|m| m.fk_ref_table.as_ref().map(|t| (t, &m.fk_ref_columns)))
-            .map(|(ref_table, ref_cols)| {
+            .map(|ref_table| {
                 left_table
                     .as_deref()
                     .map(|t| table_name_from_qualifier(ref_table) == t)
-                    .unwrap_or(true)
-                    && ref_cols
+                    .unwrap_or(false)
+                    && right_meta
+                        .fk_ref_columns
                         .iter()
                         .any(|c| c.eq_ignore_ascii_case(left_col.name.as_str()))
             })
             .unwrap_or(false);
 
-        left_is_fk_to_right &= left_fk_to_right;
-        right_is_fk_to_left &= right_fk_to_left;
+        left_is_fk_to_right_all &= left_fk_to_right;
+        right_is_fk_to_left_all &= right_fk_to_left;
     }
 
-
-
-
-    // if left_is_pk && right_is_fk_to_left {
-    //     JoinMode::ONE_TO_MANY
-    // } else if right_is_pk && left_is_fk_to_right {
-    //     JoinMode::MANY_TO_ONE
-    // } else if left_is_pk && right_is_pk {
-    //     JoinMode::ONE_TO_ONE
-    // } else {
-    //     JoinMode::MANY_TO_MANY
-    // }
-
+    // Strongest guarantee first.
+    if left_is_pk_all && right_is_pk_all {
+        JoinMode::ONE_TO_ONE
+    } else if left_is_pk_all && right_is_fk_to_left_all {
+        JoinMode::ONE_TO_MANY
+    } else if right_is_pk_all && left_is_fk_to_right_all {
+        JoinMode::MANY_TO_ONE
+    } else {
         JoinMode::MANY_TO_MANY
+    }
 }
 
 fn expr_to_column(expr: &Expr) -> Option<Column> {
@@ -156,4 +169,69 @@ fn table_name_from_qualifier(qualifier: &str) -> String {
         .trim_matches('"')
         .trim_matches('`')
         .to_lowercase()
+}
+
+fn is_base_table_input(plan: &LogicalPlan) -> bool {
+    match plan {
+        LogicalPlan::TableScan(_) => true,
+        LogicalPlan::SubqueryAlias(alias) => is_base_table_input(alias.input.as_ref()),
+        _ => false,
+    }
+}
+
+fn resolve_constraint_metadata(
+    schema: &DFSchemaRef,
+    col: &Column,
+    fallback_table: Option<&str>,
+) -> Option<ColumnConstraintMetadata> {
+    if let Some(meta) = constraint_metadata_from_field(schema, col) {
+        return Some(meta);
+    }
+    fallback_table.and_then(|tbl| column_constraint_metadata(tbl, col.name.as_str()))
+}
+
+fn constraint_metadata_from_field(
+    schema: &DFSchemaRef,
+    col: &Column,
+) -> Option<ColumnConstraintMetadata> {
+    let matching_fields = schema
+        .iter()
+        .filter(|(qualifier, field)| {
+            if field.name() != col.name.as_str() {
+                return false;
+            }
+            match (&col.relation, qualifier) {
+                (Some(rel), Some(q)) => table_name_from_relation(rel) == table_name_from_relation(q),
+                (Some(_), None) => false,
+                (None, _) => true,
+            }
+        })
+        .map(|(_, field)| field)
+        .collect::<Vec<_>>();
+
+    // Ambiguous or missing => cannot safely infer.
+    if matching_fields.len() != 1 {
+        return None;
+    }
+    let field = matching_fields[0];
+    let metadata = field.metadata();
+
+    let is_pk = metadata
+        .get(PK_METADATA_KEY)
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let fk_ref_table = metadata.get(FK_REF_TABLE_METADATA_KEY).cloned();
+    let fk_ref_columns = metadata
+        .get(FK_REF_COLUMNS_METADATA_KEY)
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+        .unwrap_or_default();
+
+    if !is_pk && fk_ref_table.is_none() && fk_ref_columns.is_empty() {
+        return None;
+    }
+    Some(ColumnConstraintMetadata {
+        is_pk,
+        fk_ref_table,
+        fk_ref_columns,
+    })
 }

@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use datafusion::{
     optimizer::{
-        common_subexpr_eliminate::CommonSubexprEliminate, eliminate_cross_join::EliminateCrossJoin,
+        common_subexpr_eliminate::CommonSubexprEliminate,
+        decorrelate_predicate_subquery::DecorrelatePredicateSubquery,
+        eliminate_cross_join::EliminateCrossJoin,
         eliminate_duplicated_expr::EliminateDuplicatedExpr, eliminate_filter::EliminateFilter,
         eliminate_group_by_constant::EliminateGroupByConstant, eliminate_join::EliminateJoin,
         eliminate_limit::EliminateLimit, eliminate_nested_union::EliminateNestedUnion,
@@ -40,6 +42,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(EliminateNestedUnion::new()),
         Arc::new(SimplifyExpressions::new()),
         Arc::new(EliminateJoin::new()),
+        // Arc::new(DecorrelatePredicateSubquery::new()),
         Arc::new(ScalarSubqueryToJoin::new()),
         Arc::new(ExtractEquijoinPredicate::new()),
         Arc::new(EliminateDuplicatedExpr::new()),

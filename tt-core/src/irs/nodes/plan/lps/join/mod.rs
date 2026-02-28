@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, Weak};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, Weak},
+};
 
 use crate::irs::{
     nodes::{
@@ -39,6 +42,10 @@ where
 }
 
 impl<B: SnarkBackend> LpNode<B> {
+    const PK_METADATA_KEY: &'static str = "tt.pk";
+    const FK_REF_TABLE_METADATA_KEY: &'static str = "tt.fk.ref_table";
+    const FK_REF_COLUMNS_METADATA_KEY: &'static str = "tt.fk.ref_columns";
+
     fn join_mode(&self) -> modes::JoinMode {
         self.join_mode
     }
@@ -179,6 +186,106 @@ impl<B: SnarkBackend> LpNode<B> {
             current.log_size(),
         )
     }
+
+    fn field_names_prover(table: &arithmetic::table::TrackedTable<B>) -> HashSet<String> {
+        table
+            .tracked_polys_iter()
+            .map(|(field, _)| field.name().to_string())
+            .collect()
+    }
+
+    fn field_names_verifier(
+        table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    ) -> HashSet<String> {
+        table
+            .tracked_oracles_iter()
+            .map(|(field, _)| field.name().to_string())
+            .collect()
+    }
+
+    fn preserve_constraints_for_field(
+        mode: modes::JoinMode,
+        field_name: &str,
+        left_names: &HashSet<String>,
+        right_names: &HashSet<String>,
+    ) -> bool {
+        match mode {
+            // left unique, right is FK-preserved side
+            modes::JoinMode::ONE_TO_MANY => right_names.contains(field_name),
+            // right unique, left is FK-preserved side
+            modes::JoinMode::MANY_TO_ONE => left_names.contains(field_name),
+            // no duplication from join cardinality
+            modes::JoinMode::ONE_TO_ONE => {
+                left_names.contains(field_name) || right_names.contains(field_name)
+            }
+            // both sides can duplicate
+            modes::JoinMode::MANY_TO_MANY => false,
+        }
+    }
+
+    fn rewrite_constraint_metadata(
+        field: &datafusion::arrow::datatypes::FieldRef,
+        preserve: bool,
+    ) -> datafusion::arrow::datatypes::FieldRef {
+        if is_system_column(field.name()) {
+            return field.clone();
+        }
+        let mut updated = field.as_ref().clone();
+        let mut metadata = updated.metadata().clone();
+        if !preserve {
+            metadata.remove(Self::PK_METADATA_KEY);
+            metadata.remove(Self::FK_REF_TABLE_METADATA_KEY);
+            metadata.remove(Self::FK_REF_COLUMNS_METADATA_KEY);
+        }
+        updated = updated.with_metadata(metadata);
+        Arc::new(updated)
+    }
+
+    fn update_constraints_prover(
+        table: &arithmetic::table::TrackedTable<B>,
+        mode: modes::JoinMode,
+        left_names: &HashSet<String>,
+        right_names: &HashSet<String>,
+    ) -> arithmetic::table::TrackedTable<B> {
+        let mut updated_polys = IndexMap::new();
+        for (field, poly) in table.tracked_polys_iter() {
+            let preserve =
+                Self::preserve_constraints_for_field(mode, field.name(), left_names, right_names);
+            let updated_field = Self::rewrite_constraint_metadata(field, preserve);
+            updated_polys.insert(updated_field, poly.clone());
+        }
+        let schema = table.schema_ref().map(|schema| {
+            let fields = updated_polys
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+        arithmetic::table::TrackedTable::new(schema, updated_polys, table.log_size())
+    }
+
+    fn update_constraints_verifier(
+        table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+        mode: modes::JoinMode,
+        left_names: &HashSet<String>,
+        right_names: &HashSet<String>,
+    ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
+        let mut updated_oracles = IndexMap::new();
+        for (field, oracle) in table.tracked_oracles_iter() {
+            let preserve =
+                Self::preserve_constraints_for_field(mode, field.name(), left_names, right_names);
+            let updated_field = Self::rewrite_constraint_metadata(field, preserve);
+            updated_oracles.insert(updated_field, oracle.clone());
+        }
+        let schema = table.schema_ref().map(|schema| {
+            let fields = updated_oracles
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            Schema::new_with_metadata(fields, schema.metadata().clone())
+        });
+        arithmetic::table_oracle::TrackedTableOracle::new(schema, updated_oracles, table.log_size())
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -232,13 +339,26 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
         children
     }
 }
-use ark_ff::Zero;
 impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn add_virtual_witness(
         &self,
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let left_names = virtualized_ir
+            .payload_for_node(&self.left.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(Self::field_names_prover(table)),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let right_names = virtualized_ir
+            .payload_for_node(&self.right.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(Self::field_names_prover(table)),
+                _ => None,
+            })
+            .unwrap_or_default();
         if self.should_fully_materialize() {
             let current_table = virtualized_ir
                 .payload_for_node(&id)
@@ -264,6 +384,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
                 .borrow_mut()
                 .get_or_build_contig_one_poly(current_table.log_size(), active_rows)?;
             let updated_table = append_activator_prover(&current_table, contig_activator);
+            let updated_table = Self::update_constraints_prover(
+                &updated_table,
+                self.join_mode(),
+                &left_names,
+                &right_names,
+            );
             virtualized_ir
                 .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
             return Ok(());
@@ -324,6 +450,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         };
 
         let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = Self::update_constraints_prover(
+            &updated_table,
+            self.join_mode(),
+            &left_names,
+            &right_names,
+        );
         // Partial-join output must not mix row domains: every output column must
         // share the table log-size (FK-side domain).
         debug_assert!(
@@ -633,6 +765,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let left_names = virtualized_ir
+            .payload_for_node(&self.left.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(Self::field_names_verifier(table)),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let right_names = virtualized_ir
+            .payload_for_node(&self.right.id())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(Self::field_names_verifier(table)),
+                _ => None,
+            })
+            .unwrap_or_default();
         if self.should_fully_materialize() {
             let current_table = virtualized_ir
                 .payload_for_node(&id)
@@ -655,6 +801,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 .borrow_mut()
                 .get_or_build_contig_one_oracle(current_table.log_size(), active_rows)?;
             let updated_table = append_activator_verifier(&current_table, contig_activator);
+            let updated_table = Self::update_constraints_verifier(
+                &updated_table,
+                self.join_mode(),
+                &left_names,
+                &right_names,
+            );
             virtualized_ir
                 .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(updated_table)));
             return Ok(());
@@ -716,6 +868,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
         let updated_table =
             arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
+        let updated_table = Self::update_constraints_verifier(
+            &updated_table,
+            self.join_mode(),
+            &left_names,
+            &right_names,
+        );
         // Verifier-side mirror of prover invariant: all output oracles must be on
         // the same row domain.
         debug_assert!(
