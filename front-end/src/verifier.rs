@@ -110,13 +110,12 @@ impl<B: SnarkBackend> TTVerifier<B> {
         gadget_planned_ir
     }
 
-    pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
-        // Fast path used by production verification and verifier-full benches.
-        // This avoids materializing debug IR stage snapshots and only runs the
-        // passes required to reach cryptographic verification.
+    async fn verify_with_gadget_planned_ir(
+        &self,
+        proof: &TTProof<B>,
+        gadget_planned_ir: &GadgetPlannedIr<B>,
+    ) -> TTResult<()> {
         let snark_proof = proof.as_inner();
-        let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
-
         let mut arg_verifier = self.arg_verifier().fork();
         arg_verifier.set_proof_ref(snark_proof);
 
@@ -149,12 +148,28 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(())
     }
 
+    pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
+        // Fast path used by production verification and verifier benches.
+        let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
+        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir)
+            .await
+    }
+
+    pub async fn verify_with_preprocessed(
+        &self,
+        proof: &TTProof<B>,
+        gadget_planned_ir: &GadgetPlannedIr<B>,
+    ) -> TTResult<()> {
+        self.verify_with_gadget_planned_ir(proof, gadget_planned_ir)
+            .await
+    }
+
     /// Run verifier planning for a query/proof pair (output + gadget planning only).
     ///
     /// This intentionally excludes tracking/virtualization/gadget-init/verify passes
     /// and excludes cryptographic verification.
-    pub fn preprocess_query(&self, query: &str, proof: &TTProof<B>) {
-        let _ = self.gadget_planned_ir_for_query(query, proof);
+    pub fn preprocess_query(&self, query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
+        self.gadget_planned_ir_for_query(query, proof)
     }
 
     pub async fn build_ir_stages(

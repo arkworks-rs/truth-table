@@ -46,7 +46,7 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q17 = query_spec(17, false);
         // println!("TPCH Q17 SQL: {}", q17.sql);
         let q18 = query_spec(18, false);
-        println!("TPCH Q18 SQL: {}", q18.sql);
+        // println!("TPCH Q18 SQL: {}", q18.sql);
         let q18_poneglyph = query_spec(18, true);
         // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
         let q19 = query_spec(19, false);

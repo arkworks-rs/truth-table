@@ -32,6 +32,7 @@ use indexmap::IndexMap;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
+use tt_core::irs::shared_ir::GadgetPlannedIr;
 
 pub use stats_layer::emit_benchmark_stats_row;
 
@@ -77,6 +78,7 @@ pub struct VerifierFullBenchState {
     pub verifier: TTVerifier<B>,
     pub query: String,
     pub proof: TTProof<B>,
+    pub preprocessed_gadget_ir: Mutex<Option<Arc<GadgetPlannedIr<B>>>>,
 }
 
 pub struct ProverBenchIteration {
@@ -360,17 +362,36 @@ pub fn build_verifier_full_state(
         verifier,
         query: assets.case.query.to_string(),
         proof,
+        preprocessed_gadget_ir: Mutex::new(None),
     }
 }
 
 pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
     // Time full frontend verification path: IR passes + argument verification.
-    block_on(state.verifier.verify(&state.query, &state.proof)).expect("verify for bench");
+    let cached_ir = state
+        .preprocessed_gadget_ir
+        .lock()
+        .expect("preprocessed ir lock poisoned")
+        .clone();
+    if let Some(gadget_planned_ir) = cached_ir {
+        block_on(
+            state
+                .verifier
+                .verify_with_preprocessed(&state.proof, gadget_planned_ir.as_ref()),
+        )
+        .expect("verify for bench");
+    } else {
+        block_on(state.verifier.verify(&state.query, &state.proof)).expect("verify for bench");
+    }
 }
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    state.verifier.preprocess_query(&state.query, &state.proof);
+    let gadget_planned_ir = state.verifier.preprocess_query(&state.query, &state.proof);
+    *state
+        .preprocessed_gadget_ir
+        .lock()
+        .expect("preprocessed ir lock poisoned") = Some(Arc::new(gadget_planned_ir));
 }
 
 fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {

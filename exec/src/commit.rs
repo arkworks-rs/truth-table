@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use arithmetic::table::TrackedTable;
 use arithmetic::{
     ROW_ID_COL_NAME,
     table_oracle::{ArithTableOracle, TrackedTableOracle},
@@ -19,12 +18,7 @@ use front_end::{
     prover::{TTProver, TTProverConfig},
     shared::TTSharedConfig,
 };
-use tt_core::{
-    irs::{nodes::IsNode, payloads::PayloadStructure},
-    prover::{
-        irs::TrackedIr, passes::materialization::configure_constraint_metadata_from_parquet_paths,
-    },
-};
+use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
 
 use front_end::structs::{Artifact, TTPk};
 
@@ -167,12 +161,8 @@ async fn commit_parquet_with_pk(
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
     let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
-    let (stages, mut arg_prover) = prover.build_ir_stages(&query).await?;
-    let table_scan_table =
-        table_scan_payload(&stages.tracked).context("table scan result not found in tracked IR")?;
-
-    let proof = arg_prover.build_proof().context("build proof")?;
-    verifier.set_proof(proof);
+    let (table_scan_table, tt_proof) = prover.prove_with_table_scan(&query).await?;
+    verifier.set_proof(tt_proof.into_inner());
 
     let tracked_table_oracle =
         TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)?;
@@ -211,27 +201,4 @@ fn write_oracle(serializable: &ArithTableOracle<B>, output_path: &Path) -> Resul
         .flush()
         .with_context(|| format!("failed to flush {}", output_path.display()))?;
     Ok(())
-}
-
-fn table_scan_payload(tracked_ir: &TrackedIr<B>) -> Result<TrackedTable<B>> {
-    for (node_id, node) in tracked_ir.tree().arena() {
-        if node.name() != "TableScan" {
-            continue;
-        }
-
-        let payload = tracked_ir
-            .payloads()
-            .get(node_id)
-            .and_then(|payload| payload.clone())
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table),
-                _ => None,
-            });
-
-        if let Some(table) = payload {
-            return Ok(table);
-        }
-    }
-
-    Err(anyhow!("table scan payload not found"))
 }
