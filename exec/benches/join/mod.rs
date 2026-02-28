@@ -4,8 +4,8 @@ use divan::Bencher;
 
 use crate::support::{
     BenchCase, build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
-    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_arg_verifier_once,
-    run_prover_iteration, warmup_proof,
+    load_proof_bytes, log_proof_size_once, prepare_assets, prepare_prover_iteration,
+    run_arg_verifier_once, run_prover_iteration, warmup_proof,
 };
 
 fn join_cases() -> &'static [BenchCase] {
@@ -81,7 +81,7 @@ fn bench_join_verifier(bencher: Bencher, case: BenchCase) {
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_state(&assets, bench_proof.proof_bytes.clone());
+    let state = build_verifier_state(&assets, load_proof_bytes(&bench_proof));
     bencher
         .with_inputs(|| fork_arg_verifier(&state))
         .bench_local_values(run_arg_verifier_once);

@@ -61,9 +61,7 @@ pub struct BenchAssets {
 
 #[derive(Debug)]
 pub struct BenchProof {
-    #[allow(unused)]
     pub proof_path: PathBuf,
-    pub proof_bytes: Vec<u8>,
     // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
     // Serialized optimized IR component of TTProof.
@@ -305,11 +303,15 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
 
     Arc::new(BenchProof {
         proof_path,
-        proof_bytes,
         snark_proof_bytes,
         optimized_ir_bytes,
         _temp_dir: temp_dir,
     })
+}
+
+pub fn load_proof_bytes(bench_proof: &BenchProof) -> Vec<u8> {
+    // Load proof bytes on demand instead of keeping all proofs resident in memory.
+    std::fs::read(&bench_proof.proof_path).expect("read proof bytes for bench")
 }
 
 pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
