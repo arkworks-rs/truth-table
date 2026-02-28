@@ -197,10 +197,7 @@ mod test {
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
-                arg_prover,
-                arithmetized_ir.payloads().clone(),
-            );
+            let tracking_pass = TrackingPass::new(arg_prover, arithmetized_ir.payloads());
             let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             println!("Planned Query: {query}");
             println!("{}", tracked_ir.display_graphviz(true));
@@ -230,10 +227,7 @@ mod test {
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
-                arg_prover,
-                arithmetized_ir.payloads().clone(),
-            );
+            let tracking_pass = TrackingPass::new(arg_prover, arithmetized_ir.payloads());
             let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
@@ -265,10 +259,7 @@ mod test {
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
-                arg_prover.clone(),
-                arithmetized_ir.payloads().clone(),
-            );
+            let tracking_pass = TrackingPass::new(arg_prover.clone(), arithmetized_ir.payloads());
             let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
@@ -311,10 +302,7 @@ mod test {
             let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
             let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
             let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
-            let tracking_pass = TrackingPass::<DefaultSnarkBackend>::new(
-                arg_prover.clone(),
-                arithmetized_ir.payloads().clone(),
-            );
+            let tracking_pass = TrackingPass::new(arg_prover.clone(), arithmetized_ir.payloads());
             let tracked_ir = committed_ir.apply_local_pass_sequential(&tracking_pass);
             let virtualization_pass = VirtualizationPass::<DefaultSnarkBackend>::new(&tracked_ir);
             let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);

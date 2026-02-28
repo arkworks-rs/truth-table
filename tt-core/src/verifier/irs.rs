@@ -163,10 +163,8 @@ mod test {
         let materialized_ir = planned_ir.apply_local_pass_parallel(&materialization_pass);
         let arithmetized_ir = materialized_ir.apply_local_pass_parallel(&arithmetization_pass);
         let committed_ir = arithmetized_ir.apply_local_pass_parallel(&commitment_pass);
-        let prover_tracking_pass = ProverTrackingPass::<Backend>::new(
-            arg_prover.clone(),
-            arithmetized_ir.payloads().clone(),
-        );
+        let prover_tracking_pass =
+            ProverTrackingPass::new(arg_prover.clone(), arithmetized_ir.payloads());
         let tracked_ir_prover = committed_ir.apply_local_pass_sequential(&prover_tracking_pass);
         let prover_virtualization_pass =
             ProverVirtualizationPass::<Backend>::new(&tracked_ir_prover);

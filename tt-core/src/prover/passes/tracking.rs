@@ -19,16 +19,16 @@ use tracing::{debug, info};
 /// This pass converts an IR with committed table oracles into an IR with tracked tables; i.e.
 /// tables that are tracked by the SNARK prover with an associated id. Commitments are supplied
 /// by the commitment pass, so this pass stays sequential and only tracks.
-pub struct TrackingPass<B: SnarkBackend> {
+pub struct TrackingPass<'a, B: SnarkBackend> {
     prover: RefCell<ArgProver<B>>,
     total_committed: Cell<usize>, // Track committed polynomial count across the entire pass.
-    arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
+    arith_payloads: &'a IndexMap<NodeId, Option<ArithPayload<B::F>>>,
 }
 
-impl<B: SnarkBackend> TrackingPass<B> {
+impl<'a, B: SnarkBackend> TrackingPass<'a, B> {
     pub fn new(
         prover: ArgProver<B>,
-        arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
+        arith_payloads: &'a IndexMap<NodeId, Option<ArithPayload<B::F>>>,
     ) -> Self {
         Self {
             prover: RefCell::new(prover),
@@ -38,7 +38,7 @@ impl<B: SnarkBackend> TrackingPass<B> {
     }
 }
 
-impl<B: SnarkBackend> Drop for TrackingPass<B> {
+impl<'a, B: SnarkBackend> Drop for TrackingPass<'a, B> {
     fn drop(&mut self) {
         info!(
             committed = self.total_committed.get(),
@@ -47,7 +47,7 @@ impl<B: SnarkBackend> Drop for TrackingPass<B> {
     }
 }
 
-impl<B> LocalPass<B, CommittedPayload<B>, TrackedPayload<B>> for TrackingPass<B>
+impl<'a, B> LocalPass<B, CommittedPayload<B>, TrackedPayload<B>> for TrackingPass<'a, B>
 where
     B: SnarkBackend,
 {

@@ -69,11 +69,11 @@ impl<B: SnarkBackend> TTProverConfig<B> {
     ) -> CommitmentPass<B> {
         CommitmentPass::new(mv_pcs_param, ctx_oracles)
     }
-    pub fn tracking_pass(
+    pub fn tracking_pass<'a>(
         &self,
         arg_prover: ArgProver<B>,
-        arith_payloads: IndexMap<NodeId, Option<ArithPayload<B::F>>>,
-    ) -> TrackingPass<B> {
+        arith_payloads: &'a IndexMap<NodeId, Option<ArithPayload<B::F>>>,
+    ) -> TrackingPass<'a, B> {
         TrackingPass::new(arg_prover, arith_payloads)
     }
 }
@@ -199,20 +199,19 @@ impl<B: SnarkBackend> TTProver<B> {
         );
 
         let arg_prover = self.arg_prover().clone();
-        let arith_payloads = arithmetized_ir.payloads().clone();
         let committed_ir =
             arithmetized_ir.apply_local_pass_parallel(&self.prover_config().commitment_pass(
                 arg_prover.mv_pcs_prover_param(),
                 self.shared_config().ctx_oracles().clone(),
             ));
-        drop(arithmetized_ir);
         // debug!("committed ir:\n{}", committed_ir.display_graphviz(true));
 
         let tracked_ir = committed_ir.apply_local_pass_sequential(
             &self
                 .prover_config()
-                .tracking_pass(arg_prover.clone(), arith_payloads),
+                .tracking_pass(arg_prover.clone(), arithmetized_ir.payloads()),
         );
+        drop(arithmetized_ir);
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
