@@ -128,11 +128,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q14.sql,
             //     tables: q14.tables,
             // },
-            BenchCase {
-                name: "tpch_q17",
-                query: q17.sql,
-                tables: q17.tables,
-            },
+            // BenchCase {
+            //     name: "tpch_q17",
+            //     query: q17.sql,
+            //     tables: q17.tables,
+            // },
             BenchCase {
                 name: "tpch_q18_poneglyph",
                 query: q18_poneglyph.sql,

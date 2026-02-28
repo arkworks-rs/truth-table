@@ -551,7 +551,7 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedCol<B>,
         nv: usize,
     ) -> SnarkResult<()> {
-        let col_activated_poly = col.data_tracked_poly();
+        let col_activated_poly = col.activated_data_tracked_poly();
         let label = Self::range_poly_label(nv);
         let range_poly = match prover.indexed_tracked_poly(label.clone()) {
             Ok(poly) => poly,
@@ -591,7 +591,7 @@ impl<B: SnarkBackend> SignNode<B> {
         col: &TrackedColOracle<B>,
         nv: usize,
     ) -> SnarkResult<()> {
-        let col_activated_oracle = col.data_tracked_oracle();
+        let col_activated_oracle = col.activated_data_tracked_oracle();
         let label = Self::range_poly_label(nv);
         let range_oracle = match verifier.indexed_oracle(label.clone()) {
             Ok(oracle) => oracle,

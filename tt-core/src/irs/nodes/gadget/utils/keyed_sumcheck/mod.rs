@@ -245,6 +245,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         // check that the values of claimed sums are equal
         if lhs_v != rhs_v {
+            tracing::debug!(
+                target: "tt_core::keyed_sumcheck",
+                node_id = %id,
+                f_ids = %format_tracked_col_oracle_ids(&fxs),
+                g_ids = %format_tracked_col_oracle_ids(&gxs),
+                mf_ids = %format_tracked_oracle_opt_ids(&mfxs),
+                mg_ids = %format_tracked_oracle_opt_ids(&mgxs),
+                f_fields = ?format_table_oracle_fields(&fxs_table),
+                g_fields = ?format_table_oracle_fields(&gxs_table),
+                lhs = %lhs_v,
+                rhs = %rhs_v,
+                "keyed sumcheck mismatch"
+            );
             let mut err_msg = "LHS and RHS have different sums".to_string();
             err_msg.push_str(&format!(" LHS: {}, RHS: {}", lhs_v, rhs_v));
             return Err(SnarkError::VerifierError(
