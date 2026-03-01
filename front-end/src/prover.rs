@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::table::TrackedTable;
-use ark_piop::{
-    pcs::PCS,
-    prover::ArgProver,
-    SnarkBackend,
-};
+use ark_piop::{pcs::PCS, prover::ArgProver, SnarkBackend};
 use datafusion::{arrow::datatypes::Schema, datasource::MemTable};
 use datafusion_common::{DFSchema, DataFusionError};
 use indexmap::IndexMap;
@@ -23,7 +19,10 @@ use tt_core::{
         tree::Tree,
     },
     prover::{
-        irs::{GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr, VirtualizedIr as ProverVirtualizedIr},
+        irs::{
+            GadgetReadyIr as ProverGadgetReadyIr, MaterializedIr,
+            VirtualizedIr as ProverVirtualizedIr,
+        },
         passes::{
             arithmetization::ArithmetizationPass, commitment::CommitmentPass,
             gadget_initialization::GadgetInitializationPass,
@@ -115,7 +114,8 @@ impl<B: SnarkBackend> TTProver<B> {
     }
 
     pub async fn prove(&self, query: &str) -> TTResult<(Arc<MemTable>, TTProof<B>)> {
-        let (output_memtable, _table_scan, tt_proof) = self.prove_internal(query, true, false).await?;
+        let (output_memtable, _table_scan, tt_proof) =
+            self.prove_internal(query, true, false).await?;
         Ok((
             output_memtable.expect("output memtable should be present for prove()"),
             tt_proof,
@@ -126,7 +126,8 @@ impl<B: SnarkBackend> TTProver<B> {
         &self,
         query: &str,
     ) -> TTResult<(TrackedTable<B>, TTProof<B>)> {
-        let (_output_memtable, table_scan, tt_proof) = self.prove_internal(query, false, true).await?;
+        let (_output_memtable, table_scan, tt_proof) =
+            self.prove_internal(query, false, true).await?;
         Ok((
             table_scan.expect("table scan payload should be present for commit proofs"),
             tt_proof,
@@ -297,7 +298,9 @@ impl<B: SnarkBackend> TTProver<B> {
         Ok(Arc::new(mem_table))
     }
 
-    fn table_scan_payload(tracked_ir: &tt_core::prover::irs::TrackedIr<B>) -> TTResult<TrackedTable<B>> {
+    fn table_scan_payload(
+        tracked_ir: &tt_core::prover::irs::TrackedIr<B>,
+    ) -> TTResult<TrackedTable<B>> {
         for (node_id, node) in tracked_ir.tree().arena() {
             if node.name() != "TableScan" {
                 continue;

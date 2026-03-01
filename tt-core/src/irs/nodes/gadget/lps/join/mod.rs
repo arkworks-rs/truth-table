@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-        gadget::utils::prescr_perm,
+        IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::prescr_perm,
     },
     payloads::PayloadStructure,
 };
@@ -223,8 +222,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df.clone(),
                 None => return Ok(()),
             };
-            let derived =
-                get_or_build_many_to_many_hints(id, &self.join, &left_hint, &right_hint, &output_hint);
+            let derived = get_or_build_many_to_many_hints(
+                id,
+                &self.join,
+                &left_hint,
+                &right_hint,
+                &output_hint,
+            );
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
@@ -339,8 +343,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df.clone(),
                 None => return Ok(()),
             };
-            let derived =
-                get_or_build_many_to_many_hints(id, &self.join, &left_hint, &right_hint, &output_hint);
+            let derived = get_or_build_many_to_many_hints(
+                id,
+                &self.join,
+                &left_hint,
+                &right_hint,
+                &output_hint,
+            );
             gadget_payload.insert(LEFT_LABEL.to_string(), derived.left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), derived.right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), derived.output_hint.clone());

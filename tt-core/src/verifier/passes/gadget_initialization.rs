@@ -61,7 +61,7 @@ where
     fn fallback_payload(&self, _node: &Node<B>, _id: NodeId) -> Option<GadgetReadyPayload<B>> {
         Some(PayloadStructure::PlanPayload(TrackedTableOracle::default()))
     }
-    
+
     fn name(&self) -> &'static str {
         "Gadget Initialization"
     }

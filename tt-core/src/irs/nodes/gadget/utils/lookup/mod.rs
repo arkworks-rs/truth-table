@@ -6,8 +6,8 @@ use arithmetic::{
     is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::One;
-use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use ark_piop::arithmetic::mat_poly::mle::MLE;
+use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::functions_window::expr_fn::row_number;
@@ -191,8 +191,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
             return Ok(());
         };
-        let multiplicities =
-            multiplicities_from_runtime_tables_verifier(verifier, &super_table)?;
+        let multiplicities = multiplicities_from_runtime_tables_verifier(verifier, &super_table)?;
         payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
@@ -663,7 +662,11 @@ fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
 
     let mut seen_active_super = HashSet::<String>::new();
     let mut multiplicities = vec![B::F::from(0u64); super_table.size()];
-    for (row, out) in multiplicities.iter_mut().enumerate().take(super_table.size()) {
+    for (row, out) in multiplicities
+        .iter_mut()
+        .enumerate()
+        .take(super_table.size())
+    {
         let active = super_activator
             .as_ref()
             .is_none_or(|vals| vals[row] == B::F::one());

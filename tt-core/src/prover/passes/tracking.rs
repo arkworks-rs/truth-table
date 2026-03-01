@@ -113,7 +113,7 @@ where
             }
         }
     }
-    
+
     fn name(&self) -> &'static str {
         "Prover Tracking"
     }

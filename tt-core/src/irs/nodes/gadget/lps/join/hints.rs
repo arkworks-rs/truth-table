@@ -95,20 +95,17 @@ fn build_source_dfs_impl(
 
     // `mapping` already matches the join output row order because both derive from
     // the same sorted join plus the same row_number assignment.
-    let mapping = indexed
-        .select(vec![
-            col("left_row_id"),
-            col("right_row_id"),
-            (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
-        ])?;
+    let mapping = indexed.select(vec![
+        col("left_row_id"),
+        col("right_row_id"),
+        (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
+    ])?;
 
-    let left_src = mapping
-        .clone()
-        .select(vec![
-            col("left_row_id").alias(SRC_LEFT_COL_NAME),
-            lit(true).alias(ACTIVATOR_COL_NAME),
-            col(ROW_ID_COL_NAME),
-        ])?;
+    let left_src = mapping.clone().select(vec![
+        col("left_row_id").alias(SRC_LEFT_COL_NAME),
+        lit(true).alias(ACTIVATOR_COL_NAME),
+        col(ROW_ID_COL_NAME),
+    ])?;
     let right_src = mapping.select(vec![
         col("right_row_id").alias(SRC_RIGHT_COL_NAME),
         lit(true).alias(ACTIVATOR_COL_NAME),
@@ -198,12 +195,11 @@ fn build_nodup_input_df_impl(
         Expr::Column(sorted_right_row_id).alias("right_row_id"),
         row_number_expr,
     ])?;
-    let mapping = indexed
-        .select(vec![
-            col("left_row_id"),
-            col("right_row_id"),
-            (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
-        ])?;
+    let mapping = indexed.select(vec![
+        col("left_row_id"),
+        col("right_row_id"),
+        (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
+    ])?;
 
     mapping.select(vec![
         col("left_row_id").alias(SRC_LEFT_COL_NAME),
@@ -247,7 +243,8 @@ fn prepare_input(
             }
             let col = Column::new(qualifier.cloned(), field.name());
             projection_exprs.push(Expr::Column(col.clone()));
-            (field.name() == ROW_ID_COL_NAME).then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
+            (field.name() == ROW_ID_COL_NAME)
+                .then_some(Column::new(qualifier.cloned(), ROW_ID_COL_NAME))
         })
         .collect();
     if row_id_cols.len() > 1 {

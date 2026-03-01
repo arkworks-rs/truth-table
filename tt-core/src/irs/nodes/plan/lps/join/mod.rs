@@ -255,10 +255,7 @@ impl<B: SnarkBackend> LpNode<B> {
             updated_polys.insert(updated_field, poly.clone());
         }
         let schema = table.schema_ref().map(|schema| {
-            let fields = updated_polys
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>();
+            let fields = updated_polys.keys().cloned().collect::<Vec<_>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
         arithmetic::table::TrackedTable::new(schema, updated_polys, table.log_size())
@@ -278,10 +275,7 @@ impl<B: SnarkBackend> LpNode<B> {
             updated_oracles.insert(updated_field, oracle.clone());
         }
         let schema = table.schema_ref().map(|schema| {
-            let fields = updated_oracles
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>();
+            let fields = updated_oracles.keys().cloned().collect::<Vec<_>>();
             Schema::new_with_metadata(fields, schema.metadata().clone())
         });
         arithmetic::table_oracle::TrackedTableOracle::new(schema, updated_oracles, table.log_size())

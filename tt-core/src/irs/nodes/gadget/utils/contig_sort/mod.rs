@@ -32,9 +32,7 @@ use crate::{
     irs::{
         nodes::{
             IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
-            gadget::utils::contig_sort::hints::{
-                populate_rotated, populate_tie_and_diff,
-            },
+            gadget::utils::contig_sort::hints::{populate_rotated, populate_tie_and_diff},
         },
         payloads::PayloadStructure,
     },
@@ -239,12 +237,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         }
         crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
     };
-    populate_rotated(
-        &mut gadget_payload,
-        &sorted_input_hint,
-        &sort_specs,
-        false,
-    );
+    populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
     populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
     let input_hint = if node.strip_row_id {
         // Strip row-id before storing to avoid exposing it in gadget payloads.

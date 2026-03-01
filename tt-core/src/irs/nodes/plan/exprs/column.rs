@@ -116,7 +116,10 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
             .filter_map(|scope_weak| scope_weak.upgrade())
             .find_map(|scope| match scope.as_ref() {
                 Node::Plan(plan_node) => {
-                    let hint_df = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<B>>::output(plan_node);
+                    let hint_df =
+                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsProverPlanNode<
+                            B,
+                        >>::output(plan_node);
                     if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
                         Some(hint_df)
                     } else {
@@ -160,7 +163,10 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .filter_map(|scope_weak| scope_weak.upgrade())
             .find_map(|scope| match scope.as_ref() {
                 Node::Plan(plan_node) => {
-                    let hint_df = <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(plan_node);
+                    let hint_df =
+                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                            B,
+                        >>::output(plan_node);
                     if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
                         Some(hint_df)
                     } else {

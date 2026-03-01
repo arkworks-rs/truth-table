@@ -156,7 +156,7 @@ where
             }
         }
     }
-    
+
     fn name(&self) -> &'static str {
         "Prover Materialization"
     }

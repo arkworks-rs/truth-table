@@ -63,7 +63,7 @@ where
     fn order(&self) -> crate::irs::ir::PassOrder {
         crate::irs::ir::PassOrder::PostOrder
     }
-    
+
     fn name(&self) -> &'static str {
         "Prover Arithmetization"
     }

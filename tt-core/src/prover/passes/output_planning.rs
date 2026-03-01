@@ -35,9 +35,13 @@ where
         _payload: Option<&EmptyPayload>,
     ) -> Option<HintDFPayload> {
         match node {
-            Node::Plan(plan_node) => Some(PayloadStructure::PlanPayload(
-                <crate::irs::nodes::PlanNode<B> as IsProverPlanNode<B>>::output(plan_node),
-            )),
+            Node::Plan(plan_node) => {
+                Some(PayloadStructure::PlanPayload(<crate::irs::nodes::PlanNode<
+                    B,
+                > as IsProverPlanNode<B>>::output(
+                    plan_node
+                )))
+            }
             Node::Gadget(_) => None,
         }
     }

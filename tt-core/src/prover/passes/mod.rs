@@ -4,8 +4,8 @@
 
 pub mod arithmetization;
 pub mod commitment;
-pub mod gadget_planning;
 pub mod gadget_initialization;
+pub mod gadget_planning;
 pub mod honest_prover;
 pub mod materialization;
 pub mod output_planning;

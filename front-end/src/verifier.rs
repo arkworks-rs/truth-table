@@ -94,11 +94,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self.arg_verifier
     }
 
-    fn gadget_planned_ir_for_query(
-        &self,
-        _query: &str,
-        proof: &TTProof<B>,
-    ) -> GadgetPlannedIr<B> {
+    fn gadget_planned_ir_for_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
         let initial_ir = proof.optimized_ir().clone();
         let output_planned_ir =
             initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());

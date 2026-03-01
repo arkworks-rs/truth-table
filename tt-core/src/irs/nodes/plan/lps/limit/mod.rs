@@ -8,7 +8,7 @@ use crate::{
     irs::{
         nodes::{
             IsLpNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
-            gadget::lps::limit, hints::HintDF, 
+            gadget::lps::limit, hints::HintDF,
         },
         payloads::PayloadStructure,
         tree::Tree,

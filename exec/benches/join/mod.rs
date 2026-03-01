@@ -53,7 +53,9 @@ WHERE
     AND o_orderdate >= CAST('1994-01-01' AS date)
     AND o_orderdate < CAST('1995-01-01' AS date)
     "#,
-                tables: &["orders", "customer", "lineitem", "supplier", "nation", "region"],
+                tables: &[
+                    "orders", "customer", "lineitem", "supplier", "nation", "region",
+                ],
             },
         ];
         Box::leak(cases.into_boxed_slice())

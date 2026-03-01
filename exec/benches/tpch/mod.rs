@@ -4,9 +4,9 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof,
-    load_proof_bytes, log_proof_size_once, prepare_assets, prepare_prover_iteration,
-    run_full_verifier_once, run_preprocess_once, run_prover_iteration, warmup_proof,
+    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes,
+    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_full_verifier_once,
+    run_preprocess_once, run_prover_iteration, warmup_proof,
 };
 
 fn tpch_cases() -> &'static [BenchCase] {
@@ -88,11 +88,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q6.sql,
             //     tables: q6.tables,
             // },
-            BenchCase {
-                name: "tpch_q7",
-                query: q7.sql,
-                tables: q7.tables,
-            },
+            // BenchCase {
+            //     name: "tpch_q7",
+            //     query: q7.sql,
+            //     tables: q7.tables,
+            // },
             // BenchCase {
             //     name: "tpch_q8_tt",
             //     query: q8.sql,
@@ -143,11 +143,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q18.sql,
             //     tables: q18.tables,
             // },
-            // BenchCase {
-            //     name: "tpch_q19",
-            //     query: q19.sql,
-            //     tables: q19.tables,
-            // },
+            BenchCase {
+                name: "tpch_q19",
+                query: q19.sql,
+                tables: q19.tables,
+            },
         ];
         // println!("Loaded {} TPCH benchmark cases", cases.len());
         Box::leak(cases.into_boxed_slice())

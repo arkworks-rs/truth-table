@@ -152,7 +152,7 @@ where
             Node::Plan(_) => None,
         }
     }
-    
+
     fn name(&self) -> &'static str {
         "Honest Prover Check"
     }

@@ -1,11 +1,11 @@
 use ark_piop::SnarkBackend;
 use indexmap::IndexMap;
 
+use crate::irs::shared_ir::OutputPlannedIr;
 use crate::irs::{
     nodes::{NodeId, hints::HintDF},
     payloads::PayloadStructure,
 };
-use crate::irs::shared_ir::OutputPlannedIr;
 
 use super::{ORIG_LABEL, SUPER_LABEL};
 

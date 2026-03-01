@@ -107,7 +107,7 @@ where
             Node::Plan(_) => None,
         }
     }
-    
+
     fn name(&self) -> &'static str {
         "Verifier Verification"
     }

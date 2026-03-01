@@ -62,7 +62,9 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
             .or_else(|| infer_table_from_schema(right_schema, right_col.name.as_str()))
             .or_else(|| single_table_name(&right_tables));
 
-        let Some(left_meta) = resolve_constraint_metadata(left_schema, &left_col, left_table.as_deref()) else {
+        let Some(left_meta) =
+            resolve_constraint_metadata(left_schema, &left_col, left_table.as_deref())
+        else {
             return JoinMode::MANY_TO_MANY;
         };
         let Some(right_meta) =
@@ -201,7 +203,9 @@ fn constraint_metadata_from_field(
                 return false;
             }
             match (&col.relation, qualifier) {
-                (Some(rel), Some(q)) => table_name_from_relation(rel) == table_name_from_relation(q),
+                (Some(rel), Some(q)) => {
+                    table_name_from_relation(rel) == table_name_from_relation(q)
+                }
                 (Some(_), None) => false,
                 (None, _) => true,
             }
