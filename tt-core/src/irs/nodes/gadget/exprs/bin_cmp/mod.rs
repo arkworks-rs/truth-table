@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
-use ark_ff::One;
+use ark_ff::{One, PrimeField};
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use indexmap::IndexMap;
 
 use crate::irs::nodes::NodeId;
@@ -93,6 +93,140 @@ impl<B: SnarkBackend> BinCmpNode<B> {
             BinCmpOp::Lt => "Binary LT",
         }
     }
+
+    fn integer_width_and_signed(data_type: &DataType) -> Option<(u8, bool)> {
+        match data_type {
+            DataType::UInt8 => Some((8, false)),
+            DataType::UInt16 => Some((16, false)),
+            DataType::UInt32 => Some((32, false)),
+            DataType::UInt64 => Some((64, false)),
+            DataType::Int8 => Some((8, true)),
+            DataType::Int16 => Some((16, true)),
+            DataType::Int32 | DataType::Date32 => Some((32, true)),
+            DataType::Int64 => Some((64, true)),
+            _ => None,
+        }
+    }
+
+    fn merged_sign_data_type(left: &DataType, right: &DataType) -> DataType {
+        if left == right {
+            return left.clone();
+        }
+
+        match (left, right) {
+            (DataType::Decimal128(lp, ls), DataType::Decimal128(rp, rs)) => {
+                DataType::Decimal128((*lp).max(*rp), (*ls).max(*rs))
+            }
+            (DataType::Decimal128(lp, ls), _) => DataType::Decimal128(*lp, *ls),
+            (_, DataType::Decimal128(rp, rs)) => DataType::Decimal128(*rp, *rs),
+            _ => {
+                if let (Some((lb, lsigned)), Some((rb, rsigned))) = (
+                    Self::integer_width_and_signed(left),
+                    Self::integer_width_and_signed(right),
+                ) {
+                    let width = lb.max(rb);
+                    let signed = lsigned || rsigned;
+                    match (width, signed) {
+                        (8, false) => DataType::UInt8,
+                        (16, false) => DataType::UInt16,
+                        (32, false) => DataType::UInt32,
+                        (_, false) => DataType::UInt64,
+                        (8, true) => DataType::Int8,
+                        (16, true) => DataType::Int16,
+                        (32, true) => DataType::Int32,
+                        _ => DataType::Int64,
+                    }
+                } else {
+                    left.clone()
+                }
+            }
+        }
+    }
+
+    fn merged_sign_field(left_field: &FieldRef, right_field: &FieldRef) -> FieldRef {
+        let merged_dtype =
+            Self::merged_sign_data_type(left_field.data_type(), right_field.data_type());
+        Arc::new(Field::new(
+            left_field.name(),
+            merged_dtype,
+            left_field.is_nullable() || right_field.is_nullable(),
+        ))
+    }
+
+    fn decimal_scale(data_type: &DataType) -> Option<i8> {
+        match data_type {
+            DataType::Decimal128(_, scale) => Some(*scale),
+            _ => None,
+        }
+    }
+
+    fn pow10(exp: u32) -> B::F {
+        let mut out = B::F::one();
+        let ten = B::F::from(10u64);
+        for _ in 0..exp {
+            out *= ten;
+        }
+        out
+    }
+
+    fn aligned_decimal_diff_polys(
+        left_data_poly: &TrackedPoly<B>,
+        left_type: &DataType,
+        right_data_poly: &TrackedPoly<B>,
+        right_type: &DataType,
+    ) -> (TrackedPoly<B>, TrackedPoly<B>) {
+        match (
+            Self::decimal_scale(left_type),
+            Self::decimal_scale(right_type),
+        ) {
+            (Some(left_scale), Some(right_scale)) => {
+                let target = left_scale.max(right_scale);
+                let left_aligned = if left_scale < target {
+                    left_data_poly.mul_scalar_poly(Self::pow10((target - left_scale) as u32))
+                } else {
+                    left_data_poly.clone()
+                };
+                let right_aligned = if right_scale < target {
+                    right_data_poly.mul_scalar_poly(Self::pow10((target - right_scale) as u32))
+                } else {
+                    right_data_poly.clone()
+                };
+                (left_aligned, right_aligned)
+            }
+            _ => (left_data_poly.clone(), right_data_poly.clone()),
+        }
+    }
+
+    fn aligned_decimal_diff_oracles(
+        left_data_oracle: &ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+        left_type: &DataType,
+        right_data_oracle: &ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+        right_type: &DataType,
+    ) -> (
+        ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+        ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+    ) {
+        match (
+            Self::decimal_scale(left_type),
+            Self::decimal_scale(right_type),
+        ) {
+            (Some(left_scale), Some(right_scale)) => {
+                let target = left_scale.max(right_scale);
+                let left_aligned = if left_scale < target {
+                    left_data_oracle.mul_scalar_oracle(Self::pow10((target - left_scale) as u32))
+                } else {
+                    left_data_oracle.clone()
+                };
+                let right_aligned = if right_scale < target {
+                    right_data_oracle.mul_scalar_oracle(Self::pow10((target - right_scale) as u32))
+                } else {
+                    right_data_oracle.clone()
+                };
+                (left_aligned, right_aligned)
+            }
+            _ => (left_data_oracle.clone(), right_data_oracle.clone()),
+        }
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for BinCmpNode<B> {
@@ -176,6 +310,25 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
             .tracked_col_by_ind(right_data_ind)
             .data_tracked_poly();
 
+        let left_data_field = left_input
+            .tracked_polys()
+            .keys()
+            .find(|field| !is_system_column(field.name()))
+            .cloned()
+            .expect("BinCmp left input should include a data column");
+        let right_data_field = right_input
+            .tracked_polys()
+            .keys()
+            .find(|field| !is_system_column(field.name()))
+            .cloned()
+            .expect("BinCmp right input should include a data column");
+        let (left_data_poly, right_data_poly) = Self::aligned_decimal_diff_polys(
+            &left_data_poly,
+            left_data_field.data_type(),
+            &right_data_poly,
+            right_data_field.data_type(),
+        );
+
         let diff_data_poly = &left_data_poly - &right_data_poly;
         // Now that we are sure that the left and right inputs share the same activator polynomial, we get this activator.
         let shared_activator = left_input.activator_tracked_poly();
@@ -183,12 +336,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
         let output_ind = output.data_tracked_polys_indices()[0];
         let output_poly = output.tracked_col_by_ind(output_ind).data_tracked_poly();
 
-        let data_field = left_input
-            .tracked_polys()
-            .keys()
-            .find(|field| !is_system_column(field.name()))
-            .cloned()
-            .expect("BinCmp left input should include a data column");
+        let data_field = Self::merged_sign_field(&left_data_field, &right_data_field);
         let metadata = left_input
             .schema_ref()
             .map(|s| s.metadata().clone())
@@ -310,19 +458,32 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
         let right_data_oracle = right_input
             .tracked_col_oracle_by_ind(right_data_ind)
             .data_tracked_oracle();
-        let diff_data_oracle = &left_data_oracle - &right_data_oracle;
 
         let output_ind = output.data_tracked_oracles_indices()[0];
         let output_oracle = output
             .tracked_col_oracle_by_ind(output_ind)
             .data_tracked_oracle();
 
-        let data_field = left_input
+        let left_data_field = left_input
             .tracked_oracles()
             .keys()
             .find(|field| !is_system_column(field.name()))
             .cloned()
             .expect("BinCmp left input should include a data column");
+        let right_data_field = right_input
+            .tracked_oracles()
+            .keys()
+            .find(|field| !is_system_column(field.name()))
+            .cloned()
+            .expect("BinCmp right input should include a data column");
+        let (left_data_oracle, right_data_oracle) = Self::aligned_decimal_diff_oracles(
+            &left_data_oracle,
+            left_data_field.data_type(),
+            &right_data_oracle,
+            right_data_field.data_type(),
+        );
+        let diff_data_oracle = &left_data_oracle - &right_data_oracle;
+        let data_field = Self::merged_sign_field(&left_data_field, &right_data_field);
         let metadata = left_input
             .schema_ref()
             .map(|s| s.metadata().clone())
