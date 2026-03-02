@@ -124,7 +124,11 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
-    let lex_sorted_hint = build_lex_sorted_hint(&input_hint);
+    let lex_sorted_hint = if is_verifier {
+        build_lex_sorted_hint_for_verifier(&input_hint)
+    } else {
+        build_lex_sorted_hint(&input_hint)
+    };
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
 
@@ -464,6 +468,26 @@ fn build_lex_sorted_hint(
         })
         .collect();
     crate::irs::nodes::hints::HintDF::new(lex_sorted_df, should_materialize)
+}
+
+fn build_lex_sorted_hint_for_verifier(
+    input_hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
+    // Verifier planning only needs schema + materialization flags. Avoid
+    // lex-sort/window planning work here.
+    let should_materialize = input_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            (
+                field.clone(),
+                field.name() != ROW_ID_COL_NAME && field.name() != ACTIVATOR_COL_NAME,
+            )
+        })
+        .collect();
+    crate::irs::nodes::hints::HintDF::new(input_hint.data_frame().clone(), should_materialize)
 }
 
 fn with_sort_table_label<T>(payload: Option<PayloadStructure<T>>, table: T) -> GadgetPayload<T> {

@@ -824,8 +824,8 @@ fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, 
 }
 
 fn find_field_for_column(df: &DataFrame, col: &Column) -> Option<Field> {
-    if col.relation.is_some() {
-        if let Some((_, field)) = df
+    if col.relation.is_some()
+        && let Some((_, field)) = df
             .schema()
             .iter()
             .find(|(qualifier, field)| {
@@ -835,7 +835,6 @@ fn find_field_for_column(df: &DataFrame, col: &Column) -> Option<Field> {
         {
             return Some(field.as_ref().clone());
         }
-    }
     df.schema()
         .iter()
         .find(|(_, field)| field.name() == &col.name)
