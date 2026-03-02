@@ -263,9 +263,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("sort input row-id sort should succeed");
+        // Verifier planning only needs schema-consistent sort-expression payloads.
+        // Avoid extra ordering work here.
+        let input_df = input_hint_df.data_frame().clone();
 
         let mut exprs: Vec<Expr> = self
             .sort
@@ -286,8 +286,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let sort_exprs_df = input_df
             .select(exprs)
             .expect("sort expr projection should succeed");
-        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
-            .expect("sort expr output sort should succeed");
         let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
