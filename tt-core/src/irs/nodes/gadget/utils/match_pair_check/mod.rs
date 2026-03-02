@@ -39,6 +39,19 @@ pub const RIGHT_LABEL: &str = "__right__";
 pub const OUT_LABEL: &str = "__out__";
 pub const UNION_LABEL: &str = "__union__";
 
+struct MatchPairPlanningContext {
+    left_hint: crate::irs::nodes::hints::HintDF,
+    right_hint: crate::irs::nodes::hints::HintDF,
+    join: Join,
+}
+
+struct MatchPairPlannedHints {
+    key_hint: crate::irs::nodes::hints::HintDF,
+    union_hint: crate::irs::nodes::hints::HintDF,
+    left_lookup_hint: crate::irs::nodes::hints::HintDF,
+    right_lookup_hint: crate::irs::nodes::hints::HintDF,
+}
+
 pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     left_lookup_gadget: Arc<Node<B>>,
@@ -78,88 +91,45 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(join_gadget_id) = find_parent_id(id, planned_ir.tree()) else {
-            return Ok(());
-        };
-        let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let left_hint = match join_payload.get(join_gadget::LEFT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let right_hint = match join_payload.get(join_gadget::RIGHT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let Some(join) = find_parent_join_plan(join_gadget_id, planned_ir.tree()) else {
+        let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             return Ok(());
         };
 
         let (key_union, key_names) =
-            build_key_union_df(&join, left_hint.data_frame(), right_hint.data_frame())
+            build_key_union_df(&ctx.join, ctx.left_hint.data_frame(), ctx.right_hint.data_frame())
                 .expect("match-pair key union should succeed");
         let key_union = pad_key_union_df(key_union, &key_names, false)
             .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
         let (left_cols, right_cols, _) =
-            join_key_columns(&join).expect("match-pair join keys should be columns");
+            join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
 
         let left_keys_df =
-            build_lookup_keys_df(left_hint.data_frame(), &left_cols, &key_names, "left")
+            build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
                 .expect("match-pair left key projection should succeed");
         let right_keys_df =
-            build_lookup_keys_df(right_hint.data_frame(), &right_cols, &key_names, "right")
+            build_lookup_keys_df(ctx.right_hint.data_frame(), &right_cols, &key_names, "right")
                 .expect("match-pair right key projection should succeed");
         let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
             .expect("match-pair union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
 
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(UNION_LABEL.to_string(), key_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-
-        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union_hint.clone());
-        planned_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
         let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
-        let mut left_lookup_payload =
-            match planned_ir.payload_for_node(&self.left_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), left_lookup_hint);
-        left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint.clone());
-        planned_ir.set_payload_for_node(
-            self.left_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
-        );
 
         let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
         let right_lookup_hint =
             crate::irs::nodes::hints::strip_row_id_from_hint(&right_lookup_hint);
-        let mut right_lookup_payload =
-            match planned_ir.payload_for_node(&self.right_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), right_lookup_hint);
-        right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint);
-        planned_ir.set_payload_for_node(
-            self.right_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        apply_match_pair_planned_hints(
+            self,
+            id,
+            planned_ir,
+            MatchPairPlannedHints {
+                key_hint,
+                union_hint,
+                left_lookup_hint,
+                right_lookup_hint,
+            },
         );
         Ok(())
     }
@@ -251,30 +221,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(join_gadget_id) = find_parent_id(id, planned_ir.tree()) else {
-            return Ok(());
-        };
-        let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
-        let left_hint = match join_payload.get(join_gadget::LEFT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let right_hint = match join_payload.get(join_gadget::RIGHT_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
-        let Some(join) = find_parent_join_plan(join_gadget_id, planned_ir.tree()) else {
+        let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             return Ok(());
         };
 
         let (left_cols, right_cols, key_names) =
-            join_key_columns(&join).expect("match-pair join keys should be columns");
+            join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
         let key_fields = infer_key_fields_for_verifier(
-            left_hint.data_frame(),
-            right_hint.data_frame(),
+            ctx.left_hint.data_frame(),
+            ctx.right_hint.data_frame(),
             &left_cols,
             &right_cols,
             &key_names,
@@ -285,55 +240,28 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
             fields
         };
-        let key_hint = empty_hint_with_fields(&key_union_fields, true)
-            .expect("match-pair verifier union hint construction should succeed");
-        let union_hint = empty_hint_with_fields(&key_union_fields, false)
-            .expect("match-pair verifier union virtual hint construction should succeed");
+        // Verifier planning only needs schema/materialization metadata. Build one
+        // empty DataFrame and derive all hints from it to avoid repeated session
+        // setup and DataFrame construction overhead.
+        let schema = Arc::new(Schema::new(key_union_fields.clone()));
+        let base_df = SessionContext::new()
+            .read_batch(RecordBatch::new_empty(schema))
+            .expect("match-pair verifier base hint DataFrame construction should succeed");
+        let key_hint = hint_from_base_df(&base_df, true);
+        let union_hint = hint_from_base_df(&base_df, false);
+        let left_lookup_hint = hint_from_base_df(&base_df, false);
+        let right_lookup_hint = hint_from_base_df(&base_df, false);
 
-        let left_lookup_hint = empty_hint_with_fields(&key_union_fields, false)
-            .expect("match-pair verifier left lookup hint construction should succeed");
-        let right_lookup_hint = empty_hint_with_fields(&key_union_fields, false)
-            .expect("match-pair verifier right lookup hint construction should succeed");
-
-        let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(UNION_LABEL.to_string(), key_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-
-        let mut nodup_payload = match planned_ir.payload_for_node(&self.nodup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union_hint.clone());
-        planned_ir.set_payload_for_node(
-            self.nodup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(nodup_payload)),
-        );
-
-        let mut left_lookup_payload =
-            match planned_ir.payload_for_node(&self.left_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), left_lookup_hint);
-        left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint.clone());
-        planned_ir.set_payload_for_node(
-            self.left_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
-        );
-
-        let mut right_lookup_payload =
-            match planned_ir.payload_for_node(&self.right_lookup_gadget.id()) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
-        right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), right_lookup_hint);
-        right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_hint);
-        planned_ir.set_payload_for_node(
-            self.right_lookup_gadget.id(),
-            Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+        apply_match_pair_planned_hints(
+            self,
+            id,
+            planned_ir,
+            MatchPairPlannedHints {
+                key_hint,
+                union_hint,
+                left_lookup_hint,
+                right_lookup_hint,
+            },
         );
         Ok(())
     }
@@ -800,6 +728,72 @@ fn find_parent_join_plan<B: SnarkBackend>(
     })
 }
 
+fn load_match_pair_planning_context<B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
+) -> Option<MatchPairPlanningContext> {
+    let join_gadget_id = find_parent_id(id, planned_ir.tree())?;
+    let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => return None,
+    };
+    let left_hint = join_payload.get(join_gadget::LEFT_LABEL)?.clone();
+    let right_hint = join_payload.get(join_gadget::RIGHT_LABEL)?.clone();
+    let join = find_parent_join_plan(join_gadget_id, planned_ir.tree())?;
+    Some(MatchPairPlanningContext {
+        left_hint,
+        right_hint,
+        join,
+    })
+}
+
+fn apply_match_pair_planned_hints<B: SnarkBackend>(
+    node: &GadgetNode<B>,
+    id: crate::irs::nodes::NodeId,
+    planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    hints: MatchPairPlannedHints,
+) {
+    let mut gadget_payload = match planned_ir.payload_for_node(&id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    gadget_payload.insert(UNION_LABEL.to_string(), hints.key_hint);
+    planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
+
+    let mut nodup_payload = match planned_ir.payload_for_node(&node.nodup_gadget.id()) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), hints.union_hint.clone());
+    planned_ir.set_payload_for_node(
+        node.nodup_gadget.id(),
+        Some(PayloadStructure::GadgetPayload(nodup_payload)),
+    );
+
+    let mut left_lookup_payload = match planned_ir.payload_for_node(&node.left_lookup_gadget.id()) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), hints.left_lookup_hint);
+    left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), hints.union_hint.clone());
+    planned_ir.set_payload_for_node(
+        node.left_lookup_gadget.id(),
+        Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
+    );
+
+    let mut right_lookup_payload =
+        match planned_ir.payload_for_node(&node.right_lookup_gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+    right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), hints.right_lookup_hint);
+    right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), hints.union_hint);
+    planned_ir.set_payload_for_node(
+        node.right_lookup_gadget.id(),
+        Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
+    );
+}
+
 fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, Vec<String>)> {
     let mut left_cols = Vec::with_capacity(join.on.len());
     let mut right_cols = Vec::with_capacity(join.on.len());
@@ -885,6 +879,17 @@ fn empty_hint_with_fields(
         should_materialize.insert(field.clone(), materialized);
     }
     Ok(crate::irs::nodes::hints::HintDF::new(df, should_materialize))
+}
+
+fn hint_from_base_df(
+    base_df: &DataFrame,
+    materialized: bool,
+) -> crate::irs::nodes::hints::HintDF {
+    let mut should_materialize = IndexMap::new();
+    for field in base_df.schema().fields() {
+        should_materialize.insert(field.clone(), materialized);
+    }
+    crate::irs::nodes::hints::HintDF::new(base_df.clone(), should_materialize)
 }
 
 fn build_lookup_keys_df(

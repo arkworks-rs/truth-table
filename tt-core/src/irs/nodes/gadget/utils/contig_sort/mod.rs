@@ -210,8 +210,12 @@ fn initialize_gadget_plans<B: SnarkBackend>(
             input_hint
         };
         let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
-        populate_rotated(&mut gadget_payload, &input_hint, &sort_specs, true);
-        populate_tie_and_diff(&mut gadget_payload, &input_hint, &sort_specs);
+        let rotated_hint = build_verifier_rotated_hint(&input_hint);
+        let tie_hint = build_verifier_tie_hint(&input_hint, &sort_specs);
+        let diff_hint = build_verifier_diff_hint(&input_hint, &sort_specs);
+        gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
+        gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
+        gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
         gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         return Ok(());
@@ -738,6 +742,128 @@ fn sort_specs_for_hint(
             .map(|field| (field.name().to_string(), config.asc, true))
             .collect(),
     }
+}
+
+fn build_empty_hint_df_with_fields(
+    fields: Vec<Field>,
+    materialized: bool,
+) -> crate::irs::nodes::hints::HintDF {
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::new_empty(schema);
+    let df = SessionContext::new()
+        .read_batch(batch)
+        .expect("verifier schema-only hint construction should succeed");
+    let mut should_materialize = IndexMap::new();
+    for field in df.schema().fields() {
+        should_materialize.insert(field.clone(), materialized);
+    }
+    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+}
+
+fn ordered_data_fields_for_hint(
+    hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(String, bool, bool)],
+) -> Vec<Field> {
+    let mut data_fields: Vec<Field> = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !arithmetic::is_system_column(field.name()))
+        .map(|field| field.as_ref().clone())
+        .collect();
+
+    if sort_specs.is_empty() {
+        return data_fields;
+    }
+
+    let mut ordered = Vec::with_capacity(data_fields.len());
+    for (name, _, _) in sort_specs {
+        let normalized = normalize_sort_name(name);
+        if let Some(field) = data_fields
+            .iter()
+            .find(|field| normalize_sort_name(field.name()) == normalized)
+        {
+            ordered.push(field.clone());
+        }
+    }
+    if ordered.len() == data_fields.len() {
+        ordered
+    } else {
+        data_fields
+    }
+}
+
+fn build_verifier_rotated_hint(
+    input_hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
+    let fields: Vec<Field> = input_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| field.name() != ROW_ID_COL_NAME)
+        .map(|field| field.as_ref().clone())
+        .collect();
+    build_empty_hint_df_with_fields(fields, true)
+}
+
+fn build_verifier_tie_hint(
+    input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(String, bool, bool)],
+) -> crate::irs::nodes::hints::HintDF {
+    let ordered_data_fields = ordered_data_fields_for_hint(input_hint, sort_specs);
+    let fields = if ordered_data_fields.is_empty() {
+        Vec::new()
+    } else if ordered_data_fields.len() == 1 {
+        vec![Field::new("tie_0", DataType::Boolean, true)]
+    } else {
+        (1..ordered_data_fields.len())
+            .map(|idx| Field::new(format!("tie_{idx}"), DataType::Boolean, true))
+            .collect()
+    };
+    build_empty_hint_df_with_fields(fields, true)
+}
+
+fn is_numeric_diff_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal128(_, _)
+            | DataType::Decimal256(_, _)
+    )
+}
+
+fn diff_output_type(data_type: &DataType) -> DataType {
+    if data_type == &DataType::Date32 {
+        DataType::Int32
+    } else if is_numeric_diff_type(data_type) {
+        data_type.clone()
+    } else {
+        DataType::Int64
+    }
+}
+
+fn build_verifier_diff_hint(
+    input_hint: &crate::irs::nodes::hints::HintDF,
+    sort_specs: &[(String, bool, bool)],
+) -> crate::irs::nodes::hints::HintDF {
+    let ordered_data_fields = ordered_data_fields_for_hint(input_hint, sort_specs);
+    let fields: Vec<Field> = ordered_data_fields
+        .iter()
+        .map(|field| Field::new(field.name(), diff_output_type(field.data_type()), true))
+        .collect();
+    build_empty_hint_df_with_fields(fields, true)
 }
 
 fn sort_specs_for_table_prover<B: SnarkBackend>(
