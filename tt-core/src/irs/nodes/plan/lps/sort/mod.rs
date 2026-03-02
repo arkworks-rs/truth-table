@@ -552,7 +552,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
+        // Verifier planning does not execute query semantics; keep output schema
+        // aligned with sort output without constructing an extra sort plan.
+        let output_df = input_hint_df.data_frame().clone();
         let output_df = if output_df
             .schema()
             .fields()
