@@ -18,6 +18,7 @@ use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::datatypes::Schema;
+use datafusion_common::Column;
 use datafusion_expr::{Join, LogicalPlan};
 use indexmap::IndexMap;
 mod hints;
@@ -656,13 +657,13 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         };
         let full_materialization = self.should_fully_materialize();
         let joined = if full_materialization {
-            hints::build_output_dataframe(
+            build_output_dataframe_verifier_light(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
             )
         } else {
-            hints::build_partial_output_dataframe(
+            build_partial_output_dataframe_verifier_light(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
@@ -710,6 +711,108 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .collect();
         crate::irs::nodes::hints::HintDF::new(joined, should_materialize)
     }
+}
+
+fn build_output_dataframe_verifier_light(
+    left_df: datafusion::prelude::DataFrame,
+    right_df: datafusion::prelude::DataFrame,
+    join: &Join,
+) -> datafusion::prelude::DataFrame {
+    let left_df_fallback = left_df.clone();
+    let right_df_fallback = right_df.clone();
+
+    let joined = match left_df
+        .join_on(
+            right_df,
+            join.join_type,
+            vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
+        )
+    {
+        Ok(df) => df,
+        Err(_) => {
+            return hints::build_output_dataframe(left_df_fallback, right_df_fallback, join);
+        }
+    };
+
+    let mut projection_exprs = Vec::new();
+    for (qualifier, field) in joined.schema().iter() {
+        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+            continue;
+        }
+        projection_exprs.push(datafusion_expr::Expr::Column(Column::new(
+            qualifier.cloned(),
+            field.name(),
+        )));
+    }
+    projection_exprs.push(datafusion_expr::lit(true).alias(ACTIVATOR_COL_NAME));
+    projection_exprs.push(datafusion_expr::lit(0_i64).alias(ROW_ID_COL_NAME));
+
+    joined
+        .select(projection_exprs)
+        .expect("join verifier output projection should succeed")
+}
+
+fn build_partial_output_dataframe_verifier_light(
+    left_df: datafusion::prelude::DataFrame,
+    right_df: datafusion::prelude::DataFrame,
+    join: &Join,
+    mode: modes::JoinMode,
+) -> datafusion::prelude::DataFrame {
+    let left_df_fallback = left_df.clone();
+    let right_df_fallback = right_df.clone();
+
+    let fk_is_left = matches!(mode, modes::JoinMode::MANY_TO_ONE);
+    let (fk_df, pk_df) = if fk_is_left {
+        (left_df, right_df)
+    } else {
+        (right_df, left_df)
+    };
+
+    let joined = match fk_df
+        .join_on(
+            pk_df,
+            datafusion_expr::JoinType::Left,
+            vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
+        )
+    {
+        Ok(df) => df,
+        Err(_) => {
+            return hints::build_partial_output_dataframe(
+                left_df_fallback,
+                right_df_fallback,
+                join,
+                mode,
+            );
+        }
+    };
+
+    let mut projection_exprs = Vec::new();
+    let mut fk_row_id_expr: Option<datafusion_expr::Expr> = None;
+    for (qualifier, field) in joined.schema().iter() {
+        if field.name() == ROW_ID_COL_NAME && fk_row_id_expr.is_none() {
+            fk_row_id_expr = Some(datafusion_expr::Expr::Column(Column::new(
+                qualifier.cloned(),
+                field.name(),
+            )));
+        }
+        if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+            continue;
+        }
+        projection_exprs.push(datafusion_expr::Expr::Column(Column::new(
+            qualifier.cloned(),
+            field.name(),
+        )));
+    }
+    projection_exprs.push(datafusion_expr::lit(true).alias(ACTIVATOR_COL_NAME));
+    projection_exprs.push(
+        fk_row_id_expr
+            .unwrap_or_else(|| datafusion_expr::lit(0_i64))
+            .alias(ROW_ID_COL_NAME),
+    );
+
+    joined
+        .select(projection_exprs)
+        .expect("partial join verifier output projection should succeed")
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
