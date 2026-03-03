@@ -179,13 +179,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("aggregate input row-id sort should succeed");
-        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            output_hint_df.data_frame().clone(),
-        )
-        .expect("aggregate output row-id sort should succeed");
+        // Verifier planning only needs schema-aligned group payloads.
+        // Avoid extra row-id sorting work here.
+        let input_df = input_hint_df.data_frame().clone();
+        let output_df = output_hint_df.data_frame().clone();
 
         let mut input_projection_exprs = self.aggregate.group_expr.clone();
         crate::irs::nodes::hints::append_activator_exprs_if_present(
@@ -213,12 +210,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         let output_projected = output_df
             .select(output_projection_exprs)
             .expect("aggregate output group projection should succeed");
-
-        let input_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(input_projected)
-            .expect("aggregate input group sort should succeed");
-        let output_projected =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
-                .expect("aggregate output group sort should succeed");
 
         let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
         let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
