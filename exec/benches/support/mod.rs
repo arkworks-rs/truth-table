@@ -300,7 +300,7 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
     bench_proof
 }
 
-pub fn save_proof(case_name: &'static str, proof: &TTProof<B>) -> Arc<BenchProof> {
+pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     // Persist the proof bytes in a temp file for reuse in verifier benches.
     let temp_dir = TempDir::new().expect("create temp dir for bench proof");
     let proof_path = temp_dir.path().join(format!("{case_name}.proof.pi"));
@@ -312,7 +312,6 @@ pub fn save_proof(case_name: &'static str, proof: &TTProof<B>) -> Arc<BenchProof
         .write_all(&proof_bytes)
         .expect("write proof bytes for bench");
     writer.flush().expect("flush proof bytes for bench");
-    cache_proof_bytes(case_name, Arc::new(proof_bytes));
 
     let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
     let optimized_ir_bytes = proof
@@ -343,15 +342,6 @@ pub fn load_proof_bytes_cached(case_name: &'static str, bench_proof: &BenchProof
     let bytes = Arc::new(load_proof_bytes(bench_proof));
     guard.insert(case_name, Arc::clone(&bytes));
     bytes
-}
-
-fn cache_proof_bytes(case_name: &'static str, bytes: Arc<Vec<u8>>) {
-    let cache = PROOF_BYTES_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    cache
-        .lock()
-        .expect("bench proof-bytes cache poisoned")
-        .entry(case_name)
-        .or_insert(bytes);
 }
 
 pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
