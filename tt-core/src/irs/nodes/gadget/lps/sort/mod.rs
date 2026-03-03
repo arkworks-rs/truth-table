@@ -40,19 +40,25 @@ fn populate_output_expr(
         .any(|field| field.name() == ACTIVATOR_COL_NAME);
     // Guarantee a materialized activator so downstream gadgets can rely on it.
     let sort_input_df = if has_activator {
-        input_df.clone()
+        input_df
     } else {
         // Ensure the output carries an activator even if the input did not.
         input_df
-            .clone()
             .with_column(ACTIVATOR_COL_NAME, lit(true))
             .expect("sort exprs should accept synthetic activator")
     };
 
     // Verifier planning only needs shape/materialization metadata, not row values.
     // Avoid expensive sort planning here when we're in verifier mode.
+    // Verifier planning only needs shape/materialization metadata, not row values.
+    // Avoid expensive sort planning here when we're in verifier mode.
     let output_hint = if skip_collection {
-        crate::irs::nodes::hints::HintDF::new_materialized(sort_input_df)
+        // Build the final verifier hint directly to avoid redundant normalization and cloning.
+        let mut should_materialize = IndexMap::new();
+        for field in sort_input_df.schema().fields() {
+            should_materialize.insert(field.clone(), field.name() != ROW_ID_COL_NAME);
+        }
+        crate::irs::nodes::hints::HintDF::new(sort_input_df, should_materialize)
     } else {
         // Sort by activator first (actives first), then by the sort-expr columns.
         let mut sort_exprs: Vec<SortExpr> =
@@ -119,13 +125,16 @@ fn populate_output_expr(
         crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
     };
     // Keep row-id for deterministic tie-breaking, but do not materialize it.
-    let mut should_materialize = IndexMap::new();
-    for field in output_hint.data_frame().schema().fields() {
-        let mat = field.name() != ROW_ID_COL_NAME;
-        should_materialize.insert(field.clone(), mat);
-    }
-    let output_sort_exprs =
-        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
+    let output_sort_exprs = if skip_collection {
+        output_hint.clone()
+    } else {
+        let mut should_materialize = IndexMap::new();
+        for field in output_hint.data_frame().schema().fields() {
+            let mat = field.name() != ROW_ID_COL_NAME;
+            should_materialize.insert(field.clone(), mat);
+        }
+        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize)
+    };
     gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
     output_hint
 }
@@ -253,8 +262,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
         let output_hint =
             populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs, true);
-        let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
-        gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
+        // INPUT_SORT_EXPRS is not consumed during gadget wiring for OrderBy.
+        // Avoid extra verifier-side projection work here.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
