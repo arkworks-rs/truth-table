@@ -6,7 +6,10 @@ use ark_piop::{
     SnarkBackend, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::arrow::{
+    datatypes::{DataType, Field, FieldRef, Schema},
+    record_batch::RecordBatch,
+};
 use datafusion_common::{Column, Statistics};
 use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
 use either::Either;
@@ -469,16 +472,42 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 &self.parent(),
             );
         let column_name = self.output_column_name_in_parent();
-        // Verifier planning only needs schema-aligned projection; avoid row-id sorts.
-        let input_df = parent_hint_df.data_frame().clone();
+        // Verifier planning only needs schema/materialization shape.
+        // Build a schema-only hint instead of projecting through the parent plan.
+        let parent_schema = parent_hint_df.data_frame().schema();
+        let mut fields: Vec<Field> = Vec::new();
 
-        let mut exprs = vec![Expr::Column(Column::from_name(column_name))];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        if let Some(field) = parent_schema
+            .fields()
+            .iter()
+            .find(|field| field.name() == &column_name)
+        {
+            fields.push(field.as_ref().clone());
+        } else {
+            panic!(
+                "AggregateFunction output could not find column '{}' in parent schema",
+                column_name
+            );
+        }
 
-        let projected = input_df
-            .select(exprs)
-            .expect("aggregate function projection should succeed");
+        if let Some(field) = parent_schema
+            .fields()
+            .iter()
+            .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+        {
+            fields.push(field.as_ref().clone());
+        }
+        if let Some(field) = parent_schema
+            .fields()
+            .iter()
+            .find(|field| field.name() == arithmetic::ROW_ID_COL_NAME)
+        {
+            fields.push(field.as_ref().clone());
+        }
+
+        let projected = datafusion::prelude::SessionContext::new()
+            .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
+            .expect("aggregate function verifier hint construction should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }

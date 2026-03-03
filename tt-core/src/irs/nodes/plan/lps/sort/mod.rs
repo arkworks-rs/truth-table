@@ -2,7 +2,10 @@ use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::{
+    datatypes::{DataType, Field, FieldRef, Schema},
+    record_batch::RecordBatch,
+};
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -263,30 +266,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        // Verifier planning only needs schema-consistent sort-expression payloads.
-        // Avoid extra ordering work here.
-        let input_df = input_hint_df.data_frame().clone();
-
-        let mut exprs: Vec<Expr> = self
-            .sort
-            .expr
-            .iter()
-            .map(|sort_expr| sort_expr.expr.clone())
-            .collect();
-        if input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            exprs.push(col(ACTIVATOR_COL_NAME));
-        }
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let sort_exprs_df = input_df
-            .select(exprs)
-            .expect("sort expr projection should succeed");
-        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
+        let sort_exprs_hint =
+            build_verifier_sort_exprs_hint_from_expr_nodes(&self.sort_exprs, &input_hint_df)?;
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -299,6 +280,69 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         );
         Ok(())
     }
+}
+
+fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
+    sort_expr_nodes: &[Arc<Node<B>>],
+    input_hint_df: &HintDF,
+) -> ark_piop::errors::SnarkResult<HintDF> {
+    // Verifier planning only needs schema/materialization shape. Reuse each sort
+    // expression's already-planned output field and avoid expression projection.
+    let mut fields: Vec<Field> = Vec::with_capacity(sort_expr_nodes.len() + 2);
+    for node in sort_expr_nodes {
+        let expr_hint = match node.as_ref() {
+            Node::Plan(plan_node) => {
+                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                    plan_node,
+                )
+            }
+            Node::Gadget(_) => panic!("Sort expression cannot be a gadget node"),
+        };
+        let data_field = expr_hint
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .find(|field| {
+                let name = field.name();
+                name != ACTIVATOR_COL_NAME && name != ROW_ID_COL_NAME
+            })
+            .cloned()
+            .unwrap_or_else(|| {
+                expr_hint
+                    .data_frame()
+                    .schema()
+                    .fields()
+                    .first()
+                    .cloned()
+                    .expect("Sort expression output should have at least one field")
+            });
+        fields.push(data_field.as_ref().clone());
+    }
+
+    if input_hint_df
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME)
+    {
+        fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
+    }
+    if input_hint_df
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ROW_ID_COL_NAME)
+    {
+        fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, true));
+    }
+
+    let df = datafusion::prelude::SessionContext::new()
+        .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
+        .expect("sort verifier schema-only hint construction should succeed");
+    Ok(HintDF::new_virtual(df))
 }
 
 fn build_sort_exprs_table_prover<B: SnarkBackend>(
