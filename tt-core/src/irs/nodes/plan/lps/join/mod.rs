@@ -526,15 +526,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         };
         gadget_payload.insert(
             join_gadget::LEFT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+            left_hint_df.as_virtual_view(),
         );
         gadget_payload.insert(
             join_gadget::RIGHT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+            right_hint_df.as_virtual_view(),
         );
         gadget_payload.insert(
             join_gadget::OUTPUT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+            output_hint_df.as_virtual_view(),
         );
 
         planned_ir.set_payload_for_node(

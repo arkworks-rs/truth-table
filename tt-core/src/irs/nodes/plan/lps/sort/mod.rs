@@ -349,9 +349,7 @@ fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
         fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, true));
     }
 
-    let df = datafusion::prelude::SessionContext::new()
-        .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
-        .expect("sort verifier schema-only hint construction should succeed");
+    let df = crate::irs::nodes::hints::schema_only_df(fields);
     Ok(HintDF::new_virtual(df))
 }
 
@@ -615,9 +613,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .filter(|field| field.name() != ROW_ID_COL_NAME)
             .map(|field| field.as_ref().clone())
             .collect();
-        let output_df = datafusion::prelude::SessionContext::new()
-            .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
-            .expect("sort verifier schema-only output construction should succeed");
+        let output_df = crate::irs::nodes::hints::schema_only_df(fields);
         HintDF::new_materialized(output_df)
     }
 }

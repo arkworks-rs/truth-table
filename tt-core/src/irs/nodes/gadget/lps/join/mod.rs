@@ -462,7 +462,6 @@ fn derive_many_to_many_hints_verifier(
         .map(|f| f.data_type().clone())
         .unwrap_or(DataType::Int64);
 
-    let ctx = datafusion::prelude::SessionContext::new();
     let src_left_schema = Arc::new(Schema::new(vec![
         Field::new(SRC_LEFT_COL_NAME, left_row_id_ty.clone(), true),
         Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
@@ -480,15 +479,9 @@ fn derive_many_to_many_hints_verifier(
         Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty, true),
     ]));
 
-    let src_left_df = ctx
-        .read_batch(RecordBatch::new_empty(src_left_schema))
-        .expect("join verifier src-left schema-only hint construction should succeed");
-    let src_right_df = ctx
-        .read_batch(RecordBatch::new_empty(src_right_schema))
-        .expect("join verifier src-right schema-only hint construction should succeed");
-    let nodup_df = ctx
-        .read_batch(RecordBatch::new_empty(nodup_schema))
-        .expect("join verifier nodup schema-only hint construction should succeed");
+    let src_left_df = crate::irs::nodes::hints::schema_only_df(src_left_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
+    let src_right_df = crate::irs::nodes::hints::schema_only_df(src_right_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
+    let nodup_df = crate::irs::nodes::hints::schema_only_df(nodup_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
 
     JoinPlanningDerivedHints {
         left_hint,

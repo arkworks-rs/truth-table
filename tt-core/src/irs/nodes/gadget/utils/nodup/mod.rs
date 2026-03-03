@@ -135,8 +135,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     // The child sort gadget should consume the same table as virtual data.
     // We intentionally keep activator virtual so prover/verifier can rebuild
     // it deterministically from active-row count.
-    let lex_sorted_virtual_hint =
-        crate::irs::nodes::hints::HintDF::new_virtual(lex_sorted_hint.data_frame().clone());
+    let lex_sorted_virtual_hint = lex_sorted_hint.as_virtual_view();
     let Gadgets::SortNoDup(gadgets) = &node.gadgets else {
         return Ok(());
     };

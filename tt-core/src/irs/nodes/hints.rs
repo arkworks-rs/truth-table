@@ -1,6 +1,9 @@
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
-use datafusion::{arrow::datatypes::FieldRef, prelude::DataFrame};
+use datafusion::{
+    arrow::{datatypes::{Field, FieldRef, Schema}, record_batch::RecordBatch},
+    prelude::{DataFrame, SessionContext},
+};
 use datafusion_common::{Column, Result as DataFusionResult, TableReference};
 use datafusion_expr::{Expr, LogicalPlan, SortExpr, col, expr::Alias, expr_fn::try_cast};
 use indexmap::IndexMap;
@@ -86,6 +89,17 @@ impl HintDF {
         self.should_materialize.get(field)
     }
 
+    pub fn as_virtual_view(&self) -> Self {
+        let should_materialize = self
+            .data_fram
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), false))
+            .collect();
+        Self::new_assume_normalized(self.data_fram.clone(), should_materialize)
+    }
+
     pub fn field_materialization_iter(&self) -> impl Iterator<Item = (&FieldRef, &bool)> {
         self.should_materialize.iter()
     }
@@ -132,6 +146,13 @@ pub fn sort_by_row_id_if_present(df: DataFrame) -> DataFusionResult<DataFrame> {
         return Ok(df);
     }
     df.sort(row_id_sort_exprs)
+}
+
+pub fn schema_only_df(fields: Vec<Field>) -> DataFrame {
+    static SCHEMA_ONLY_CTX: OnceLock<SessionContext> = OnceLock::new();
+    let ctx = SCHEMA_ONLY_CTX.get_or_init(SessionContext::new);
+    ctx.read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
+        .expect("schema-only dataframe construction should succeed")
 }
 
 pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {

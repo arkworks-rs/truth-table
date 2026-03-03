@@ -748,16 +748,12 @@ fn build_empty_hint_df_with_fields(
     fields: Vec<Field>,
     materialized: bool,
 ) -> crate::irs::nodes::hints::HintDF {
-    let schema = Arc::new(Schema::new(fields));
-    let batch = RecordBatch::new_empty(schema);
-    let df = SessionContext::new()
-        .read_batch(batch)
-        .expect("verifier schema-only hint construction should succeed");
+    let df = crate::irs::nodes::hints::schema_only_df(fields);
     let mut should_materialize = IndexMap::new();
     for field in df.schema().fields() {
         should_materialize.insert(field.clone(), materialized);
     }
-    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+    crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
 }
 
 fn ordered_data_fields_for_hint(
