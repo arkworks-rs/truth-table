@@ -162,7 +162,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Produce a virtual DataFrame with the literal and activator columns from the scope.
+        // Produce a virtual DataFrame shape for the literal and system columns from the scope.
         let scope = self.scope[0]
             .upgrade()
             .expect("Literal scope should be available during output");
@@ -175,17 +175,31 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
 
-        // Verifier planning needs output shape only; avoid row-id sorting overhead.
-        let input_df = scope_hint_df.data_frame().clone();
+        // Verifier planning needs schema shape only; avoid DataFusion projection work.
+        let input_schema = scope_hint_df.data_frame().schema().as_arrow();
+        let mut fields = vec![Field::new(
+            self.literal.to_string(),
+            self.literal.data_type(),
+            true,
+        )];
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ROW_ID_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ACTIVATOR_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
 
-        let mut exprs = vec![lit(self.literal.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-        let projected = input_df
-            .select(exprs)
-            .expect("literal projection should succeed");
-
-        crate::irs::nodes::hints::HintDF::new_virtual(projected)
+        crate::irs::nodes::hints::HintDF::new_virtual(crate::irs::nodes::hints::schema_only_df(
+            fields,
+        ))
     }
 }
 
