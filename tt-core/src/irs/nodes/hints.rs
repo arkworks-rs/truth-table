@@ -236,13 +236,14 @@ pub fn strip_row_id_from_hint(hint: &HintDF) -> HintDF {
         .select(projected)
         .expect("row-id projection should succeed");
 
+    let mut by_name: HashMap<&str, bool> = HashMap::new();
+    for (field, materialized) in hint.field_materialization_iter() {
+        by_name.entry(field.name()).or_insert(*materialized);
+    }
+
     let mut should_materialize = IndexMap::new();
     for field in projected_df.schema().fields() {
-        let materialized = hint
-            .field_materialization_iter()
-            .find(|(orig_field, _)| orig_field.name() == field.name())
-            .map(|(_, materialized)| *materialized)
-            .unwrap_or(true);
+        let materialized = by_name.get(field.name().as_str()).copied().unwrap_or(true);
         should_materialize.insert(field.clone(), materialized);
     }
 
@@ -459,19 +460,9 @@ fn normalize_hint_df(
         .collect();
 
     let already_normalized = match data_fram.logical_plan() {
-        LogicalPlan::Projection(proj) => {
-            proj.expr.len() == projection.len()
-                && proj
-                    .expr
-                    .iter()
-                    .zip(projection.iter())
-                    .all(|(expr, expected)| {
-                        matches!(
-                            (expr, expected),
-                            (Expr::Column(actual), Expr::Column(expected)) if actual == expected
-                        )
-                    })
-        }
+        // A normalized HintDF is exactly the projection we build above.
+        // If it already matches, avoid re-projecting/casting.
+        LogicalPlan::Projection(proj) => proj.expr == projection,
         _ => false,
     };
 
