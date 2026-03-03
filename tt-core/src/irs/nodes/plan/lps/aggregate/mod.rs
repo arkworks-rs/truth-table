@@ -1,7 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, table::TrackedTable, table_oracle::TrackedTableOracle,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_ff::{One, Zero};
 use ark_piop::SnarkBackend;
@@ -473,6 +474,96 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     }
 }
 
+fn schema_field_for_column(
+    schema: &datafusion::arrow::datatypes::Schema,
+    column: &Column,
+) -> Option<datafusion::arrow::datatypes::FieldRef> {
+    let name = column.name();
+    if let Some(relation) = column.relation.as_ref() {
+        let relation_str = relation.to_string();
+        if let Some(field) = schema.fields().iter().find(|field| {
+            field.name() == name
+                && field
+                    .metadata()
+                    .get(QUALIFIER_METADATA_KEY)
+                    .is_some_and(|q| q == &relation_str)
+        }) {
+            return Some(field.clone());
+        }
+    }
+    schema
+        .fields()
+        .iter()
+        .find(|field| field.name() == name)
+        .cloned()
+}
+
+fn aggregate_group_projection_fields(
+    schema: &datafusion::arrow::datatypes::Schema,
+    group_exprs: &[Expr],
+) -> Vec<Field> {
+    let mut fields = Vec::new();
+
+    for expr in group_exprs {
+        let Expr::Column(col) = expr else {
+            continue;
+        };
+        if let Some(field_ref) = schema_field_for_column(schema, col)
+            && fields.iter().all(|f: &Field| {
+                f.name() != field_ref.name()
+                    || f.metadata().get(QUALIFIER_METADATA_KEY)
+                        != field_ref.metadata().get(QUALIFIER_METADATA_KEY)
+            })
+        {
+            fields.push(field_ref.as_ref().clone());
+        }
+    }
+
+    let row_id_choice = schema
+        .fields()
+        .iter()
+        .filter(|field| field.name() == ROW_ID_COL_NAME)
+        .find(|field| field.metadata().contains_key(QUALIFIER_METADATA_KEY))
+        .cloned()
+        .or_else(|| {
+            let mut row_ids = schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ROW_ID_COL_NAME);
+            let first = row_ids.next().cloned();
+            if row_ids.next().is_none() {
+                first
+            } else {
+                None
+            }
+        });
+    if let Some(field_ref) = row_id_choice
+        && fields.iter().all(|f| {
+            f.name() != field_ref.name()
+                || f.metadata().get(QUALIFIER_METADATA_KEY)
+                    != field_ref.metadata().get(QUALIFIER_METADATA_KEY)
+        })
+    {
+        fields.push(field_ref.as_ref().clone());
+    }
+
+    for field_ref in schema
+        .fields()
+        .iter()
+        .filter(|field| field.name() == ACTIVATOR_COL_NAME)
+    {
+        if fields.iter().all(|f| {
+            f.name() != field_ref.name()
+                || f.metadata().get(QUALIFIER_METADATA_KEY)
+                    != field_ref.metadata().get(QUALIFIER_METADATA_KEY)
+        }) {
+            fields.push(field_ref.as_ref().clone());
+        }
+    }
+
+    fields
+}
+
 impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadget_plans(
         &self,
@@ -487,50 +578,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
             _ => return Ok(()),
         };
-
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("aggregate input row-id sort should succeed");
-        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(
-            output_hint_df.data_frame().clone(),
-        )
-        .expect("aggregate output row-id sort should succeed");
-
-        let mut input_projection_exprs = self.aggregate.group_expr.clone();
-        crate::irs::nodes::hints::append_activator_exprs_if_present(
-            &input_df,
-            &mut input_projection_exprs,
+        let input_fields = aggregate_group_projection_fields(
+            input_hint_df.data_frame().schema().as_arrow(),
+            &self.aggregate.group_expr,
         );
-        crate::irs::nodes::hints::append_row_id_expr_if_present(
-            &input_df,
-            &mut input_projection_exprs,
+        let output_fields = aggregate_group_projection_fields(
+            output_hint_df.data_frame().schema().as_arrow(),
+            &self.aggregate.group_expr,
         );
-
-        let mut output_projection_exprs = self.aggregate.group_expr.clone();
-        crate::irs::nodes::hints::append_activator_exprs_if_present(
-            &output_df,
-            &mut output_projection_exprs,
+        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(
+            crate::irs::nodes::hints::schema_only_df(input_fields),
         );
-        crate::irs::nodes::hints::append_row_id_expr_if_present(
-            &output_df,
-            &mut output_projection_exprs,
+        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(
+            crate::irs::nodes::hints::schema_only_df(output_fields),
         );
-
-        let input_projected = input_df
-            .select(input_projection_exprs)
-            .expect("aggregate input group projection should succeed");
-        let output_projected = output_df
-            .select(output_projection_exprs)
-            .expect("aggregate output group projection should succeed");
-
-        let input_projected = crate::irs::nodes::hints::sort_by_row_id_if_present(input_projected)
-            .expect("aggregate input group sort should succeed");
-        let output_projected =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(output_projected)
-                .expect("aggregate output group sort should succeed");
-
-        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
-        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
