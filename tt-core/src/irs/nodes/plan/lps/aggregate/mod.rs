@@ -447,8 +447,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         };
 
         let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
-        let output = crate::irs::nodes::hints::sort_by_row_id_if_present(output)
-            .expect("aggregate output sort should succeed");
 
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();

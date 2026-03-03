@@ -224,8 +224,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         };
 
         let projected = hints::build_output_dataframe(input_hint_df.data_frame(), &self.projection);
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("projection output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
