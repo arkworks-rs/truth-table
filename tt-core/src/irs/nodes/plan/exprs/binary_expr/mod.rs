@@ -582,9 +582,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("binary expr row-id sort should succeed");
+        // Verifier planning needs only output shape/materialization metadata.
+        // Keep the input as-is and avoid row-id sorting work.
+        let input_df = scope_hint_df.data_frame().clone();
 
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
@@ -627,8 +627,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             })
             .collect();
 
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("binary expr output sort should succeed");
         crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
