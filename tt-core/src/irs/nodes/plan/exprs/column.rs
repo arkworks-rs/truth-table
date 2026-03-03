@@ -183,12 +183,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             });
 
         let input_df = scope_hint_df.data_frame().clone();
-
-        let mut exprs = vec![resolve_column_expr(input_df.schema(), &self.column)];
-        if self.column.name() != ACTIVATOR_COL_NAME {
-            crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        }
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let exprs = verifier_column_projection_exprs(input_df.schema(), &self.column);
 
         let projected = input_df
             .select(exprs)
@@ -196,6 +191,70 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
 
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
+}
+
+fn verifier_column_projection_exprs(schema: &DFSchema, column: &Column) -> Vec<datafusion_expr::Expr> {
+    let selected = resolve_column_expr(schema, column);
+    let selected_col = match &selected {
+        datafusion_expr::Expr::Column(col) => Some(col.clone()),
+        _ => None,
+    };
+
+    let mut activators = Vec::new();
+    let mut row_id_candidates = Vec::new();
+    for (qualifier, field) in schema.iter() {
+        if field.name() == ACTIVATOR_COL_NAME {
+            activators.push(Column::new(qualifier.cloned(), ACTIVATOR_COL_NAME));
+        } else if field.name() == arithmetic::ROW_ID_COL_NAME {
+            row_id_candidates.push(Column::new(qualifier.cloned(), arithmetic::ROW_ID_COL_NAME));
+        }
+    }
+
+    let mut exprs = vec![selected];
+    if column.name() != ACTIVATOR_COL_NAME {
+        for activator_col in activators {
+            let already_present = selected_col.as_ref().is_some_and(|selected| {
+                selected.name == activator_col.name && selected.relation == activator_col.relation
+            });
+            if !already_present {
+                exprs.push(datafusion_expr::Expr::Column(activator_col));
+            }
+        }
+    }
+
+    let row_id_choice = row_id_candidates
+        .iter()
+        .find(|col| col.relation.is_some())
+        .cloned()
+        .or_else(|| {
+            if row_id_candidates.len() == 1 {
+                row_id_candidates.first().cloned()
+            } else {
+                None
+            }
+        });
+
+    if let Some(row_id_col) = row_id_choice {
+        let already_present = exprs.iter().any(|expr| match expr {
+            datafusion_expr::Expr::Column(col) => {
+                col.name == row_id_col.name && col.relation == row_id_col.relation
+            }
+            _ => false,
+        });
+        if !already_present {
+            let row_id_expr = datafusion_expr::Expr::Column(row_id_col);
+            if let Some(pos) = exprs.iter().position(|expr| match expr {
+                datafusion_expr::Expr::Column(col) => col.name == ACTIVATOR_COL_NAME,
+                _ => false,
+            }) {
+                exprs.insert(pos, row_id_expr);
+            } else {
+                exprs.push(row_id_expr);
+            }
+        }
+    }
+
+    exprs
 }
 
 fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::Expr {
