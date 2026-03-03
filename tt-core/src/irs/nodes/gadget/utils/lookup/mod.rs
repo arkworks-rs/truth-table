@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
@@ -144,7 +145,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         };
 
         let super_hint = match gadget_payload.get(SUPER_LABEL) {
-            Some(hint_df) => hint_df.clone(),
+            Some(hint_df) => hint_df,
             None => return Ok(()),
         };
 
@@ -184,35 +185,62 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 fn build_verifier_multiplicity_hint(
     super_hint: &crate::irs::nodes::hints::HintDF,
 ) -> crate::irs::nodes::hints::HintDF {
-    // Verifier planning only needs schema/materialization shape for multiplicities.
-    // Runtime multiplicity oracle is wired in initialize_gadgets.
-    let fields = vec![
-        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
-        Field::new("multiplicity", DataType::Int64, true),
-    ];
-    let df = crate::irs::nodes::hints::schema_only_df(fields);
-
     let has_super_activator = super_hint
         .data_frame()
         .schema()
         .fields()
         .iter()
         .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    let should_materialize = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let mat = if field.name() == ACTIVATOR_COL_NAME {
-                !has_super_activator
-            } else {
-                !is_system_column(field.name())
-            };
-            (field.clone(), mat)
-        })
-        .collect();
+    verifier_multiplicity_hint_template(has_super_activator).clone()
+}
 
-    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+fn verifier_multiplicity_hint_template(
+    has_super_activator: bool,
+) -> &'static crate::irs::nodes::hints::HintDF {
+    static HINTS: OnceLock<(crate::irs::nodes::hints::HintDF, crate::irs::nodes::hints::HintDF)> =
+        OnceLock::new();
+
+    let (with_super_activator, without_super_activator) = HINTS.get_or_init(|| {
+        // Verifier planning only needs schema/materialization shape for multiplicities.
+        // Runtime multiplicity oracle is wired in initialize_gadgets.
+        let fields = vec![
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
+            Field::new("multiplicity", DataType::Int64, true),
+        ];
+        let df = crate::irs::nodes::hints::schema_only_df(fields);
+        let activator_field = df
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| f.name() == ACTIVATOR_COL_NAME)
+            .cloned()
+            .expect("lookup multiplicity schema should contain activator");
+        let multiplicity_field = df
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| f.name() == "multiplicity")
+            .cloned()
+            .expect("lookup multiplicity schema should contain multiplicity");
+
+        let with_super_activator_map = IndexMap::from([
+            (activator_field.clone(), false),
+            (multiplicity_field.clone(), true),
+        ]);
+        let without_super_activator_map =
+            IndexMap::from([(activator_field, true), (multiplicity_field, true)]);
+
+        (
+            crate::irs::nodes::hints::HintDF::new(df.clone(), with_super_activator_map),
+            crate::irs::nodes::hints::HintDF::new(df, without_super_activator_map),
+        )
+    });
+
+    if has_super_activator {
+        with_super_activator
+    } else {
+        without_super_activator
+    }
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
