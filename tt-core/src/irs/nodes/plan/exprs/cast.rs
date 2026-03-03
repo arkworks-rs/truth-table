@@ -4,9 +4,9 @@ use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::Cast;
+use datafusion_expr::{Cast, ExprSchemable};
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -186,16 +186,32 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
         };
 
-        // Verifier planning needs output shape only; avoid row-id sorting overhead.
-        let input_df = scope_hint_df.data_frame().clone();
+        // Verifier planning only needs output schema/materialization metadata.
+        // Avoid DataFusion projection execution for cast expressions.
+        let input_schema = scope_hint_df.data_frame().schema().as_arrow();
+        let cast_expr = datafusion_expr::Expr::Cast(self.cast.clone());
+        let output_name = cast_expr.schema_name().to_string();
+        let output_type = cast_expr
+            .get_type(scope_hint_df.data_frame().schema())
+            .unwrap_or(DataType::Null);
 
-        let mut exprs = vec![datafusion_expr::Expr::Cast(self.cast.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-        let projected = input_df
-            .select(exprs)
-            .expect("cast projection should succeed");
+        let mut fields = vec![Field::new(output_name, output_type, true)];
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ROW_ID_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ACTIVATOR_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
 
+        let projected = crate::irs::nodes::hints::schema_only_df(fields);
         let should_materialize = projected
             .schema()
             .fields()
@@ -215,47 +231,55 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // The cast output already carries a materialized data column; copy the activator
-        // from the expression child so the table matches the child scope.
+        // The cast output already carries a materialized data column; copy row_id/activator
+        // from the expression child while avoiding full table clones.
         let expr_id = self.expr.id();
-        let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+        let (
+            expr_row_id_entry,
+            expr_activator,
+            expr_log_size,
+            expr_metadata,
+        ) = match virtualized_ir.payload_for_node(&expr_id) {
+            Some(PayloadStructure::PlanPayload(table)) => {
+                let row_id = table
+                    .tracked_oracles_iter()
+                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                    .map(|(field, oracle)| (field.clone(), oracle.clone()));
+                let activator = table.activator_tracked_poly();
+                let log_size = table.log_size();
+                let metadata = table.schema_ref().map(|s| s.metadata().clone());
+                (row_id, activator, log_size, metadata)
+            }
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let (mut merged_oracles, current_log_size, current_metadata) =
+            match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(table)) => (
+                    table.tracked_oracles(),
+                    table.log_size(),
+                    table.schema_ref().map(|s| s.metadata().clone()),
+                ),
+                _ => (Default::default(), 0, None),
+            };
 
-        let mut merged_oracles = current_table.tracked_oracles();
-        if let Some((row_id_field, row_id_oracle)) = expr_table
-            .tracked_oracles_iter()
-            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-        {
+        if let Some((row_id_field, row_id_oracle)) = expr_row_id_entry {
             merged_oracles
-                .entry(row_id_field.clone())
-                .or_insert_with(|| row_id_oracle.clone());
+                .entry(row_id_field)
+                .or_insert(row_id_oracle);
         }
-        if let Some(activator) = expr_table.activator_tracked_poly() {
+        if let Some(activator) = expr_activator {
             merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
         }
 
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
+        let metadata = current_metadata.or(expr_metadata).unwrap_or_default();
         let fields = merged_oracles
             .keys()
             .map(|f| f.as_ref().clone())
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+        let log_size = match (current_log_size, expr_log_size) {
             (0, other) => other,
             (curr, 0) => curr,
             (curr, expr) => {

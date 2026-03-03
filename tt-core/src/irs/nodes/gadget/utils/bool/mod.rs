@@ -107,7 +107,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for Bool gadget node");
         };
-        let Some(table) = payload.get(TABLE_LABEL).cloned() else {
+        let Some(table) = payload.get(TABLE_LABEL) else {
             panic!("Expected table payload for Bool gadget");
         };
 
@@ -159,7 +159,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for Bool gadget node");
         };
-        let Some(table) = payload.get(TABLE_LABEL).cloned() else {
+        let Some(table) = payload.get(TABLE_LABEL) else {
             panic!("Expected table payload for Bool gadget");
         };
 

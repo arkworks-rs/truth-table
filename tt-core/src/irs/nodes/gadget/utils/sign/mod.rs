@@ -99,12 +99,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
         };
 
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
         let input = gadget_payload
             .get(INPUT_LABEL)
-            .cloned()
             .expect("Expected input for Sign gadget initialization");
 
         let data_indices = input.data_tracked_polys_indices();
@@ -184,12 +183,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
         };
 
         let gadget_payload = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
         let input = gadget_payload
             .get(INPUT_LABEL)
-            .cloned()
             .expect("Expected input for Sign gadget initialization");
 
         let data_indices = input.data_tracked_oracles_indices();
@@ -263,7 +261,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             panic!("Expected gadget payload for Sign gadget node");
         };
         // Then inside that payload, fetch the input
-        let Some(input) = payload.get(INPUT_LABEL).cloned() else {
+        let Some(input) = payload.get(INPUT_LABEL) else {
             panic!("Expected input for Sign gadget");
         };
         let data_inds = input.data_tracked_polys_indices();
@@ -306,10 +304,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         else {
             return Ok(());
         };
-        let input = payload
-            .get(INPUT_LABEL)
-            .cloned()
-            .expect("Expected input for Sign gadget");
+        let input = payload.get(INPUT_LABEL).expect("Expected input for Sign gadget");
         let data_inds = input.data_tracked_polys_indices();
         debug_assert!(
             !data_inds.is_empty(),
@@ -409,7 +404,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
             panic!("Expected gadget payload for Sign gadget node");
         };
         // Then inside that payload, fetch the input
-        let Some(input) = payload.get(INPUT_LABEL).cloned() else {
+        let Some(input) = payload.get(INPUT_LABEL) else {
             panic!("Expected input for Sign gadget");
         };
         let data_inds = input.data_tracked_oracles_indices();

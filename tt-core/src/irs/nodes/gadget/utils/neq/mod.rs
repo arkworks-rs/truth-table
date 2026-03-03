@@ -116,10 +116,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for neq gadget");
         };
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
+        let (Some(left_input), Some(right_input)) =
+            (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+        else {
             panic!("Expected left and right inputs for neq gadget");
         };
 
@@ -166,10 +165,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
+        let (Some(left_input), Some(right_input)) =
+            (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+        else {
             return Ok(());
         };
 
@@ -220,10 +218,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             panic!("Expected gadget payload for neq gadget");
         };
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
+        let (Some(left_input), Some(right_input)) =
+            (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+        else {
             panic!("Expected left and right inputs for neq gadget");
         };
 
