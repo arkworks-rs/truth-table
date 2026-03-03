@@ -156,8 +156,24 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Probe scopes in order and choose the first schema that has this column.
-        let scope_hint_df = self
+        // Fast path: the immediate parent scope usually contains the column.
+        let parent_hint_df = self
+            .parent
+            .as_ref()
+            .and_then(|weak_ref| weak_ref.upgrade())
+            .and_then(|parent| match parent.as_ref() {
+                Node::Plan(plan_node) => Some(
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node),
+                ),
+                Node::Gadget(_) => None,
+            })
+            .filter(|hint_df| schema_contains_column(hint_df.data_frame().schema(), &self.column));
+
+        // Fallback: probe all scopes in order and choose the first matching schema.
+        let scope_hint_df = parent_hint_df.unwrap_or_else(|| {
+            self
             .scope
             .iter()
             .filter_map(|scope_weak| scope_weak.upgrade())
@@ -180,7 +196,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                     "Column output could not find column '{}' in any scope",
                     self.column
                 )
-            });
+            })
+        });
 
         // Verifier planning needs only schema shape, not DataFusion projection execution.
         let schema_ref = scope_hint_df.data_frame().schema().as_arrow().clone();
