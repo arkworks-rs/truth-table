@@ -418,114 +418,120 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Extract the left, right, and output tracked tables from the payload.
-        let (left_input, right_input, output) = match virtualized_ir.payload_for_node(&id) {
+        let (true_input, false_input, output) = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => match (
                 map.get(LEFT_INPUT_LABEL),
                 map.get(RIGHT_INPUT_LABEL),
                 map.get(OUTPUT_LABEL),
             ) {
-                (Some(left), Some(right), Some(output)) => {
-                    (left.clone(), right.clone(), output.clone())
+                (Some(left_input), Some(right_input), Some(output)) => {
+                    // Ensure that the left and right inputs and output share the same activator oracle.
+                    debug_assert_eq!(
+                        left_input.activator_tracked_poly(),
+                        right_input.activator_tracked_poly(),
+                        "Left and right inputs must share the same activator oracle"
+                    );
+                    debug_assert_eq!(
+                        left_input.activator_tracked_poly(),
+                        output.activator_tracked_poly(),
+                        "Left input and output must share the same activator oracle"
+                    );
+
+                    // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
+                    let shared_activator = left_input.activator_tracked_poly();
+
+                    let left_data_ind = left_input.data_tracked_oracles_indices()[0];
+                    let left_data_oracle = left_input
+                        .tracked_col_oracle_by_ind(left_data_ind)
+                        .data_tracked_oracle();
+                    let right_data_ind = right_input.data_tracked_oracles_indices()[0];
+                    let right_data_oracle = right_input
+                        .tracked_col_oracle_by_ind(right_data_ind)
+                        .data_tracked_oracle();
+
+                    let output_ind = output.data_tracked_oracles_indices()[0];
+                    let output_oracle = output
+                        .tracked_col_oracle_by_ind(output_ind)
+                        .data_tracked_oracle();
+
+                    let left_data_field = left_input
+                        .tracked_oracles()
+                        .keys()
+                        .find(|field| !is_system_column(field.name()))
+                        .cloned()
+                        .expect("BinCmp left input should include a data column");
+                    let right_data_field = right_input
+                        .tracked_oracles()
+                        .keys()
+                        .find(|field| !is_system_column(field.name()))
+                        .cloned()
+                        .expect("BinCmp right input should include a data column");
+                    let (left_data_oracle, right_data_oracle) = Self::aligned_decimal_diff_oracles(
+                        &left_data_oracle,
+                        left_data_field.data_type(),
+                        &right_data_oracle,
+                        right_data_field.data_type(),
+                    );
+                    let diff_data_oracle = &left_data_oracle - &right_data_oracle;
+                    let data_field = Self::merged_sign_field(&left_data_field, &right_data_field);
+                    let metadata = left_input
+                        .schema_ref()
+                        .map(|s| s.metadata().clone())
+                        .unwrap_or_default();
+
+                    let build_table_with_activator =
+                        |data_oracle: &ark_piop::verifier::structs::oracle::TrackedOracle<B>,
+                         activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
+                            let mut oracles = IndexMap::new();
+                            oracles.insert(data_field.clone(), data_oracle.clone());
+                            oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
+
+                            let fields = oracles
+                                .keys()
+                                .map(|f| f.as_ref().clone())
+                                .collect::<Vec<_>>();
+                            let schema = Some(Schema::new_with_metadata(fields, metadata.clone()));
+
+                            let data_log_size = data_oracle.log_size();
+                            debug_assert_eq!(
+                                data_log_size,
+                                activator.log_size(),
+                                "BinCmp gadget activator log size should match data log size"
+                            );
+                            arithmetic::table_oracle::TrackedTableOracle::new(
+                                schema,
+                                oracles,
+                                data_log_size,
+                            )
+                        };
+
+                    let true_activator = output_oracle.clone();
+                    let true_input = build_table_with_activator(&diff_data_oracle, &true_activator);
+
+                    // Build the false-branch gadget inputs.
+                    let neg_output_activator = output_oracle
+                        .mul_scalar_oracle(-B::F::one())
+                        .add_scalar_oracle(B::F::one());
+                    let false_activator = match &shared_activator {
+                        Some(oracle) => oracle - &output_oracle,
+                        None => neg_output_activator.clone(),
+                    };
+                    let false_input =
+                        build_table_with_activator(&diff_data_oracle, &false_activator);
+
+                    (true_input, false_input, output.clone())
                 }
                 _ => panic!("Expected left, right, and output tables for binary compare gadget"),
             },
             _ => panic!("Expected left, right, and output tables for binary compare gadget"),
         };
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            right_input.activator_tracked_poly(),
-            "Left and right inputs must share the same activator oracle"
-        );
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            output.activator_tracked_poly(),
-            "Left input and output must share the same activator oracle"
-        );
-
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
-        let shared_activator = left_input.activator_tracked_poly();
-
-        let left_data_ind = left_input.data_tracked_oracles_indices()[0];
-        let left_data_oracle = left_input
-            .tracked_col_oracle_by_ind(left_data_ind)
-            .data_tracked_oracle();
-        let right_data_ind = right_input.data_tracked_oracles_indices()[0];
-        let right_data_oracle = right_input
-            .tracked_col_oracle_by_ind(right_data_ind)
-            .data_tracked_oracle();
-
-        let output_ind = output.data_tracked_oracles_indices()[0];
-        let output_oracle = output
-            .tracked_col_oracle_by_ind(output_ind)
-            .data_tracked_oracle();
-
-        let left_data_field = left_input
-            .tracked_oracles()
-            .keys()
-            .find(|field| !is_system_column(field.name()))
-            .cloned()
-            .expect("BinCmp left input should include a data column");
-        let right_data_field = right_input
-            .tracked_oracles()
-            .keys()
-            .find(|field| !is_system_column(field.name()))
-            .cloned()
-            .expect("BinCmp right input should include a data column");
-        let (left_data_oracle, right_data_oracle) = Self::aligned_decimal_diff_oracles(
-            &left_data_oracle,
-            left_data_field.data_type(),
-            &right_data_oracle,
-            right_data_field.data_type(),
-        );
-        let diff_data_oracle = &left_data_oracle - &right_data_oracle;
-        let data_field = Self::merged_sign_field(&left_data_field, &right_data_field);
-        let metadata = left_input
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .unwrap_or_default();
-
-        let build_table_with_activator =
-            |data_oracle: &ark_piop::verifier::structs::oracle::TrackedOracle<B>,
-             activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
-                let mut oracles = IndexMap::new();
-                oracles.insert(data_field.clone(), data_oracle.clone());
-                oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
-
-                let fields = oracles
-                    .keys()
-                    .map(|f| f.as_ref().clone())
-                    .collect::<Vec<_>>();
-                let schema = Some(Schema::new_with_metadata(fields, metadata.clone()));
-
-                let data_log_size = data_oracle.log_size();
-                debug_assert_eq!(
-                    data_log_size,
-                    activator.log_size(),
-                    "BinCmp gadget activator log size should match data log size"
-                );
-                arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, data_log_size)
-            };
-
-        let true_activator = output_oracle.clone();
-        let true_input = build_table_with_activator(&diff_data_oracle, &true_activator);
         let true_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), true_input)]);
         virtualized_ir.set_payload_for_node(
             self.true_sign.id(),
             Some(PayloadStructure::GadgetPayload(true_payload)),
         );
 
-        // Build the false-branch gadget inputs.
-        let neg_output_activator = output_oracle
-            .mul_scalar_oracle(-B::F::one())
-            .add_scalar_oracle(B::F::one());
-        let false_activator = match &shared_activator {
-            Some(oracle) => oracle - &output_oracle,
-            None => neg_output_activator.clone(),
-        };
-        let false_input = build_table_with_activator(&diff_data_oracle, &false_activator);
         let false_payload = IndexMap::from([(sign::INPUT_LABEL.to_string(), false_input)]);
         virtualized_ir.set_payload_for_node(
             self.false_sign.id(),

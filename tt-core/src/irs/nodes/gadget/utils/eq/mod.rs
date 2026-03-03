@@ -116,10 +116,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Eq gadget node");
         };
         // Then inside that payload, fetch the left and right inputs
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
+        let (Some(left_input), Some(right_input)) =
+            (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+        else {
             panic!("Expected left and right inputs for Eq gadget");
         };
         let left_data_inds = left_input.data_tracked_polys_indices();
@@ -179,10 +178,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Eq gadget node");
         };
         // Then inside that payload, fetch the left and right inputs
-        let (Some(left_input), Some(right_input)) = (
-            payload.get(LEFT_LABEL).cloned(),
-            payload.get(RIGHT_LABEL).cloned(),
-        ) else {
+        let (Some(left_input), Some(right_input)) =
+            (payload.get(LEFT_LABEL), payload.get(RIGHT_LABEL))
+        else {
             panic!("Expected left and right inputs for Eq gadget");
         };
         let left_data_inds = left_input.data_tracked_oracles_indices();

@@ -197,85 +197,100 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Extract the left, right, and output tracked tables from the payload.
-        let (left_input, right_input, output) = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => match (
-                map.get(LEFT_INPUT_LABEL),
-                map.get(RIGHT_INPUT_LABEL),
-                map.get(OUTPUT_LABEL),
-            ) {
-                (Some(left), Some(right), Some(output)) => {
-                    (left.clone(), right.clone(), output.clone())
-                }
-                _ => panic!("Expected left, right, and output tables for binary equality gadget"),
-            },
-            _ => panic!("Expected left, right, and output tables for binary equality gadget"),
-        };
+        let (eq_left, eq_right, neq_left, neq_right, output) =
+            match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => match (
+                    map.get(LEFT_INPUT_LABEL),
+                    map.get(RIGHT_INPUT_LABEL),
+                    map.get(OUTPUT_LABEL),
+                ) {
+                    (Some(left_input), Some(right_input), Some(output)) => {
+                        // Ensure that the left and right inputs and output share the same activator oracle.
+                        debug_assert_eq!(
+                            left_input.activator_tracked_poly(),
+                            right_input.activator_tracked_poly(),
+                            "Left and right inputs must share the same activator oracle"
+                        );
+                        debug_assert_eq!(
+                            left_input.activator_tracked_poly(),
+                            output.activator_tracked_poly(),
+                            "Left input and output must share the same activator oracle"
+                        );
 
-        // Ensure that the left and right inputs and output share the same activator oracle.
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            right_input.activator_tracked_poly(),
-            "Left and right inputs must share the same activator oracle"
-        );
-        debug_assert_eq!(
-            left_input.activator_tracked_poly(),
-            output.activator_tracked_poly(),
-            "Left input and output must share the same activator oracle"
-        );
+                        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
+                        let shared_activator = left_input.activator_tracked_poly();
 
-        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
-        let shared_activator = left_input.activator_tracked_poly();
+                        let output_ind = output.data_tracked_oracles_indices()[0];
+                        let output_oracle = output
+                            .tracked_col_oracle_by_ind(output_ind)
+                            .data_tracked_oracle();
 
-        let output_ind = output.data_tracked_oracles_indices()[0];
-        let output_oracle = output
-            .tracked_col_oracle_by_ind(output_ind)
-            .data_tracked_oracle();
+                        let build_table_with_activator =
+                            |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+                             activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
+                                let mut oracles = IndexMap::new();
+                                for (field, oracle) in table.tracked_oracles_iter() {
+                                    if is_system_column(field.name()) {
+                                        continue;
+                                    }
+                                    oracles.insert(field.clone(), oracle.clone());
+                                }
+                                oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
 
-        let build_table_with_activator =
-            |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-             activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
-                let mut oracles = IndexMap::new();
-                for (field, oracle) in table.tracked_oracles_iter() {
-                    if is_system_column(field.name()) {
-                        continue;
+                                let metadata = table
+                                    .schema_ref()
+                                    .map(|s| s.metadata().clone())
+                                    .unwrap_or_default();
+                                let fields = oracles
+                                    .keys()
+                                    .map(|f| f.as_ref().clone())
+                                    .collect::<Vec<_>>();
+                                let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+                                let table_log_size = table.log_size();
+                                let activator_log_size = activator.log_size();
+                                let log_size = if table_log_size == 0 {
+                                    activator_log_size
+                                } else {
+                                    debug_assert_eq!(
+                                        table_log_size, activator_log_size,
+                                        "BinEq gadget activator log size should match table log size"
+                                    );
+                                    table_log_size
+                                };
+                                arithmetic::table_oracle::TrackedTableOracle::new(
+                                    schema,
+                                    oracles,
+                                    log_size,
+                                )
+                            };
+
+                        // Build the eq gadget inputs.
+                        // let eq_activator = match &shared_activator {
+                        //     Some(oracle) => oracle * &output_oracle,
+                        //     None => output_oracle.clone(),
+                        // };
+                        let eq_activator = output_oracle.clone();
+                        let eq_left = build_table_with_activator(left_input, &eq_activator);
+                        let eq_right = build_table_with_activator(right_input, &eq_activator);
+
+                        // Build the neq gadget inputs.
+                        let neg_output_activator = output_oracle
+                            .mul_scalar_oracle(-B::F::one())
+                            .add_scalar_oracle(B::F::one());
+                        let neq_activator = match &shared_activator {
+                            Some(oracle) => oracle - &output_oracle,
+                            None => neg_output_activator.clone(),
+                        };
+                        let neq_left = build_table_with_activator(left_input, &neq_activator);
+                        let neq_right = build_table_with_activator(right_input, &neq_activator);
+                        (eq_left, eq_right, neq_left, neq_right, output.clone())
                     }
-                    oracles.insert(field.clone(), oracle.clone());
-                }
-                oracles.insert(ACTIVATOR_FIELD.clone(), activator.clone());
-
-                let metadata = table
-                    .schema_ref()
-                    .map(|s| s.metadata().clone())
-                    .unwrap_or_default();
-                let fields = oracles
-                    .keys()
-                    .map(|f| f.as_ref().clone())
-                    .collect::<Vec<_>>();
-                let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-                let table_log_size = table.log_size();
-                let activator_log_size = activator.log_size();
-                let log_size = if table_log_size == 0 {
-                    activator_log_size
-                } else {
-                    debug_assert_eq!(
-                        table_log_size, activator_log_size,
-                        "BinEq gadget activator log size should match table log size"
-                    );
-                    table_log_size
-                };
-                arithmetic::table_oracle::TrackedTableOracle::new(schema, oracles, log_size)
+                    _ => panic!("Expected left, right, and output tables for binary equality gadget"),
+                },
+                _ => panic!("Expected left, right, and output tables for binary equality gadget"),
             };
 
-        // Build the eq gadget inputs.
-        // let eq_activator = match &shared_activator {
-        //     Some(oracle) => oracle * &output_oracle,
-        //     None => output_oracle.clone(),
-        // };
-        let eq_activator = output_oracle.clone();
-        let eq_left = build_table_with_activator(&left_input, &eq_activator);
-        let eq_right = build_table_with_activator(&right_input, &eq_activator);
         let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
@@ -287,16 +302,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
             Some(PayloadStructure::GadgetPayload(eq_payload)),
         );
 
-        // Build the neq gadget inputs.
-        let neg_output_activator = output_oracle
-            .mul_scalar_oracle(-B::F::one())
-            .add_scalar_oracle(B::F::one());
-        let neq_activator = match &shared_activator {
-            Some(oracle) => oracle - &output_oracle,
-            None => neg_output_activator.clone(),
-        };
-        let neq_left = build_table_with_activator(&left_input, &neq_activator);
-        let neq_right = build_table_with_activator(&right_input, &neq_activator);
         let mut neq_payload = match virtualized_ir.payload_for_node(&self.neq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),

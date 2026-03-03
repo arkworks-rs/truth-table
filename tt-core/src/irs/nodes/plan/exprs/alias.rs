@@ -4,9 +4,9 @@ use arithmetic::table::TrackedTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::expr::Alias;
+use datafusion_expr::{ExprSchemable, expr::Alias};
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
@@ -174,16 +174,32 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Cast scope cannot be a gadget node"),
         };
 
-        // Verifier planning needs output shape only; avoid row-id sorting overhead.
-        let input_df = scope_hint_df.data_frame().clone();
+        // Verifier planning only needs output schema/materialization metadata.
+        // Avoid DataFusion projection execution for alias expressions.
+        let input_schema = scope_hint_df.data_frame().schema().as_arrow();
+        let alias_expr = datafusion_expr::Expr::Alias(self.alias.clone());
+        let output_name = alias_expr.schema_name().to_string();
+        let output_type = alias_expr
+            .get_type(scope_hint_df.data_frame().schema())
+            .unwrap_or(DataType::Null);
 
-        let mut exprs = vec![datafusion_expr::Expr::Alias(self.alias.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-        let projected = input_df
-            .select(exprs)
-            .expect("cast projection should succeed");
+        let mut fields = vec![Field::new(output_name, output_type, true)];
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ROW_ID_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ACTIVATOR_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
 
+        let projected = crate::irs::nodes::hints::schema_only_df(fields);
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
@@ -196,50 +212,51 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         let alias_name = self.alias.name.clone();
 
-        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
-        };
+        let (tracked_oracles, new_schema, log_size) =
+            match virtualized_ir.payload_for_node(&self.expr.id()) {
+                Some(PayloadStructure::PlanPayload(table)) => {
+                    let mut tracked_oracles = IndexMap::new();
+                    let mut schema_fields = Vec::new();
+                    let mut alias_applied = false;
 
-        let mut tracked_oracles = IndexMap::new();
-        let mut schema_fields = Vec::new();
-        let mut alias_applied = false;
+                    for (field, oracle) in table.tracked_oracles_iter() {
+                        // Apply alias to the first non-system column, preserving qualifier metadata.
+                        let new_field = if !alias_applied
+                            && field.name() != ACTIVATOR_COL_NAME
+                            && field.name() != ROW_ID_COL_NAME
+                        {
+                            alias_applied = true;
+                            let mut updated = Field::new(
+                                alias_name.clone(),
+                                field.data_type().clone(),
+                                field.is_nullable(),
+                            );
+                            if !field.metadata().is_empty() {
+                                updated = updated.with_metadata(field.metadata().clone());
+                            }
+                            Arc::new(updated)
+                        } else {
+                            field.clone()
+                        };
+                        schema_fields.push(new_field.clone());
+                        tracked_oracles.insert(new_field, oracle.clone());
+                    }
 
-        for (field, oracle) in expr_table.tracked_oracles_iter() {
-            // Apply alias to the first non-system column, preserving qualifier metadata.
-            let new_field = if !alias_applied
-                && field.name() != ACTIVATOR_COL_NAME
-                && field.name() != ROW_ID_COL_NAME
-            {
-                alias_applied = true;
-                let mut updated = Field::new(
-                    alias_name.clone(),
-                    field.data_type().clone(),
-                    field.is_nullable(),
-                );
-                if !field.metadata().is_empty() {
-                    updated = updated.with_metadata(field.metadata().clone());
+                    let fields: Vec<Field> = schema_fields
+                        .iter()
+                        .map(|field_ref| field_ref.as_ref().clone())
+                        .collect();
+                    // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
+                    let new_schema = table
+                        .schema_ref()
+                        .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
+                        .or_else(|| Some(Schema::new(fields)));
+                    (tracked_oracles, new_schema, table.log_size())
                 }
-                Arc::new(updated)
-            } else {
-                field.clone()
+                _ => return Ok(()),
             };
-            schema_fields.push(new_field.clone());
-            tracked_oracles.insert(new_field, oracle.clone());
-        }
 
-        let fields: Vec<Field> = schema_fields
-            .iter()
-            .map(|field_ref| field_ref.as_ref().clone())
-            .collect();
-        // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
-        let new_schema = expr_table
-            .schema_ref()
-            .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
-            .or_else(|| Some(Schema::new(fields)));
-
-        let aliased_table =
-            TrackedTableOracle::new(new_schema, tracked_oracles, expr_table.log_size());
+        let aliased_table = TrackedTableOracle::new(new_schema, tracked_oracles, log_size);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::PlanPayload(aliased_table)));
         Ok(())
     }
