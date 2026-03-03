@@ -119,6 +119,14 @@ fn get_or_build_many_to_many_hints(
 fn force_materialize_row_id(
     hint: &crate::irs::nodes::hints::HintDF,
 ) -> crate::irs::nodes::hints::HintDF {
+    let row_id_already_materialized = hint
+        .field_materialization_iter()
+        .find(|(field, _)| field.name() == arithmetic::ROW_ID_COL_NAME)
+        .is_none_or(|(_, materialized)| *materialized);
+    if row_id_already_materialized {
+        return hint.clone();
+    }
+
     // Source-row mapping reconstructs provenance from concrete row ids, so row_id
     // must be materialized even when the original hint marks it virtual.
     let mut should_materialize = hint
@@ -144,6 +152,14 @@ fn force_materialize_row_id(
 fn force_materialize_all(
     hint: &crate::irs::nodes::hints::HintDF,
 ) -> crate::irs::nodes::hints::HintDF {
+    // Fast path: avoid rebuilding the map if all fields are already materialized.
+    if hint
+        .field_materialization_iter()
+        .all(|(_, materialized)| *materialized)
+    {
+        return hint.clone();
+    }
+
     // The source-row hint builder replays the join in DataFusion, so it needs the
     // full concrete left/right/output rows (including activators) at this stage.
     let should_materialize = hint
