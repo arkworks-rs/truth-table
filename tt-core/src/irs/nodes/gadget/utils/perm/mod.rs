@@ -67,19 +67,16 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
+        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Permutation gadget");
         };
 
         let left = payload
             .get(LEFT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
         let right = payload
             .get(RIGHT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
         let fxs = fold_table_to_single_col::<B>(&left, keyed_sumcheck::FXS_LABEL);
@@ -125,19 +122,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
+        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Permutation gadget");
         };
 
         let left = payload
             .get(LEFT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", LEFT_LABEL));
         let right = payload
             .get(RIGHT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
         let fxs = fold_table_oracle_to_single_col::<B>(&left, keyed_sumcheck::FXS_LABEL);

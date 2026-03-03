@@ -66,23 +66,19 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
+        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Prescribed Permutation gadget");
         };
 
         let left = payload
             .get(LEFT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", LEFT_LABEL));
         let right = payload
             .get(RIGHT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", RIGHT_LABEL));
         let perm = payload
             .get(PERM_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
 
         let padded_left = append_perm_col_prover(&left, &perm);
@@ -130,23 +126,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
+        let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
         else {
             panic!("Expected gadget payload for Prescribed Permutation gadget");
         };
 
         let left = payload
             .get(LEFT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", LEFT_LABEL));
         let right = payload
             .get(RIGHT_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", RIGHT_LABEL));
         let perm = payload
             .get(PERM_LABEL)
-            .cloned()
             .unwrap_or_else(|| panic!("Prescribed Permutation missing {}", PERM_LABEL));
 
         let padded_left = append_perm_col_verifier(&left, &perm);

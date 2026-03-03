@@ -3,7 +3,7 @@ use std::sync::{Arc, Weak};
 use arithmetic::table_oracle::TrackedTableOracle;
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
@@ -256,7 +256,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         for expr_node in &self.exprs {
             let expr_id = expr_node.id();
             let expr_table = match virtualized_ir.payload_for_node(&expr_id) {
-                Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+                Some(PayloadStructure::PlanPayload(table)) => table,
                 _ => panic!("Projection expression missing tracked oracle payload"),
             };
 
@@ -298,12 +298,12 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 log_size = Some(expr_log_size);
             }
 
-            let tracked_oracles = expr_table.tracked_oracles();
             for idx in expr_table.data_tracked_oracles_indices() {
-                let (field, oracle) = tracked_oracles
-                    .get_index(idx)
-                    .expect("expression column index should be in bounds");
-                output_cols.insert(field.clone(), oracle.clone());
+                let col = expr_table.tracked_col_oracle_by_ind(idx);
+                let field = col
+                    .field_ref()
+                    .expect("projection expression data column should have a field");
+                output_cols.insert(field, col.data_tracked_oracle());
             }
         }
 

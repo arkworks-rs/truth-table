@@ -6,6 +6,7 @@ use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::Statistics;
+use datafusion_expr::ExprSchemable;
 use datafusion_expr::Expr;
 use datafusion_expr::expr::InList;
 use indexmap::IndexMap;
@@ -194,16 +195,30 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("InList scope cannot be a gadget node"),
         };
 
-        // Verifier planning needs output shape only; avoid row-id sorting overhead.
-        let input_df = scope_hint_df.data_frame().clone();
-
-        let mut exprs = vec![Expr::InList(self.in_list.clone())];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let projected = input_df
-            .select(exprs)
-            .expect("in-list projection should succeed");
+        // Verifier planning only needs output schema/materialization metadata.
+        // Avoid DataFusion projection execution for in-list expressions.
+        let input_schema = scope_hint_df.data_frame().schema().as_arrow();
+        let in_list_expr = Expr::InList(self.in_list.clone());
+        let output_name = in_list_expr.schema_name().to_string();
+        let output_type = in_list_expr
+            .get_type(scope_hint_df.data_frame().schema())
+            .unwrap_or(DataType::Boolean);
+        let mut fields = vec![Field::new(output_name, output_type, true)];
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == ROW_ID_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+                .map(|field| field.as_ref().clone()),
+        );
+        let projected = crate::irs::nodes::hints::schema_only_df(fields);
 
         let should_materialize: IndexMap<FieldRef, bool> = projected
             .schema()
@@ -225,49 +240,59 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let expr_table = match virtualized_ir.payload_for_node(&self.expr.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
-        };
-
-        let current_table = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
-            _ => return Ok(()),
-        };
+        let (expr_row_id_entry, expr_activator, expr_log_size, expr_metadata) =
+            match virtualized_ir.payload_for_node(&self.expr.id()) {
+                Some(PayloadStructure::PlanPayload(table)) => {
+                    let row_id = table
+                        .tracked_oracles_iter()
+                        .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                        .map(|(field, oracle)| (field.clone(), oracle.clone()));
+                    (
+                        row_id,
+                        table.activator_tracked_poly(),
+                        table.log_size(),
+                        table.schema_ref().map(|s| s.metadata().clone()),
+                    )
+                }
+                _ => return Ok(()),
+            };
+        let (data_col_entry, current_log_size, current_metadata) =
+            match virtualized_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(table)) => {
+                    let data_entry = table
+                        .tracked_oracles_iter()
+                        .find(|(field, _)| !is_system_column(field.name()))
+                        .map(|(field, oracle)| (field.clone(), oracle.clone()));
+                    (
+                        data_entry,
+                        table.log_size(),
+                        table.schema_ref().map(|s| s.metadata().clone()),
+                    )
+                }
+                _ => return Ok(()),
+            };
 
         // Keep only the IN-list result data column, then append system columns from the input.
         let mut merged_oracles = IndexMap::new();
-        if let Some((data_field, data_oracle)) = current_table
-            .tracked_oracles_iter()
-            .find(|(field, _)| !is_system_column(field.name()))
-        {
-            merged_oracles.insert(data_field.clone(), data_oracle.clone());
+        if let Some((data_field, data_oracle)) = data_col_entry {
+            merged_oracles.insert(data_field, data_oracle);
         }
-        if let Some((row_id_field, row_id_oracle)) = expr_table
-            .tracked_oracles_iter()
-            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-        {
-            merged_oracles
-                .entry(row_id_field.clone())
-                .or_insert_with(|| row_id_oracle.clone());
+        if let Some((row_id_field, row_id_oracle)) = expr_row_id_entry {
+            merged_oracles.entry(row_id_field).or_insert(row_id_oracle);
         }
-        if let Some(activator) = expr_table.activator_tracked_poly() {
+        if let Some(activator) = expr_activator {
             // Reuse the input activator so the IN-list result stays aligned.
             merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);
         }
 
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| expr_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
+        let metadata = current_metadata.or(expr_metadata).unwrap_or_default();
         let fields = merged_oracles
             .keys()
             .map(|f| f.as_ref().clone())
             .collect::<Vec<_>>();
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
-        let log_size = match (current_table.log_size(), expr_table.log_size()) {
+        let log_size = match (current_log_size, expr_log_size) {
             (0, other) => other,
             (curr, 0) => curr,
             (curr, expr) => {

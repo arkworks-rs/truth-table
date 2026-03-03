@@ -127,18 +127,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Keyed-Sumcheck gadget node");
         };
 
-        let (Some(fxs_table), Some(gxs_table)) = (
-            payload.get(FXS_LABEL).cloned(),
-            payload.get(GXS_LABEL).cloned(),
-        ) else {
+        let (Some(fxs_table), Some(gxs_table)) = (payload.get(FXS_LABEL), payload.get(GXS_LABEL))
+        else {
             panic!("Expected fxs and gxs inputs for Keyed-Sumcheck gadget");
         };
 
         let fxs = Self::tracked_cols_from_table(&fxs_table);
         let gxs = Self::tracked_cols_from_table(&gxs_table);
 
-        let mfxs = Self::multiplicities_from_table(payload.get(MFXS_LABEL).cloned(), fxs.len());
-        let mgxs = Self::multiplicities_from_table(payload.get(MGXS_LABEL).cloned(), gxs.len());
+        let mfxs = Self::multiplicities_from_table(payload.get(MFXS_LABEL), fxs.len());
+        let mgxs = Self::multiplicities_from_table(payload.get(MGXS_LABEL), gxs.len());
 
         // Get the challenge gamma for the check -- Gamma appears in the denominator of
         // the sum
@@ -174,20 +172,16 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected gadget payload for Keyed-Sumcheck gadget node");
         };
 
-        let (Some(fxs_table), Some(gxs_table)) = (
-            payload.get(FXS_LABEL).cloned(),
-            payload.get(GXS_LABEL).cloned(),
-        ) else {
+        let (Some(fxs_table), Some(gxs_table)) = (payload.get(FXS_LABEL), payload.get(GXS_LABEL))
+        else {
             panic!("Expected fxs and gxs inputs for Keyed-Sumcheck gadget");
         };
 
         let fxs = Self::tracked_cols_from_table_oracle(&fxs_table);
         let gxs = Self::tracked_cols_from_table_oracle(&gxs_table);
 
-        let mfxs =
-            Self::multiplicities_from_table_oracle(payload.get(MFXS_LABEL).cloned(), fxs.len());
-        let mgxs =
-            Self::multiplicities_from_table_oracle(payload.get(MGXS_LABEL).cloned(), gxs.len());
+        let mfxs = Self::multiplicities_from_table_oracle(payload.get(MFXS_LABEL), fxs.len());
+        let mgxs = Self::multiplicities_from_table_oracle(payload.get(MGXS_LABEL), gxs.len());
 
         // check input shapes are correct
         if fxs.is_empty() {
@@ -298,7 +292,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn multiplicities_from_table(
-        table: Option<TrackedTable<B>>,
+        table: Option<&TrackedTable<B>>,
         expected_len: usize,
     ) -> Vec<Option<ark_piop::prover::structs::polynomial::TrackedPoly<B>>> {
         match table {
@@ -331,7 +325,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     fn multiplicities_from_table_oracle(
-        table: Option<TrackedTableOracle<B>>,
+        table: Option<&TrackedTableOracle<B>>,
         expected_len: usize,
     ) -> Vec<Option<ark_piop::verifier::structs::oracle::TrackedOracle<B>>> {
         match table {
