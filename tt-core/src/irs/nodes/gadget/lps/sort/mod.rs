@@ -1,4 +1,4 @@
-use std::{any::TypeId, sync::Arc};
+use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
@@ -132,32 +132,21 @@ fn populate_output_expr(
 
 fn populate_sort_gadget_table<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+    sort_gadget_node_id: crate::irs::nodes::NodeId,
     output_sort_exprs: &crate::irs::nodes::hints::HintDF,
 ) {
-    let target_type = TypeId::of::<crate::irs::nodes::gadget::utils::contig_sort::GadgetNode<B>>();
-    let gadget_ids: Vec<_> = planned_ir
-        .tree()
-        .arena()
-        .iter()
-        .filter_map(|(node_id, node)| {
-            let Node::Gadget(gadget) = node.as_ref() else {
-                return None;
-            };
-            (gadget.as_ref().type_id() == target_type).then_some(*node_id)
-        })
-        .collect();
-
-    for node_id in gadget_ids {
-        let mut payload = match planned_ir.payload_for_node(&node_id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        payload.insert(
-            crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
-            output_sort_exprs.clone(),
-        );
-        planned_ir.set_payload_for_node(node_id, Some(PayloadStructure::GadgetPayload(payload)));
-    }
+    let mut payload = match planned_ir.payload_for_node(&sort_gadget_node_id) {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
+    payload.insert(
+        crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
+        output_sort_exprs.clone(),
+    );
+    planned_ir.set_payload_for_node(
+        sort_gadget_node_id,
+        Some(PayloadStructure::GadgetPayload(payload)),
+    );
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -203,7 +192,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
-        populate_sort_gadget_table(planned_ir, &output_hint);
+        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
@@ -266,7 +255,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs, true);
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
-        populate_sort_gadget_table(planned_ir, &output_hint);
+        populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
         Ok(())
     }
