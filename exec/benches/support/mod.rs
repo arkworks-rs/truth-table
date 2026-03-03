@@ -332,10 +332,13 @@ pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
     }
 }
 
-pub fn build_verifier_state(assets: &BenchAssets, proof_bytes: Vec<u8>) -> VerifierBenchState {
+pub fn build_verifier_state(
+    assets: &BenchAssets,
+    proof_bytes: impl AsRef<[u8]>,
+) -> VerifierBenchState {
     // Build and plan once; bench timing captures only cryptographic verifier checks.
     let verifier = build_verifier(assets);
-    let proof = proof_from_bytes(&proof_bytes);
+    let proof = proof_from_bytes(proof_bytes.as_ref());
     let (_stages, arg_verifier) = block_on(verifier.build_ir_stages(assets.case.query, &proof))
         .expect("build verifier stages for bench");
     VerifierBenchState { arg_verifier }
@@ -353,11 +356,11 @@ pub fn run_arg_verifier_once(verifier: ArgVerifier<B>) {
 
 pub fn build_verifier_full_state(
     assets: &BenchAssets,
-    proof_bytes: Vec<u8>,
+    proof_bytes: impl AsRef<[u8]>,
 ) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
-    let proof = proof_from_bytes(&proof_bytes);
+    let proof = proof_from_bytes(proof_bytes.as_ref());
     VerifierFullBenchState {
         verifier,
         query: assets.case.query.to_string(),
