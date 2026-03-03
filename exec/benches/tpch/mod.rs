@@ -1,4 +1,7 @@
-use std::sync::OnceLock;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 use divan::Bencher;
 use tpch_data::query_spec;
@@ -130,8 +133,30 @@ fn tpch_cases() -> &'static [BenchCase] {
     })
 }
 
-fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
+fn prepare_assets_cached(case: BenchCase) -> crate::support::BenchAssets {
+    static ASSETS: OnceLock<Mutex<HashMap<&'static str, crate::support::BenchAssets>>> =
+        OnceLock::new();
+    let cache = ASSETS.get_or_init(|| Mutex::new(HashMap::new()));
+
+    if let Some(existing) = cache
+        .lock()
+        .expect("tpch assets cache poisoned")
+        .get(case.name)
+        .cloned()
+    {
+        return existing;
+    }
+
     let assets = prepare_assets(case);
+    cache
+        .lock()
+        .expect("tpch assets cache poisoned")
+        .insert(case.name, assets.clone());
+    assets
+}
+
+fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
+    let assets = prepare_assets_cached(case);
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, &bench_proof);
@@ -141,11 +166,9 @@ fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchS
 #[divan::bench(args = tpch_cases(), max_time = 1)]
 fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     // Prover benchmark: build a new prover per iteration, time only prove().
+    let assets = prepare_assets_cached(case);
     bencher
-        .with_inputs(|| {
-            let assets = prepare_assets(case);
-            prepare_prover_iteration(&assets)
-        })
+        .with_inputs(|| prepare_prover_iteration(&assets))
         .bench_local_values(|iteration| {
             let _proof = run_prover_iteration(iteration);
         });
