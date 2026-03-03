@@ -4,154 +4,138 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes,
+    build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes,
     log_proof_size_once, prepare_assets, prepare_prover_iteration, run_full_verifier_once,
-    run_preprocess_once, run_prover_iteration, warmup_proof,
+    run_preprocess_once, run_prover_iteration, warmup_proof, BenchCase,
 };
+
+struct TpchCaseSpec {
+    name: &'static str,
+    query_number: u8,
+    poneglyph: bool,
+}
+
+const TPCH_CASE_SPECS: &[TpchCaseSpec] = &[
+    TpchCaseSpec {
+        name: "tpch_q1",
+        query_number: 1,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q1_poneglyph",
+        query_number: 1,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q3_poneglyph",
+        query_number: 3,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q3",
+        query_number: 3,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q5",
+        query_number: 5,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q5_poneglyph",
+        query_number: 5,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q6",
+        query_number: 6,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q7",
+        query_number: 7,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q8_tt",
+        query_number: 8,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q8_poneglyph",
+        query_number: 8,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q9_tt",
+        query_number: 9,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q9_poneglyph",
+        query_number: 9,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q10",
+        query_number: 10,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q12",
+        query_number: 12,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q14",
+        query_number: 14,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q17",
+        query_number: 17,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q18_poneglyph",
+        query_number: 18,
+        poneglyph: true,
+    },
+    TpchCaseSpec {
+        name: "tpch_q18",
+        query_number: 18,
+        poneglyph: false,
+    },
+    TpchCaseSpec {
+        name: "tpch_q19",
+        query_number: 19,
+        poneglyph: false,
+    },
+];
 
 fn tpch_cases() -> &'static [BenchCase] {
     // Static list of TPCH queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
-        let q1 = query_spec(1, false);
-        // println!("TPCH Q1 SQL: {}", q1.sql);
-        let q1_poneglyph = query_spec(1, true);
-        // println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
-        let q3 = query_spec(3, false);
-        // println!("TPCH Q3 SQL: {}", q3.sql);
-        let q3_poneglyph = query_spec(3, true);
-        // println!("TPCH Q3 Poneglyph SQL: {}", q3_poneglyph.sql);
-        let q5 = query_spec(5, false);
-        // println!("TPCH Q5 SQL: {}", q5.sql);
-        let q5_poneglyph = query_spec(5, true);
-        // println!("TPCH Q5 Poneglyph SQL: {}", q5_poneglyph.sql);
-        let q6 = query_spec(6, false);
-        // println!("TPCH Q6 SQL: {}", q6.sql);
-        let q7 = query_spec(7, false);
-        // println!("TPCH Q7 SQL: {}", q7.sql);
-        let q8 = query_spec(8, false);
-        // println!("TPCH Q8 SQL: {}", q8.sql);
-        let q8_poneglyph = query_spec(8, true);
-        // println!("TPCH Q8 Poneglyph SQL: {}", q8_poneglyph.sql);
-        let q9 = query_spec(9, false);
-        // println!("TPCH Q9 SQL: {}", q9.sql);
-        let q9_poneglyph = query_spec(9, true);
-        // println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
-        let q10 = query_spec(10, false);
-        // println!("TPCH Q10 SQL: {}", q10.sql);
-        let q12 = query_spec(12, false);
-        // println!("TPCH Q12 SQL: {}", q12.sql);
-        let q14 = query_spec(14, false);
-        // println!("TPCH Q14 SQL: {}", q14.sql);
-        let q17 = query_spec(17, false);
-        // println!("TPCH Q17 SQL: {}", q17.sql);
-        let q18 = query_spec(18, false);
-        // println!("TPCH Q18 SQL: {}", q18.sql);
-        let q18_poneglyph = query_spec(18, true);
-        // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
-        let q19 = query_spec(19, false);
-        // println!("TPCH Q19 SQL: {}", q19.sql);
-
-        let cases = vec![
-            BenchCase {
-                name: "tpch_q1",
-                query: q1.sql,
-                tables: q1.tables,
-            },
-            BenchCase {
-                name: "tpch_q1_poneglyph",
-                query: q1_poneglyph.sql,
-                tables: q1_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q3_poneglyph",
-                query: q3_poneglyph.sql,
-                tables: q3_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q3",
-                query: q3.sql,
-                tables: q3.tables,
-            },
-            BenchCase {
-                name: "tpch_q5",
-                query: q5.sql,
-                tables: q5.tables,
-            },
-            BenchCase {
-                name: "tpch_q5_poneglyph",
-                query: q5_poneglyph.sql,
-                tables: q5_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q6",
-                query: q6.sql,
-                tables: q6.tables,
-            },
-            BenchCase {
-                name: "tpch_q7",
-                query: q7.sql,
-                tables: q7.tables,
-            },
-            BenchCase {
-                name: "tpch_q8_tt",
-                query: q8.sql,
-                tables: q8.tables,
-            },
-            BenchCase {
-                name: "tpch_q8_poneglyph",
-                query: q8_poneglyph.sql,
-                tables: q8_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q9_tt",
-                query: q9.sql,
-                tables: q9.tables,
-            },
-            BenchCase {
-                name: "tpch_q9_poneglyph",
-                query: q9_poneglyph.sql,
-                tables: q9_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q10",
-                query: q10.sql,
-                tables: q10.tables,
-            },
-            BenchCase {
-                name: "tpch_q12",
-                query: q12.sql,
-                tables: q12.tables,
-            },
-            BenchCase {
-                name: "tpch_q14",
-                query: q14.sql,
-                tables: q14.tables,
-            },
-            BenchCase {
-                name: "tpch_q17",
-                query: q17.sql,
-                tables: q17.tables,
-            },
-            BenchCase {
-                name: "tpch_q18_poneglyph",
-                query: q18_poneglyph.sql,
-                tables: q18_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q18",
-                query: q18.sql,
-                tables: q18.tables,
-            },
-            BenchCase {
-                name: "tpch_q19",
-                query: q19.sql,
-                tables: q19.tables,
-            },
-        ];
-        // println!("Loaded {} TPCH benchmark cases", cases.len());
+        let mut cases = Vec::with_capacity(TPCH_CASE_SPECS.len());
+        for spec in TPCH_CASE_SPECS {
+            let query = query_spec(spec.query_number, spec.poneglyph);
+            cases.push(BenchCase {
+                name: spec.name,
+                query: query.sql,
+                tables: query.tables,
+            });
+        }
         Box::leak(cases.into_boxed_slice())
     })
+}
+
+fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
+    let assets = prepare_assets(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    build_verifier_full_state(&assets, load_proof_bytes(&bench_proof))
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
@@ -168,14 +152,10 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }
 
-#[divan::bench(args = tpch_cases(), max_time = 0.000001)]
+#[divan::bench(args = tpch_cases(), max_time = 10)]
 fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     // Benchmark only one-time verifier preprocessing (planning/gadget-planning cache fill).
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, load_proof_bytes(&bench_proof));
+    let state = prepare_verifier_state(case);
     bencher.bench_local(|| {
         run_preprocess_once(&state);
     });
@@ -186,11 +166,7 @@ fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
 fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark (core/steady-state): time IR passes + cryptographic
     // verification, excluding one-time preprocessing/cache warmup.
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, load_proof_bytes(&bench_proof));
+    let state = prepare_verifier_state(case);
     // Preprocess once outside the timed region so this benchmark reflects steady-state.
     run_preprocess_once(&state);
     bencher.bench_local(|| {
@@ -202,11 +178,7 @@ fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
 #[divan::bench(args = tpch_cases(), max_time = 1)]
 fn bench_tpch_verifier_full(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark (full): time preprocessing + steady-state verification together.
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, load_proof_bytes(&bench_proof));
+    let state = prepare_verifier_state(case);
     bencher.bench_local(|| {
         run_preprocess_once(&state);
         run_full_verifier_once(&state);
