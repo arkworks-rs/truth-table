@@ -89,16 +89,20 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     is_verifier: bool,
 ) -> ark_piop::errors::SnarkResult<()> {
+    let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
+        Some(PayloadStructure::GadgetPayload(payload)) => payload,
+        _ => {
+            node.cache_is_pk(false);
+            return Ok(());
+        }
+    };
+    let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
+        node.cache_is_pk(false);
+        return Ok(());
+    };
     // Determine whether all data columns of the NoDup input are PK columns.
     // "Data columns" exclude system columns (activator/row_id).
-    let is_pk = planned_ir
-        .payload_for_node(&id)
-        .and_then(|payload| match payload {
-            PayloadStructure::GadgetPayload(payload) => payload.get(INPUT_LABEL),
-            PayloadStructure::PlanPayload(_) => None,
-        })
-        .map(nodup_input_is_pk)
-        .unwrap_or(false);
+    let is_pk = nodup_input_is_pk(&input_hint);
     node.cache_is_pk(is_pk);
 
     if node.is_pk() {
@@ -109,13 +113,6 @@ fn initialize_gadget_plans<B: SnarkBackend>(
 
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
     let Gadgets::SortNoDup(_) = &node.gadgets else {
-        return Ok(());
-    };
-    let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
-        Some(PayloadStructure::GadgetPayload(payload)) => payload,
-        _ => return Ok(()),
-    };
-    let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
         return Ok(());
     };
     if !is_verifier {
