@@ -210,9 +210,10 @@ fn initialize_gadget_plans<B: SnarkBackend>(
             input_hint
         };
         let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
+        let ordered_data_fields = ordered_data_fields_for_hint(&input_hint, &sort_specs);
         let rotated_hint = build_verifier_rotated_hint(&input_hint);
-        let tie_hint = build_verifier_tie_hint(&input_hint, &sort_specs);
-        let diff_hint = build_verifier_diff_hint(&input_hint, &sort_specs);
+        let tie_hint = build_verifier_tie_hint_from_ordered(&ordered_data_fields);
+        let diff_hint = build_verifier_diff_hint_from_ordered(&ordered_data_fields);
         gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
         gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
         gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
@@ -804,11 +805,9 @@ fn build_verifier_rotated_hint(
     build_empty_hint_df_with_fields(fields, true)
 }
 
-fn build_verifier_tie_hint(
-    input_hint: &crate::irs::nodes::hints::HintDF,
-    sort_specs: &[(String, bool, bool)],
+fn build_verifier_tie_hint_from_ordered(
+    ordered_data_fields: &[Field],
 ) -> crate::irs::nodes::hints::HintDF {
-    let ordered_data_fields = ordered_data_fields_for_hint(input_hint, sort_specs);
     let fields = if ordered_data_fields.is_empty() {
         Vec::new()
     } else if ordered_data_fields.len() == 1 {
@@ -850,11 +849,9 @@ fn diff_output_type(data_type: &DataType) -> DataType {
     }
 }
 
-fn build_verifier_diff_hint(
-    input_hint: &crate::irs::nodes::hints::HintDF,
-    sort_specs: &[(String, bool, bool)],
+fn build_verifier_diff_hint_from_ordered(
+    ordered_data_fields: &[Field],
 ) -> crate::irs::nodes::hints::HintDF {
-    let ordered_data_fields = ordered_data_fields_for_hint(input_hint, sort_specs);
     let fields: Vec<Field> = ordered_data_fields
         .iter()
         .map(|field| Field::new(field.name(), diff_output_type(field.data_type()), true))
