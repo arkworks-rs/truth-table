@@ -8,7 +8,6 @@ use ark_piop::{
 };
 use datafusion::arrow::{
     datatypes::{DataType, Field, FieldRef, Schema},
-    record_batch::RecordBatch,
 };
 use datafusion_common::{Column, Statistics};
 use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
@@ -472,42 +471,39 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 &self.parent(),
             );
         let column_name = self.output_column_name_in_parent();
-        // Verifier planning only needs schema/materialization shape.
-        // Build a schema-only hint instead of projecting through the parent plan.
         let parent_schema = parent_hint_df.data_frame().schema();
-        let mut fields: Vec<Field> = Vec::new();
+        let mut selected_field: Option<Field> = None;
+        let mut activator_field: Option<Field> = None;
+        let mut row_id_field: Option<Field> = None;
+        for field in parent_schema.fields() {
+            let field_name = field.name();
+            if selected_field.is_none() && field_name == &column_name {
+                selected_field = Some(field.as_ref().clone());
+            } else if activator_field.is_none() && field_name == arithmetic::ACTIVATOR_COL_NAME {
+                activator_field = Some(field.as_ref().clone());
+            } else if row_id_field.is_none() && field_name == arithmetic::ROW_ID_COL_NAME {
+                row_id_field = Some(field.as_ref().clone());
+            }
+        }
 
-        if let Some(field) = parent_schema
-            .fields()
-            .iter()
-            .find(|field| field.name() == &column_name)
-        {
-            fields.push(field.as_ref().clone());
+        let mut fields: Vec<Field> = Vec::new();
+        if let Some(field) = selected_field {
+            fields.push(field);
         } else {
             panic!(
                 "AggregateFunction output could not find column '{}' in parent schema",
                 column_name
             );
         }
-
-        if let Some(field) = parent_schema
-            .fields()
-            .iter()
-            .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-        {
-            fields.push(field.as_ref().clone());
+        if let Some(field) = activator_field {
+            fields.push(field);
         }
-        if let Some(field) = parent_schema
-            .fields()
-            .iter()
-            .find(|field| field.name() == arithmetic::ROW_ID_COL_NAME)
-        {
-            fields.push(field.as_ref().clone());
+        if let Some(field) = row_id_field {
+            fields.push(field);
         }
 
-        let projected = datafusion::prelude::SessionContext::new()
-            .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
-            .expect("aggregate function verifier hint construction should succeed");
+        // Verifier planning needs only schema/materialization shape.
+        let projected = crate::irs::nodes::hints::schema_only_df(fields);
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
