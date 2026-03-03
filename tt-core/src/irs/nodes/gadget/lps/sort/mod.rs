@@ -58,7 +58,7 @@ fn populate_output_expr(
         for field in sort_input_df.schema().fields() {
             should_materialize.insert(field.clone(), field.name() != ROW_ID_COL_NAME);
         }
-        crate::irs::nodes::hints::HintDF::new(sort_input_df, should_materialize)
+        crate::irs::nodes::hints::HintDF::new_assume_normalized(sort_input_df, should_materialize)
     } else {
         // Sort by activator first (actives first), then by the sort-expr columns.
         let mut sort_exprs: Vec<SortExpr> =

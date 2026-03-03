@@ -266,8 +266,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        let sort_exprs_hint =
-            build_verifier_sort_exprs_hint_from_expr_nodes(&self.sort_exprs, &input_hint_df)?;
+        let sort_exprs_hint = build_verifier_sort_exprs_hint_from_expr_nodes(
+            &self.sort_exprs,
+            &input_hint_df,
+            planned_ir,
+        )?;
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -285,19 +288,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
     sort_expr_nodes: &[Arc<Node<B>>],
     input_hint_df: &HintDF,
+    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
 ) -> ark_piop::errors::SnarkResult<HintDF> {
     // Verifier planning only needs schema/materialization shape. Reuse each sort
     // expression's already-planned output field and avoid expression projection.
     let mut fields: Vec<Field> = Vec::with_capacity(sort_expr_nodes.len() + 2);
     for node in sort_expr_nodes {
-        let expr_hint = match node.as_ref() {
-            Node::Plan(plan_node) => {
-                <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
-                    plan_node,
-                )
-            }
-            Node::Gadget(_) => panic!("Sort expression cannot be a gadget node"),
-        };
+        let expr_hint =
+            if let Some(PayloadStructure::PlanPayload(hint)) = planned_ir.payload_for_node(&node.id())
+            {
+                hint.clone()
+            } else {
+                match node.as_ref() {
+                    Node::Plan(plan_node) => {
+                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
+                            plan_node,
+                        )
+                    }
+                    Node::Gadget(_) => panic!("Sort expression cannot be a gadget node"),
+                }
+            };
         let data_field = expr_hint
             .data_frame()
             .schema()
@@ -596,27 +606,18 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        // Verifier planning does not execute query semantics; keep output schema
-        // aligned with sort output without constructing an extra sort plan.
-        let output_df = input_hint_df.data_frame().clone();
-        let output_df = if output_df
+        // Verifier planning only needs output schema; avoid building a projection plan.
+        let fields: Vec<Field> = input_hint_df
+            .data_frame()
             .schema()
             .fields()
             .iter()
-            .any(|field| field.name() == ROW_ID_COL_NAME)
-        {
-            let projected = output_df
-                .schema()
-                .fields()
-                .iter()
-                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
-                .collect();
-            output_df
-                .select(projected)
-                .expect("sort output projection should succeed")
-        } else {
-            output_df
-        };
+            .filter(|field| field.name() != ROW_ID_COL_NAME)
+            .map(|field| field.as_ref().clone())
+            .collect();
+        let output_df = datafusion::prelude::SessionContext::new()
+            .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
+            .expect("sort verifier schema-only output construction should succeed");
         HintDF::new_materialized(output_df)
     }
 }

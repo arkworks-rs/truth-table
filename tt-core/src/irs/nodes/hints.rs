@@ -67,6 +67,17 @@ impl HintDF {
         }
     }
 
+    // Use only when `data_fram` and `should_materialize` are already aligned and normalized.
+    pub(crate) fn new_assume_normalized(
+        data_fram: DataFrame,
+        should_materialize: IndexMap<FieldRef, bool>,
+    ) -> Self {
+        Self {
+            data_fram,
+            should_materialize,
+        }
+    }
+
     pub fn data_frame(&self) -> &DataFrame {
         &self.data_fram
     }
