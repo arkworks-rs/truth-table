@@ -433,8 +433,10 @@ fn derive_many_to_many_hints_verifier(
     right_hint: &crate::irs::nodes::hints::HintDF,
     output_hint: &crate::irs::nodes::hints::HintDF,
 ) -> JoinPlanningDerivedHints {
-    let left_hint = force_materialize_all(&force_materialize_row_id(left_hint));
-    let right_hint = force_materialize_all(&force_materialize_row_id(right_hint));
+    // Verifier join planning only needs fully materialized schemas; forcing all
+    // columns materialized already implies row_id materialization.
+    let left_hint = force_materialize_all(left_hint);
+    let right_hint = force_materialize_all(right_hint);
     let output_hint = force_materialize_all(output_hint);
 
     let left_row_id_ty = left_hint

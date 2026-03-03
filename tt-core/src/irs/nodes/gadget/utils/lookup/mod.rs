@@ -9,7 +9,7 @@ use ark_ff::One;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
-use datafusion::arrow::{datatypes::{DataType, Field, Schema}, record_batch::RecordBatch};
+use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult};
@@ -148,8 +148,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let multiplicities_hint =
-            build_verifier_multiplicity_hint(&super_hint).expect("lookup verifier hint should succeed");
+        let multiplicities_hint = build_verifier_multiplicity_hint(&super_hint);
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -184,15 +183,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
 fn build_verifier_multiplicity_hint(
     super_hint: &crate::irs::nodes::hints::HintDF,
-) -> DataFusionResult<crate::irs::nodes::hints::HintDF> {
+) -> crate::irs::nodes::hints::HintDF {
     // Verifier planning only needs schema/materialization shape for multiplicities.
     // Runtime multiplicity oracle is wired in initialize_gadgets.
     let fields = vec![
         Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
         Field::new("multiplicity", DataType::Int64, true),
     ];
-    let schema = Arc::new(Schema::new(fields));
-    let df = datafusion::prelude::SessionContext::new().read_batch(RecordBatch::new_empty(schema))?;
+    let df = crate::irs::nodes::hints::schema_only_df(fields);
 
     let has_super_activator = super_hint
         .data_frame()
@@ -214,7 +212,7 @@ fn build_verifier_multiplicity_hint(
         })
         .collect();
 
-    Ok(crate::irs::nodes::hints::HintDF::new(df, should_materialize))
+    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
