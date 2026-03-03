@@ -240,17 +240,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
             fields
         };
-        // Verifier planning only needs schema/materialization metadata. Build one
-        // empty DataFrame and derive all hints from it to avoid repeated session
-        // setup and DataFrame construction overhead.
-        let schema = Arc::new(Schema::new(key_union_fields.clone()));
-        let base_df = SessionContext::new()
-            .read_batch(RecordBatch::new_empty(schema))
-            .expect("match-pair verifier base hint DataFrame construction should succeed");
-        let key_hint = hint_from_base_df(&base_df, true);
-        let union_hint = hint_from_base_df(&base_df, false);
-        let left_lookup_hint = hint_from_base_df(&base_df, false);
-        let right_lookup_hint = hint_from_base_df(&base_df, false);
+        // Verifier planning only needs schema/materialization metadata.
+        let base_df = crate::irs::nodes::hints::schema_only_df(key_union_fields);
+        let mut materialized_true = IndexMap::new();
+        let mut materialized_false = IndexMap::new();
+        for field in base_df.schema().fields() {
+            materialized_true.insert(field.clone(), true);
+            materialized_false.insert(field.clone(), false);
+        }
+        let key_hint = crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_true);
+        let union_hint =
+            crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_false.clone());
+        let left_lookup_hint =
+            crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_false.clone());
+        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new(base_df, materialized_false);
 
         apply_match_pair_planned_hints(
             self,
@@ -864,32 +867,6 @@ fn infer_key_fields_for_verifier(
         fields.push(Field::new(key_name, data_type, nullable));
     }
     Ok(fields)
-}
-
-fn empty_hint_with_fields(
-    fields: &[Field],
-    materialized: bool,
-) -> DataFusionResult<crate::irs::nodes::hints::HintDF> {
-    let schema = Arc::new(Schema::new(fields.to_vec()));
-    let batch = RecordBatch::new_empty(schema);
-    let ctx = SessionContext::new();
-    let df = ctx.read_batch(batch)?;
-    let mut should_materialize = IndexMap::new();
-    for field in df.schema().fields() {
-        should_materialize.insert(field.clone(), materialized);
-    }
-    Ok(crate::irs::nodes::hints::HintDF::new(df, should_materialize))
-}
-
-fn hint_from_base_df(
-    base_df: &DataFrame,
-    materialized: bool,
-) -> crate::irs::nodes::hints::HintDF {
-    let mut should_materialize = IndexMap::new();
-    for field in base_df.schema().fields() {
-        should_materialize.insert(field.clone(), materialized);
-    }
-    crate::irs::nodes::hints::HintDF::new(base_df.clone(), should_materialize)
 }
 
 fn build_lookup_keys_df(
