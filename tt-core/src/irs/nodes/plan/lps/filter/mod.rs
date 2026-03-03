@@ -393,8 +393,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
 
         let output_df =
             hints::build_output_dataframe_for_verifier(input_hint_df.data_frame(), &self.filter);
-        let output_df = crate::irs::nodes::hints::sort_by_row_id_if_present(output_df)
-            .expect("filter output sort should succeed");
 
         let should_materialize: IndexMap<FieldRef, bool> = output_df
             .schema()

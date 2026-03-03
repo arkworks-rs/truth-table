@@ -136,9 +136,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Between scope cannot be a gadget node"),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("between row-id sort should succeed");
+        // Verifier planning needs output shape only; avoid row-id sorting overhead.
+        let input_df = scope_hint_df.data_frame().clone();
 
         let mut exprs = vec![Expr::Between(self.between.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
@@ -147,9 +146,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         let projected = input_df
             .select(exprs)
             .expect("between projection should succeed");
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("between output sort should succeed");
-
         let should_materialize: IndexMap<_, _> = projected
             .schema()
             .fields()

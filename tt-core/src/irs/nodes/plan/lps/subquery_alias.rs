@@ -130,8 +130,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .clone()
             .alias(&self.subquery_alias.alias.to_string())
             .expect("subquery alias should succeed");
-        let aliased_df = crate::irs::nodes::hints::sort_by_row_id_if_present(aliased_df)
-            .expect("subquery alias output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(aliased_df)
     }
 }

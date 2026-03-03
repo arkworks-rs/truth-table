@@ -105,8 +105,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
             ctx.state(),
             datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone()),
         );
-        let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
-            .expect("table scan row-id sort should succeed");
         let should_materialize: IndexMap<_, _> = df
             .schema()
             .fields()

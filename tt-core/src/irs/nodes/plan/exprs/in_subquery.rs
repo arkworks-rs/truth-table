@@ -246,9 +246,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("InSubquery scope cannot be a gadget node"),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("in-subquery row-id sort should succeed");
+        // Verifier planning needs output shape only; avoid row-id sorting overhead.
+        let input_df = scope_hint_df.data_frame().clone();
 
         // Verifier must not collect subquery batches during planning. Keep the logical
         // InSubquery expression instead of rewriting to a literal InList.
@@ -262,8 +261,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .select(exprs)
             .expect("in-subquery projection should succeed");
 
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("in-subquery output sort should succeed");
         let should_materialize = projected
             .schema()
             .fields()
