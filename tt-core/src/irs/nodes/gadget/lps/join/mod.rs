@@ -15,7 +15,10 @@ use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
-use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
+use datafusion::arrow::{
+    array::RecordBatch,
+    datatypes::{DataType, Field, FieldRef, Schema},
+};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
 use either::Either;
@@ -343,13 +346,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df.clone(),
                 None => return Ok(()),
             };
-            let derived = get_or_build_many_to_many_hints(
-                id,
-                &self.join,
-                &left_hint,
-                &right_hint,
-                &output_hint,
-            );
+            let derived = derive_many_to_many_hints_verifier(&left_hint, &right_hint, &output_hint);
             gadget_payload.insert(LEFT_LABEL.to_string(), derived.left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), derived.right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), derived.output_hint.clone());
@@ -428,6 +425,78 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         } else {
             Ok(())
         }
+    }
+}
+
+fn derive_many_to_many_hints_verifier(
+    left_hint: &crate::irs::nodes::hints::HintDF,
+    right_hint: &crate::irs::nodes::hints::HintDF,
+    output_hint: &crate::irs::nodes::hints::HintDF,
+) -> JoinPlanningDerivedHints {
+    let left_hint = force_materialize_all(&force_materialize_row_id(left_hint));
+    let right_hint = force_materialize_all(&force_materialize_row_id(right_hint));
+    let output_hint = force_materialize_all(output_hint);
+
+    let left_row_id_ty = left_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
+        .map(|f| f.data_type().clone())
+        .unwrap_or(DataType::Int64);
+    let right_row_id_ty = right_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
+        .map(|f| f.data_type().clone())
+        .unwrap_or(DataType::Int64);
+    let output_row_id_ty = output_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
+        .map(|f| f.data_type().clone())
+        .unwrap_or(DataType::Int64);
+
+    let ctx = datafusion::prelude::SessionContext::new();
+    let src_left_schema = Arc::new(Schema::new(vec![
+        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty.clone(), true),
+        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
+        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty.clone(), true),
+    ]));
+    let src_right_schema = Arc::new(Schema::new(vec![
+        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty.clone(), true),
+        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
+        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty.clone(), true),
+    ]));
+    let nodup_schema = Arc::new(Schema::new(vec![
+        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty, true),
+        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty, true),
+        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
+        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty, true),
+    ]));
+
+    let src_left_df = ctx
+        .read_batch(RecordBatch::new_empty(src_left_schema))
+        .expect("join verifier src-left schema-only hint construction should succeed");
+    let src_right_df = ctx
+        .read_batch(RecordBatch::new_empty(src_right_schema))
+        .expect("join verifier src-right schema-only hint construction should succeed");
+    let nodup_df = ctx
+        .read_batch(RecordBatch::new_empty(nodup_schema))
+        .expect("join verifier nodup schema-only hint construction should succeed");
+
+    JoinPlanningDerivedHints {
+        left_hint,
+        right_hint,
+        output_hint,
+        src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_left_df),
+        src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_right_df),
+        nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_df),
     }
 }
 
