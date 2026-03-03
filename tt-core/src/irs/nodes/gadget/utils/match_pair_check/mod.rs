@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use ark_ff::{One, Zero};
 use ark_piop::{
@@ -50,6 +51,45 @@ struct MatchPairPlannedHints {
     union_hint: crate::irs::nodes::hints::HintDF,
     left_lookup_hint: crate::irs::nodes::hints::HintDF,
     right_lookup_hint: crate::irs::nodes::hints::HintDF,
+}
+
+fn verifier_match_pair_hint_templates(
+    key_union_fields: Vec<Field>,
+) -> (
+    crate::irs::nodes::hints::HintDF,
+    crate::irs::nodes::hints::HintDF,
+) {
+    static CACHE: OnceLock<
+        std::sync::RwLock<
+            std::collections::HashMap<String, (crate::irs::nodes::hints::HintDF, crate::irs::nodes::hints::HintDF)>,
+        >,
+    > = OnceLock::new();
+    let cache = CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
+    let signature = key_union_fields
+        .iter()
+        .map(|f| format!("{}:{:?}:{}", f.name(), f.data_type(), f.is_nullable()))
+        .collect::<Vec<_>>()
+        .join("|");
+
+    if let Some((key_hint, union_hint)) = cache
+        .read()
+        .expect("match-pair verifier hint cache read lock should succeed")
+        .get(&signature)
+        .cloned()
+    {
+        return (key_hint, union_hint);
+    }
+
+    let base_df = crate::irs::nodes::hints::schema_only_df(key_union_fields);
+    let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(base_df.clone());
+    let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(base_df);
+
+    cache
+        .write()
+        .expect("match-pair verifier hint cache write lock should succeed")
+        .insert(signature, (key_hint.clone(), union_hint.clone()));
+    (key_hint, union_hint)
 }
 
 pub struct GadgetNode<B: SnarkBackend> {
@@ -241,19 +281,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             fields
         };
         // Verifier planning only needs schema/materialization metadata.
-        let base_df = crate::irs::nodes::hints::schema_only_df(key_union_fields);
-        let mut materialized_true = IndexMap::new();
-        let mut materialized_false = IndexMap::new();
-        for field in base_df.schema().fields() {
-            materialized_true.insert(field.clone(), true);
-            materialized_false.insert(field.clone(), false);
-        }
-        let key_hint = crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_true);
-        let union_hint =
-            crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_false.clone());
-        let left_lookup_hint =
-            crate::irs::nodes::hints::HintDF::new(base_df.clone(), materialized_false.clone());
-        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new(base_df, materialized_false);
+        let (key_hint, union_hint) = verifier_match_pair_hint_templates(key_union_fields);
+        let left_lookup_hint = union_hint.clone();
+        let right_lookup_hint = union_hint.clone();
 
         apply_match_pair_planned_hints(
             self,
@@ -737,7 +767,7 @@ fn load_match_pair_planning_context<B: SnarkBackend>(
 ) -> Option<MatchPairPlanningContext> {
     let join_gadget_id = find_parent_id(id, planned_ir.tree())?;
     let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        Some(PayloadStructure::GadgetPayload(map)) => map,
         _ => return None,
     };
     let left_hint = join_payload.get(join_gadget::LEFT_LABEL)?.clone();
