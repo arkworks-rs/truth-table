@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use divan::Bencher;
 
 use crate::support::{
-    BenchCase, build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
-    load_proof_bytes, log_proof_size_once, prepare_assets, prepare_prover_iteration,
-    run_arg_verifier_once, run_prover_iteration, warmup_proof,
+    build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
+    load_proof_bytes_cached, log_proof_size_once, prepare_assets_cached, prepare_prover_iteration,
+    run_arg_verifier_once, run_prover_iteration, warmup_proof, BenchCase,
 };
 
 fn join_cases() -> &'static [BenchCase] {
@@ -65,11 +65,9 @@ WHERE
 #[divan::bench(args = join_cases(), max_time = 1)]
 fn bench_join_prover(bencher: Bencher, case: BenchCase) {
     // Prover benchmark: build a new prover per iteration, time only prove().
+    let assets = prepare_assets_cached(case);
     bencher
-        .with_inputs(|| {
-            let assets = prepare_assets(case);
-            prepare_prover_iteration(&assets)
-        })
+        .with_inputs(|| prepare_prover_iteration(&assets))
         .bench_local_values(|iteration| {
             let _proof = run_prover_iteration(iteration);
         });
@@ -79,11 +77,12 @@ fn bench_join_prover(bencher: Bencher, case: BenchCase) {
 #[divan::bench(args = join_cases(), max_time = 1)]
 fn bench_join_verifier(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark: build state once, then time only run_verifier_once.
-    let assets = prepare_assets(case);
+    let assets = prepare_assets_cached(case);
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_state(&assets, load_proof_bytes(&bench_proof));
+    let proof_bytes = load_proof_bytes_cached(case.name, &bench_proof);
+    let state = build_verifier_state(&assets, proof_bytes.as_slice());
     bencher
         .with_inputs(|| fork_arg_verifier(&state))
         .bench_local_values(run_arg_verifier_once);

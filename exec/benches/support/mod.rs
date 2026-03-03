@@ -88,6 +88,8 @@ pub struct ProverBenchIteration {
 
 static PROOF_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<BenchProof>>>> = OnceLock::new();
 static PROOF_SIZE_LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+static ASSETS_CACHE: OnceLock<Mutex<HashMap<&'static str, BenchAssets>>> = OnceLock::new();
+static PROOF_BYTES_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<Vec<u8>>>>> = OnceLock::new();
 
 pub fn init_bench_tracing() {
     // Install a bench-focused subscriber that honors RUST_LOG for stdout.
@@ -212,6 +214,19 @@ pub fn prepare_assets(case: BenchCase) -> BenchAssets {
     }
 }
 
+pub fn prepare_assets_cached(case: BenchCase) -> BenchAssets {
+    let cache = ASSETS_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().expect("bench assets cache poisoned");
+
+    if let Some(existing) = guard.get(case.name).cloned() {
+        return existing;
+    }
+
+    let assets = prepare_assets(case);
+    guard.insert(case.name, assets.clone());
+    assets
+}
+
 pub fn run_prover_once(assets: &BenchAssets) -> TTProof<B> {
     // Build the prover and run proof generation once (used for warmup/caching).
     let iteration = prepare_prover_iteration(assets);
@@ -314,6 +329,19 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
 pub fn load_proof_bytes(bench_proof: &BenchProof) -> Vec<u8> {
     // Load proof bytes on demand instead of keeping all proofs resident in memory.
     std::fs::read(&bench_proof.proof_path).expect("read proof bytes for bench")
+}
+
+pub fn load_proof_bytes_cached(case_name: &'static str, bench_proof: &BenchProof) -> Arc<Vec<u8>> {
+    let cache = PROOF_BYTES_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().expect("bench proof-bytes cache poisoned");
+
+    if let Some(existing) = guard.get(case_name).cloned() {
+        return existing;
+    }
+
+    let bytes = Arc::new(load_proof_bytes(bench_proof));
+    guard.insert(case_name, Arc::clone(&bytes));
+    bytes
 }
 
 pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {

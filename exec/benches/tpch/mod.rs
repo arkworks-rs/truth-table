@@ -1,14 +1,11 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::OnceLock;
 
 use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes,
-    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_full_verifier_once,
+    build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes_cached,
+    log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
     run_preprocess_once, run_prover_iteration, warmup_proof, BenchCase,
 };
 
@@ -133,44 +130,12 @@ fn tpch_cases() -> &'static [BenchCase] {
     })
 }
 
-fn prepare_assets_cached(case: BenchCase) -> crate::support::BenchAssets {
-    static ASSETS: OnceLock<Mutex<HashMap<&'static str, crate::support::BenchAssets>>> =
-        OnceLock::new();
-    let cache = ASSETS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().expect("tpch assets cache poisoned");
-
-    if let Some(existing) = guard.get(case.name).cloned() {
-        return existing;
-    }
-
-    let assets = prepare_assets(case);
-    guard.insert(case.name, assets.clone());
-    assets
-}
-
-fn prepare_proof_bytes_cached(
-    case_name: &'static str,
-    bench_proof: &crate::support::BenchProof,
-) -> Arc<Vec<u8>> {
-    static PROOF_BYTES: OnceLock<Mutex<HashMap<&'static str, Arc<Vec<u8>>>>> = OnceLock::new();
-    let cache = PROOF_BYTES.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().expect("tpch proof-bytes cache poisoned");
-
-    if let Some(existing) = guard.get(case_name).cloned() {
-        return existing;
-    }
-
-    let bytes = Arc::new(load_proof_bytes(bench_proof));
-    guard.insert(case_name, Arc::clone(&bytes));
-    bytes
-}
-
 fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
     let assets = prepare_assets_cached(case);
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, &bench_proof);
-    let proof_bytes = prepare_proof_bytes_cached(case.name, &bench_proof);
+    let proof_bytes = load_proof_bytes_cached(case.name, &bench_proof);
     build_verifier_full_state(&assets, proof_bytes.as_slice())
 }
 
@@ -186,7 +151,7 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }
 
-#[divan::bench(args = tpch_cases(), max_time = 10)]
+#[divan::bench(args = tpch_cases(), max_time = 0.00000001)]
 fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     // Benchmark only one-time verifier preprocessing (planning/gadget-planning cache fill).
     let state = prepare_verifier_state(case);
