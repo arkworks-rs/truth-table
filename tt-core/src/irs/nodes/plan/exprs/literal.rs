@@ -175,9 +175,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("Literal scope cannot be a gadget node"),
         };
 
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(scope_hint_df.data_frame().clone())
-                .expect("literal row-id sort should succeed");
+        // Verifier planning needs output shape only; avoid row-id sorting overhead.
+        let input_df = scope_hint_df.data_frame().clone();
 
         let mut exprs = vec![lit(self.literal.clone())];
         crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
@@ -186,8 +185,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .select(exprs)
             .expect("literal projection should succeed");
 
-        let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
-            .expect("literal output sort should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(projected)
     }
 }
