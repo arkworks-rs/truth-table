@@ -9,7 +9,7 @@ use ark_ff::One;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
-use datafusion::arrow::datatypes::{DataType, Field};
+use datafusion::arrow::{datatypes::{DataType, Field, Schema}, record_batch::RecordBatch};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, Result as DataFusionResult};
@@ -143,29 +143,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             _ => return Ok(()),
         };
 
-        let included_hint = match gadget_payload.get(INCLUDED_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
         let super_hint = match gadget_payload.get(SUPER_LABEL) {
             Some(hint_df) => hint_df.clone(),
             None => return Ok(()),
         };
 
-        let multiplicities_df = multiplicity_once_per_active_key(
-            super_hint.data_frame().clone(),
-            included_hint.data_frame().clone(),
-        )
-        .expect("lookup multiplicity hint planning should succeed");
-
-        let should_materialize = multiplicities_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), !is_system_column(field.name())))
-            .collect();
         let multiplicities_hint =
-            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
+            build_verifier_multiplicity_hint(&super_hint).expect("lookup verifier hint should succeed");
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -196,6 +180,41 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
+}
+
+fn build_verifier_multiplicity_hint(
+    super_hint: &crate::irs::nodes::hints::HintDF,
+) -> DataFusionResult<crate::irs::nodes::hints::HintDF> {
+    // Verifier planning only needs schema/materialization shape for multiplicities.
+    // Runtime multiplicity oracle is wired in initialize_gadgets.
+    let fields = vec![
+        Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
+        Field::new("multiplicity", DataType::Int64, true),
+    ];
+    let schema = Arc::new(Schema::new(fields));
+    let df = datafusion::prelude::SessionContext::new().read_batch(RecordBatch::new_empty(schema))?;
+
+    let has_super_activator = super_hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == ACTIVATOR_COL_NAME);
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mat = if field.name() == ACTIVATOR_COL_NAME {
+                !has_super_activator
+            } else {
+                !is_system_column(field.name())
+            };
+            (field.clone(), mat)
+        })
+        .collect();
+
+    Ok(crate::irs::nodes::hints::HintDF::new(df, should_materialize))
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
