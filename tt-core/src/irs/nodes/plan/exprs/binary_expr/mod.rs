@@ -582,14 +582,22 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             Node::Gadget(_) => panic!("BinaryExpr scope cannot be a gadget node"),
         };
 
-        // Verifier planning needs only output shape/materialization metadata.
-        // Keep the input as-is and avoid row-id sorting work.
-        let input_df = scope_hint_df.data_frame().clone();
-
+        // Verifier planning only needs output schema/materialization metadata.
+        // Avoid building projection plans for every BinaryExpr node.
+        let input_schema = scope_hint_df.data_frame().schema().as_arrow().clone();
         let output_expr = Expr::BinaryExpr(self.binary_expression.clone());
         let output_expr = if self.should_materialize() {
-            if let Some(activator_expr) = Self::activator_expr_for_df(&input_df) {
-                let else_expr = match output_expr.get_type(input_df.schema()).ok() {
+            if let Some(activator_col) = input_schema
+                .fields()
+                .iter()
+                .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+            {
+                let activator_expr =
+                    Expr::Column(datafusion_common::Column::new_unqualified(activator_col.name()));
+                let else_expr = match output_expr
+                    .get_type(scope_hint_df.data_frame().schema())
+                    .ok()
+                {
                     Some(DataType::Boolean) => lit(false),
                     _ => lit(ScalarValue::Null),
                 };
@@ -602,14 +610,26 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         } else {
             output_expr
         };
+        let output_name = output_expr.schema_name().to_string();
+        let output_type = output_expr
+            .get_type(scope_hint_df.data_frame().schema())
+            .unwrap_or(DataType::Null);
 
-        let mut exprs = vec![output_expr];
-        crate::irs::nodes::hints::append_activator_exprs_if_present(&input_df, &mut exprs);
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-
-        let projected = input_df
-            .select(exprs)
-            .expect("binary expression projection should succeed");
+        let mut fields = vec![datafusion::arrow::datatypes::Field::new(
+            output_name,
+            output_type,
+            true,
+        )];
+        fields.extend(
+            input_schema
+                .fields()
+                .iter()
+                .filter(|field| {
+                    field.name() == arithmetic::ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME
+                })
+                .map(|field| field.as_ref().clone()),
+        );
+        let projected = crate::irs::nodes::hints::schema_only_df(fields);
 
         let should_materialize: IndexMap<FieldRef, bool> = projected
             .schema()

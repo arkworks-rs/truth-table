@@ -189,20 +189,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinNeqNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // Fetch the payload for this gadget node.
-        let gadget_payload = match virtualized_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => return Ok(()),
-        };
         // Extract the left, right, and output tracked tables from the payload.
-        let (left_input, right_input, output) = match (
-            gadget_payload.get(LEFT_INPUT_LABEL),
-            gadget_payload.get(RIGHT_INPUT_LABEL),
-            gadget_payload.get(OUTPUT_LABEL),
-        ) {
-            (Some(left), Some(right), Some(output)) => {
-                (left.clone(), right.clone(), output.clone())
-            }
+        let (left_input, right_input, output) = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => match (
+                map.get(LEFT_INPUT_LABEL),
+                map.get(RIGHT_INPUT_LABEL),
+                map.get(OUTPUT_LABEL),
+            ) {
+                (Some(left), Some(right), Some(output)) => {
+                    (left.clone(), right.clone(), output.clone())
+                }
+                _ => panic!("Expected left, right, and output tables for binary inequality gadget"),
+            },
             _ => panic!("Expected left, right, and output tables for binary inequality gadget"),
         };
 
