@@ -239,7 +239,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 };
                 let multiplicities_table = lookup_payload
                     .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                    .cloned()
                     .unwrap_or_else(|| {
                         panic!(
                             "Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction"
@@ -543,7 +542,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 };
                 let multiplicities_table = lookup_payload
                     .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                    .cloned()
                     .unwrap_or_else(|| {
                         panic!(
                             "Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction"
@@ -564,7 +562,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             // a constant-one oracle aligned with the parent input activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
                 |payload| match payload {
-                    PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                    PayloadStructure::PlanPayload(table) => Some(table),
                     _ => None,
                 },
             );

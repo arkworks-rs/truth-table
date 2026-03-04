@@ -75,13 +75,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the tracked table that is the input to this filter node.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
         // Pull the predicate output table.
         let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
@@ -214,13 +214,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Pull the tracked table from the filter's input.
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
         // Pull the predicate output table.
         let predicate_table = match virtualized_ir.payload_for_node(&self.predicate.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
@@ -231,10 +231,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let predicate_data_idx = *predicate_data_indices
             .first()
             .expect("Filter predicate output should include a data column");
-        let binding = predicate_table.tracked_oracles();
-        let (_field, predicate_oracle) = binding
-            .get_index(predicate_data_idx)
-            .expect("predicate data index out of bounds");
+        let predicate_oracle = predicate_table
+            .tracked_col_oracle_by_ind(predicate_data_idx)
+            .data_tracked_oracle();
         // let output_activator = match input_table.activator_tracked_poly() {
         //     Some(input_activator) => predicate_oracle * &input_activator,
         //     None => predicate_oracle.clone(),
@@ -290,19 +289,19 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         };
 
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => Some(table.clone()),
+            Some(PayloadStructure::PlanPayload(table)) => Some(table),
             _ => None,
         };
         let output_table = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                PayloadStructure::PlanPayload(table) => Some(table),
                 _ => None,
             });
         let predicate_table = virtualized_ir
             .payload_for_node(&self.predicate.id())
             .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                PayloadStructure::PlanPayload(table) => Some(table),
                 _ => None,
             });
 
@@ -324,7 +323,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             );
         }
         if let Some(pred_table) = predicate_table {
-            gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table);
+            gadget_payload.insert(FILTER_PREDICATE_LABEL.to_string(), pred_table.clone());
         }
 
         if !gadget_payload.is_empty() {

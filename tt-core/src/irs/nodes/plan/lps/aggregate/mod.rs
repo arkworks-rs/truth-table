@@ -568,22 +568,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
+        let (input_fields, output_fields) = {
+            let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+                Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
+                _ => return Ok(()),
+            };
+            let output_hint_df = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
+                _ => return Ok(()),
+            };
+            (
+                aggregate_group_projection_fields(
+                    input_hint_df.data_frame().schema().as_arrow(),
+                    &self.aggregate.group_expr,
+                ),
+                aggregate_group_projection_fields(
+                    output_hint_df.data_frame().schema().as_arrow(),
+                    &self.aggregate.group_expr,
+                ),
+            )
         };
-        let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
-            _ => return Ok(()),
-        };
-        let input_fields = aggregate_group_projection_fields(
-            input_hint_df.data_frame().schema().as_arrow(),
-            &self.aggregate.group_expr,
-        );
-        let output_fields = aggregate_group_projection_fields(
-            output_hint_df.data_frame().schema().as_arrow(),
-            &self.aggregate.group_expr,
-        );
         let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(
             crate::irs::nodes::hints::schema_only_df(input_fields),
         );
@@ -618,19 +622,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let input_table = match virtualized_ir.payload_for_node(&self.input.id()) {
-            Some(PayloadStructure::PlanPayload(table)) => table.clone(),
+            Some(PayloadStructure::PlanPayload(table)) => table,
             _ => return Ok(()),
         };
 
-        let current_table = virtualized_ir
+        let current_table_opt = virtualized_ir
             .payload_for_node(&id)
             .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
+                PayloadStructure::PlanPayload(table) => Some(table),
                 _ => None,
-            })
-            .unwrap_or_default();
+            });
 
-        let mut merged_oracles = current_table.tracked_oracles();
+        let mut merged_oracles = current_table_opt
+            .map(TrackedTableOracle::tracked_oracles)
+            .unwrap_or_default();
         let aggregate_output_names: HashSet<String> = self
             .aggregate
             .aggr_expr
@@ -673,18 +678,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         // Only inject multiplicities if the COUNT column is missing from the
         // materialized aggregate output.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
-        if !count_output_names.is_empty()
-            && lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir).is_some()
-        {
+        let lookup_multiplicities = lookup_super_multiplicities_oracle_ref(&self.gadget, virtualized_ir);
+        if !count_output_names.is_empty() && lookup_multiplicities.is_some() {
             let missing_count_outputs: Vec<String> = count_output_names
                 .iter()
                 .filter(|name| merged_oracles.keys().all(|field| field.name() != *name))
                 .cloned()
                 .collect();
             if !missing_count_outputs.is_empty() {
-                let multiplicities_table =
-                    lookup_super_multiplicities_oracle(&self.gadget, virtualized_ir)
-                        .expect("multiplicities should be available");
+                let multiplicities_table = lookup_multiplicities.expect("multiplicities should be available");
                 let data_indices = multiplicities_table.data_tracked_oracles_indices();
                 if data_indices.len() != 1 {
                     panic!("Lookup multiplicities must have exactly one data column");
@@ -707,8 +709,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             }
         }
 
-        let metadata = current_table
-            .schema_ref()
+        let metadata = current_table_opt
+            .and_then(TrackedTableOracle::schema_ref)
             .map(|s| s.metadata().clone())
             .or_else(|| input_table.schema_ref().map(|s| s.metadata().clone()))
             .unwrap_or_default();
@@ -719,8 +721,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let schema = Some(Schema::new_with_metadata(fields, metadata));
 
         // Mirror prover: trust the planned aggregate output size even if it is 0.
-        let log_size = if current_table.schema_ref().is_some() {
-            current_table.log_size()
+        let log_size = if current_table_opt.is_some() {
+            current_table_opt
+                .map(TrackedTableOracle::log_size)
+                .expect("current aggregate table should exist when current_table_opt.is_some()")
         } else {
             input_table.log_size()
         };
@@ -1295,6 +1299,22 @@ fn lookup_super_multiplicities_oracle<B: SnarkBackend>(
         PayloadStructure::GadgetPayload(map) => map
             .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
             .cloned(),
+        _ => None,
+    }
+}
+
+fn lookup_super_multiplicities_oracle_ref<'a, B: SnarkBackend>(
+    aggregate_gadget: &Arc<Node<B>>,
+    virtualized_ir: &'a crate::verifier::irs::VirtualizedIr<B>,
+) -> Option<&'a TrackedTableOracle<B>> {
+    let supp_node = aggregate_gadget.children().into_iter().next()?;
+    let lookup_node = supp_node
+        .children()
+        .into_iter()
+        .find(|child| child.name() == "Lookup")?;
+    match virtualized_ir.payload_for_node(&lookup_node.id())? {
+        PayloadStructure::GadgetPayload(map) => map
+            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL),
         _ => None,
     }
 }

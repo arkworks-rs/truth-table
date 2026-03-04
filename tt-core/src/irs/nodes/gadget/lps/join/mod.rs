@@ -346,23 +346,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if let Some(gadgets) = self.many_to_many_gadgets() {
+            let derived = match planned_ir.payload_for_node(&id) {
+                Some(PayloadStructure::GadgetPayload(map)) => {
+                    let Some(left_hint) = map.get(LEFT_LABEL) else {
+                        return Ok(());
+                    };
+                    let Some(right_hint) = map.get(RIGHT_LABEL) else {
+                        return Ok(());
+                    };
+                    let Some(output_hint) = map.get(OUTPUT_LABEL) else {
+                        return Ok(());
+                    };
+                    derive_many_to_many_hints_verifier(left_hint, right_hint, output_hint)
+                }
+                _ => return Ok(()),
+            };
+
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => return Ok(()),
             };
-            let left_hint = match gadget_payload.get(LEFT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
-                None => return Ok(()),
-            };
-            let right_hint = match gadget_payload.get(RIGHT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
-                None => return Ok(()),
-            };
-            let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
-                None => return Ok(()),
-            };
-            let derived = derive_many_to_many_hints_verifier(&left_hint, &right_hint, &output_hint);
             gadget_payload.insert(LEFT_LABEL.to_string(), derived.left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), derived.right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), derived.output_hint.clone());
@@ -402,39 +405,53 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.many_to_many_gadgets().is_some() {
-            let Some(PayloadStructure::GadgetPayload(payload)) =
-                virtualized_ir.payload_for_node(&id).cloned()
-            else {
-                panic!("expected gadget payload for Join gadget node")
-            };
-            let current_output = payload
-                .get(OUTPUT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
-            let current_left = payload
-                .get(LEFT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
-            let current_right = payload
-                .get(RIGHT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
-            let current_left_src = payload
-                .get(SRC_LEFT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
-            let current_right_src = payload
-                .get(SRC_RIGHT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
-            self.wire_verifier_bool_payload(current_output, virtualized_ir);
-
-            self.wire_verifier_nodup_payload(
+            let (
                 current_output,
+                current_left,
+                current_right,
                 current_left_src,
                 current_right_src,
+            ) = {
+                let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
+                else {
+                    panic!("expected gadget payload for Join gadget node")
+                };
+                (
+                    payload
+                        .get(OUTPUT_LABEL)
+                        .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"))
+                        .clone(),
+                    payload
+                        .get(LEFT_LABEL)
+                        .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"))
+                        .clone(),
+                    payload
+                        .get(RIGHT_LABEL)
+                        .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"))
+                        .clone(),
+                    payload
+                        .get(SRC_LEFT_LABEL)
+                        .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"))
+                        .clone(),
+                    payload
+                        .get(SRC_RIGHT_LABEL)
+                        .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"))
+                        .clone(),
+                )
+            };
+            self.wire_verifier_bool_payload(&current_output, virtualized_ir);
+
+            self.wire_verifier_nodup_payload(
+                &current_output,
+                &current_left_src,
+                &current_right_src,
                 virtualized_ir,
             );
 
             self.wire_verifier_match_pair_payload(
-                current_output,
-                current_left,
-                current_right,
+                &current_output,
+                &current_left,
+                &current_right,
                 virtualized_ir,
             );
             Ok(())

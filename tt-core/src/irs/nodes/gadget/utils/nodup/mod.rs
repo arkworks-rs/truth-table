@@ -257,7 +257,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(payload)) => payload,
             _ => return Ok(()),
         };
-        let Some(lex_sorted_table) = payload.get(LEX_SORTED_LABEL).cloned() else {
+        let Some(lex_sorted_table) = payload.get(LEX_SORTED_LABEL) else {
             return Ok(());
         };
         let key = active_input_rows_misc_key(id, virtualized_ir.tree());
@@ -281,8 +281,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let contig_activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_oracle(lex_sorted_table.log_size(), num_active_input_rows)?;
-        let lex_sorted_with_activator =
-            append_activator_verifier(&lex_sorted_table, contig_activator);
+        let lex_sorted_with_activator = append_activator_verifier(lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
@@ -301,17 +300,17 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let Gadgets::SortNoDup(gadgets) = &self.gadgets else {
             return Ok(());
         };
-        let payload = match virtualized_ir.payload_for_node(&id).cloned() {
+        let payload = match virtualized_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(payload)) => payload,
             _ => return Ok(()),
         };
-        let Some(lex_sorted_hint) = payload.get(LEX_SORTED_LABEL).cloned() else {
+        let Some(lex_sorted_hint) = payload.get(LEX_SORTED_LABEL) else {
             return Ok(());
         };
         let sort_id = gadgets.0.id();
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
-            lex_sorted_hint,
+            lex_sorted_hint.clone(),
         );
         virtualized_ir
             .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));

@@ -139,17 +139,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let multiplicities_hint = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                let Some(super_hint) = map.get(SUPER_LABEL) else {
+                    return Ok(());
+                };
+                build_verifier_multiplicity_hint(super_hint)
+            }
+            _ => return Ok(()),
+        };
+
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-
-        let super_hint = match gadget_payload.get(SUPER_LABEL) {
-            Some(hint_df) => hint_df,
-            None => return Ok(()),
-        };
-
-        let multiplicities_hint = build_verifier_multiplicity_hint(&super_hint);
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -168,14 +171,17 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let mut payload = match virtualized_ir.payload_for_node(&id).cloned() {
-            Some(PayloadStructure::GadgetPayload(map)) => map,
+        let (mut payload, multiplicities) = match virtualized_ir.payload_for_node(&id) {
+            Some(PayloadStructure::GadgetPayload(map)) => {
+                let Some(super_table) = map.get(SUPER_LABEL) else {
+                    return Ok(());
+                };
+                let multiplicities =
+                    multiplicities_from_runtime_tables_verifier(verifier, super_table)?;
+                (map.clone(), multiplicities)
+            }
             _ => return Ok(()),
         };
-        let Some(super_table) = payload.get(SUPER_LABEL).cloned() else {
-            return Ok(());
-        };
-        let multiplicities = multiplicities_from_runtime_tables_verifier(verifier, &super_table)?;
         payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
