@@ -4,53 +4,36 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof,
-    log_proof_size_once, prepare_assets, prepare_prover_iteration, run_full_verifier_once,
-    run_preprocess_once, run_prover_iteration, warmup_proof,
+    build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes_cached,
+    log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
+    run_preprocess_once, run_prover_iteration, warmup_proof, BenchCase,
 };
+
+
 
 fn tpch_cases() -> &'static [BenchCase] {
     // Static list of TPCH queries to benchmark.
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let q1 = query_spec(1, false);
-        // println!("TPCH Q1 SQL: {}", q1.sql);
         let q1_poneglyph = query_spec(1, true);
-        // println!("TPCH Q1 Poneglyph SQL: {}", q1_poneglyph.sql);
         let q3 = query_spec(3, false);
-        // println!("TPCH Q3 SQL: {}", q3.sql);
         let q3_poneglyph = query_spec(3, true);
-        // println!("TPCH Q3 Poneglyph SQL: {}", q3_poneglyph.sql);
         let q5 = query_spec(5, false);
-        // println!("TPCH Q5 SQL: {}", q5.sql);
         let q5_poneglyph = query_spec(5, true);
-        // println!("TPCH Q5 Poneglyph SQL: {}", q5_poneglyph.sql);
         let q6 = query_spec(6, false);
-        // println!("TPCH Q6 SQL: {}", q6.sql);
         let q7 = query_spec(7, false);
-        // println!("TPCH Q7 SQL: {}", q7.sql);
         let q8 = query_spec(8, false);
-        // println!("TPCH Q8 SQL: {}", q8.sql);
         let q8_poneglyph = query_spec(8, true);
-        // println!("TPCH Q8 Poneglyph SQL: {}", q8_poneglyph.sql);
         let q9 = query_spec(9, false);
-        // println!("TPCH Q9 SQL: {}", q9.sql);
         let q9_poneglyph = query_spec(9, true);
-        // println!("TPCH Q9 Poneglyph SQL: {}", q9_poneglyph.sql);
         let q10 = query_spec(10, false);
-        // println!("TPCH Q10 SQL: {}", q10.sql);
         let q12 = query_spec(12, false);
-        // println!("TPCH Q12 SQL: {}", q12.sql);
         let q14 = query_spec(14, false);
-        // println!("TPCH Q14 SQL: {}", q14.sql);
         let q17 = query_spec(17, false);
-        // println!("TPCH Q17 SQL: {}", q17.sql);
         let q18 = query_spec(18, false);
-        // println!("TPCH Q18 SQL: {}", q18.sql);
         let q18_poneglyph = query_spec(18, true);
-        // println!("TPCH Q18 Poneglyph SQL: {}", q18_poneglyph.sql);
         let q19 = query_spec(19, false);
-        // println!("TPCH Q19 SQL: {}", q19.sql);
 
         let cases = vec![
             BenchCase {
@@ -149,33 +132,35 @@ fn tpch_cases() -> &'static [BenchCase] {
                 tables: q19.tables,
             },
         ];
-        // println!("Loaded {} TPCH benchmark cases", cases.len());
         Box::leak(cases.into_boxed_slice())
     })
+}
+
+fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
+    let assets = prepare_assets_cached(case);
+    let _ = warmup_proof(&assets);
+    let bench_proof = ensure_proof(&assets);
+    log_proof_size_once(case.name, &bench_proof);
+    let proof_bytes = load_proof_bytes_cached(case.name, &bench_proof);
+    build_verifier_full_state(&assets, proof_bytes.as_slice())
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
 fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     // Prover benchmark: build a new prover per iteration, time only prove().
+    let assets = prepare_assets_cached(case);
     bencher
-        .with_inputs(|| {
-            let assets = prepare_assets(case);
-            prepare_prover_iteration(&assets)
-        })
+        .with_inputs(|| prepare_prover_iteration(&assets))
         .bench_local_values(|iteration| {
             let _proof = run_prover_iteration(iteration);
         });
     emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }
 
-#[divan::bench(args = tpch_cases(), max_time = 0.00001)]
+#[divan::bench(args = tpch_cases(), max_time = 10)]
 fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     // Benchmark only one-time verifier preprocessing (planning/gadget-planning cache fill).
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    let state = prepare_verifier_state(case);
     bencher.bench_local(|| {
         run_preprocess_once(&state);
     });
@@ -186,11 +171,7 @@ fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
 fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark (core/steady-state): time IR passes + cryptographic
     // verification, excluding one-time preprocessing/cache warmup.
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    let state = prepare_verifier_state(case);
     // Preprocess once outside the timed region so this benchmark reflects steady-state.
     run_preprocess_once(&state);
     bencher.bench_local(|| {
@@ -202,11 +183,7 @@ fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
 #[divan::bench(args = tpch_cases(), max_time = 1)]
 fn bench_tpch_verifier_full(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark (full): time preprocessing + steady-state verification together.
-    let assets = prepare_assets(case);
-    let _ = warmup_proof(&assets);
-    let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let state = build_verifier_full_state(&assets, bench_proof.proof_bytes.clone());
+    let state = prepare_verifier_state(case);
     bencher.bench_local(|| {
         run_preprocess_once(&state);
         run_full_verifier_once(&state);
