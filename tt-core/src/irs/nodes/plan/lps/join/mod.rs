@@ -281,6 +281,31 @@ impl<B: SnarkBackend> LpNode<B> {
         });
         arithmetic::table_oracle::TrackedTableOracle::new(schema, updated_oracles, table.log_size())
     }
+
+    fn join_mode_label(mode: modes::JoinMode) -> &'static str {
+        match mode {
+            modes::JoinMode::ONE_TO_ONE => "1-1",
+            modes::JoinMode::ONE_TO_MANY => "1-many",
+            modes::JoinMode::MANY_TO_ONE => "many-1",
+            modes::JoinMode::MANY_TO_MANY => "many-many",
+        }
+    }
+
+    fn maybe_dbg_join_mode(join: &Join, mode: modes::JoinMode) {
+        if std::env::var_os("TT_DBG_JOIN_MODE").is_none() {
+            return;
+        }
+        let mode_label = Self::join_mode_label(mode);
+        let pk_fk_optimized = mode != modes::JoinMode::MANY_TO_MANY;
+        dbg!(
+            "join_mode",
+            mode_label,
+            pk_fk_optimized,
+            join.join_type,
+            join.on.len(),
+            join.filter.is_some()
+        );
+    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -1037,6 +1062,7 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         };
         // Decide mode at LP ingestion time so both plan and gadget are always synchronized.
         let join_mode = modes::decide_join_mode(&join);
+        Self::maybe_dbg_join_mode(&join, join_mode);
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
         let join_scope_node = self_ref.clone();

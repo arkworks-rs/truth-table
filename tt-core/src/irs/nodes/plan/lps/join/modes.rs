@@ -2,11 +2,12 @@ use std::collections::HashSet;
 
 use crate::irs::nodes::hints::{ColumnConstraintMetadata, column_constraint_metadata};
 use datafusion_common::{Column, DFSchemaRef, TableReference};
-use datafusion_expr::{Expr, Join, JoinType, LogicalPlan};
+use datafusion_expr::{Expr, Join, JoinType};
 
 const PK_METADATA_KEY: &str = "tt.pk";
 const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
 const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
+const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,13 +27,7 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
     // Keep all other join types on the conservative many-to-many path.
     if !matches!(join.join_type, JoinType::Inner) {
         return JoinMode::MANY_TO_MANY;
-    }
-    // For now, only classify direct base-table joins. Derived inputs (especially
-    // chained joins) can invalidate base PK/FK assumptions unless constraints are
-    // propagated through planning, which is not guaranteed at this stage.
-    if !is_base_table_input(join.left.as_ref()) || !is_base_table_input(join.right.as_ref()) {
-        return JoinMode::MANY_TO_MANY;
-    }
+    };
     if join.on.is_empty() {
         return JoinMode::MANY_TO_MANY;
     }
@@ -109,13 +104,16 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
         right_is_fk_to_left_all &= right_fk_to_left;
     }
 
-    // Strongest guarantee first.
-    if left_is_pk_all && right_is_pk_all {
-        JoinMode::ONE_TO_ONE
-    } else if left_is_pk_all && right_is_fk_to_left_all {
+    // Prefer explicit PK/FK direction first.
+    if left_is_pk_all && right_is_fk_to_left_all {
         JoinMode::ONE_TO_MANY
     } else if right_is_pk_all && left_is_fk_to_right_all {
         JoinMode::MANY_TO_ONE
+    // Conservative fallback for pure PK=PK joins. The current partial-join path
+    // is tuned for PK/FK semantics and can violate row-domain invariants on some
+    // queries when used as generic 1-1 optimization.
+    } else if left_is_pk_all && right_is_pk_all {
+        JoinMode::MANY_TO_MANY
     } else {
         JoinMode::MANY_TO_MANY
     }
@@ -173,14 +171,6 @@ fn table_name_from_qualifier(qualifier: &str) -> String {
         .to_lowercase()
 }
 
-fn is_base_table_input(plan: &LogicalPlan) -> bool {
-    match plan {
-        LogicalPlan::TableScan(_) => true,
-        LogicalPlan::SubqueryAlias(alias) => is_base_table_input(alias.input.as_ref()),
-        _ => false,
-    }
-}
-
 fn resolve_constraint_metadata(
     schema: &DFSchemaRef,
     col: &Column,
@@ -196,7 +186,7 @@ fn constraint_metadata_from_field(
     schema: &DFSchemaRef,
     col: &Column,
 ) -> Option<ColumnConstraintMetadata> {
-    let matching_fields = schema
+    let exact_matching_fields = schema
         .iter()
         .filter(|(qualifier, field)| {
             if field.name() != col.name.as_str() {
@@ -204,19 +194,51 @@ fn constraint_metadata_from_field(
             }
             match (&col.relation, qualifier) {
                 (Some(rel), Some(q)) => {
-                    table_name_from_relation(rel) == table_name_from_relation(q)
+                    let rel_name = table_name_from_relation(rel);
+                    let qual_name = table_name_from_relation(q);
+                    if rel_name == qual_name {
+                        return true;
+                    }
+                    field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .map(|m| table_name_from_qualifier(m) == rel_name)
+                        .unwrap_or(false)
                 }
-                (Some(_), None) => false,
+                (Some(rel), None) => {
+                    let rel_name = table_name_from_relation(rel);
+                    field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .map(|m| table_name_from_qualifier(m) == rel_name)
+                        .unwrap_or(false)
+                }
                 (None, _) => true,
             }
         })
         .map(|(_, field)| field)
         .collect::<Vec<_>>();
 
-    // Ambiguous or missing => cannot safely infer.
-    if matching_fields.len() != 1 {
-        return None;
-    }
+    let matching_fields = if exact_matching_fields.len() == 1 {
+        exact_matching_fields
+    } else {
+        if col.relation.is_some() {
+            return None;
+        }
+        // In planned schemas qualifiers can be rewritten (e.g., aliases or "?table?").
+        // Fall back to a unique match by field name to keep PK/FK propagation usable
+        // across chained joins.
+        let by_name = schema
+            .iter()
+            .filter(|(_, field)| field.name() == col.name.as_str())
+            .map(|(_, field)| field)
+            .collect::<Vec<_>>();
+        if by_name.len() != 1 {
+            return None;
+        }
+        by_name
+    };
+
     let field = matching_fields[0];
     let metadata = field.metadata();
 
