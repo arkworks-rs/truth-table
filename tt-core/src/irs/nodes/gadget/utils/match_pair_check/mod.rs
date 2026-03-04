@@ -312,23 +312,29 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            return Ok(());
+        let (union, left_keys, right_keys) = {
+            let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
+            else {
+                return Ok(());
+            };
+            (
+                payload
+                    .get(UNION_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL)),
+                payload
+                    .get(LEFT_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL)),
+                payload
+                    .get(RIGHT_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL)),
+            )
         };
-        let union = payload
-            .get(UNION_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", UNION_LABEL));
-        let left_keys = payload
-            .get(LEFT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", LEFT_LABEL));
-        let right_keys = payload
-            .get(RIGHT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Match-Pair gadget missing {}", RIGHT_LABEL));
+        let union_no_row_id = drop_row_id_keep_activator_verifier(&union);
+        let left_keys_no_row_id = drop_row_id_keep_activator_verifier(&left_keys);
+        let right_keys_no_row_id = drop_row_id_keep_activator_verifier(&right_keys);
 
         let mut nodup_payload = match virtualized_ir.payload_for_node(&self.nodup_gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -344,14 +350,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
-            };
+        };
         left_lookup_payload.insert(
             lookup::INCLUDED_LABEL.to_string(),
-            drop_row_id_keep_activator_verifier(&left_keys),
+            left_keys_no_row_id,
         );
         left_lookup_payload.insert(
             lookup::SUPER_LABEL.to_string(),
-            drop_row_id_keep_activator_verifier(&union),
+            union_no_row_id.clone(),
         );
         virtualized_ir.set_payload_for_node(
             self.left_lookup_gadget.id(),
@@ -362,14 +368,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
-            };
+        };
         right_lookup_payload.insert(
             lookup::INCLUDED_LABEL.to_string(),
-            drop_row_id_keep_activator_verifier(&right_keys),
+            right_keys_no_row_id,
         );
         right_lookup_payload.insert(
             lookup::SUPER_LABEL.to_string(),
-            drop_row_id_keep_activator_verifier(&union),
+            union_no_row_id,
         );
         virtualized_ir.set_payload_for_node(
             self.right_lookup_gadget.id(),

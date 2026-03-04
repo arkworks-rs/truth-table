@@ -119,29 +119,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(PayloadStructure::GadgetPayload(payload)) =
-            virtualized_ir.payload_for_node(&id).cloned()
-        else {
-            panic!("Expected gadget payload for Sum Aggregate Function gadget");
-        };
-
-        let input_rlc = payload
-            .get(INPUT_RLC_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Sum Aggregate Function missing input rlc payload"));
-        let output_rlc = payload
-            .get(OUTPUT_RLC_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output rlc payload"));
-        let output_table = payload
-            .get(OUTPUT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| panic!("Sum Aggregate Function missing output payload"));
         let input_0_label = input_label(0);
-        let input_0 = payload
-            .get(&input_0_label)
-            .cloned()
-            .unwrap_or_else(|| panic!("Sum Aggregate Function missing payload {}", input_0_label));
+        let (input_rlc, output_rlc, output_table, input_0) = {
+            let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
+            else {
+                panic!("Expected gadget payload for Sum Aggregate Function gadget");
+            };
+
+            (
+                payload
+                    .get(INPUT_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Sum Aggregate Function missing input rlc payload")),
+                payload
+                    .get(OUTPUT_RLC_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Sum Aggregate Function missing output rlc payload")),
+                payload
+                    .get(OUTPUT_LABEL)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Sum Aggregate Function missing output payload")),
+                payload.get(&input_0_label).cloned().unwrap_or_else(|| {
+                    panic!("Sum Aggregate Function missing payload {}", input_0_label)
+                }),
+            )
+        };
 
         let mut keyed_sumcheck_payload =
             match virtualized_ir.payload_for_node(&self.keyed_sumcheck.id()) {
