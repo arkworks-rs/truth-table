@@ -117,37 +117,10 @@ pub(super) fn build_output_dataframe(input: &DataFrame, filter: &Filter) -> Data
 /// Verifier-side variant that does not collect DataFrames.
 /// Keeps InSubquery expressions as-is instead of rewriting to InList.
 pub(super) fn build_output_dataframe_for_verifier(input: &DataFrame, filter: &Filter) -> DataFrame {
-    let predicate = filter.predicate.clone();
-    let mut projection_exprs: Vec<Expr> = Vec::new();
-    let mut activator_exprs: Vec<Expr> = Vec::new();
-    let mut activator_insert_pos: Option<usize> = None;
-
-    for (qualifier, field) in input.schema().iter() {
-        let name = field.name();
-        if name == ACTIVATOR_COL_NAME {
-            if activator_insert_pos.is_none() {
-                activator_insert_pos = Some(projection_exprs.len());
-            }
-            activator_exprs.push(Expr::Column(Column::new(qualifier.cloned(), name)));
-            continue;
-        }
-        projection_exprs.push(Expr::Column(Column::new(qualifier.cloned(), name)));
-    }
-
-    if !activator_exprs.is_empty() {
-        let mut combined = activator_exprs[0].clone();
-        for expr in activator_exprs.iter().skip(1) {
-            combined = combined.and(expr.clone());
-        }
-        combined = combined.and(predicate).alias(ACTIVATOR_COL_NAME);
-        let insert_pos = activator_insert_pos.unwrap_or(projection_exprs.len());
-        projection_exprs.insert(insert_pos, combined);
-    }
-
-    input
-        .clone()
-        .select(projection_exprs)
-        .expect("filter application should succeed")
+    let _ = filter;
+    // Verifier planning only needs the output schema at this stage.
+    // Filter does not change schema, so preserve input as-is.
+    input.clone()
 }
 
 #[cfg(test)]

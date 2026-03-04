@@ -199,8 +199,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -337,8 +337,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -380,7 +380,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
     fn output(&self) -> HintDF {
-        // Verifier must not collect DataFrames. Use the no-collection variant.
+        // Verifier planning only needs schema. Filter preserves schema.
         let input_hint_df = match self.input.as_ref() {
             Node::Plan(plan_node) => {
                 <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
@@ -389,18 +389,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             }
             Node::Gadget(_) => panic!("Filter input cannot be a gadget node"),
         };
-
-        let output_df =
-            hints::build_output_dataframe_for_verifier(input_hint_df.data_frame(), &self.filter);
-
-        let should_materialize: IndexMap<FieldRef, bool> = output_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), false))
-            .collect();
-
-        crate::irs::nodes::hints::HintDF::new(output_df, should_materialize)
+        input_hint_df.as_virtual_view()
     }
 }
 
