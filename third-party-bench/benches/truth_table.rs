@@ -31,7 +31,7 @@ const PK_FILENAME_PREFIX: &str = "tt_pk_";
 const VK_FILENAME_PREFIX: &str = "tt_vk_";
 
 // Table sizes as powers of two.
-const TABLE_POWS: &[u32] = &[10, 14, 18];
+const TABLE_POWS: &[u32] = &[10, 14, 18, 22];
 
 struct QuerySpec {
     name: &'static str,

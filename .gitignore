@@ -258,6 +258,9 @@ pythontex-files-*/
 # Latexian
 TSWLatexianTemp*
 
+# third-party bench generated cache artifacts
+/third-party-bench/artifact/**/*.bin
+
 ## Editors:
 # WinEdt
 *.bak

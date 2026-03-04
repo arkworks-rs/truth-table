@@ -13,7 +13,7 @@ use proof_of_sql_benchlib::{
 // Possible queries: Filter, Complex Filter, Arithmetic, Group By, Aggregate, Boolean Filter,
 // Large Column Set, Complex Condition, Sum Count, Coin, Join, Union All, Limit Offset, Not.
 const BENCH_ITERS: usize = 1;
-const BENCH_TABLE_POWS: &[u32] = &[10, 14, 18];
+const BENCH_TABLE_POWS: &[u32] = &[10, 14, 18, 22];
 const BENCH_PARQUET_DIR: Option<&str> = Some("artifact");
 const BENCH_PPOT_PATH: Option<&str> = None;
 const BENCH_SCHEME: BenchScheme = BenchScheme::HyperKZG;
