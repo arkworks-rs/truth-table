@@ -163,7 +163,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Rematerialize input cannot be a gadget node"),
         };
 
-        let output_df = build_output_dataframe(input_hint_df.data_frame().clone());
+        // Verifier planning only needs schema; rematerialize does not change schema.
+        let output_df = input_hint_df.data_frame().clone();
         let should_materialize = output_df
             .schema()
             .fields()

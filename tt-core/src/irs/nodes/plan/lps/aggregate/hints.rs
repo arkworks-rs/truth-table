@@ -120,6 +120,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     sorted.drop_columns(&drop_columns).unwrap()
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::build_output_dataframe;
