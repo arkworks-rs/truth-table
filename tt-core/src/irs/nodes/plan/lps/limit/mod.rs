@@ -223,8 +223,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -374,8 +374,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -415,9 +415,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             }
             Node::Gadget(_) => panic!("Limit input cannot be a gadget node"),
         };
-
-        let output_df = hints::build_output_dataframe(input_hint_df.data_frame(), &self.limit);
-        HintDF::new_virtual(output_df)
+        // Verifier planning only needs schema; LIMIT preserves schema.
+        input_hint_df.as_virtual_view()
     }
 }
 

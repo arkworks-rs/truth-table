@@ -18,6 +18,21 @@ pub(super) fn build_output_dataframe(input: &DataFrame, projection: &Projection)
         .expect("projection application should succeed")
 }
 
+/// Verifier-side variant that avoids extra normalization work when possible.
+/// Falls back to the prover-style builder if direct projection resolution fails.
+pub(super) fn build_output_dataframe_for_verifier(
+    input: &DataFrame,
+    projection: &Projection,
+) -> DataFrame {
+    let mut projection_exprs = projection.expr.clone();
+    crate::irs::nodes::hints::append_activator_exprs_if_present(input, &mut projection_exprs);
+    crate::irs::nodes::hints::append_row_id_expr_if_present(input, &mut projection_exprs);
+    match input.clone().select(projection_exprs) {
+        Ok(df) => df,
+        Err(_) => build_output_dataframe(input, projection),
+    }
+}
+
 fn resolve_projection_expr(
     schema: &DFSchema,
     expr: datafusion_expr::Expr,

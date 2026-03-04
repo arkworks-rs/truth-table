@@ -78,8 +78,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -125,10 +125,23 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Subquery alias input cannot be a gadget node"),
         };
 
+        let alias = self.subquery_alias.alias.to_string();
+        let already_aliased = input_hint_df.data_frame().schema().iter().all(|(qualifier, field)| {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                return true;
+            }
+            qualifier
+                .as_ref()
+                .is_some_and(|q| q.to_string() == alias)
+        });
+        if already_aliased {
+            return input_hint_df.as_virtual_view();
+        }
+
         let aliased_df = input_hint_df
             .data_frame()
             .clone()
-            .alias(&self.subquery_alias.alias.to_string())
+            .alias(&alias)
             .expect("subquery alias should succeed");
         crate::irs::nodes::hints::HintDF::new_virtual(aliased_df)
     }
@@ -161,8 +174,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
