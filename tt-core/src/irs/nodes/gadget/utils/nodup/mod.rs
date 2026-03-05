@@ -89,20 +89,17 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     is_verifier: bool,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
-        Some(PayloadStructure::GadgetPayload(payload)) => payload,
-        _ => {
-            node.cache_is_pk(false);
-            return Ok(());
-        }
+    let input_hint_ref = match planned_ir.payload_for_node(&id) {
+        Some(PayloadStructure::GadgetPayload(payload)) => payload.get(INPUT_LABEL),
+        _ => None,
     };
-    let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
+    let Some(input_hint_ref) = input_hint_ref else {
         node.cache_is_pk(false);
         return Ok(());
     };
     // Determine whether all data columns of the NoDup input are PK columns.
     // "Data columns" exclude system columns (activator/row_id).
-    let is_pk = nodup_input_is_pk(&input_hint);
+    let is_pk = nodup_input_is_pk(input_hint_ref);
     node.cache_is_pk(is_pk);
 
     if node.is_pk() {
@@ -111,20 +108,32 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         return Ok(());
     }
 
+    let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
+        Some(PayloadStructure::GadgetPayload(payload)) => payload,
+        _ => {
+            node.cache_is_pk(false);
+            return Ok(());
+        }
+    };
+    let Some(input_hint) = self_payload.get(INPUT_LABEL) else {
+        node.cache_is_pk(false);
+        return Ok(());
+    };
+
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
     let Gadgets::SortNoDup(_) = &node.gadgets else {
         return Ok(());
     };
     if !is_verifier {
-        node.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
+        node.cache_sort_nodup_active_rows(active_row_count_from_hint(input_hint));
     } else {
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
     let lex_sorted_hint = if is_verifier {
-        build_lex_sorted_hint_for_verifier(&input_hint)
+        build_lex_sorted_hint_for_verifier(input_hint)
     } else {
-        build_lex_sorted_hint(&input_hint)
+        build_lex_sorted_hint(input_hint)
     };
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
@@ -483,7 +492,10 @@ fn build_lex_sorted_hint_for_verifier(
             )
         })
         .collect();
-    crate::irs::nodes::hints::HintDF::new(input_hint.data_frame().clone(), should_materialize)
+    crate::irs::nodes::hints::HintDF::new_assume_normalized(
+        input_hint.data_frame().clone(),
+        should_materialize,
+    )
 }
 
 fn with_sort_table_label<T>(payload: Option<PayloadStructure<T>>, table: T) -> GadgetPayload<T> {

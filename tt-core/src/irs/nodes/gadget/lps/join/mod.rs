@@ -225,41 +225,45 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if let Some(gadgets) = self.many_to_many_gadgets() {
-            let gadget_payload = match planned_ir.payload_for_node(&id) {
+            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => return Ok(()),
             };
             let left_hint = match gadget_payload.get(LEFT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
+                Some(hint_df) => hint_df,
                 None => return Ok(()),
             };
             let right_hint = match gadget_payload.get(RIGHT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
+                Some(hint_df) => hint_df,
                 None => return Ok(()),
             };
             let output_hint = match gadget_payload.get(OUTPUT_LABEL) {
-                Some(hint_df) => hint_df.clone(),
+                Some(hint_df) => hint_df,
                 None => return Ok(()),
             };
             let derived = get_or_build_many_to_many_hints(
                 id,
                 &self.join,
-                &left_hint,
-                &right_hint,
-                &output_hint,
+                left_hint,
+                right_hint,
+                output_hint,
             );
-            let mut gadget_payload = match planned_ir.payload_for_node(&id) {
-                Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-                _ => IndexMap::new(),
-            };
+            let JoinPlanningDerivedHints {
+                left_hint,
+                right_hint,
+                output_hint,
+                src_left_hint,
+                src_right_hint,
+                nodup_input_hint,
+            } = derived;
             // Overwrite with the concretized hints so later join-subgadgets (and
             // provenance checks) see the same materialized inputs used to derive
             // source-row hints.
-            gadget_payload.insert(LEFT_LABEL.to_string(), derived.left_hint.clone());
-            gadget_payload.insert(RIGHT_LABEL.to_string(), derived.right_hint.clone());
-            gadget_payload.insert(OUTPUT_LABEL.to_string(), derived.output_hint.clone());
-            gadget_payload.insert(SRC_LEFT_LABEL.to_string(), derived.src_left_hint.clone());
-            gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), derived.src_right_hint.clone());
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint);
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint);
+            gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
+            gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
                 .set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
@@ -269,7 +273,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             };
             nodup_payload.insert(
                 crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-                derived.nodup_input_hint.clone(),
+                nodup_input_hint,
             );
             planned_ir.set_payload_for_node(
                 gadgets.nodup_gadget.id(),
@@ -346,31 +350,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if let Some(gadgets) = self.many_to_many_gadgets() {
-            let derived = match planned_ir.payload_for_node(&id) {
-                Some(PayloadStructure::GadgetPayload(map)) => {
-                    let Some(left_hint) = map.get(LEFT_LABEL) else {
-                        return Ok(());
-                    };
-                    let Some(right_hint) = map.get(RIGHT_LABEL) else {
-                        return Ok(());
-                    };
-                    let Some(output_hint) = map.get(OUTPUT_LABEL) else {
-                        return Ok(());
-                    };
-                    derive_many_to_many_hints_verifier(left_hint, right_hint, output_hint)
-                }
-                _ => return Ok(()),
-            };
-
             let mut gadget_payload = match planned_ir.payload_for_node(&id) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => return Ok(()),
             };
-            gadget_payload.insert(LEFT_LABEL.to_string(), derived.left_hint.clone());
-            gadget_payload.insert(RIGHT_LABEL.to_string(), derived.right_hint.clone());
-            gadget_payload.insert(OUTPUT_LABEL.to_string(), derived.output_hint.clone());
-            gadget_payload.insert(SRC_LEFT_LABEL.to_string(), derived.src_left_hint.clone());
-            gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), derived.src_right_hint.clone());
+            let derived = {
+                let Some(left_hint) = gadget_payload.get(LEFT_LABEL) else {
+                    return Ok(());
+                };
+                let Some(right_hint) = gadget_payload.get(RIGHT_LABEL) else {
+                    return Ok(());
+                };
+                let Some(output_hint) = gadget_payload.get(OUTPUT_LABEL) else {
+                    return Ok(());
+                };
+                derive_many_to_many_hints_verifier(left_hint, right_hint, output_hint)
+            };
+
+            let JoinPlanningDerivedHints {
+                left_hint,
+                right_hint,
+                output_hint,
+                src_left_hint,
+                src_right_hint,
+                nodup_input_hint,
+            } = derived;
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint);
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint);
+            gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
+            gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
                 .set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
 
@@ -380,7 +389,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             };
             nodup_payload.insert(
                 crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-                derived.nodup_input_hint.clone(),
+                nodup_input_hint,
             );
             planned_ir.set_payload_for_node(
                 gadgets.nodup_gadget.id(),

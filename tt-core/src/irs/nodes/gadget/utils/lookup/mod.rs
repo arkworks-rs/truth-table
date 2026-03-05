@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use arithmetic::{
-    ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, col::TrackedCol,
+    col_oracle::TrackedColOracle,
     is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
 use ark_ff::One;
@@ -72,28 +73,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         };
 
         let included_hint = match gadget_payload.get(INCLUDED_LABEL) {
-            Some(hint_df) => hint_df.clone(),
+            Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-        let super_hint = match gadget_payload.get(SUPER_LABEL) {
-            Some(hint_df) => hint_df.clone(),
+        let _super_hint = match gadget_payload.get(SUPER_LABEL) {
+            Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-
-        let multiplicities_df = multiplicity_once_per_active_key(
-            super_hint.data_frame().clone(),
-            included_hint.data_frame().clone(),
-        )
-        .expect("lookup multiplicity hint planning should succeed");
-
-        let should_materialize = multiplicities_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), !is_system_column(field.name())))
-            .collect();
-        let multiplicities_hint =
-            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
+        let _ = included_hint;
+        let multiplicities_hint = multiplicity_schema_only_hint();
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -142,25 +130,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        if !gadget_payload.contains_key(INCLUDED_LABEL) {
+        if gadget_payload.get(INCLUDED_LABEL).is_none() {
             return Ok(());
         }
-        let super_hint = match gadget_payload.get(SUPER_LABEL) {
-            Some(hint_df) => hint_df.clone(),
+        let _super_hint = match gadget_payload.get(SUPER_LABEL) {
+            Some(hint_df) => hint_df,
             None => return Ok(()),
         };
-
-        let multiplicities_df = multiplicity_schema_only_from_super(super_hint.data_frame().clone())
-            .expect("lookup verifier multiplicity schema planning should succeed");
-
-        let should_materialize = multiplicities_df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| (field.clone(), !is_system_column(field.name())))
-            .collect();
-        let multiplicities_hint =
-            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
+        let multiplicities_hint = multiplicity_schema_only_hint();
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -196,12 +173,18 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
     }
 }
 
-fn multiplicity_schema_only_from_super(super_df: DataFrame) -> DataFusionResult<DataFrame> {
-    let activator_expr = combined_activator_expr(&super_df).alias(ACTIVATOR_COL_NAME);
-    super_df.select(vec![
-        activator_expr,
-        lit(0_i64).alias("multiplicity"),
-    ])
+fn multiplicity_schema_only_hint() -> crate::irs::nodes::hints::HintDF {
+    let df = crate::irs::nodes::hints::schema_only_df(vec![
+        ACTIVATOR_FIELD.as_ref().clone(),
+        Field::new("multiplicity", DataType::Int64, true),
+    ]);
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), !is_system_column(field.name())))
+        .collect();
+    crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {

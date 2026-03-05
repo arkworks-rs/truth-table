@@ -509,15 +509,15 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
         let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
         let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
 
@@ -819,15 +819,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let left_hint_df = match planned_ir.payload_for_node(&self.left.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
         let right_hint_df = match planned_ir.payload_for_node(&self.right.id()) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
         let output_hint_df = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
             _ => return Ok(()),
         };
 
@@ -837,15 +837,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         };
         gadget_payload.insert(
             join_gadget::LEFT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(left_hint_df.data_frame().clone()),
+            left_hint_df.as_virtual_view(),
         );
         gadget_payload.insert(
             join_gadget::RIGHT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(right_hint_df.data_frame().clone()),
+            right_hint_df.as_virtual_view(),
         );
         gadget_payload.insert(
             join_gadget::OUTPUT_LABEL.to_string(),
-            crate::irs::nodes::hints::HintDF::new_virtual(output_hint_df.data_frame().clone()),
+            output_hint_df.as_virtual_view(),
         );
 
         planned_ir.set_payload_for_node(
