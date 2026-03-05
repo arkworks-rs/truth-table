@@ -162,7 +162,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .as_ref()
             .and_then(|weak_ref| weak_ref.upgrade())
             .and_then(|parent| match parent.as_ref() {
-                Node::Plan(plan_node) => {
+                Node::Plan(plan_node) if plan_node_may_contain_column(plan_node, &self.column) => {
                     Some(
                         <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
                             B,
@@ -170,6 +170,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                     )
                 }
                 Node::Gadget(_) => None,
+                Node::Plan(_) => None,
             })
             .filter(|hint_df| schema_contains_column(hint_df.data_frame().schema(), &self.column));
 
@@ -180,6 +181,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 .filter_map(|scope_weak| scope_weak.upgrade())
                 .find_map(|scope| match scope.as_ref() {
                     Node::Plan(plan_node) => {
+                        if !plan_node_may_contain_column(plan_node, &self.column) {
+                            return None;
+                        }
                         let hint_df =
                         <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
                             B,
@@ -261,6 +265,21 @@ fn same_field_identity(
             .metadata()
             .get(QUALIFIER_METADATA_KEY)
             .eq(&right.metadata().get(QUALIFIER_METADATA_KEY))
+}
+
+#[inline]
+fn plan_node_may_contain_column<B: SnarkBackend>(
+    plan_node: &crate::irs::nodes::PlanNode<B>,
+    column: &Column,
+) -> bool {
+    match plan_node {
+        // LP nodes have a static DataFusion schema; use it to cheaply skip unrelated scopes.
+        crate::irs::nodes::PlanNode::LpBased(lp_node) => {
+            schema_contains_column(lp_node.lp().schema(), column)
+        }
+        // Expr nodes can reshape names/qualifiers; keep conservative behavior.
+        crate::irs::nodes::PlanNode::ExprBased(_) => true,
+    }
 }
 
 fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::Expr {
