@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
+use datafusion::arrow::datatypes::Field;
 use datafusion_expr::{Sort, col, expr::Sort as SortExpr, lit};
 
 use indexmap::IndexMap;
@@ -33,33 +34,48 @@ fn populate_output_expr(
     skip_collection: bool,
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
-    let has_activator = input_df
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    // Guarantee a materialized activator so downstream gadgets can rely on it.
-    let sort_input_df = if has_activator {
-        input_df
-    } else {
-        // Ensure the output carries an activator even if the input did not.
-        input_df
-            .with_column(ACTIVATOR_COL_NAME, lit(true))
-            .expect("sort exprs should accept synthetic activator")
-    };
 
     // Verifier planning only needs shape/materialization metadata, not row values.
     // Avoid expensive sort planning here when we're in verifier mode.
     // Verifier planning only needs shape/materialization metadata, not row values.
     // Avoid expensive sort planning here when we're in verifier mode.
     let output_hint = if skip_collection {
-        // Build the final verifier hint directly to avoid redundant normalization and cloning.
+        // Build a schema-only verifier hint directly (no DataFusion plan building).
+        let has_activator = input_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME);
+        let mut fields: Vec<Field> = input_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        if !has_activator {
+            fields.push(ACTIVATOR_FIELD.as_ref().clone());
+        }
+        let sort_input_df = crate::irs::nodes::hints::schema_only_df(fields);
         let mut should_materialize = IndexMap::new();
         for field in sort_input_df.schema().fields() {
             should_materialize.insert(field.clone(), field.name() != ROW_ID_COL_NAME);
         }
         crate::irs::nodes::hints::HintDF::new_assume_normalized(sort_input_df, should_materialize)
     } else {
+        let has_activator = input_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME);
+        // Guarantee a materialized activator so downstream gadgets can rely on it.
+        let sort_input_df = if has_activator {
+            input_df
+        } else {
+            // Ensure the output carries an activator even if the input did not.
+            input_df
+                .with_column(ACTIVATOR_COL_NAME, lit(true))
+                .expect("sort exprs should accept synthetic activator")
+        };
         // Sort by activator first (actives first), then by the sort-expr columns.
         let mut sort_exprs: Vec<SortExpr> =
             Vec::with_capacity(1 + sort_input_df.schema().fields().len());
