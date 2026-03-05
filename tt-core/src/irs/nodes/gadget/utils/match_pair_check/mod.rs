@@ -232,33 +232,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        // Keep verifier-side match-pair planning structurally aligned with prover-side
-        // planning, but skip eager collection/padding work.
-        let (key_union, key_names) = build_key_union_df(
-            &ctx.join,
-            ctx.left_hint.data_frame(),
-            ctx.right_hint.data_frame(),
-        )
-        .expect("match-pair verifier key union should succeed");
-        let key_union = pad_key_union_df(key_union, &key_names, true)
-            .expect("match-pair verifier padding should succeed");
-        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
-
-        let (left_cols, right_cols, _) =
+        // Verifier planning only needs schema shape for downstream gadget payload wiring.
+        let (left_cols, right_cols, key_names) =
             join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
-        let left_keys_df =
-            build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
-                .expect("match-pair verifier left key projection should succeed");
-        let right_keys_df = build_lookup_keys_df(
+        let left_keys_df = build_lookup_keys_schema_only(
+            ctx.left_hint.data_frame(),
+            &left_cols,
+            &key_names,
+            "left",
+        )
+        .expect("match-pair verifier left key schema should succeed");
+        let right_keys_df = build_lookup_keys_schema_only(
             ctx.right_hint.data_frame(),
             &right_cols,
             &key_names,
             "right",
         )
-        .expect("match-pair verifier right key projection should succeed");
-
-        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
-            .expect("match-pair verifier union sort should succeed");
+        .expect("match-pair verifier right key schema should succeed");
+        let union_df = build_union_schema_only(&key_names, &left_keys_df)
+            .expect("match-pair verifier union schema should succeed");
+        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(union_df.clone());
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
         let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
@@ -353,6 +346,79 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         );
         Ok(())
     }
+}
+
+fn build_lookup_keys_schema_only(
+    df: &DataFrame,
+    cols: &[Column],
+    key_names: &[String],
+    side: &str,
+) -> DataFusionResult<DataFrame> {
+    let mut fields = Vec::with_capacity(key_names.len() + 1);
+    for (col_ref, key_name) in cols.iter().zip(key_names) {
+        let key_field = resolve_field_for_column(df, col_ref, side)?;
+        fields.push(Field::new(
+            key_name,
+            key_field.data_type().clone(),
+            key_field.is_nullable(),
+        ));
+    }
+    fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
+    Ok(crate::irs::nodes::hints::schema_only_df(fields))
+}
+
+fn build_union_schema_only(key_names: &[String], keys_df: &DataFrame) -> DataFusionResult<DataFrame> {
+    let mut fields = Vec::with_capacity(key_names.len() + 1);
+    for key_name in key_names {
+        let field = keys_df
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| f.name() == key_name)
+            .ok_or_else(|| DataFusionError::Plan(format!("match-pair key column missing: {key_name}")))?;
+        fields.push(field.as_ref().clone());
+    }
+    fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
+    Ok(crate::irs::nodes::hints::schema_only_df(fields))
+}
+
+fn resolve_field_for_column<'a>(
+    df: &'a DataFrame,
+    col: &Column,
+    side: &str,
+) -> DataFusionResult<&'a Field> {
+    if let Some(relation) = &col.relation
+        && let Some((_, field)) = df
+            .schema()
+            .iter()
+            .find(|(qualifier, field)| {
+                qualifier
+                    .as_ref()
+                    .is_some_and(|q| *q == relation)
+                    && field.name() == &col.name
+            })
+    {
+        return Ok(field);
+    }
+
+    let mut by_name = df
+        .schema()
+        .iter()
+        .filter(|(_, field)| field.name() == &col.name)
+        .map(|(_, field)| field);
+    let Some(first) = by_name.next() else {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} key column not found: {}",
+            col.flat_name()
+        )));
+    };
+    if by_name.next().is_some() {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} key column is ambiguous: {}",
+            col.flat_name()
+        )));
+    }
+    Ok(first)
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {

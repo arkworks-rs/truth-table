@@ -14,7 +14,7 @@ pub(super) fn io_plans<B: SnarkBackend>(
     id: NodeId,
 ) -> (HintDF, HintDF) {
     let supp_payload = match planned_ir.payload_for_node(&id) {
-        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        Some(PayloadStructure::GadgetPayload(map)) => map,
         _ => panic!("No support payload found for node {:?}", id),
     };
     let orig_hint = supp_payload
