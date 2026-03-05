@@ -1,7 +1,10 @@
 use arithmetic::ROW_ID_COL_NAME;
 use ark_std::fmt::Display;
 use datafusion::{
-    arrow::{datatypes::{Field, FieldRef, Schema}, record_batch::RecordBatch},
+    arrow::{
+        datatypes::{Field, FieldRef, Schema},
+        record_batch::RecordBatch,
+    },
     prelude::{DataFrame, SessionContext},
 };
 use datafusion_common::{Column, Result as DataFusionResult, TableReference};

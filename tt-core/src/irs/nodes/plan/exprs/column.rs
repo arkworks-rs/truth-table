@@ -162,51 +162,53 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .as_ref()
             .and_then(|weak_ref| weak_ref.upgrade())
             .and_then(|parent| match parent.as_ref() {
-                Node::Plan(plan_node) => Some(
-                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                        B,
-                    >>::output(plan_node),
-                ),
+                Node::Plan(plan_node) => {
+                    Some(
+                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                            B,
+                        >>::output(plan_node),
+                    )
+                }
                 Node::Gadget(_) => None,
             })
             .filter(|hint_df| schema_contains_column(hint_df.data_frame().schema(), &self.column));
 
         // Fallback: probe all scopes in order and choose the first matching schema.
         let scope_hint_df = parent_hint_df.unwrap_or_else(|| {
-            self
-            .scope
-            .iter()
-            .filter_map(|scope_weak| scope_weak.upgrade())
-            .find_map(|scope| match scope.as_ref() {
-                Node::Plan(plan_node) => {
-                    let hint_df =
+            self.scope
+                .iter()
+                .filter_map(|scope_weak| scope_weak.upgrade())
+                .find_map(|scope| match scope.as_ref() {
+                    Node::Plan(plan_node) => {
+                        let hint_df =
                         <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
                             B,
                         >>::output(plan_node);
-                    if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
-                        Some(hint_df)
-                    } else {
-                        None
+                        if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
+                            Some(hint_df)
+                        } else {
+                            None
+                        }
                     }
-                }
-                Node::Gadget(_) => None,
-            })
-            .unwrap_or_else(|| {
-                panic!(
-                    "Column output could not find column '{}' in any scope",
-                    self.column
-                )
-            })
+                    Node::Gadget(_) => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Column output could not find column '{}' in any scope",
+                        self.column
+                    )
+                })
         });
 
         // Verifier planning needs only schema shape, not DataFusion projection execution.
         let schema_ref = scope_hint_df.data_frame().schema().as_arrow().clone();
-        let selected_field = schema_field_for_column(&schema_ref, &self.column).unwrap_or_else(|| {
-            panic!(
-                "Column output could not resolve '{}' in selected scope schema",
-                self.column
-            )
-        });
+        let selected_field =
+            schema_field_for_column(&schema_ref, &self.column).unwrap_or_else(|| {
+                panic!(
+                    "Column output could not resolve '{}' in selected scope schema",
+                    self.column
+                )
+            });
 
         let mut row_id_candidates = Vec::new();
         let mut activator_fields = Vec::new();

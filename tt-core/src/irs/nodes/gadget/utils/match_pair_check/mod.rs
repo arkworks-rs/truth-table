@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use ark_ff::{One, Zero};
 use ark_piop::{
@@ -53,45 +52,6 @@ struct MatchPairPlannedHints {
     right_lookup_hint: crate::irs::nodes::hints::HintDF,
 }
 
-fn verifier_match_pair_hint_templates(
-    key_union_fields: Vec<Field>,
-) -> (
-    crate::irs::nodes::hints::HintDF,
-    crate::irs::nodes::hints::HintDF,
-) {
-    static CACHE: OnceLock<
-        std::sync::RwLock<
-            std::collections::HashMap<String, (crate::irs::nodes::hints::HintDF, crate::irs::nodes::hints::HintDF)>,
-        >,
-    > = OnceLock::new();
-    let cache = CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
-
-    let signature = key_union_fields
-        .iter()
-        .map(|f| format!("{}:{:?}:{}", f.name(), f.data_type(), f.is_nullable()))
-        .collect::<Vec<_>>()
-        .join("|");
-
-    if let Some((key_hint, union_hint)) = cache
-        .read()
-        .expect("match-pair verifier hint cache read lock should succeed")
-        .get(&signature)
-        .cloned()
-    {
-        return (key_hint, union_hint);
-    }
-
-    let base_df = crate::irs::nodes::hints::schema_only_df(key_union_fields);
-    let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(base_df.clone());
-    let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(base_df);
-
-    cache
-        .write()
-        .expect("match-pair verifier hint cache write lock should succeed")
-        .insert(signature, (key_hint.clone(), union_hint.clone()));
-    (key_hint, union_hint)
-}
-
 pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     left_lookup_gadget: Arc<Node<B>>,
@@ -135,9 +95,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let (key_union, key_names) =
-            build_key_union_df(&ctx.join, ctx.left_hint.data_frame(), ctx.right_hint.data_frame())
-                .expect("match-pair key union should succeed");
+        let (key_union, key_names) = build_key_union_df(
+            &ctx.join,
+            ctx.left_hint.data_frame(),
+            ctx.right_hint.data_frame(),
+        )
+        .expect("match-pair key union should succeed");
         let key_union = pad_key_union_df(key_union, &key_names, false)
             .expect("match-pair padding should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
@@ -147,9 +110,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let left_keys_df =
             build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
                 .expect("match-pair left key projection should succeed");
-        let right_keys_df =
-            build_lookup_keys_df(ctx.right_hint.data_frame(), &right_cols, &key_names, "right")
-                .expect("match-pair right key projection should succeed");
+        let right_keys_df = build_lookup_keys_df(
+            ctx.right_hint.data_frame(),
+            &right_cols,
+            &key_names,
+            "right",
+        )
+        .expect("match-pair right key projection should succeed");
         let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
             .expect("match-pair union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
@@ -265,25 +232,39 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let (left_cols, right_cols, key_names) =
-            join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
-        let key_fields = infer_key_fields_for_verifier(
+        // Keep verifier-side match-pair planning structurally aligned with prover-side
+        // planning, but skip eager collection/padding work.
+        let (key_union, key_names) = build_key_union_df(
+            &ctx.join,
             ctx.left_hint.data_frame(),
             ctx.right_hint.data_frame(),
-            &left_cols,
+        )
+        .expect("match-pair verifier key union should succeed");
+        let key_union = pad_key_union_df(key_union, &key_names, true)
+            .expect("match-pair verifier padding should succeed");
+        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+
+        let (left_cols, right_cols, _) =
+            join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
+        let left_keys_df =
+            build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
+                .expect("match-pair verifier left key projection should succeed");
+        let right_keys_df = build_lookup_keys_df(
+            ctx.right_hint.data_frame(),
             &right_cols,
             &key_names,
+            "right",
         )
-        .expect("match-pair verifier key-field inference should succeed");
-        let key_union_fields = {
-            let mut fields = key_fields.clone();
-            fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
-            fields
-        };
-        // Verifier planning only needs schema/materialization metadata.
-        let (key_hint, union_hint) = verifier_match_pair_hint_templates(key_union_fields);
-        let left_lookup_hint = union_hint.clone();
-        let right_lookup_hint = union_hint.clone();
+        .expect("match-pair verifier right key projection should succeed");
+
+        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
+            .expect("match-pair verifier union sort should succeed");
+        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
+        let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
+        let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
+        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
+        let right_lookup_hint =
+            crate::irs::nodes::hints::strip_row_id_from_hint(&right_lookup_hint);
 
         apply_match_pair_planned_hints(
             self,
@@ -313,7 +294,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let (union, left_keys, right_keys) = {
-            let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
+            let Some(PayloadStructure::GadgetPayload(payload)) =
+                virtualized_ir.payload_for_node(&id)
             else {
                 return Ok(());
             };
@@ -350,15 +332,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             match virtualized_ir.payload_for_node(&self.left_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
-        };
-        left_lookup_payload.insert(
-            lookup::INCLUDED_LABEL.to_string(),
-            left_keys_no_row_id,
-        );
-        left_lookup_payload.insert(
-            lookup::SUPER_LABEL.to_string(),
-            union_no_row_id.clone(),
-        );
+            };
+        left_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), left_keys_no_row_id);
+        left_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_no_row_id.clone());
         virtualized_ir.set_payload_for_node(
             self.left_lookup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
@@ -368,15 +344,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             match virtualized_ir.payload_for_node(&self.right_lookup_gadget.id()) {
                 Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                 _ => IndexMap::new(),
-        };
-        right_lookup_payload.insert(
-            lookup::INCLUDED_LABEL.to_string(),
-            right_keys_no_row_id,
-        );
-        right_lookup_payload.insert(
-            lookup::SUPER_LABEL.to_string(),
-            union_no_row_id,
-        );
+            };
+        right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), right_keys_no_row_id);
+        right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), union_no_row_id);
         virtualized_ir.set_payload_for_node(
             self.right_lookup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(right_lookup_payload)),
@@ -820,11 +790,11 @@ fn apply_match_pair_planned_hints<B: SnarkBackend>(
         Some(PayloadStructure::GadgetPayload(left_lookup_payload)),
     );
 
-    let mut right_lookup_payload =
-        match planned_ir.payload_for_node(&node.right_lookup_gadget.id()) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
+    let mut right_lookup_payload = match planned_ir.payload_for_node(&node.right_lookup_gadget.id())
+    {
+        Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+        _ => IndexMap::new(),
+    };
     right_lookup_payload.insert(lookup::INCLUDED_LABEL.to_string(), hints.right_lookup_hint);
     right_lookup_payload.insert(lookup::SUPER_LABEL.to_string(), hints.union_hint);
     planned_ir.set_payload_for_node(
@@ -854,55 +824,6 @@ fn join_key_columns(join: &Join) -> DataFusionResult<(Vec<Column>, Vec<Column>, 
     }
 
     Ok((left_cols, right_cols, key_names))
-}
-
-fn find_field_for_column(df: &DataFrame, col: &Column) -> Option<Field> {
-    if col.relation.is_some()
-        && let Some((_, field)) = df
-            .schema()
-            .iter()
-            .find(|(qualifier, field)| {
-                field.name() == &col.name
-                    && qualifier.as_ref().copied() == col.relation.as_ref()
-            })
-        {
-            return Some(field.as_ref().clone());
-        }
-    df.schema()
-        .iter()
-        .find(|(_, field)| field.name() == &col.name)
-        .map(|(_, field)| field.as_ref().clone())
-}
-
-fn infer_key_fields_for_verifier(
-    left_df: &DataFrame,
-    right_df: &DataFrame,
-    left_cols: &[Column],
-    right_cols: &[Column],
-    key_names: &[String],
-) -> DataFusionResult<Vec<Field>> {
-    let mut fields = Vec::with_capacity(key_names.len());
-    for (idx, key_name) in key_names.iter().enumerate() {
-        let left_field = find_field_for_column(left_df, &left_cols[idx]);
-        let right_field = find_field_for_column(right_df, &right_cols[idx]);
-        let data_type = left_field
-            .as_ref()
-            .map(|f| f.data_type().clone())
-            .or_else(|| right_field.as_ref().map(|f| f.data_type().clone()))
-            .ok_or_else(|| {
-                DataFusionError::Plan(format!(
-                    "match-pair verifier key column missing on both sides: {:?} / {:?}",
-                    left_cols[idx], right_cols[idx]
-                ))
-            })?;
-        let nullable = left_field
-            .as_ref()
-            .map(|f| f.is_nullable())
-            .or_else(|| right_field.as_ref().map(|f| f.is_nullable()))
-            .unwrap_or(true);
-        fields.push(Field::new(key_name, data_type, nullable));
-    }
-    Ok(fields)
 }
 
 fn build_lookup_keys_df(

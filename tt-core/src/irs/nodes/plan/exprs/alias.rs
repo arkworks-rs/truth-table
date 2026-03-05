@@ -249,7 +249,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                     // Rebuild a schema that reflects the aliased column name so later lookups can resolve it.
                     let new_schema = table
                         .schema_ref()
-                        .map(|schema| Schema::new_with_metadata(fields.clone(), schema.metadata().clone()))
+                        .map(|schema| {
+                            Schema::new_with_metadata(fields.clone(), schema.metadata().clone())
+                        })
                         .or_else(|| Some(Schema::new(fields)));
                     (tracked_oracles, new_schema, table.log_size())
                 }

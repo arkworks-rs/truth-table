@@ -294,12 +294,12 @@ fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
     // expression's already-planned output field and avoid expression projection.
     let mut fields: Vec<Field> = Vec::with_capacity(sort_expr_nodes.len() + 2);
     for node in sort_expr_nodes {
-        let expr_hint =
-            if let Some(PayloadStructure::PlanPayload(hint)) = planned_ir.payload_for_node(&node.id())
-            {
-                hint.clone()
-            } else {
-                match node.as_ref() {
+        let expr_hint = if let Some(PayloadStructure::PlanPayload(hint)) =
+            planned_ir.payload_for_node(&node.id())
+        {
+            hint.clone()
+        } else {
+            match node.as_ref() {
                     Node::Plan(plan_node) => {
                         <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
                             plan_node,
@@ -307,7 +307,7 @@ fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
                     }
                     Node::Gadget(_) => panic!("Sort expression cannot be a gadget node"),
                 }
-            };
+        };
         let data_field = expr_hint
             .data_frame()
             .schema()

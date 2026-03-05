@@ -197,35 +197,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let (eq_left, eq_right, neq_left, neq_right, output) =
-            match virtualized_ir.payload_for_node(&id) {
-                Some(PayloadStructure::GadgetPayload(map)) => match (
-                    map.get(LEFT_INPUT_LABEL),
-                    map.get(RIGHT_INPUT_LABEL),
-                    map.get(OUTPUT_LABEL),
-                ) {
-                    (Some(left_input), Some(right_input), Some(output)) => {
-                        // Ensure that the left and right inputs and output share the same activator oracle.
-                        debug_assert_eq!(
-                            left_input.activator_tracked_poly(),
-                            right_input.activator_tracked_poly(),
-                            "Left and right inputs must share the same activator oracle"
-                        );
-                        debug_assert_eq!(
-                            left_input.activator_tracked_poly(),
-                            output.activator_tracked_poly(),
-                            "Left input and output must share the same activator oracle"
-                        );
+        let (eq_left, eq_right, neq_left, neq_right, output) = match virtualized_ir
+            .payload_for_node(&id)
+        {
+            Some(PayloadStructure::GadgetPayload(map)) => match (
+                map.get(LEFT_INPUT_LABEL),
+                map.get(RIGHT_INPUT_LABEL),
+                map.get(OUTPUT_LABEL),
+            ) {
+                (Some(left_input), Some(right_input), Some(output)) => {
+                    // Ensure that the left and right inputs and output share the same activator oracle.
+                    debug_assert_eq!(
+                        left_input.activator_tracked_poly(),
+                        right_input.activator_tracked_poly(),
+                        "Left and right inputs must share the same activator oracle"
+                    );
+                    debug_assert_eq!(
+                        left_input.activator_tracked_poly(),
+                        output.activator_tracked_poly(),
+                        "Left input and output must share the same activator oracle"
+                    );
 
-                        // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
-                        let shared_activator = left_input.activator_tracked_poly();
+                    // Now that we are sure that the left and right inputs share the same activator oracle, we get this activator.
+                    let shared_activator = left_input.activator_tracked_poly();
 
-                        let output_ind = output.data_tracked_oracles_indices()[0];
-                        let output_oracle = output
-                            .tracked_col_oracle_by_ind(output_ind)
-                            .data_tracked_oracle();
+                    let output_ind = output.data_tracked_oracles_indices()[0];
+                    let output_oracle = output
+                        .tracked_col_oracle_by_ind(output_ind)
+                        .data_tracked_oracle();
 
-                        let build_table_with_activator =
+                    let build_table_with_activator =
                             |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                              activator: &ark_piop::verifier::structs::oracle::TrackedOracle<B>| {
                                 let mut oracles = IndexMap::new();
@@ -265,31 +266,31 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinEqNode<B> {
                                 )
                             };
 
-                        // Build the eq gadget inputs.
-                        // let eq_activator = match &shared_activator {
-                        //     Some(oracle) => oracle * &output_oracle,
-                        //     None => output_oracle.clone(),
-                        // };
-                        let eq_activator = output_oracle.clone();
-                        let eq_left = build_table_with_activator(left_input, &eq_activator);
-                        let eq_right = build_table_with_activator(right_input, &eq_activator);
+                    // Build the eq gadget inputs.
+                    // let eq_activator = match &shared_activator {
+                    //     Some(oracle) => oracle * &output_oracle,
+                    //     None => output_oracle.clone(),
+                    // };
+                    let eq_activator = output_oracle.clone();
+                    let eq_left = build_table_with_activator(left_input, &eq_activator);
+                    let eq_right = build_table_with_activator(right_input, &eq_activator);
 
-                        // Build the neq gadget inputs.
-                        let neg_output_activator = output_oracle
-                            .mul_scalar_oracle(-B::F::one())
-                            .add_scalar_oracle(B::F::one());
-                        let neq_activator = match &shared_activator {
-                            Some(oracle) => oracle - &output_oracle,
-                            None => neg_output_activator.clone(),
-                        };
-                        let neq_left = build_table_with_activator(left_input, &neq_activator);
-                        let neq_right = build_table_with_activator(right_input, &neq_activator);
-                        (eq_left, eq_right, neq_left, neq_right, output.clone())
-                    }
-                    _ => panic!("Expected left, right, and output tables for binary equality gadget"),
-                },
+                    // Build the neq gadget inputs.
+                    let neg_output_activator = output_oracle
+                        .mul_scalar_oracle(-B::F::one())
+                        .add_scalar_oracle(B::F::one());
+                    let neq_activator = match &shared_activator {
+                        Some(oracle) => oracle - &output_oracle,
+                        None => neg_output_activator.clone(),
+                    };
+                    let neq_left = build_table_with_activator(left_input, &neq_activator);
+                    let neq_right = build_table_with_activator(right_input, &neq_activator);
+                    (eq_left, eq_right, neq_left, neq_right, output.clone())
+                }
                 _ => panic!("Expected left, right, and output tables for binary equality gadget"),
-            };
+            },
+            _ => panic!("Expected left, right, and output tables for binary equality gadget"),
+        };
 
         let mut eq_payload = match virtualized_ir.payload_for_node(&self.eq.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),

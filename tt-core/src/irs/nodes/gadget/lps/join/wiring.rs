@@ -11,10 +11,13 @@ use arithmetic::{
 };
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion_common::{Column, TableReference};
 use datafusion_expr::Expr;
 use indexmap::IndexMap;
 
 impl<B: SnarkBackend> GadgetNode<B> {
+    const QUALIFIER_METADATA_KEY: &'static str = "tt.qualifier";
+
     fn bool_table_from_output_prover(output: &TrackedTable<B>) -> TrackedTable<B> {
         let activator = output
             .activator_tracked_poly()
@@ -166,44 +169,92 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
         );
     }
-    fn ordered_column_names(
-        mut keys: Vec<String>,
+    fn ordered_join_columns(
+        mut keys: Vec<Column>,
         include_row_id: bool,
         include_activator: bool,
-    ) -> Vec<String> {
-        if include_row_id && !keys.iter().any(|name| name == ROW_ID_COL_NAME) {
-            keys.push(ROW_ID_COL_NAME.to_string());
+    ) -> Vec<Column> {
+        if include_row_id && !keys.iter().any(|col| col.name == ROW_ID_COL_NAME) {
+            keys.push(Column::new_unqualified(ROW_ID_COL_NAME));
         }
-        if include_activator && !keys.iter().any(|name| name == ACTIVATOR_COL_NAME) {
-            keys.push(ACTIVATOR_COL_NAME.to_string());
+        if include_activator && !keys.iter().any(|col| col.name == ACTIVATOR_COL_NAME) {
+            keys.push(Column::new_unqualified(ACTIVATOR_COL_NAME));
         }
         keys
     }
-    fn join_key_names(join: &datafusion_expr::Join, use_left: bool) -> Vec<String> {
+    fn join_key_columns(join: &datafusion_expr::Join, use_left: bool) -> Vec<Column> {
         join.on
             .iter()
             .map(|(left, right)| {
                 let expr = if use_left { left } else { right };
                 match expr {
-                    Expr::Column(col) => col.name.clone(),
+                    Expr::Column(col) => col.clone(),
                     _ => panic!("Join match-pair keys must be column expressions"),
                 }
             })
             .collect()
     }
 
+    fn table_name_from_relation(relation: &TableReference) -> String {
+        Self::table_name_from_qualifier(&relation.to_string())
+    }
+
+    fn table_name_from_qualifier(qualifier: &str) -> String {
+        qualifier
+            .rsplit('.')
+            .next()
+            .unwrap_or(qualifier)
+            .trim_matches('"')
+            .trim_matches('`')
+            .to_lowercase()
+    }
+
+    fn field_matches_column(field: &Arc<Field>, col: &Column) -> bool {
+        if field.name() != col.name.as_str() {
+            return false;
+        }
+        let Some(relation) = col.relation.as_ref() else {
+            return true;
+        };
+        let expected = Self::table_name_from_relation(relation);
+        field
+            .metadata()
+            .get(Self::QUALIFIER_METADATA_KEY)
+            .map(|qualifier| Self::table_name_from_qualifier(qualifier) == expected)
+            .unwrap_or(false)
+    }
+
     fn select_tracked_columns(
         table: &TrackedTable<B>,
-        column_names: &[String],
+        columns: &[Column],
         side: &str,
     ) -> TrackedTable<B> {
         let cols = table.tracked_polys();
         let mut selected = IndexMap::new();
-        for name in column_names {
-            let (field, poly) = cols
+        for col in columns {
+            let exact = cols
                 .iter()
-                .find(|(field, _)| field.name() == name)
-                .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
+                .filter(|(field, _)| Self::field_matches_column(field, col))
+                .collect::<Vec<_>>();
+            let (field, poly) = if exact.len() == 1 {
+                (exact[0].0, exact[0].1)
+            } else {
+                let by_name = cols
+                    .iter()
+                    .filter(|(field, _)| field.name() == col.name.as_str())
+                    .collect::<Vec<_>>();
+                if by_name.len() == 1 {
+                    (by_name[0].0, by_name[0].1)
+                } else if by_name.is_empty() {
+                    panic!("Join {side} table missing column {}", col.flat_name())
+                } else {
+                    panic!(
+                        "Join {side} table has ambiguous column {} ({} candidates)",
+                        col.flat_name(),
+                        by_name.len()
+                    )
+                }
+            };
             selected.insert(field.clone(), poly.clone());
         }
         let schema = table.schema_ref().map(|schema| {
@@ -225,16 +276,35 @@ impl<B: SnarkBackend> GadgetNode<B> {
 
     fn select_tracked_oracles(
         table: &TrackedTableOracle<B>,
-        column_names: &[String],
+        columns: &[Column],
         side: &str,
     ) -> TrackedTableOracle<B> {
         let cols = table.tracked_oracles();
         let mut selected = IndexMap::new();
-        for name in column_names {
-            let (field, oracle) = cols
+        for col in columns {
+            let exact = cols
                 .iter()
-                .find(|(field, _)| field.name() == name)
-                .unwrap_or_else(|| panic!("Join {side} table missing column {name}"));
+                .filter(|(field, _)| Self::field_matches_column(field, col))
+                .collect::<Vec<_>>();
+            let (field, oracle) = if exact.len() == 1 {
+                (exact[0].0, exact[0].1)
+            } else {
+                let by_name = cols
+                    .iter()
+                    .filter(|(field, _)| field.name() == col.name.as_str())
+                    .collect::<Vec<_>>();
+                if by_name.len() == 1 {
+                    (by_name[0].0, by_name[0].1)
+                } else if by_name.is_empty() {
+                    panic!("Join {side} table missing column {}", col.flat_name())
+                } else {
+                    panic!(
+                        "Join {side} table has ambiguous column {} ({} candidates)",
+                        col.flat_name(),
+                        by_name.len()
+                    )
+                }
+            };
             selected.insert(field.clone(), oracle.clone());
         }
         let schema = table.schema_ref().map(|schema| {
@@ -308,10 +378,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
         if !include_right_activator {
             panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
         }
-        let left_keys =
-            Self::ordered_column_names(Self::join_key_names(join, true), include_left_row_id, true);
-        let right_keys = Self::ordered_column_names(
-            Self::join_key_names(join, false),
+        let left_keys = Self::ordered_join_columns(
+            Self::join_key_columns(join, true),
+            include_left_row_id,
+            true,
+        );
+        let right_keys = Self::ordered_join_columns(
+            Self::join_key_columns(join, false),
             include_right_row_id,
             true,
         );
@@ -355,10 +428,13 @@ impl<B: SnarkBackend> GadgetNode<B> {
         if !include_right_activator {
             panic!("Join right table missing column {ACTIVATOR_COL_NAME}");
         }
-        let left_keys =
-            Self::ordered_column_names(Self::join_key_names(join, true), include_left_row_id, true);
-        let right_keys = Self::ordered_column_names(
-            Self::join_key_names(join, false),
+        let left_keys = Self::ordered_join_columns(
+            Self::join_key_columns(join, true),
+            include_left_row_id,
+            true,
+        );
+        let right_keys = Self::ordered_join_columns(
+            Self::join_key_columns(join, false),
             include_right_row_id,
             true,
         );

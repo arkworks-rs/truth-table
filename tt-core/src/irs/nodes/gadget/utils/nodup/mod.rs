@@ -281,7 +281,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let contig_activator = tracker_rc
             .borrow_mut()
             .get_or_build_contig_one_oracle(lex_sorted_table.log_size(), num_active_input_rows)?;
-        let lex_sorted_with_activator = append_activator_verifier(lex_sorted_table, contig_activator);
+        let lex_sorted_with_activator =
+            append_activator_verifier(lex_sorted_table, contig_activator);
         payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_with_activator);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())

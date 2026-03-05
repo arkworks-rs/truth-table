@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, col::TrackedCol, col_oracle::TrackedColOracle,
@@ -139,20 +138,33 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let multiplicities_hint = match planned_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => {
-                let Some(super_hint) = map.get(SUPER_LABEL) else {
-                    return Ok(());
-                };
-                build_verifier_multiplicity_hint(super_hint)
-            }
-            _ => return Ok(()),
-        };
-
         let mut gadget_payload = match planned_ir.payload_for_node(&id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
+        let included_hint = match gadget_payload.get(INCLUDED_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+        let super_hint = match gadget_payload.get(SUPER_LABEL) {
+            Some(hint_df) => hint_df.clone(),
+            None => return Ok(()),
+        };
+
+        let multiplicities_df = multiplicity_once_per_active_key(
+            super_hint.data_frame().clone(),
+            included_hint.data_frame().clone(),
+        )
+        .expect("lookup verifier multiplicity hint planning should succeed");
+
+        let should_materialize = multiplicities_df
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.clone(), !is_system_column(field.name())))
+            .collect();
+        let multiplicities_hint =
+            crate::irs::nodes::hints::HintDF::new(multiplicities_df, should_materialize);
 
         gadget_payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities_hint);
         planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
@@ -185,67 +197,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         payload.insert(SUPER_MULTIPLICITIES_LABEL.to_string(), multiplicities);
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
-    }
-}
-
-fn build_verifier_multiplicity_hint(
-    super_hint: &crate::irs::nodes::hints::HintDF,
-) -> crate::irs::nodes::hints::HintDF {
-    let has_super_activator = super_hint
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME);
-    verifier_multiplicity_hint_template(has_super_activator).clone()
-}
-
-fn verifier_multiplicity_hint_template(
-    has_super_activator: bool,
-) -> &'static crate::irs::nodes::hints::HintDF {
-    static HINTS: OnceLock<(crate::irs::nodes::hints::HintDF, crate::irs::nodes::hints::HintDF)> =
-        OnceLock::new();
-
-    let (with_super_activator, without_super_activator) = HINTS.get_or_init(|| {
-        // Verifier planning only needs schema/materialization shape for multiplicities.
-        // Runtime multiplicity oracle is wired in initialize_gadgets.
-        let fields = vec![
-            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true),
-            Field::new("multiplicity", DataType::Int64, true),
-        ];
-        let df = crate::irs::nodes::hints::schema_only_df(fields);
-        let activator_field = df
-            .schema()
-            .fields()
-            .iter()
-            .find(|f| f.name() == ACTIVATOR_COL_NAME)
-            .cloned()
-            .expect("lookup multiplicity schema should contain activator");
-        let multiplicity_field = df
-            .schema()
-            .fields()
-            .iter()
-            .find(|f| f.name() == "multiplicity")
-            .cloned()
-            .expect("lookup multiplicity schema should contain multiplicity");
-
-        let with_super_activator_map = IndexMap::from([
-            (activator_field.clone(), false),
-            (multiplicity_field.clone(), true),
-        ]);
-        let without_super_activator_map =
-            IndexMap::from([(activator_field, true), (multiplicity_field, true)]);
-
-        (
-            crate::irs::nodes::hints::HintDF::new(df.clone(), with_super_activator_map),
-            crate::irs::nodes::hints::HintDF::new(df, without_super_activator_map),
-        )
-    });
-
-    if has_super_activator {
-        with_super_activator
-    } else {
-        without_super_activator
     }
 }
 

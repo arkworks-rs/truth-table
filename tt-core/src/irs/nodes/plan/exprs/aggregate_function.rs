@@ -6,9 +6,7 @@ use ark_piop::{
     SnarkBackend, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
-use datafusion::arrow::{
-    datatypes::{DataType, Field, FieldRef, Schema},
-};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::{Column, Statistics};
 use datafusion_expr::{Expr, LogicalPlan, expr::AggregateFunction};
 use either::Either;

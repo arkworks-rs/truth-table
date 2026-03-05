@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use divan::Bencher;
 
 use crate::support::{
-    build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
+    BenchCase, build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
     load_proof_bytes_cached, log_proof_size_once, prepare_assets_cached, prepare_prover_iteration,
-    run_arg_verifier_once, run_prover_iteration, warmup_proof, BenchCase,
+    run_arg_verifier_once, run_prover_iteration, warmup_proof,
 };
 
 fn filter_cases() -> &'static [BenchCase] {

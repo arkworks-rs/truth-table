@@ -6,8 +6,8 @@ use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::ExprSchemable;
 use datafusion_expr::Expr;
+use datafusion_expr::ExprSchemable;
 use datafusion_expr::expr::InList;
 use indexmap::IndexMap;
 

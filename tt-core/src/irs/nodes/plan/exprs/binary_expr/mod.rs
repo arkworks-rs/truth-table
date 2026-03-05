@@ -592,8 +592,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 .iter()
                 .find(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
             {
-                let activator_expr =
-                    Expr::Column(datafusion_common::Column::new_unqualified(activator_col.name()));
+                let activator_expr = Expr::Column(datafusion_common::Column::new_unqualified(
+                    activator_col.name(),
+                ));
                 let else_expr = match output_expr
                     .get_type(scope_hint_df.data_frame().schema())
                     .ok()
@@ -625,7 +626,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 .fields()
                 .iter()
                 .filter(|field| {
-                    field.name() == arithmetic::ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME
+                    field.name() == arithmetic::ACTIVATOR_COL_NAME
+                        || field.name() == ROW_ID_COL_NAME
                 })
                 .map(|field| field.as_ref().clone()),
         );

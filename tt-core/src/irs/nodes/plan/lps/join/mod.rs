@@ -281,31 +281,6 @@ impl<B: SnarkBackend> LpNode<B> {
         });
         arithmetic::table_oracle::TrackedTableOracle::new(schema, updated_oracles, table.log_size())
     }
-
-    fn join_mode_label(mode: modes::JoinMode) -> &'static str {
-        match mode {
-            modes::JoinMode::ONE_TO_ONE => "1-1",
-            modes::JoinMode::ONE_TO_MANY => "1-many",
-            modes::JoinMode::MANY_TO_ONE => "many-1",
-            modes::JoinMode::MANY_TO_MANY => "many-many",
-        }
-    }
-
-    fn maybe_dbg_join_mode(join: &Join, mode: modes::JoinMode) {
-        if std::env::var_os("TT_DBG_JOIN_MODE").is_none() {
-            return;
-        }
-        let mode_label = Self::join_mode_label(mode);
-        let pk_fk_optimized = mode != modes::JoinMode::MANY_TO_MANY;
-        dbg!(
-            "join_mode",
-            mode_label,
-            pk_fk_optimized,
-            join.join_type,
-            join.on.len(),
-            join.filter.is_some()
-        );
-    }
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -682,13 +657,13 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         };
         let full_materialization = self.should_fully_materialize();
         let joined = if full_materialization {
-            build_output_dataframe_verifier_light(
+            hints::build_output_dataframe(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
             )
         } else {
-            build_partial_output_dataframe_verifier_light(
+            hints::build_partial_output_dataframe(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
@@ -746,13 +721,11 @@ fn build_output_dataframe_verifier_light(
     let left_df_fallback = left_df.clone();
     let right_df_fallback = right_df.clone();
 
-    let joined = match left_df
-        .join_on(
-            right_df,
-            join.join_type,
-            vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
-        )
-    {
+    let joined = match left_df.join_on(
+        right_df,
+        join.join_type,
+        vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
+    ) {
         Ok(df) => df,
         Err(_) => {
             return hints::build_output_dataframe(left_df_fallback, right_df_fallback, join);
@@ -793,13 +766,11 @@ fn build_partial_output_dataframe_verifier_light(
         (right_df, left_df)
     };
 
-    let joined = match fk_df
-        .join_on(
-            pk_df,
-            datafusion_expr::JoinType::Left,
-            vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
-        )
-    {
+    let joined = match fk_df.join_on(
+        pk_df,
+        datafusion_expr::JoinType::Left,
+        vec![datafusion_expr::lit(true).eq(datafusion_expr::lit(true))],
+    ) {
         Ok(df) => df,
         Err(_) => {
             return hints::build_partial_output_dataframe(
@@ -1062,7 +1033,6 @@ impl<B: SnarkBackend> IsLpNode<B> for LpNode<B> {
         };
         // Decide mode at LP ingestion time so both plan and gadget are always synchronized.
         let join_mode = modes::decide_join_mode(&join);
-        Self::maybe_dbg_join_mode(&join, join_mode);
         let left = Tree::<B>::from_logical_plan(&join.left).root().clone();
         let right = Tree::<B>::from_logical_plan(&join.right).root().clone();
         let join_scope_node = self_ref.clone();

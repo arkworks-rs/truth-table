@@ -4,12 +4,10 @@ use divan::Bencher;
 use tpch_data::query_spec;
 
 use crate::support::{
-    build_verifier_full_state, emit_benchmark_stats_row, ensure_proof, load_proof_bytes_cached,
-    log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
-    run_preprocess_once, run_prover_iteration, warmup_proof, BenchCase,
+    BenchCase, build_verifier_full_state, emit_benchmark_stats_row, ensure_proof,
+    load_proof_bytes_cached, log_proof_size_once, prepare_assets_cached, prepare_prover_iteration,
+    run_full_verifier_once, run_preprocess_once, run_prover_iteration, warmup_proof,
 };
-
-
 
 fn tpch_cases() -> &'static [BenchCase] {
     // Static list of TPCH queries to benchmark.

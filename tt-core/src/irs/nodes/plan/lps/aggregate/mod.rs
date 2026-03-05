@@ -626,12 +626,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        let current_table_opt = virtualized_ir
-            .payload_for_node(&id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table),
-                _ => None,
-            });
+        let current_table_opt =
+            virtualized_ir
+                .payload_for_node(&id)
+                .and_then(|payload| match payload {
+                    PayloadStructure::PlanPayload(table) => Some(table),
+                    _ => None,
+                });
 
         let mut merged_oracles = current_table_opt
             .map(TrackedTableOracle::tracked_oracles)
@@ -678,7 +679,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         // Only inject multiplicities if the COUNT column is missing from the
         // materialized aggregate output.
         let count_output_names = count_output_names(&self.aggregate.aggr_expr);
-        let lookup_multiplicities = lookup_super_multiplicities_oracle_ref(&self.gadget, virtualized_ir);
+        let lookup_multiplicities =
+            lookup_super_multiplicities_oracle_ref(&self.gadget, virtualized_ir);
         if !count_output_names.is_empty() && lookup_multiplicities.is_some() {
             let missing_count_outputs: Vec<String> = count_output_names
                 .iter()
@@ -686,7 +688,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 .cloned()
                 .collect();
             if !missing_count_outputs.is_empty() {
-                let multiplicities_table = lookup_multiplicities.expect("multiplicities should be available");
+                let multiplicities_table =
+                    lookup_multiplicities.expect("multiplicities should be available");
                 let data_indices = multiplicities_table.data_tracked_oracles_indices();
                 if data_indices.len() != 1 {
                     panic!("Lookup multiplicities must have exactly one data column");
@@ -1313,8 +1316,9 @@ fn lookup_super_multiplicities_oracle_ref<'a, B: SnarkBackend>(
         .into_iter()
         .find(|child| child.name() == "Lookup")?;
     match virtualized_ir.payload_for_node(&lookup_node.id())? {
-        PayloadStructure::GadgetPayload(map) => map
-            .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL),
+        PayloadStructure::GadgetPayload(map) => {
+            map.get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+        }
         _ => None,
     }
 }

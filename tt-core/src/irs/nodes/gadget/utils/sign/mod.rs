@@ -304,7 +304,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for SignNode<B> {
         else {
             return Ok(());
         };
-        let input = payload.get(INPUT_LABEL).expect("Expected input for Sign gadget");
+        let input = payload
+            .get(INPUT_LABEL)
+            .expect("Expected input for Sign gadget");
         let data_inds = input.data_tracked_polys_indices();
         debug_assert!(
             !data_inds.is_empty(),

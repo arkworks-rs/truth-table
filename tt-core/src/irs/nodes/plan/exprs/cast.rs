@@ -234,24 +234,20 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         // The cast output already carries a materialized data column; copy row_id/activator
         // from the expression child while avoiding full table clones.
         let expr_id = self.expr.id();
-        let (
-            expr_row_id_entry,
-            expr_activator,
-            expr_log_size,
-            expr_metadata,
-        ) = match virtualized_ir.payload_for_node(&expr_id) {
-            Some(PayloadStructure::PlanPayload(table)) => {
-                let row_id = table
-                    .tracked_oracles_iter()
-                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
-                    .map(|(field, oracle)| (field.clone(), oracle.clone()));
-                let activator = table.activator_tracked_poly();
-                let log_size = table.log_size();
-                let metadata = table.schema_ref().map(|s| s.metadata().clone());
-                (row_id, activator, log_size, metadata)
-            }
-            _ => return Ok(()),
-        };
+        let (expr_row_id_entry, expr_activator, expr_log_size, expr_metadata) =
+            match virtualized_ir.payload_for_node(&expr_id) {
+                Some(PayloadStructure::PlanPayload(table)) => {
+                    let row_id = table
+                        .tracked_oracles_iter()
+                        .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                        .map(|(field, oracle)| (field.clone(), oracle.clone()));
+                    let activator = table.activator_tracked_poly();
+                    let log_size = table.log_size();
+                    let metadata = table.schema_ref().map(|s| s.metadata().clone());
+                    (row_id, activator, log_size, metadata)
+                }
+                _ => return Ok(()),
+            };
 
         let (mut merged_oracles, current_log_size, current_metadata) =
             match virtualized_ir.payload_for_node(&id) {
@@ -264,9 +260,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             };
 
         if let Some((row_id_field, row_id_oracle)) = expr_row_id_entry {
-            merged_oracles
-                .entry(row_id_field)
-                .or_insert(row_id_oracle);
+            merged_oracles.entry(row_id_field).or_insert(row_id_oracle);
         }
         if let Some(activator) = expr_activator {
             merged_oracles.insert(ACTIVATOR_FIELD.clone(), activator);

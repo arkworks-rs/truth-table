@@ -405,14 +405,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         if self.many_to_many_gadgets().is_some() {
-            let (
-                current_output,
-                current_left,
-                current_right,
-                current_left_src,
-                current_right_src,
-            ) = {
-                let Some(PayloadStructure::GadgetPayload(payload)) = virtualized_ir.payload_for_node(&id)
+            let (current_output, current_left, current_right, current_left_src, current_right_src) = {
+                let Some(PayloadStructure::GadgetPayload(payload)) =
+                    virtualized_ir.payload_for_node(&id)
                 else {
                     panic!("expected gadget payload for Join gadget node")
                 };
@@ -514,9 +509,27 @@ fn derive_many_to_many_hints_verifier(
         Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty, true),
     ]));
 
-    let src_left_df = crate::irs::nodes::hints::schema_only_df(src_left_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
-    let src_right_df = crate::irs::nodes::hints::schema_only_df(src_right_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
-    let nodup_df = crate::irs::nodes::hints::schema_only_df(nodup_schema.fields().iter().map(|f| f.as_ref().clone()).collect());
+    let src_left_df = crate::irs::nodes::hints::schema_only_df(
+        src_left_schema
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect(),
+    );
+    let src_right_df = crate::irs::nodes::hints::schema_only_df(
+        src_right_schema
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect(),
+    );
+    let nodup_df = crate::irs::nodes::hints::schema_only_df(
+        nodup_schema
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect(),
+    );
 
     JoinPlanningDerivedHints {
         left_hint,

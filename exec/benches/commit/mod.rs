@@ -67,8 +67,8 @@ fn commit_cases() -> &'static [CommitCase] {
 fn commit_pk_path() -> &'static PathBuf {
     static PK_PATH: OnceLock<PathBuf> = OnceLock::new();
     PK_PATH.get_or_init(|| {
-        let (pk_path, _vk_path) =
-            resolve_key_paths(DEFAULT_BENCH_LOG_SIZE).expect("resolve proving key for commit bench");
+        let (pk_path, _vk_path) = resolve_key_paths(DEFAULT_BENCH_LOG_SIZE)
+            .expect("resolve proving key for commit bench");
         pk_path
     })
 }
@@ -80,13 +80,15 @@ fn commit_content_len(case: CommitCase) -> usize {
     let query = format!("SELECT * EXCEPT ({ROW_ID_COL_NAME}) FROM {table_name}");
     let ctx = SessionContext::new();
 
-    block_on(ctx.register_parquet(
-        table_name,
-        parquet_path
-            .to_str()
-            .expect("parquet path for commit bench must be valid UTF-8"),
-        ParquetReadOptions::default(),
-    ))
+    block_on(
+        ctx.register_parquet(
+            table_name,
+            parquet_path
+                .to_str()
+                .expect("parquet path for commit bench must be valid UTF-8"),
+            ParquetReadOptions::default(),
+        ),
+    )
     .expect("register parquet for commit bench");
 
     let tt_pk = TTPk::<B>::load(commit_pk_path()).expect("load proving key for commit bench");
