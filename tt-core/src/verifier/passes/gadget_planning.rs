@@ -14,7 +14,7 @@ use ark_piop::SnarkBackend;
 /// This pass executes pre-order and lets each node update verifier planning hints.
 pub struct GadgetPlanningPass<B: SnarkBackend> {
     planned_ir: RefCell<OutputPlannedIr<B>>,
-    visited_nodes: RefCell<Option<HashSet<NodeId>>>,
+    visited_nodes: RefCell<HashSet<NodeId>>,
 }
 
 impl<B: SnarkBackend> GadgetPlanningPass<B> {
@@ -22,7 +22,7 @@ impl<B: SnarkBackend> GadgetPlanningPass<B> {
         let planned_ir = planned_ir.clone();
         Self {
             planned_ir: RefCell::new(planned_ir),
-            visited_nodes: RefCell::new(None),
+            visited_nodes: RefCell::new(HashSet::new()),
         }
     }
 }
@@ -44,12 +44,8 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
         id: NodeId,
         payload: Option<&HintDFDFPayload>,
     ) -> Option<HintDFDFPayload> {
-        if self
-            .visited_nodes
-            .borrow()
-            .as_ref()
-            .is_some_and(|visited| visited.contains(&id))
-        {
+        // Single hash-table operation: `insert` returns false when already visited.
+        if !self.visited_nodes.borrow_mut().insert(id) {
             return self
                 .planned_ir
                 .borrow()
@@ -73,10 +69,6 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
         VerifierNodeOps::initialize_gadget_plans(node, id, &mut ir)
             .expect("verifier gadget planning should succeed");
 
-        if let Some(visited) = self.visited_nodes.borrow_mut().as_mut() {
-            visited.insert(id);
-        }
-
         if let Some(updated) = ir.payloads().get(&id).cloned().flatten() {
             Some(updated)
         } else {
@@ -91,12 +83,12 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
 
     fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, HintDFDFPayload>) {
         join::begin_join_planning_cache_scope();
-        *self.visited_nodes.borrow_mut() = Some(HashSet::new());
+        self.visited_nodes.borrow_mut().clear();
     }
 
     fn end_pass(&self) {
         join::end_join_planning_cache_scope();
-        *self.visited_nodes.borrow_mut() = None;
+        self.visited_nodes.borrow_mut().clear();
     }
 
     fn name(&self) -> &'static str {

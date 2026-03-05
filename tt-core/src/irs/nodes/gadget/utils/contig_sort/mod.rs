@@ -205,7 +205,7 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         // gadget initialization can wire constraints, but should avoid any eager
         // collection/materialization work.
         let input_hint = if node.strip_row_id {
-            crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint)
+            strip_row_id_schema_only_hint(&input_hint)
         } else {
             input_hint
         };
@@ -253,6 +253,34 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
     Ok(())
+}
+
+fn strip_row_id_schema_only_hint(
+    hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
+    let fields: Vec<Field> = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| field.name() != ROW_ID_COL_NAME)
+        .map(|field| field.as_ref().clone())
+        .collect();
+    if fields.len() == hint.data_frame().schema().fields().len() {
+        return hint.clone();
+    }
+
+    let df = crate::irs::nodes::hints::schema_only_df(fields.clone());
+    let mut should_materialize = IndexMap::new();
+    for field in df.schema().fields() {
+        let materialized = hint
+            .field_materialization_iter()
+            .find(|(orig_field, _)| orig_field.name() == field.name())
+            .map(|(_, materialized)| *materialized)
+            .unwrap_or(true);
+        should_materialize.insert(field.clone(), materialized);
+    }
+    crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
 }
 
 impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {

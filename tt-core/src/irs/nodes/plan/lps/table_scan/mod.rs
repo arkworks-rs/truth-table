@@ -98,12 +98,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
+        use datafusion_expr::{LogicalPlan, logical_plan::EmptyRelation};
         use indexmap::IndexMap;
+        use std::sync::OnceLock;
 
-        let ctx = SessionContext::new();
+        // Keep qualifier-aware DFSchema for verifier column resolution while staying schema-only.
+        static VERIFIER_SCHEMA_CTX: OnceLock<SessionContext> = OnceLock::new();
+        let ctx = VERIFIER_SCHEMA_CTX.get_or_init(SessionContext::new);
         let df = DataFrame::new(
             ctx.state(),
-            datafusion_expr::LogicalPlan::TableScan(self.table_scan.clone()),
+            LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: false,
+                schema: self.table_scan.projected_schema.clone(),
+            }),
         );
         let should_materialize: IndexMap<_, _> = df
             .schema()

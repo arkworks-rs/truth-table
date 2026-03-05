@@ -142,20 +142,16 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => return Ok(()),
         };
-        let included_hint = match gadget_payload.get(INCLUDED_LABEL) {
-            Some(hint_df) => hint_df.clone(),
-            None => return Ok(()),
-        };
+        if !gadget_payload.contains_key(INCLUDED_LABEL) {
+            return Ok(());
+        }
         let super_hint = match gadget_payload.get(SUPER_LABEL) {
             Some(hint_df) => hint_df.clone(),
             None => return Ok(()),
         };
 
-        let multiplicities_df = multiplicity_once_per_active_key(
-            super_hint.data_frame().clone(),
-            included_hint.data_frame().clone(),
-        )
-        .expect("lookup verifier multiplicity hint planning should succeed");
+        let multiplicities_df = multiplicity_schema_only_from_super(super_hint.data_frame().clone())
+            .expect("lookup verifier multiplicity schema planning should succeed");
 
         let should_materialize = multiplicities_df
             .schema()
@@ -198,6 +194,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         virtualized_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(payload)));
         Ok(())
     }
+}
+
+fn multiplicity_schema_only_from_super(super_df: DataFrame) -> DataFusionResult<DataFrame> {
+    let activator_expr = combined_activator_expr(&super_df).alias(ACTIVATOR_COL_NAME);
+    super_df.select(vec![
+        activator_expr,
+        lit(0_i64).alias("multiplicity"),
+    ])
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {

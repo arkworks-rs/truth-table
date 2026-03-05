@@ -303,11 +303,16 @@ fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::E
 fn schema_contains_column(schema: &DFSchema, column: &Column) -> bool {
     let name = column.name();
     if let Some(relation) = column.relation.as_ref() {
+        let relation_str = relation.to_string();
         return schema.iter().any(|(qualifier, field)| {
-            field.name() == name && qualifier.as_ref().is_some_and(|q| *q == relation)
+            (field_name_matches_unqualified(field.name(), name)
+                && qualifier.as_ref().is_some_and(|q| *q == relation))
+                || field_name_matches_qualified(field.name(), &relation_str, name)
         });
     }
-    schema.iter().any(|(_, field)| field.name() == name)
+    schema
+        .iter()
+        .any(|(_, field)| field_name_matches_unqualified(field.name(), name))
 }
 
 fn schema_field_for_column(
@@ -318,11 +323,12 @@ fn schema_field_for_column(
     if let Some(relation) = column.relation.as_ref() {
         let relation_str = relation.to_string();
         if let Some(field) = schema.fields().iter().find(|field| {
-            field.name() == name
+            (field_name_matches_unqualified(field.name(), name)
                 && field
                     .metadata()
                     .get(QUALIFIER_METADATA_KEY)
-                    .is_some_and(|q| q == &relation_str)
+                    .is_some_and(|q| q == &relation_str))
+                || field_name_matches_qualified(field.name(), &relation_str, name)
         }) {
             return Some(field.clone());
         }
@@ -331,7 +337,7 @@ fn schema_field_for_column(
     schema
         .fields()
         .iter()
-        .find(|field| field.name() == name)
+        .find(|field| field_name_matches_unqualified(field.name(), name))
         .cloned()
 }
 
@@ -346,14 +352,15 @@ fn tracked_table_index_of_column<B: SnarkBackend>(
         if let Some((idx, _)) = table
             .tracked_polys()
             .iter()
-            .enumerate()
-            .find(|(_, (field, _))| {
-                field.name() == name
-                    && field
-                        .metadata()
-                        .get(QUALIFIER_METADATA_KEY)
-                        .is_some_and(|q| q == &relation_str)
-            })
+                .enumerate()
+                .find(|(_, (field, _))| {
+                    (field_name_matches_unqualified(field.name(), name)
+                        && field
+                            .metadata()
+                            .get(QUALIFIER_METADATA_KEY)
+                            .is_some_and(|q| q == &relation_str))
+                        || field_name_matches_qualified(field.name(), &relation_str, name)
+                })
         {
             return Some(idx);
         }
@@ -361,7 +368,7 @@ fn tracked_table_index_of_column<B: SnarkBackend>(
     table
         .tracked_polys()
         .iter()
-        .position(|(field, _)| field.name() == name)
+        .position(|(field, _)| field_name_matches_unqualified(field.name(), name))
 }
 
 // Verifier-side version of qualifier-aware column lookup.
@@ -378,11 +385,12 @@ fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
                 .iter()
                 .enumerate()
                 .find(|(_, (field, _))| {
-                    field.name() == name
+                    (field_name_matches_unqualified(field.name(), name)
                         && field
                             .metadata()
                             .get(QUALIFIER_METADATA_KEY)
-                            .is_some_and(|q| q == &relation_str)
+                            .is_some_and(|q| q == &relation_str))
+                        || field_name_matches_qualified(field.name(), &relation_str, name)
                 })
         {
             return Some(idx);
@@ -391,7 +399,17 @@ fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
     table
         .tracked_oracles()
         .iter()
-        .position(|(field, _)| field.name() == name)
+        .position(|(field, _)| field_name_matches_unqualified(field.name(), name))
+}
+
+#[inline]
+fn field_name_matches_unqualified(field_name: &str, name: &str) -> bool {
+    field_name == name || field_name.rsplit('.').next().is_some_and(|suffix| suffix == name)
+}
+
+#[inline]
+fn field_name_matches_qualified(field_name: &str, relation: &str, name: &str) -> bool {
+    field_name == format!("{relation}.{name}")
 }
 
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
