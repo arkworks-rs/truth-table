@@ -156,56 +156,80 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
-        // Fast path: the immediate parent scope usually contains the column.
-        let parent_hint_df = self
-            .parent
-            .as_ref()
-            .and_then(|weak_ref| weak_ref.upgrade())
-            .and_then(|parent| match parent.as_ref() {
-                Node::Plan(plan_node) if plan_node_may_contain_column(plan_node, &self.column) => {
-                    Some(
-                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                            B,
-                        >>::output(plan_node),
-                    )
-                }
-                Node::Gadget(_) => None,
-                Node::Plan(_) => None,
-            })
-            .filter(|hint_df| schema_contains_column(hint_df.data_frame().schema(), &self.column));
+        // Resolve scope schema with minimal work:
+        // 1) Parent LP schema only (zero recursive output calls).
+        // 2) Any LP scope schema.
+        // 3) Fallback to cached plan-node outputs only when LP scan misses.
+        let parent_node = self.parent.as_ref().and_then(|weak_ref| weak_ref.upgrade());
+        let scope_nodes: Vec<_> = self
+            .scope
+            .iter()
+            .filter_map(|scope_weak| scope_weak.upgrade())
+            .collect();
 
-        // Fallback: probe all scopes in order and choose the first matching schema.
-        let scope_hint_df = parent_hint_df.unwrap_or_else(|| {
-            self.scope
-                .iter()
-                .filter_map(|scope_weak| scope_weak.upgrade())
-                .find_map(|scope| match scope.as_ref() {
+        let schema_ref = parent_node
+            .as_ref()
+            .and_then(|parent| match parent.as_ref() {
+                Node::Plan(crate::irs::nodes::PlanNode::LpBased(lp_node))
+                    if schema_contains_column(lp_node.lp().schema(), &self.column) =>
+                {
+                    Some(lp_node.lp().schema().as_arrow().clone())
+                }
+                _ => None,
+            })
+            .or_else(|| {
+                scope_nodes.iter().find_map(|scope| match scope.as_ref() {
+                    Node::Plan(crate::irs::nodes::PlanNode::LpBased(lp_node))
+                        if schema_contains_column(lp_node.lp().schema(), &self.column) =>
+                    {
+                        Some(lp_node.lp().schema().as_arrow().clone())
+                    }
+                    _ => None,
+                })
+            })
+            .or_else(|| {
+                parent_node.as_ref().and_then(|parent| match parent.as_ref() {
+                    Node::Plan(plan_node) if plan_node_may_contain_column(plan_node, &self.column) => {
+                        let hint_df =
+                            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                                B,
+                            >>::output(plan_node);
+                        if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
+                            Some(hint_df.data_frame().schema().as_arrow().clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+            })
+            .or_else(|| {
+                scope_nodes.iter().find_map(|scope| match scope.as_ref() {
                     Node::Plan(plan_node) => {
                         if !plan_node_may_contain_column(plan_node, &self.column) {
                             return None;
                         }
                         let hint_df =
-                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                            B,
-                        >>::output(plan_node);
+                            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                                B,
+                            >>::output(plan_node);
                         if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
-                            Some(hint_df)
+                            Some(hint_df.data_frame().schema().as_arrow().clone())
                         } else {
                             None
                         }
                     }
                     Node::Gadget(_) => None,
                 })
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Column output could not find column '{}' in any scope",
-                        self.column
-                    )
-                })
-        });
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "Column output could not find column '{}' in any scope",
+                    self.column
+                )
+            });
 
         // Verifier planning needs only schema shape, not DataFusion projection execution.
-        let schema_ref = scope_hint_df.data_frame().schema().as_arrow().clone();
         let selected_field =
             schema_field_for_column(&schema_ref, &self.column).unwrap_or_else(|| {
                 panic!(
@@ -243,10 +267,17 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
         }
 
         if self.column.name() != ACTIVATOR_COL_NAME {
-            for activator_field in activator_fields {
-                if !same_field_identity(&activator_field, &selected_field) {
-                    fields.push(activator_field.as_ref().clone());
-                }
+            // Keep exactly one activator in schema-only output to avoid duplicate
+            // qualified fields in wide joined scopes.
+            let activator_choice = activator_fields
+                .iter()
+                .find(|field| field.metadata().contains_key(QUALIFIER_METADATA_KEY))
+                .cloned()
+                .or_else(|| activator_fields.first().cloned());
+            if let Some(activator_field) = activator_choice
+                && !same_field_identity(&activator_field, &selected_field)
+            {
+                fields.push(activator_field.as_ref().clone());
             }
         }
 
@@ -260,11 +291,24 @@ fn same_field_identity(
     left: &datafusion::arrow::datatypes::FieldRef,
     right: &datafusion::arrow::datatypes::FieldRef,
 ) -> bool {
-    left.name() == right.name()
-        && left
-            .metadata()
-            .get(QUALIFIER_METADATA_KEY)
-            .eq(&right.metadata().get(QUALIFIER_METADATA_KEY))
+    field_unqualified_name(left.name()) == field_unqualified_name(right.name())
+        && field_qualifier_name(left) == field_qualifier_name(right)
+}
+
+#[inline]
+fn field_unqualified_name(name: &str) -> &str {
+    name.rsplit('.').next().unwrap_or(name)
+}
+
+#[inline]
+fn field_qualifier_name(field: &datafusion::arrow::datatypes::FieldRef) -> Option<String> {
+    if let Some(q) = field.metadata().get(QUALIFIER_METADATA_KEY) {
+        return Some(q.clone());
+    }
+    field
+        .name()
+        .rsplit_once('.')
+        .map(|(qualifier, _)| qualifier.to_string())
 }
 
 #[inline]
