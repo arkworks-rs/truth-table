@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
 use datafusion_common::{Column, DFSchema, Statistics};
@@ -14,6 +16,10 @@ pub struct ExprNode<B: SnarkBackend> {
     pub scope: Vec<std::sync::Weak<Node<B>>>,
     pub parent: Option<std::sync::Weak<Node<B>>>,
     pub column: Column,
+    // Cache the last successful scope binding for this Column node to avoid
+    // rescanning all scopes on every virtualization call.
+    prover_virtual_binding_cache: Mutex<Option<(NodeId, usize)>>,
+    verifier_virtual_binding_cache: Mutex<Option<(NodeId, usize)>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for ExprNode<B> {
@@ -48,6 +54,34 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         id: NodeId,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Fast path: reuse a previously resolved (scope_id, col_idx) binding
+        // when the scope still exists and the field at that index still matches
+        // this column (guards against stale indices after schema changes).
+        if let Some((scope_id, col_idx)) = *self.prover_virtual_binding_cache.lock().expect("cache lock poisoned") {
+            for scope_weak in &self.scope {
+                let scope = scope_weak
+                    .upgrade()
+                    .expect("Column scope should be available during witness generation");
+                if scope.id() != scope_id {
+                    continue;
+                }
+                let scope_payload = virtualized_ir.payload_for_node(&scope.id());
+                if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+                    && col_idx < table.tracked_polys().len()
+                    && table
+                        .schema_ref()
+                        .and_then(|schema| schema.fields().get(col_idx))
+                        .is_some_and(|field| field_matches_column(field, &self.column))
+                {
+                    let subtable = table.tracked_subtable_by_indices(&[col_idx]);
+                    virtualized_ir
+                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+                    return Ok(());
+                }
+                break;
+            }
+        }
+
         // Helper: try to pull the requested column (and activator) from a tracked table.
         let try_build_subtable =
             |table: &arithmetic::table::TrackedTable<B>, column: &Column| -> Option<_> {
@@ -63,6 +97,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
                 && let Some(subtable) = try_build_subtable(table, &self.column)
             {
+                if let Some(col_idx) = tracked_table_index_of_column(table, &self.column) {
+                    // Record successful binding for the next call.
+                    *self.prover_virtual_binding_cache.lock().expect("cache lock poisoned") =
+                        Some((scope.id(), col_idx));
+                }
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                 return Ok(());
@@ -456,12 +495,52 @@ fn field_name_matches_qualified(field_name: &str, relation: &str, name: &str) ->
     field_name == format!("{relation}.{name}")
 }
 
+fn field_matches_column(field: &datafusion::arrow::datatypes::Field, column: &Column) -> bool {
+    let name = column.name();
+    if let Some(relation) = column.relation.as_ref() {
+        let relation_str = relation.to_string();
+        return (field_name_matches_unqualified(field.name(), name)
+            && field
+                .metadata()
+                .get(QUALIFIER_METADATA_KEY)
+                .is_some_and(|q| q == &relation_str))
+            || field_name_matches_qualified(field.name(), &relation_str, name);
+    }
+    field_name_matches_unqualified(field.name(), name)
+}
+
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn add_virtual_witness(
         &self,
         id: NodeId,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Verifier-side equivalent of the prover fast path above.
+        if let Some((scope_id, col_idx)) = *self.verifier_virtual_binding_cache.lock().expect("cache lock poisoned") {
+            for scope_weak in &self.scope {
+                let scope = scope_weak
+                    .upgrade()
+                    .expect("Column scope should be available during witness generation");
+                if scope.id() != scope_id {
+                    continue;
+                }
+                let scope_payload = virtualized_ir.payload_for_node(&scope.id());
+                if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
+                    && col_idx < table.tracked_oracles().len()
+                    && table
+                        .schema_ref()
+                        .and_then(|schema| schema.fields().get(col_idx))
+                        .is_some_and(|field| field_matches_column(field, &self.column))
+                {
+                    let subtable = table.tracked_subtable_by_indices(&[col_idx]);
+                    virtualized_ir
+                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
+                    return Ok(());
+                }
+                break;
+            }
+        }
+
         // Helper: try to pull the requested column (and activator) from a tracked table oracle.
         let try_build_subtable = |table: &arithmetic::table_oracle::TrackedTableOracle<B>,
                                   column: &Column| {
@@ -477,6 +556,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             if let Some(PayloadStructure::PlanPayload(table)) = scope_payload
                 && let Some(subtable) = try_build_subtable(table, &self.column)
             {
+                if let Some(col_idx) = tracked_table_oracle_index_of_column(table, &self.column) {
+                    // Record successful binding for the next call.
+                    *self.verifier_virtual_binding_cache.lock().expect("cache lock poisoned") =
+                        Some((scope.id(), col_idx));
+                }
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
                 return Ok(());
@@ -532,6 +616,8 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             column,
             scope,
             parent,
+            prover_virtual_binding_cache: Mutex::new(None),
+            verifier_virtual_binding_cache: Mutex::new(None),
         }
     }
 
