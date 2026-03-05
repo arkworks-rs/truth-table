@@ -165,7 +165,7 @@ fn bench_tpch_verifier_preprocess(bencher: Bencher, case: BenchCase) {
     emit_benchmark_stats_row("bench_tpch_verifier_preprocess", case.name);
 }
 
-#[divan::bench(args = tpch_cases(), max_time = 1)]
+#[divan::bench(args = tpch_cases(), max_time = 10)]
 fn bench_tpch_verifier_core(bencher: Bencher, case: BenchCase) {
     // Verifier benchmark (core/steady-state): time IR passes + cryptographic
     // verification, excluding one-time preprocessing/cache warmup.

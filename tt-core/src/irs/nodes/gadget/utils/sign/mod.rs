@@ -521,12 +521,13 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     fn sparse_range_poly_by_nv(nv: usize) -> SnarkResult<SparsePolynomial<B::F, SparseTerm>> {
+        let mut coeff = B::F::one();
+        let two = B::F::from(2u64);
         let terms = (0..nv)
             .map(|i| {
-                (
-                    B::F::from(u64::pow(2, i as u32)),
-                    SparseTerm::new(vec![(i, 1)]),
-                )
+                let term = (coeff, SparseTerm::new(vec![(i, 1)]));
+                coeff *= two;
+                term
             })
             .collect::<Vec<_>>();
         Ok(SparsePolynomial::from_coefficients_vec(nv, terms))
@@ -578,8 +579,12 @@ impl<B: SnarkBackend> SignNode<B> {
     }
 
     fn range_oracle(nv: usize) -> Oracle<B::F> {
+        let poly = Arc::new(
+            Self::sparse_range_poly_by_nv(nv)
+                .expect("range oracle sparse polynomial construction should succeed"),
+        );
         Oracle::new_multivariate(nv, move |x| {
-            Ok(Self::sparse_range_poly_by_nv(nv)?.evaluate(&x))
+            Ok(poly.evaluate(&x))
         })
     }
 
