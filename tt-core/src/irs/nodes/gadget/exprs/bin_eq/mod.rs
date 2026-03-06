@@ -344,7 +344,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
         // Extract the left, right, and output tracked tables from the payload.
@@ -353,9 +353,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             gadget_payload.get(RIGHT_INPUT_LABEL),
             gadget_payload.get(OUTPUT_LABEL),
         ) {
-            (Some(left), Some(right), Some(output)) => {
-                (left.clone(), right.clone(), output.clone())
-            }
+            (Some(left), Some(right), Some(output)) => (left, right, output),
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 
@@ -401,7 +399,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
     ) -> ark_piop::errors::SnarkResult<()> {
         // Fetch the payload for this gadget node.
         let gadget_payload = match gadget_ready_ir.payload_for_node(&id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            Some(PayloadStructure::GadgetPayload(map)) => map,
             _ => return Ok(()),
         };
         // Extract the left, right, and output tracked tables from the payload.
@@ -410,9 +408,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for BinEqNode<B> {
             gadget_payload.get(RIGHT_INPUT_LABEL),
             gadget_payload.get(OUTPUT_LABEL),
         ) {
-            (Some(left), Some(right), Some(output)) => {
-                (left.clone(), right.clone(), output.clone())
-            }
+            (Some(left), Some(right), Some(output)) => (left, right, output),
             _ => panic!("Expected left, right, and output tables for binary equality gadget"),
         };
 

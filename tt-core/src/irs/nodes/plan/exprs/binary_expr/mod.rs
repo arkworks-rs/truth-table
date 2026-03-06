@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
@@ -40,9 +40,100 @@ pub struct ExprNode<B: SnarkBackend> {
     pub scope: Vec<std::sync::Weak<Node<B>>>,
     /// The gadget node.
     pub gadget: Option<Arc<Node<B>>>,
+    /// Cached output data field for this expression node to avoid repeated
+    /// recursive `output()` calls during virtualization.
+    output_data_field_cache: Mutex<Option<FieldRef>>,
 }
 
 impl<B: SnarkBackend> ExprNode<B> {
+    fn first_data_field_from_schema(schema: &Schema) -> Option<FieldRef> {
+        schema
+            .fields()
+            .iter()
+            .find(|field| !is_system_column(field.name()))
+            .cloned()
+    }
+
+    fn cached_output_data_field_prover(
+        &self,
+        current_table: &arithmetic::table::TrackedTable<B>,
+    ) -> FieldRef {
+        if let Some(field) = self
+            .output_data_field_cache
+            .lock()
+            .expect("output_data_field_cache lock poisoned")
+            .as_ref()
+            .cloned()
+        {
+            return field;
+        }
+
+        if let Some(field) = current_table
+            .schema_ref()
+            .and_then(Self::first_data_field_from_schema)
+        {
+            *self
+                .output_data_field_cache
+                .lock()
+                .expect("output_data_field_cache lock poisoned") = Some(field.clone());
+            return field;
+        }
+
+        let field = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| !is_system_column(f.name()))
+            .cloned()
+            .expect("BinaryExpr output should include a data column");
+        *self
+            .output_data_field_cache
+            .lock()
+            .expect("output_data_field_cache lock poisoned") = Some(field.clone());
+        field
+    }
+
+    fn cached_output_data_field_verifier(
+        &self,
+        current_table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    ) -> FieldRef {
+        if let Some(field) = self
+            .output_data_field_cache
+            .lock()
+            .expect("output_data_field_cache lock poisoned")
+            .as_ref()
+            .cloned()
+        {
+            return field;
+        }
+
+        if let Some(field) = current_table
+            .schema_ref()
+            .and_then(Self::first_data_field_from_schema)
+        {
+            *self
+                .output_data_field_cache
+                .lock()
+                .expect("output_data_field_cache lock poisoned") = Some(field.clone());
+            return field;
+        }
+
+        let field = <Self as crate::irs::nodes::IsVerifierPlanNode<B>>::output(self)
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| !is_system_column(f.name()))
+            .cloned()
+            .expect("BinaryExpr output should include a data column");
+        *self
+            .output_data_field_cache
+            .lock()
+            .expect("output_data_field_cache lock poisoned") = Some(field.clone());
+        field
+    }
+
     /// Determines whether the result of the binary expression should be materialized or not.
     /// Some operators require materialization (e.g., comparisions), while others may not (e.g., arithmetic operations).
     fn should_materialize(&self) -> bool {
@@ -219,14 +310,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
         let mut merged_polys = current_table.tracked_polys();
         if let Some(output_poly) = output_tracked_poly {
-            let output_field = <Self as crate::irs::nodes::IsProverPlanNode<B>>::output(self)
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .find(|field| !is_system_column(field.name()))
-                .cloned()
-                .expect("BinaryExpr output should include a data column");
+            let output_field = self.cached_output_data_field_prover(&current_table);
             merged_polys.insert(output_field, output_poly);
         }
 
@@ -389,14 +473,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
         let mut merged_oracles = current_table.tracked_oracles();
         if let Some(output_oracle) = output_tracked_oracle {
-            let output_field = <Self as crate::irs::nodes::IsVerifierPlanNode<B>>::output(self)
-                .data_frame()
-                .schema()
-                .fields()
-                .iter()
-                .find(|field| !is_system_column(field.name()))
-                .cloned()
-                .expect("BinaryExpr output should include a data column");
+            let output_field = self.cached_output_data_field_verifier(&current_table);
             merged_oracles.insert(output_field, output_oracle);
         }
 
@@ -693,6 +770,7 @@ impl<B: SnarkBackend> IsExprNode<B> for ExprNode<B> {
             right,
             scope,
             gadget,
+            output_data_field_cache: Mutex::new(None),
         }
     }
 
