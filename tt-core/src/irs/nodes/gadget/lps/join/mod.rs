@@ -2,23 +2,22 @@ use std::sync::Arc;
 
 use crate::irs::{
     nodes::{
-        IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::prescr_perm,
+        gadget::utils::prescr_perm, IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
     },
     payloads::PayloadStructure,
 };
 use crate::prover::irs::GadgetReadyIr;
 use crate::verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr;
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
-use ark_ff::PrimeField;
+use arithmetic::{
+    col::TrackedCol, col_oracle::TrackedColOracle, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
+};
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
-use ark_piop::{SnarkBackend, piop::PIOP};
+use ark_piop::{piop::PIOP, SnarkBackend};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
-use datafusion::arrow::{
-    array::RecordBatch,
-    datatypes::{DataType, Field, FieldRef, Schema},
-};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{Expr, Join};
 use either::Either;
@@ -26,7 +25,6 @@ use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::sync::RwLock;
 
-const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 mod hints;
 mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
@@ -241,13 +239,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(hint_df) => hint_df,
                 None => return Ok(()),
             };
-            let derived = get_or_build_many_to_many_hints(
-                id,
-                &self.join,
-                left_hint,
-                right_hint,
-                output_hint,
-            );
+            let derived =
+                get_or_build_many_to_many_hints(id, &self.join, left_hint, right_hint, output_hint);
             let JoinPlanningDerivedHints {
                 left_hint,
                 right_hint,
@@ -550,8 +543,50 @@ fn derive_many_to_many_hints_verifier(
     }
 }
 
-fn folding_challenges<F: PrimeField>(count: usize) -> Vec<F> {
-    (0..count).map(|i| F::from((i + 1) as u64)).collect()
+fn lookup_fold_challenges_prover<B: SnarkBackend>(
+    prover: &mut ark_piop::prover::ArgProver<B>,
+    width: usize,
+) -> ark_piop::errors::SnarkResult<Vec<B::F>> {
+    // The included and super tables for one lookup must share the same fold
+    // challenges; otherwise the verifier compares different linear combinations.
+    let mut challenges = Vec::with_capacity(width);
+    for _ in 0..width {
+        challenges.push(prover.get_and_append_challenge(b"lookup_fold")?);
+    }
+    Ok(challenges)
+}
+
+fn fold_lookup_table_prover<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    challenges: &[B::F],
+) -> TrackedCol<B> {
+    let data_indices = table.data_tracked_polys_indices();
+    if data_indices.len() == 1 {
+        return table.tracked_col_by_ind(data_indices[0]);
+    }
+    table.fold_all_data_columns(challenges)
+}
+
+fn lookup_fold_challenges_verifier<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+    width: usize,
+) -> ark_piop::errors::SnarkResult<Vec<B::F>> {
+    let mut challenges = Vec::with_capacity(width);
+    for _ in 0..width {
+        challenges.push(verifier.get_and_append_challenge(b"lookup_fold")?);
+    }
+    Ok(challenges)
+}
+
+fn fold_lookup_table_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    challenges: &[B::F],
+) -> TrackedColOracle<B> {
+    let data_indices = table.data_tracked_oracles_indices();
+    if data_indices.len() == 1 {
+        return table.tracked_col_oracle_by_ind(data_indices[0]);
+    }
+    table.fold_all_data_oracles(challenges)
 }
 
 fn single_data_col_from_table<B: SnarkBackend>(
@@ -638,6 +673,206 @@ fn append_tracked_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
 }
 
+fn input_lookup_base_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
+    let cols = table.tracked_polys();
+    let fields: Vec<FieldRef> = match table.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => cols.keys().cloned().collect(),
+    };
+    let mut filtered = IndexMap::new();
+    for field in fields {
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
+            continue;
+        }
+        let poly = cols
+            .get(&field)
+            .unwrap_or_else(|| panic!("Join input table missing column {}", field.name()));
+        filtered.insert(field, poly.clone());
+    }
+    let metadata = table
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    TrackedTable::new(schema, filtered, table.log_size())
+}
+
+fn input_lookup_base_from_table_oracle<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let cols = table.tracked_oracles();
+    let fields: Vec<FieldRef> = match table.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => cols.keys().cloned().collect(),
+    };
+    let mut filtered = IndexMap::new();
+    for field in fields {
+        if field.name() == arithmetic::ROW_ID_COL_NAME {
+            continue;
+        }
+        let oracle = cols
+            .get(&field)
+            .unwrap_or_else(|| panic!("Join input table missing column {}", field.name()));
+        filtered.insert(field, oracle.clone());
+    }
+    let metadata = table
+        .schema_ref()
+        .map(|schema| schema.metadata().clone())
+        .unwrap_or_default();
+    let fields: Vec<Field> = filtered
+        .keys()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let schema = Some(Schema::new_with_metadata(fields, metadata));
+    TrackedTableOracle::new(schema, filtered, table.log_size())
+}
+
+fn count_output_payload_cols<B: SnarkBackend>(table: &TrackedTable<B>) -> usize {
+    let cols = table.tracked_polys();
+    let fields: Vec<FieldRef> = match table.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => cols.keys().cloned().collect(),
+    };
+    fields
+        .into_iter()
+        .filter(|field| {
+            field.name() != arithmetic::ROW_ID_COL_NAME && field.name() != arithmetic::ACTIVATOR_COL_NAME
+        })
+        .count()
+}
+
+fn count_output_payload_cols_oracle<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> usize {
+    let cols = table.tracked_oracles();
+    let fields: Vec<FieldRef> = match table.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => cols.keys().cloned().collect(),
+    };
+    fields
+        .into_iter()
+        .filter(|field| {
+            field.name() != arithmetic::ROW_ID_COL_NAME && field.name() != arithmetic::ACTIVATOR_COL_NAME
+        })
+        .count()
+}
+
+fn output_lookup_base_from_output<B: SnarkBackend>(
+    output: &TrackedTable<B>,
+    left_table: &TrackedTable<B>,
+    right_table: &TrackedTable<B>,
+    use_left: bool,
+) -> TrackedTable<B> {
+    let left_width = count_output_payload_cols(left_table);
+    let right_width = count_output_payload_cols(right_table);
+    let start = if use_left { 0 } else { left_width };
+    let len = if use_left { left_width } else { right_width };
+    let output_cols = output.tracked_polys();
+    let ordered_fields: Vec<FieldRef> = match output.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => output_cols.keys().cloned().collect(),
+    };
+    let mut data_fields = IndexMap::new();
+    for field in ordered_fields
+        .into_iter()
+        .filter(|field| {
+            field.name() != arithmetic::ACTIVATOR_COL_NAME && field.name() != arithmetic::ROW_ID_COL_NAME
+        })
+        .skip(start)
+        .take(len)
+    {
+        let poly = output_cols
+            .get(&field)
+            .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));
+        data_fields.insert(field, poly.clone());
+    }
+    if data_fields.len() != len {
+        panic!("Join output missing {} {}-side payload columns", len, if use_left { "left" } else { "right" });
+    }
+    let activator = output
+        .activator_tracked_poly()
+        .expect("Join output should carry an activator column");
+    data_fields.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+    let schema = Some(Schema::new(
+        data_fields
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>(),
+    ));
+    TrackedTable::new(schema, data_fields, output.log_size())
+}
+
+fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
+    output: &TrackedTableOracle<B>,
+    left_table: &TrackedTableOracle<B>,
+    right_table: &TrackedTableOracle<B>,
+    use_left: bool,
+) -> TrackedTableOracle<B> {
+    let left_width = count_output_payload_cols_oracle(left_table);
+    let right_width = count_output_payload_cols_oracle(right_table);
+    let start = if use_left { 0 } else { left_width };
+    let len = if use_left { left_width } else { right_width };
+    let output_cols = output.tracked_oracles();
+    let ordered_fields: Vec<FieldRef> = match output.schema_ref() {
+        Some(schema) => schema
+            .fields()
+            .iter()
+            .map(|field| Arc::new(field.as_ref().clone()))
+            .collect(),
+        None => output_cols.keys().cloned().collect(),
+    };
+    let mut data_fields = IndexMap::new();
+    for field in ordered_fields
+        .into_iter()
+        .filter(|field| {
+            field.name() != arithmetic::ACTIVATOR_COL_NAME && field.name() != arithmetic::ROW_ID_COL_NAME
+        })
+        .skip(start)
+        .take(len)
+    {
+        let oracle = output_cols
+            .get(&field)
+            .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));
+        data_fields.insert(field, oracle.clone());
+    }
+    if data_fields.len() != len {
+        panic!("Join output missing {} {}-side payload columns", len, if use_left { "left" } else { "right" });
+    }
+    let activator = output
+        .activator_tracked_poly()
+        .expect("Join output should carry an activator column");
+    data_fields.insert(arithmetic::ACTIVATOR_FIELD.clone(), activator);
+    let schema = Some(Schema::new(
+        data_fields
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>(),
+    ));
+    TrackedTableOracle::new(schema, data_fields, output.log_size())
+}
+
 fn single_data_col_from_table_oracle<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     label: &str,
@@ -671,179 +906,6 @@ fn index_tracked_oracle<B: SnarkBackend>(
     let tracker = data_col.data_tracked_oracle().tracker();
     let index_id = tracker.borrow_mut().track_oracle(index_oracle);
     TrackedOracle::new(Either::Left(index_id), tracker, log_size)
-}
-
-fn output_base_from_output<B: SnarkBackend>(
-    output: &TrackedTable<B>,
-    left: &TrackedTable<B>,
-) -> TrackedTable<B> {
-    let output_cols = output.tracked_polys();
-    let left_fields: Vec<FieldRef> = match left.schema_ref() {
-        Some(schema) => schema
-            .fields()
-            .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => left.tracked_polys().keys().cloned().collect(),
-    };
-
-    // Keep the same column order as `left` so folding challenges are aligned
-    // between output-derived rows and input rows in lookup checks.
-    let mut filtered = IndexMap::new();
-    for left_field in left_fields.iter() {
-        // Keep the activator for provenance lookups so padded rows stay inactive
-        // after folding. We only drop row_id because we append the source/index
-        // column separately.
-        if left_field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        if let Some((out_field, out_poly)) = output_cols
-            .iter()
-            .find(|(out_field, _)| field_matches(left_field, out_field))
-        {
-            filtered.insert(out_field.clone(), out_poly.clone());
-        }
-    }
-
-    let metadata = left
-        .schema_ref()
-        .map(|schema| schema.metadata().clone())
-        .unwrap_or_default();
-    let fields: Vec<Field> = filtered
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTable::new(schema, filtered, output.log_size())
-}
-
-fn input_base_from_output<B: SnarkBackend>(
-    input: &TrackedTable<B>,
-    output: &TrackedTable<B>,
-) -> TrackedTable<B> {
-    let output_cols = output.tracked_polys();
-    let input_cols = input.tracked_polys();
-    let mut filtered = IndexMap::new();
-    for (field, poly) in input_cols.iter() {
-        // Keep the activator for the same reason as output_base_from_output().
-        if field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        if !output_cols
-            .keys()
-            .any(|out_field| field_matches(field, out_field))
-        {
-            continue;
-        }
-        filtered.insert(field.clone(), poly.clone());
-    }
-    let metadata = input
-        .schema_ref()
-        .map(|schema| schema.metadata().clone())
-        .unwrap_or_default();
-    let fields: Vec<Field> = filtered
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTable::new(schema, filtered, input.log_size())
-}
-
-fn output_base_from_output_oracle<B: SnarkBackend>(
-    output: &TrackedTableOracle<B>,
-    left: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let output_cols = output.tracked_oracles();
-    let left_fields: Vec<FieldRef> = match left.schema_ref() {
-        Some(schema) => schema
-            .fields()
-            .iter()
-            .map(|field| Arc::new(field.as_ref().clone()))
-            .collect(),
-        None => left.tracked_oracles().keys().cloned().collect(),
-    };
-
-    // Mirror prover ordering for deterministic folding alignment.
-    let mut filtered = IndexMap::new();
-    for left_field in left_fields.iter() {
-        // Mirror prover behavior: keep activator, exclude only row_id.
-        if left_field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        if let Some((out_field, out_oracle)) = output_cols
-            .iter()
-            .find(|(out_field, _)| field_matches(left_field, out_field))
-        {
-            filtered.insert(out_field.clone(), out_oracle.clone());
-        }
-    }
-
-    let metadata = left
-        .schema_ref()
-        .map(|schema| schema.metadata().clone())
-        .unwrap_or_default();
-    let fields: Vec<Field> = filtered
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTableOracle::new(schema, filtered, output.log_size())
-}
-
-fn input_base_from_output_oracle<B: SnarkBackend>(
-    input: &TrackedTableOracle<B>,
-    output: &TrackedTableOracle<B>,
-) -> TrackedTableOracle<B> {
-    let output_cols = output.tracked_oracles();
-    let input_cols = input.tracked_oracles();
-    let mut filtered = IndexMap::new();
-    for (field, oracle) in input_cols.iter() {
-        // Mirror prover behavior: keep activator, exclude only row_id.
-        if field.name() == arithmetic::ROW_ID_COL_NAME {
-            continue;
-        }
-        if !output_cols
-            .keys()
-            .any(|out_field| field_matches(field, out_field))
-        {
-            continue;
-        }
-        filtered.insert(field.clone(), oracle.clone());
-    }
-    let metadata = input
-        .schema_ref()
-        .map(|schema| schema.metadata().clone())
-        .unwrap_or_default();
-    let fields: Vec<Field> = filtered
-        .keys()
-        .map(|field| field.as_ref().clone())
-        .collect();
-    let schema = Some(Schema::new_with_metadata(fields, metadata));
-    TrackedTableOracle::new(schema, filtered, input.log_size())
-}
-
-fn field_matches(left: &FieldRef, right: &FieldRef) -> bool {
-    if left.name() != right.name() {
-        return false;
-    }
-    if left.name() == arithmetic::ACTIVATOR_COL_NAME || left.name() == arithmetic::ROW_ID_COL_NAME {
-        return true;
-    }
-    // Use qualifier metadata to disambiguate when left/right share column names.
-    let left_qual = field_qualifier(left);
-    let right_qual = field_qualifier(right);
-    match (left_qual, right_qual) {
-        (Some(l), Some(r)) => l == r,
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn field_qualifier(field: &FieldRef) -> Option<&str> {
-    field
-        .metadata()
-        .get(QUALIFIER_METADATA_KEY)
-        .map(|value| value.as_str())
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
@@ -881,17 +943,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
             // input left = [left activator | left keys + left data + normal index]
             let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
-            let output_left_base = output_base_from_output(&output, &left_table);
+            let output_left_base =
+                output_lookup_base_from_output(&output, &left_table, &right_table, true);
             let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
 
             let index_poly = index_tracked_poly(prover, &left_table);
-            let input_left_base = input_base_from_output(&left_table, &output);
+            let input_left_base = input_lookup_base_from_table(&left_table);
             let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
 
-            let output_challs = folding_challenges::<B::F>(output_left.num_data_tracked_cols());
-            let output_folded = output_left.fold_all_data_columns(&output_challs);
-            let input_challs = folding_challenges::<B::F>(input_left.num_data_tracked_cols());
-            let input_folded = input_left.fold_all_data_columns(&input_challs);
+            // Fold both sides with the same transcript challenges for this lookup.
+            let left_fold_challs =
+                lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
+            let output_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
+            let input_folded = fold_lookup_table_prover(&input_left, &left_fold_challs);
 
             // Use activator-aware lookup so empty joins / padded rows do not
             // create false provenance claims.
@@ -910,21 +974,21 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
             let (right_src_field, right_src_poly) =
                 single_data_col_from_table(&right_src, "src-right");
-            let output_right_base = output_base_from_output(&output, &right_table);
+            let output_right_base =
+                output_lookup_base_from_output(&output, &left_table, &right_table, false);
             let output_right =
                 append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
 
             let right_index_poly = index_tracked_poly(prover, &right_table);
-            let input_right_base = input_base_from_output(&right_table, &output);
+            let input_right_base = input_lookup_base_from_table(&right_table);
             let input_right =
                 append_tracked_col(&input_right_base, right_src_field, right_index_poly);
 
-            let output_right_challs =
-                folding_challenges::<B::F>(output_right.num_data_tracked_cols());
-            let output_right_folded = output_right.fold_all_data_columns(&output_right_challs);
-            let input_right_challs =
-                folding_challenges::<B::F>(input_right.num_data_tracked_cols());
-            let input_right_folded = input_right.fold_all_data_columns(&input_right_challs);
+            // Fold both sides with the same transcript challenges for this lookup.
+            let right_fold_challs =
+                lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
+            let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs);
+            let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs);
             LookupPIOP::<B>::prove(
                 prover,
                 LookupProverInput {
@@ -977,20 +1041,20 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             };
 
             let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
-            let output_left_base = output_base_from_output_oracle(&output, &left_table);
+            let output_left_base =
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
             let output_left =
                 append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
-            let input_left_base = input_base_from_output_oracle(&left_table, &output);
+            let input_left_base = input_lookup_base_from_table_oracle(&left_table);
             let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
 
-            let output_challs =
-                folding_challenges::<B::F>(output_left.num_data_tracked_col_oracles());
-            let output_folded = output_left.fold_all_data_oracles(&output_challs);
-            let input_challs =
-                folding_challenges::<B::F>(input_left.num_data_tracked_col_oracles());
-            let input_folded = input_left.fold_all_data_oracles(&input_challs);
+            // Mirror prover-side challenge reuse exactly.
+            let left_fold_challs =
+                lookup_fold_challenges_verifier(verifier, output_left.num_data_tracked_col_oracles())?;
+            let output_folded = fold_lookup_table_verifier(&output_left, &left_fold_challs);
+            let input_folded = fold_lookup_table_verifier(&input_left, &left_fold_challs);
 
             LookupPIOP::<B>::verify(
                 verifier,
@@ -1002,7 +1066,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
             let (right_src_field, right_src_oracle) =
                 single_data_col_from_table_oracle(&right_src, "src-right");
-            let output_right_base = output_base_from_output_oracle(&output, &right_table);
+            let output_right_base =
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
             let output_right = append_tracked_oracle(
                 &output_right_base,
                 right_src_field.clone(),
@@ -1010,16 +1075,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             );
 
             let right_index_oracle = index_tracked_oracle(verifier, &right_table);
-            let input_right_base = input_base_from_output_oracle(&right_table, &output);
+            let input_right_base = input_lookup_base_from_table_oracle(&right_table);
             let input_right =
                 append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
 
-            let output_right_challs =
-                folding_challenges::<B::F>(output_right.num_data_tracked_col_oracles());
-            let output_right_folded = output_right.fold_all_data_oracles(&output_right_challs);
-            let input_right_challs =
-                folding_challenges::<B::F>(input_right.num_data_tracked_col_oracles());
-            let input_right_folded = input_right.fold_all_data_oracles(&input_right_challs);
+            // Mirror prover-side challenge reuse exactly.
+            let right_fold_challs = lookup_fold_challenges_verifier(
+                verifier,
+                output_right.num_data_tracked_col_oracles(),
+            )?;
+            let output_right_folded =
+                fold_lookup_table_verifier(&output_right, &right_fold_challs);
+            let input_right_folded =
+                fold_lookup_table_verifier(&input_right, &right_fold_challs);
 
             LookupPIOP::<B>::verify(
                 verifier,

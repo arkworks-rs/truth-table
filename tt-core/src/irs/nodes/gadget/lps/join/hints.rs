@@ -2,7 +2,7 @@ use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, ExprFunctionExt, Join, col, lit};
+use datafusion_expr::{col, lit, Expr, ExprFunctionExt, Join};
 
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
@@ -105,12 +105,14 @@ fn build_source_dfs_impl(
         col("left_row_id").alias(SRC_LEFT_COL_NAME),
         lit(true).alias(ACTIVATOR_COL_NAME),
         col(ROW_ID_COL_NAME),
-    ])?;
+    ])?
+    .sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])?;
     let right_src = mapping.select(vec![
         col("right_row_id").alias(SRC_RIGHT_COL_NAME),
         lit(true).alias(ACTIVATOR_COL_NAME),
         col(ROW_ID_COL_NAME),
-    ])?;
+    ])?
+    .sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])?;
     Ok((left_src, right_src))
 }
 
@@ -201,12 +203,14 @@ fn build_nodup_input_df_impl(
         (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME),
     ])?;
 
-    mapping.select(vec![
+    mapping
+    .select(vec![
         col("left_row_id").alias(SRC_LEFT_COL_NAME),
         col("right_row_id").alias(SRC_RIGHT_COL_NAME),
         lit(true).alias(ACTIVATOR_COL_NAME),
         col(ROW_ID_COL_NAME),
-    ])
+    ])?
+    .sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])
 }
 
 fn prepare_input(
@@ -381,7 +385,7 @@ mod tests {
     use datafusion::functions_window::expr_fn::row_number;
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
-    use datafusion_expr::{Expr, ExprFunctionExt, JoinType, LogicalPlan, col, lit};
+    use datafusion_expr::{col, lit, Expr, ExprFunctionExt, JoinType, LogicalPlan};
     use std::sync::Arc;
 
     fn build_df(
