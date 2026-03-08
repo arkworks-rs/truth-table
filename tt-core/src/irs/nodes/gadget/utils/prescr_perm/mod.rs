@@ -404,8 +404,7 @@ fn prescribed_perm_honest_check<B: SnarkBackend>(
     let mut used = vec![false; size];
 
     for (row, perm_val) in perm_vals.iter().enumerate() {
-        let target = (0..size).find(|idx| *perm_val == B::F::from(*idx as u64));
-        let Some(target) = target else {
+        let Some(target) = field_to_usize(*perm_val, size) else {
             return false;
         };
         if used[target] {
@@ -446,6 +445,19 @@ fn rows_match<F: PartialEq>(
             .map(|(l, r)| l == r)
             .unwrap_or(false)
     })
+}
+
+// Converts a field element into a usize if it fits in the provided bound.
+// Returns None if the value is out of range or does not fit in a single limb.
+fn field_to_usize<F: PrimeField>(elem: F, bound: usize) -> Option<usize> {
+    let bigint = elem.into_bigint();
+    let limbs = bigint.as_ref();
+    // Reject values that do not fit in a single limb.
+    if limbs.iter().skip(1).any(|&x| x != 0) {
+        return None;
+    }
+    let val = limbs[0] as usize;
+    (val < bound).then_some(val)
 }
 
 /// Builds a permutation polynomial representing a cyclic rotation of the

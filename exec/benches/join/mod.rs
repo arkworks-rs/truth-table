@@ -73,28 +73,28 @@ fn join_cases() -> &'static [BenchCase] {
             //     "#,
             //     tables: &["lineitem", "orders"],
             // },
-            BenchCase {
-                name: "join_partsupp_self_small_composite_key",
-                query: r#"
-                    SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_supplycost
-                    FROM partsupp ps1
-                    INNER JOIN partsupp ps2
-                        ON ps1.ps_partkey = ps2.ps_partkey
-                       AND ps1.ps_suppkey = ps2.ps_suppkey
-                "#,
-                tables: &["partsupp"],
-            },
-            BenchCase {
-                name: "join_lineitem_partsupp_medium_composite_key",
-                query: r#"
-                    SELECT l.l_orderkey, l.l_partkey, l.l_suppkey, ps.ps_supplycost
-                    FROM lineitem l
-                    INNER JOIN partsupp ps
-                        ON l.l_partkey = ps.ps_partkey
-                       AND l.l_suppkey = ps.ps_suppkey
-                "#,
-                tables: &["lineitem", "partsupp"],
-            },
+            // BenchCase {
+            //     name: "join_partsupp_self_small_composite_key",
+            //     query: r#"
+            //         SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_supplycost
+            //         FROM partsupp ps1
+            //         INNER JOIN partsupp ps2
+            //             ON ps1.ps_partkey = ps2.ps_partkey
+            //            AND ps1.ps_suppkey = ps2.ps_suppkey
+            //     "#,
+            //     tables: &["partsupp"],
+            // },
+            // BenchCase {
+            //     name: "join_lineitem_partsupp_medium_composite_key",
+            //     query: r#"
+            //         SELECT l.l_orderkey, l.l_partkey, l.l_suppkey, ps.ps_supplycost
+            //         FROM lineitem l
+            //         INNER JOIN partsupp ps
+            //             ON l.l_partkey = ps.ps_partkey
+            //            AND l.l_suppkey = ps.ps_suppkey
+            //     "#,
+            //     tables: &["lineitem", "partsupp"],
+            // },
             BenchCase {
                 name: "join_lineitem_self_large_composite_key",
                 query: r#"
