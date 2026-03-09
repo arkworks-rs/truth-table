@@ -1,27 +1,22 @@
 use std::sync::Arc;
 
+mod hints;
+
 use ark_ff::{One, Zero};
 use ark_piop::{
     SnarkBackend, prover::structs::polynomial::TrackedPoly,
     verifier::structs::oracle::TrackedOracle,
 };
 use datafusion::{
-    arrow::{
-        array::{ArrayRef, BooleanArray, new_null_array},
-        compute::concat,
-        compute::concat_batches,
-        datatypes::{Field, Schema},
-        record_batch::RecordBatch,
-    },
-    functions_window::expr_fn::row_number,
-    prelude::{DataFrame, SessionContext},
+    arrow::datatypes::{Field, Schema},
+    prelude::DataFrame,
 };
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, ExprFunctionExt, Join, LogicalPlan, col, lit};
+use datafusion_expr::{Expr, Join, LogicalPlan, col};
 use indexmap::IndexMap;
-use tokio::runtime::RuntimeFlavor;
 use tracing::error;
 
+use self::hints::build_union_hint_df;
 use crate::irs::nodes::gadget::utils::{lookup, nodup};
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 use crate::{
@@ -94,22 +89,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Get the context plans for this node
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             panic!(
                 "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
             );
         };
-
-        let (key_union, key_names) = build_key_union_df(
-            &ctx.join,
-            ctx.left_hint.data_frame(),
-            ctx.right_hint.data_frame(),
-        )
-        .expect("match-pair key union should succeed");
-        let key_union = pad_key_union_df(key_union, &key_names, false)
-            .expect("match-pair padding should succeed");
-        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
-        let (left_cols, right_cols, _) =
+        let (left_cols, right_cols, key_names) =
             join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
 
         let left_keys_df =
@@ -122,6 +108,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             "right",
         )
         .expect("match-pair right key projection should succeed");
+        let key_union = build_union_hint_df(left_keys_df.clone(), right_keys_df.clone())
+            .expect("match-pair union hint should succeed");
+        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
         let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
             .expect("match-pair union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
@@ -163,7 +152,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         let Some(PayloadStructure::GadgetPayload(payload)) =
             virtualized_ir.payload_for_node(&id).cloned()
         else {
-            return Ok(());
+            panic!("Expected gadget payload for Match-Pair gadget node");
         };
         let union = payload
             .get(UNION_LABEL)
@@ -233,6 +222,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
+        // Get the ctx plans for this node
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
             panic!(
                 "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
@@ -361,7 +351,7 @@ fn build_lookup_keys_schema_only(
     key_names: &[String],
     side: &str,
 ) -> DataFusionResult<DataFrame> {
-    let mut fields = Vec::with_capacity(key_names.len() + 1);
+    let mut fields = Vec::with_capacity(key_names.len() + 2);
     for (col_ref, key_name) in cols.iter().zip(key_names) {
         let key_field = resolve_field_for_column(df, col_ref, side)?;
         fields.push(Field::new(
@@ -370,6 +360,7 @@ fn build_lookup_keys_schema_only(
             key_field.is_nullable(),
         ));
     }
+    fields.push((**arithmetic::ROW_ID_FIELD).clone());
     fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
     Ok(crate::irs::nodes::hints::schema_only_df(fields))
 }
@@ -378,7 +369,7 @@ fn build_union_schema_only(
     key_names: &[String],
     keys_df: &DataFrame,
 ) -> DataFusionResult<DataFrame> {
-    let mut fields = Vec::with_capacity(key_names.len() + 1);
+    let mut fields = Vec::with_capacity(key_names.len() + 2);
     for key_name in key_names {
         let field = keys_df
             .schema()
@@ -390,6 +381,7 @@ fn build_union_schema_only(
             })?;
         fields.push(field.as_ref().clone());
     }
+    fields.push((**arithmetic::ROW_ID_FIELD).clone());
     fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
     Ok(crate::irs::nodes::hints::schema_only_df(fields))
 }
@@ -546,9 +538,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let union_activator = union_table
             .activator_tracked_poly()
             .expect("Match-Pair union table missing activator");
-        let output_activator = output_table
-            .activator_tracked_poly()
-            .expect("Match-Pair output table missing activator");
+
         let left_mult = single_data_oracle_from_table(&left_multiplicities, "left multiplicity");
         let right_mult = single_data_oracle_from_table(&right_multiplicities, "right multiplicity");
 
@@ -910,234 +900,33 @@ fn build_lookup_keys_df(
         .zip(key_names)
         .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
         .collect();
+    crate::irs::nodes::hints::append_row_id_expr_if_present(&sorted_input, &mut exprs);
     crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted_input, &mut exprs);
     let sorted = sorted_input.select(exprs)?;
 
     let mut final_exprs: Vec<Expr> = key_names.iter().map(col).collect();
+    crate::irs::nodes::hints::append_row_id_expr_if_present(&sorted, &mut final_exprs);
     crate::irs::nodes::hints::append_activator_exprs_if_present(&sorted, &mut final_exprs);
     let final_df = sorted.select(final_exprs)?;
-    if final_df.schema().fields().len() == key_names.len() {
+    if !final_df
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.name() == arithmetic::ROW_ID_COL_NAME)
+    {
+        return Err(DataFusionError::Plan(format!(
+            "match-pair {side} lookup keys missing row id column"
+        )));
+    }
+    if final_df
+        .schema()
+        .fields()
+        .iter()
+        .all(|field| field.name() != arithmetic::ACTIVATOR_COL_NAME)
+    {
         return Err(DataFusionError::Plan(format!(
             "match-pair {side} lookup keys missing activator column"
         )));
     }
     Ok(final_df)
-}
-
-fn row_id_columns(df: &DataFrame, side: &str) -> DataFusionResult<Vec<Column>> {
-    let row_id_cols: Vec<Column> = df
-        .schema()
-        .iter()
-        .filter_map(|(qualifier, field)| {
-            (field.name() == arithmetic::ROW_ID_COL_NAME)
-                .then_some(Column::new(qualifier.cloned(), arithmetic::ROW_ID_COL_NAME))
-        })
-        .collect();
-    if row_id_cols.is_empty() {
-        return Err(DataFusionError::Plan(format!(
-            "match-pair {side} input is missing {}",
-            arithmetic::ROW_ID_COL_NAME
-        )));
-    }
-    Ok(row_id_cols)
-}
-
-fn build_key_union_df(
-    join: &Join,
-    left: &DataFrame,
-    right: &DataFrame,
-) -> DataFusionResult<(DataFrame, Vec<String>)> {
-    let (left_cols, right_cols, key_names) = join_key_columns(join)?;
-    let left_row_ids = row_id_columns(left, "left")?;
-    let right_row_ids = row_id_columns(right, "right")?;
-
-    let left_keys = build_key_df(left, &left_cols, &key_names, &left_row_ids)?;
-    let right_keys = build_key_df(right, &right_cols, &key_names, &right_row_ids)?;
-
-    let unioned = left_keys.union(right_keys)?;
-    let key_exprs: Vec<Expr> = key_names.iter().map(col).collect();
-    // Deduplicate the union strictly by key values so downstream NoDup sees a true set.
-    let deduped_keys = unioned.select(key_exprs.clone())?.distinct()?;
-    let with_row_number = deduped_keys.select(
-        key_exprs
-            .iter()
-            .cloned()
-            .chain(std::iter::once(
-                row_number()
-                    .partition_by(Vec::new())
-                    .order_by(
-                        key_exprs
-                            .iter()
-                            .cloned()
-                            .map(|expr| expr.sort(true, true))
-                            .collect(),
-                    )
-                    .build()?
-                    .alias("__row_number__"),
-            ))
-            .collect(),
-    )?;
-    let with_row_id = with_row_number.select(
-        key_exprs
-            .into_iter()
-            .chain(std::iter::once(
-                (col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME),
-            ))
-            .collect(),
-    )?;
-    Ok((with_row_id, key_names))
-}
-
-fn build_key_df(
-    df: &DataFrame,
-    cols: &[Column],
-    key_names: &[String],
-    row_id_cols: &[Column],
-) -> DataFusionResult<DataFrame> {
-    let sorted_df = sort_by_row_id_if_present(df.clone())?;
-    let active_df = if sorted_df
-        .schema()
-        .iter()
-        .any(|(_, field)| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-    {
-        sorted_df.filter(col(arithmetic::ACTIVATOR_COL_NAME).eq(lit(true)))?
-    } else {
-        sorted_df
-    };
-
-    let mut exprs: Vec<Expr> = cols
-        .iter()
-        .zip(key_names)
-        .map(|(col_ref, name)| Expr::Column(col_ref.clone()).alias(name))
-        .collect();
-
-    if row_id_cols.len() == 1 {
-        exprs.push(Expr::Column(row_id_cols[0].clone()).alias(arithmetic::ROW_ID_COL_NAME));
-        return sort_by_row_id_if_present(active_df.select(exprs)?);
-    }
-
-    let row_number_expr = row_number()
-        .partition_by(Vec::new())
-        .order_by(
-            row_id_cols
-                .iter()
-                .cloned()
-                .map(|col_ref| Expr::Column(col_ref).sort(true, true))
-                .collect(),
-        )
-        .build()?
-        .alias("__row_number__");
-    exprs.push(row_number_expr);
-    let with_row_number = active_df.select(exprs)?;
-
-    let mut final_exprs: Vec<Expr> = key_names.iter().map(col).collect();
-    final_exprs.push((col("__row_number__") - lit(1_i64)).alias(arithmetic::ROW_ID_COL_NAME));
-    sort_by_row_id_if_present(with_row_number.select(final_exprs)?)
-}
-
-fn pad_key_union_df(
-    df: DataFrame,
-    key_names: &[String],
-    skip_collection: bool,
-) -> DataFusionResult<DataFrame> {
-    if skip_collection {
-        // Verifier planning only needs schema/materialization shape. Avoid
-        // any eager collection and padding work here.
-        let mut output_exprs: Vec<Expr> = key_names.iter().map(col).collect();
-        output_exprs.push(lit(true).alias(arithmetic::ACTIVATOR_COL_NAME));
-        return df.select(output_exprs);
-    }
-
-    let batches = collect_blocking(df.clone(), skip_collection)?;
-    let schema_ref = if batches.is_empty() {
-        Arc::new(df.schema().as_arrow().clone())
-    } else {
-        batches[0].schema()
-    };
-    let combined = if batches.is_empty() {
-        RecordBatch::new_empty(schema_ref.clone())
-    } else {
-        let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
-        concat_batches(&schema_ref, batch_refs)?
-    };
-    let row_count = combined.num_rows();
-    let target = if row_count == 0 {
-        2
-    } else {
-        row_count.next_power_of_two()
-    };
-    let pad = target.saturating_sub(row_count);
-
-    let mut output_fields = Vec::with_capacity(key_names.len() + 1);
-    let mut output_arrays = Vec::with_capacity(key_names.len() + 1);
-
-    for key in key_names {
-        let (idx, field) = combined
-            .schema()
-            .fields()
-            .iter()
-            .enumerate()
-            .find(|(_, field)| field.name() == key)
-            .map(|(idx, field)| (idx, field.clone()))
-            .ok_or_else(|| {
-                DataFusionError::Plan(format!("match-pair key column missing: {key}"))
-            })?;
-        let base = combined.column(idx).clone();
-        output_fields.push(field.as_ref().clone());
-        let out = if pad == 0 {
-            base
-        } else {
-            let pad_arr: ArrayRef = new_null_array(field.data_type(), pad);
-            concat(&[base.as_ref(), pad_arr.as_ref()])?
-        };
-        output_arrays.push(out);
-    }
-
-    let mut activator_vals = Vec::with_capacity(target);
-    activator_vals.extend(std::iter::repeat_n(true, row_count));
-    activator_vals.extend(std::iter::repeat_n(false, pad));
-    output_fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
-    output_arrays.push(Arc::new(BooleanArray::from(activator_vals)) as _);
-
-    let out_schema = Arc::new(Schema::new(output_fields));
-    let out_batch = RecordBatch::try_new(out_schema, output_arrays)?;
-    let ctx = SessionContext::new();
-    ctx.read_batch(out_batch)
-}
-
-fn collect_blocking(df: DataFrame, skip_collection: bool) -> DataFusionResult<Vec<RecordBatch>> {
-    if skip_collection {
-        return Err(DataFusionError::Execution(
-            "verifier planning must not collect DataFrames".to_string(),
-        ));
-    }
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(df.collect()))
-            }
-            RuntimeFlavor::CurrentThread => {
-                let df_clone = df.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-                    rt.block_on(df_clone.collect())
-                })
-                .join()
-                .map_err(|_| {
-                    DataFusionError::Execution("dataframe collection thread panicked".to_string())
-                })?
-            }
-            _ => tokio::task::block_in_place(|| handle.block_on(df.collect())),
-        },
-        Err(_) => {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-            rt.block_on(df.collect())
-        }
-    }
 }
