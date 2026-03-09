@@ -216,7 +216,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
     }
 
     pub(super) fn honest_check_no_dup_active(
-        prover: &mut ArgProver<B>,
+        _prover: &mut ArgProver<B>,
         gadget_ready_ir: &mut ProverGadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> SnarkResult<()> {
@@ -229,36 +229,36 @@ impl<B: SnarkBackend> GadgetNode<B> {
             panic!("Expected input table for NoDup gadget");
         };
 
-        let input_col = Self::single_col_from_table(prover, &input_table)?;
+        let data_indices = input_table.data_tracked_polys_indices();
+        let data_evals: Vec<Vec<B::F>> = data_indices
+            .iter()
+            .copied()
+            .map(|idx| {
+                input_table
+                    .tracked_col_by_ind(idx)
+                    .data_tracked_poly()
+                    .evaluations()
+            })
+            .collect();
         let mut seen = std::collections::HashSet::new();
+        let num_rows = input_table.size();
+        let activator = input_table
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations());
 
-        if let Some(activator) = input_col.activator_tracked_poly() {
-            for (value, is_active) in input_col
-                .data_tracked_poly()
-                .evaluations()
-                .iter()
-                .zip(activator.evaluations().iter())
+        for row in 0..num_rows {
+            if let Some(act) = activator.as_ref()
+                && act[row].is_zero()
             {
-                if is_active.is_zero() {
-                    continue;
-                }
-                if !seen.insert(*value) {
-                    return Err(SnarkError::ProverError(
-                        ark_piop::prover::errors::ProverError::HonestProverError(
-                            ark_piop::prover::errors::HonestProverError::FalseClaim,
-                        ),
-                    ));
-                }
+                continue;
             }
-        } else {
-            for value in input_col.data_tracked_poly().evaluations().iter() {
-                if !seen.insert(*value) {
-                    return Err(SnarkError::ProverError(
-                        ark_piop::prover::errors::ProverError::HonestProverError(
-                            ark_piop::prover::errors::HonestProverError::FalseClaim,
-                        ),
-                    ));
-                }
+            let tuple: Vec<B::F> = data_evals.iter().map(|col| col[row]).collect();
+            if !seen.insert(tuple) {
+                return Err(SnarkError::ProverError(
+                    ark_piop::prover::errors::ProverError::HonestProverError(
+                        ark_piop::prover::errors::HonestProverError::FalseClaim,
+                    ),
+                ));
             }
         }
 

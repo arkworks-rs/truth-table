@@ -1,10 +1,10 @@
 use std::sync::Arc;
+use std::cmp::Ordering;
 
 use arithmetic::{
     ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_ff::One;
-use ark_ff::Zero;
+use ark_ff::{One, PrimeField, Zero};
 use ark_piop::SnarkBackend;
 use ark_piop::arithmetic::mat_poly::utils::{build_eq_x_r, build_sparse_eq_x_r};
 use ark_piop::prover::structs::polynomial::get_or_insert_shift_poly;
@@ -517,157 +517,214 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        // use ark_piop::errors::SnarkError::ProverError;
-        // use ark_piop::prover::errors::HonestProverError::FalseClaim;
-        // use ark_piop::prover::errors::ProverError as ProverErr;
+        use ark_piop::errors::SnarkError::ProverError;
+        use ark_piop::prover::errors::HonestProverError::FalseClaim;
+        use ark_piop::prover::errors::ProverError as ProverErr;
 
-        // let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        // else {
-        //     return Ok(());
-        // };
-        // let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
-        //     return Ok(());
-        // };
-        // let diff_table = payload.get(DIFF_INPUT_LABEL).cloned();
+        let false_claim = || ProverError(ProverErr::HonestProverError(FalseClaim));
 
-        // let active_len = if let Some(activator_poly) = input_table.activator_tracked_poly() {
-        //     let activator = activator_poly.evaluations();
-        //     let mut seen_inactive = false;
-        //     let mut count = 0usize;
-        //     for value in activator.iter() {
-        //         let active = !value.is_zero();
-        //         if active {
-        //             if seen_inactive {
-        //                 return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
-        //             }
-        //             count += 1;
-        //         } else {
-        //             seen_inactive = true;
-        //         }
-        //     }
-        //     count
-        // } else {
-        //     input_table.size()
-        // };
-        // if active_len <= 1 {
-        //     return Ok(());
-        // }
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(rotated_table) = payload.get(ROTATED_INPUT_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(diff_table) = payload.get(DIFF_INPUT_LABEL).cloned() else {
+            return Ok(());
+        };
 
-        // let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
-        // let data_indices = input_table.data_tracked_polys_indices();
-        // let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
-        // if ordered_indices.is_empty() {
-        //     return Ok(());
-        // }
-        // let mut asc_by_name = IndexMap::new();
-        // for (name, asc, _) in sort_specs.iter() {
-        //     asc_by_name.insert(normalize_sort_name(name), *asc);
-        // }
-        // let spec_covers_all = data_indices.iter().all(|idx| {
-        //     let col = input_table.tracked_col_by_ind(*idx);
-        //     col.field_ref()
-        //         .map(|field| asc_by_name.contains_key(&normalize_sort_name(field.name())))
-        //         .unwrap_or(false)
-        // });
-        // if !spec_covers_all {
-        //     asc_by_name.clear();
-        // }
+        let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
+        let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
+        if ordered_indices.is_empty() {
+            return Ok(());
+        }
 
-        // let strict_last = match &self.sort_config {
-        //     SortConfig::Uniform(config) => config.strict,
-        //     SortConfig::PerColumn(config) => config.strict,
-        // };
+        let row_count = input_table.size();
+        let input_active = input_table
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations())
+            .map(|evals| evals.iter().map(|value| !value.is_zero()).collect::<Vec<_>>())
+            .unwrap_or_else(|| vec![true; row_count]);
+        let rotated_active = rotated_table
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations())
+            .map(|evals| evals.iter().map(|value| !value.is_zero()).collect::<Vec<_>>())
+            .unwrap_or_else(|| vec![true; row_count]);
 
-        // if let Some(diff_table) = diff_table {
-        //     let diff_indices = ordered_data_indices_prover(&diff_table, &sort_specs);
-        //     if !diff_indices.is_empty() {
-        //         let mut diff_columns = Vec::with_capacity(diff_indices.len());
-        //         let mut diff_types = Vec::with_capacity(diff_indices.len());
-        //         for idx in diff_indices {
-        //             let diff_col = diff_table.tracked_col_by_ind(idx);
-        //             let Some(field) = diff_col.field_ref() else {
-        //                 diff_columns.clear();
-        //                 break;
-        //             };
-        //             diff_columns.push(diff_col.data_tracked_poly().evaluations());
-        //             diff_types.push(field.data_type().clone());
-        //         }
-        //         if !diff_columns.is_empty() {
-        //             for row_idx in 0..(active_len - 1) {
-        //                 let mut all_zero = true;
-        //                 for (col_idx, data_type) in diff_types.iter().enumerate() {
-        //                     let diff_val = diff_columns[col_idx][row_idx];
-        //                     if diff_val.is_zero() {
-        //                         continue;
-        //                     }
-        //                     all_zero = false;
-        //                     let expected_sign = if strict_last && col_idx + 1 == diff_types.len() {
-        //                         sign::Sign::Positive
-        //                     } else {
-        //                         sign::Sign::NonNegative
-        //                     };
-        //                     if !sign::SignNode::<B>::eval_matches_sign(
-        //                         data_type,
-        //                         expected_sign,
-        //                         diff_val,
-        //                     ) {
-        //                         return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
-        //                     }
-        //                     break;
-        //                 }
-        //                 if all_zero && strict_last {
-        //                     return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
-        //                 }
-        //             }
-        //             return Ok(());
-        //         }
-        //     }
-        // }
+        ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
+        ensure_active_prefix(&rotated_active).map_err(|_| false_claim())?;
 
-        // let mut columns = Vec::with_capacity(ordered_indices.len());
-        // let mut ordering = Vec::with_capacity(ordered_indices.len());
-        // for idx in ordered_indices {
-        //     let column = input_table.tracked_col_by_ind(idx);
-        //     let name = column
-        //         .field_ref()
-        //         .map(|field| field.name().to_string())
-        //         .unwrap_or_default();
-        //     let asc = asc_by_name
-        //         .get(&normalize_sort_name(&name))
-        //         .copied()
-        //         .unwrap_or(true);
-        //     columns.push(column.data_tracked_poly().evaluations());
-        //     ordering.push(asc);
-        // }
+        let active_len = input_active.iter().take_while(|active| **active).count();
+        if active_len == 0 {
+            return Ok(());
+        }
 
-        // for row_idx in 0..(active_len - 1) {
-        //     let mut all_equal = true;
-        //     for (col_idx, asc) in ordering.iter().enumerate() {
-        //         let left = &columns[col_idx][row_idx];
-        //         let right = &columns[col_idx][row_idx + 1];
-        //         if left == right {
-        //             continue;
-        //         }
-        //         all_equal = false;
-        //         let ordering = left.into_bigint().cmp(&right.into_bigint());
-        //         let valid = if *asc {
-        //             ordering == std::cmp::Ordering::Less
-        //         } else {
-        //             ordering == std::cmp::Ordering::Greater
-        //         };
-        //         if !valid {
-        //             return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
-        //         }
-        //         break;
-        //     }
+        let mut input_columns = Vec::with_capacity(ordered_indices.len());
+        let mut rotated_columns = Vec::with_capacity(ordered_indices.len());
+        let mut diff_columns = Vec::with_capacity(ordered_indices.len());
+        let mut diff_types = Vec::with_capacity(ordered_indices.len());
+        let tie_indices = tie_table.data_tracked_polys_indices();
+        if tie_indices.len() != ordered_indices.len() {
+            return Err(false_claim());
+        }
+        let mut tie_columns = Vec::with_capacity(tie_indices.len());
+        for idx in tie_indices {
+            tie_columns.push(tie_table.tracked_col_by_ind(idx).data_tracked_poly().evaluations());
+        }
 
-        //     if all_equal && strict_last {
-        //         return Err(ProverError(ProverErr::HonestProverError(FalseClaim)));
-        //     }
-        // }
+        let diff_indices = ordered_data_indices_prover(&diff_table, &sort_specs);
+        if diff_indices.len() != ordered_indices.len() {
+            return Err(false_claim());
+        }
+
+        let is_asc_by_col = sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
+        for ((input_idx, diff_idx), is_asc) in ordered_indices
+            .iter()
+            .copied()
+            .zip(diff_indices.iter().copied())
+            .zip(is_asc_by_col.iter().copied())
+        {
+            let input_col = input_table.tracked_col_by_ind(input_idx);
+            let rotated_col = rotated_table.tracked_col_by_ind(input_idx);
+            let diff_col = diff_table.tracked_col_by_ind(diff_idx);
+            let field = input_col
+                .field_ref()
+                .expect("Expected field ref for contiguous sort input");
+            input_columns.push(input_col.data_tracked_poly().evaluations());
+            rotated_columns.push(rotated_col.data_tracked_poly().evaluations());
+            diff_columns.push(diff_col.data_tracked_poly().evaluations());
+            diff_types.push(field.data_type().clone());
+            let _ = is_asc;
+        }
+
+        for row_idx in 0..row_count {
+            let next_row = (row_idx + 1) % row_count;
+            for col_idx in 0..input_columns.len() {
+                if rotated_columns[col_idx][row_idx] != input_columns[col_idx][next_row] {
+                    return Err(false_claim());
+                }
+            }
+            let expected_rotated_active = input_active[next_row];
+            if rotated_active[row_idx] != expected_rotated_active {
+                return Err(false_claim());
+            }
+        }
+
+        for row_idx in 0..row_count {
+            let next_row = (row_idx + 1) % row_count;
+            let expected_first_tie = row_idx + 1 < row_count;
+            if (!tie_columns[0][row_idx].is_zero()) != expected_first_tie {
+                return Err(false_claim());
+            }
+
+            let mut prefix_equal = true;
+            for col_idx in 0..input_columns.len() {
+                let current = input_columns[col_idx][row_idx];
+                let next = input_columns[col_idx][next_row];
+                let expected_diff = compute_expected_diff::<B>(
+                    &diff_types[col_idx],
+                    is_asc_by_col[col_idx],
+                    current,
+                    next,
+                )
+                .ok_or_else(false_claim)?;
+                if diff_columns[col_idx][row_idx] != expected_diff {
+                    return Err(false_claim());
+                }
+
+                if col_idx == 0 {
+                    prefix_equal = current == next;
+                    continue;
+                }
+                let expected_tie = prefix_equal;
+                if (!tie_columns[col_idx][row_idx].is_zero()) != expected_tie {
+                    return Err(false_claim());
+                }
+                prefix_equal &= current == next;
+            }
+        }
+
+        for row_idx in 0..row_count {
+            if !(input_active[row_idx] && rotated_active[row_idx]) {
+                continue;
+            }
+
+            let mut found_diff = false;
+            for col_idx in 0..diff_columns.len() {
+                if tie_columns[col_idx][row_idx].is_zero() {
+                    continue;
+                }
+                let diff_val = diff_columns[col_idx][row_idx];
+                if diff_val.is_zero() {
+                    continue;
+                }
+                if !sign::SignNode::<B>::eval_matches_sign(
+                    &diff_types[col_idx],
+                    sign::Sign::Positive,
+                    diff_val,
+                ) {
+                    return Err(false_claim());
+                }
+                found_diff = true;
+                break;
+            }
+
+            if !found_diff && sort_is_strict(&self.sort_config) {
+                return Err(false_claim());
+            }
+        }
+
+        if let Some(PayloadStructure::GadgetPayload(sign_payload)) =
+            gadget_ready_ir.payload_for_node(&self.sign_gadget.id())
+        {
+            if let Some(sign_input) = sign_payload.get(sign::INPUT_LABEL) {
+                let sign_indices = sign_input.data_tracked_polys_indices();
+                if sign_indices.len() != diff_columns.len() {
+                    return Err(false_claim());
+                }
+                let sign_columns = sign_indices
+                    .into_iter()
+                    .map(|idx| sign_input.tracked_col_by_ind(idx).data_tracked_poly().evaluations())
+                    .collect::<Vec<_>>();
+                for row_idx in 0..row_count {
+                    for col_idx in 0..sign_columns.len() {
+                        let tie_val = tie_columns[col_idx][row_idx];
+                        let diff_val = diff_columns[col_idx][row_idx];
+                        let masked_expected = if sign_mask_uses_strict_fill(&self.sort_config, col_idx, sign_columns.len()) {
+                            if tie_val.is_zero() { B::F::one() } else { diff_val }
+                        } else if tie_val.is_zero() {
+                            B::F::zero()
+                        } else {
+                            diff_val
+                        };
+                        if sign_columns[col_idx][row_idx] != masked_expected {
+                            return Err(false_claim());
+                        }
+                        let expected_sign = expected_sign_for_sort(&self.sort_config, col_idx, sign_columns.len());
+                        if input_active[row_idx]
+                            && rotated_active[row_idx]
+                            && !sign::SignNode::<B>::eval_matches_sign(
+                                &diff_types[col_idx],
+                                expected_sign,
+                                sign_columns[col_idx][row_idx],
+                            )
+                        {
+                            return Err(false_claim());
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -691,6 +748,177 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn verifier_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
         IndexMap::new()
     }
+}
+
+fn ensure_active_prefix(active: &[bool]) -> Result<(), ()> {
+    let mut seen_inactive = false;
+    for is_active in active {
+        if *is_active {
+            if seen_inactive {
+                return Err(());
+            }
+        } else {
+            seen_inactive = true;
+        }
+    }
+    Ok(())
+}
+
+fn sort_is_strict(sort_config: &SortConfig) -> bool {
+    match sort_config {
+        SortConfig::Uniform(config) => config.strict,
+        SortConfig::PerColumn(config) => config.strict,
+    }
+}
+
+fn expected_sign_for_sort(sort_config: &SortConfig, col_idx: usize, width: usize) -> sign::Sign {
+    match sort_config {
+        SortConfig::Uniform(config) => {
+            if config.strict && col_idx + 1 == width {
+                sign::Sign::Positive
+            } else {
+                sign::Sign::NonNegative
+            }
+        }
+        SortConfig::PerColumn(config) => {
+            if config.strict && col_idx + 1 == width {
+                sign::Sign::Positive
+            } else {
+                sign::Sign::NonNegative
+            }
+        }
+    }
+}
+
+fn sign_mask_uses_strict_fill(sort_config: &SortConfig, col_idx: usize, width: usize) -> bool {
+    match sort_config {
+        SortConfig::Uniform(config) => config.strict,
+        SortConfig::PerColumn(config) => config.strict && col_idx + 1 == width,
+    }
+}
+
+fn compute_expected_diff<B: SnarkBackend>(
+    data_type: &DataType,
+    is_asc: bool,
+    current: B::F,
+    next: B::F,
+) -> Option<B::F> {
+    match data_type {
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Date32
+        | DataType::Decimal128(..) => {
+            if is_asc {
+                Some(next - current)
+            } else {
+                Some(current - next)
+            }
+        }
+        _ => match compare_field_values::<B>(data_type, current, next)? {
+            Ordering::Equal => Some(B::F::zero()),
+            Ordering::Less => {
+                if is_asc {
+                    Some(B::F::one())
+                } else {
+                    Some(-B::F::one())
+                }
+            }
+            Ordering::Greater => {
+                if is_asc {
+                    Some(-B::F::one())
+                } else {
+                    Some(B::F::one())
+                }
+            }
+        },
+    }
+}
+
+fn sort_directions_for_indices<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    sort_specs: &[(String, bool, bool)],
+    ordered_indices: &[usize],
+) -> Vec<bool> {
+    let mut by_name = IndexMap::new();
+    for (name, asc, _) in sort_specs {
+        by_name.insert(normalize_sort_name(name), *asc);
+    }
+    ordered_indices
+        .iter()
+        .map(|idx| {
+            let name = table
+                .tracked_col_by_ind(*idx)
+                .field_ref()
+                .map(|field| normalize_sort_name(field.name()))
+                .unwrap_or_default();
+            by_name.get(&name).copied().unwrap_or(true)
+        })
+        .collect()
+}
+
+fn compare_field_values<B: SnarkBackend>(
+    data_type: &DataType,
+    left: B::F,
+    right: B::F,
+) -> Option<Ordering> {
+    use DataType::*;
+
+    fn low_bits<B: SnarkBackend>(value: B::F, bits: usize) -> u128 {
+        let bigint = value.into_bigint();
+        let limbs = bigint.as_ref();
+        let mut acc: u128 = 0;
+        let mut shift = 0usize;
+        let mut remaining = bits;
+        for limb in limbs {
+            if remaining == 0 {
+                break;
+            }
+            let take = remaining.min(64);
+            let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+            acc |= ((*limb & mask) as u128) << shift;
+            remaining -= take;
+            shift += 64;
+        }
+        acc
+    }
+
+    fn signed<B: SnarkBackend>(value: B::F, bits: usize) -> i128 {
+        let neg = -value;
+        if value.into_bigint() <= neg.into_bigint() {
+            low_bits::<B>(value, bits) as i128
+        } else {
+            -(low_bits::<B>(neg, bits) as i128)
+        }
+    }
+
+    let ord = match data_type {
+        UInt8 => low_bits::<B>(left, 8).cmp(&low_bits::<B>(right, 8)),
+        UInt16 => low_bits::<B>(left, 16).cmp(&low_bits::<B>(right, 16)),
+        UInt32 => low_bits::<B>(left, 32).cmp(&low_bits::<B>(right, 32)),
+        UInt64 => low_bits::<B>(left, 64).cmp(&low_bits::<B>(right, 64)),
+        Int8 => signed::<B>(left, 8).cmp(&signed::<B>(right, 8)),
+        Int16 => signed::<B>(left, 16).cmp(&signed::<B>(right, 16)),
+        Int32 | Date32 => signed::<B>(left, 32).cmp(&signed::<B>(right, 32)),
+        Int64 => signed::<B>(left, 64).cmp(&signed::<B>(right, 64)),
+        Decimal128(..) => signed::<B>(left, 128).cmp(&signed::<B>(right, 128)),
+        Utf8View => {
+            if left == right {
+                Ordering::Equal
+            } else if left.into_bigint() < right.into_bigint() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
+        _ => return None,
+    };
+    Some(ord)
 }
 
 impl<B: SnarkBackend> GadgetNode<B> {
