@@ -252,8 +252,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             // Overwrite with the concretized hints so later join-subgadgets (and
             // provenance checks) see the same materialized inputs used to derive
             // source-row hints.
-            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint);
-            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint);
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
@@ -271,6 +271,26 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             planned_ir.set_payload_for_node(
                 gadgets.nodup_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
+
+            let mut match_pair_payload =
+                match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+            // Parent gadget-planning runs pre-order, so seed the child with the
+            // concretized join-side hints before Match-Pair plans its own children.
+            match_pair_payload.insert(
+                crate::irs::nodes::gadget::utils::match_pair_check::LEFT_LABEL.to_string(),
+                left_hint.clone(),
+            );
+            match_pair_payload.insert(
+                crate::irs::nodes::gadget::utils::match_pair_check::RIGHT_LABEL.to_string(),
+                right_hint.clone(),
+            );
+            planned_ir.set_payload_for_node(
+                gadgets.match_pair_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(match_pair_payload)),
             );
             Ok(())
         } else {
@@ -368,8 +388,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 src_right_hint,
                 nodup_input_hint,
             } = derived;
-            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint);
-            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint);
+            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
+            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
@@ -387,6 +407,26 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             planned_ir.set_payload_for_node(
                 gadgets.nodup_gadget.id(),
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
+            );
+
+            let mut match_pair_payload =
+                match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
+                    Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+                    _ => IndexMap::new(),
+                };
+            // Mirror prover-side planning so the Match-Pair child never needs to
+            // reconstruct its left/right inputs by reaching back into the parent.
+            match_pair_payload.insert(
+                crate::irs::nodes::gadget::utils::match_pair_check::LEFT_LABEL.to_string(),
+                left_hint.clone(),
+            );
+            match_pair_payload.insert(
+                crate::irs::nodes::gadget::utils::match_pair_check::RIGHT_LABEL.to_string(),
+                right_hint.clone(),
+            );
+            planned_ir.set_payload_for_node(
+                gadgets.match_pair_gadget.id(),
+                Some(PayloadStructure::GadgetPayload(match_pair_payload)),
             );
             Ok(())
         } else {

@@ -22,7 +22,6 @@ use indexmap::IndexMap;
 use tokio::runtime::RuntimeFlavor;
 use tracing::error;
 
-use crate::irs::nodes::gadget::lps::join as join_gadget;
 use crate::irs::nodes::gadget::utils::{lookup, nodup};
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 use crate::{
@@ -34,9 +33,14 @@ use crate::{
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
+/// The left join keys (either a single key or a composite key)
 pub const LEFT_LABEL: &str = "__left__";
+/// The right join keys (either a single key or a composite key)
 pub const RIGHT_LABEL: &str = "__right__";
+/// The output of the join gadget
+/// TODO: This is not in the paper, but we use it here to extract the number of matches; i.e. `s` in the paper's notation. We should remove it in the future
 pub const OUT_LABEL: &str = "__out__";
+/// The union of left and right keys
 pub const UNION_LABEL: &str = "__union__";
 
 struct MatchPairPlanningContext {
@@ -64,8 +68,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn display(&self) -> String {
-        let name = self.name();
-        crate::irs::nodes::display_with_inputs(&name, &self.children())
+        self.name()
     }
 
     fn cost(
@@ -92,7 +95,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
-            return Ok(());
+            panic!(
+                "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
+            );
         };
 
         let (key_union, key_names) = build_key_union_df(
@@ -229,7 +234,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let Some(ctx) = load_match_pair_planning_context(id, planned_ir) else {
-            return Ok(());
+            panic!(
+                "Match-Pair gadget planning payload should have been populated by the parent Join gadget"
+            );
         };
 
         // Verifier planning only needs schema shape for downstream gadget payload wiring.
@@ -367,7 +374,10 @@ fn build_lookup_keys_schema_only(
     Ok(crate::irs::nodes::hints::schema_only_df(fields))
 }
 
-fn build_union_schema_only(key_names: &[String], keys_df: &DataFrame) -> DataFusionResult<DataFrame> {
+fn build_union_schema_only(
+    key_names: &[String],
+    keys_df: &DataFrame,
+) -> DataFusionResult<DataFrame> {
     let mut fields = Vec::with_capacity(key_names.len() + 1);
     for key_name in key_names {
         let field = keys_df
@@ -375,7 +385,9 @@ fn build_union_schema_only(key_names: &[String], keys_df: &DataFrame) -> DataFus
             .fields()
             .iter()
             .find(|f| f.name() == key_name)
-            .ok_or_else(|| DataFusionError::Plan(format!("match-pair key column missing: {key_name}")))?;
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!("match-pair key column missing: {key_name}"))
+            })?;
         fields.push(field.as_ref().clone());
     }
     fields.push((**arithmetic::ACTIVATOR_FIELD).clone());
@@ -388,15 +400,9 @@ fn resolve_field_for_column<'a>(
     side: &str,
 ) -> DataFusionResult<&'a Field> {
     if let Some(relation) = &col.relation
-        && let Some((_, field)) = df
-            .schema()
-            .iter()
-            .find(|(qualifier, field)| {
-                qualifier
-                    .as_ref()
-                    .is_some_and(|q| *q == relation)
-                    && field.name() == &col.name
-            })
+        && let Some((_, field)) = df.schema().iter().find(|(qualifier, field)| {
+            qualifier.as_ref().is_some_and(|q| *q == relation) && field.name() == &col.name
+        })
     {
         return Ok(field);
     }
@@ -807,14 +813,14 @@ fn load_match_pair_planning_context<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
     planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
 ) -> Option<MatchPairPlanningContext> {
-    let join_gadget_id = find_parent_id(id, planned_ir.tree())?;
-    let join_payload = match planned_ir.payload_for_node(&join_gadget_id) {
+    let payload = match planned_ir.payload_for_node(&id) {
         Some(PayloadStructure::GadgetPayload(map)) => map,
         _ => return None,
     };
-    let left_hint = join_payload.get(join_gadget::LEFT_LABEL)?.clone();
-    let right_hint = join_payload.get(join_gadget::RIGHT_LABEL)?.clone();
-    let join = find_parent_join_plan(join_gadget_id, planned_ir.tree())?;
+    let left_hint = payload.get(LEFT_LABEL)?.clone();
+    let right_hint = payload.get(RIGHT_LABEL)?.clone();
+    let parent_id = find_parent_id(id, planned_ir.tree())?;
+    let join = find_parent_join_plan(parent_id, planned_ir.tree())?;
     Some(MatchPairPlanningContext {
         left_hint,
         right_hint,
