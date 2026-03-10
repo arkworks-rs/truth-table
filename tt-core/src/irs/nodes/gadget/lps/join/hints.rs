@@ -157,23 +157,35 @@ fn build_indexed_join_frames_impl(
     let output_left = indexed
         .clone()
         .select(with_helper_col(
-            project_indexed_payload(&left_indexed_aliases, &left_payload_templates),
+            left_indexed_aliases
+                .iter()
+                .map(|alias| col(alias))
+                .collect::<Vec<_>>(),
             "__row_number__",
         ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
-        .select(with_activator_only(project_named_payload(
-            &left_payload_templates,
-        )))?;
+        .select(with_activator_only(
+            left_indexed_aliases
+                .iter()
+                .map(|alias| col(alias))
+                .collect::<Vec<_>>(),
+        ))?;
     let output_right = indexed
         .clone()
         .select(with_helper_col(
-            project_indexed_payload(&right_indexed_aliases, &right_payload_templates),
+            right_indexed_aliases
+                .iter()
+                .map(|alias| col(alias))
+                .collect::<Vec<_>>(),
             "__row_number__",
         ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
-        .select(with_activator_only(project_named_payload(
-            &right_payload_templates,
-        )))?;
+        .select(with_activator_only(
+            right_indexed_aliases
+                .iter()
+                .map(|alias| col(alias))
+                .collect::<Vec<_>>(),
+        ))?;
 
     // Step 3 only needs a valid immediate-parent row id for each output-side
     // payload row. Deriving source ids from the replayed join row ordering is
@@ -587,21 +599,6 @@ fn resolve_payload_exprs(
 
 fn indexed_aliases(prefix: &str, len: usize) -> Vec<String> {
     (0..len).map(|idx| format!("{prefix}_{idx}")).collect()
-}
-
-fn project_indexed_payload(aliases: &[String], templates: &[Column]) -> Vec<Expr> {
-    aliases
-        .iter()
-        .zip(templates.iter())
-        .map(|(alias, template)| col(alias).alias(template.name.as_str()))
-        .collect()
-}
-
-fn project_named_payload(templates: &[Column]) -> Vec<Expr> {
-    templates
-        .iter()
-        .map(|template| col(template.name.as_str()).alias(template.name.as_str()))
-        .collect()
 }
 
 fn with_helper_col(mut exprs: Vec<Expr>, helper_col: &str) -> Vec<Expr> {

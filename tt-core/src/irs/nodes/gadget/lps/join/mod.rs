@@ -603,12 +603,25 @@ fn schema_only_output_lookup_base_with_src(
     src_col_name: &str,
     src_ty: DataType,
 ) -> datafusion::prelude::DataFrame {
+    let mut seen = std::collections::HashMap::<String, usize>::new();
     let mut fields = df
         .schema()
         .fields()
         .iter()
         .filter(|f| f.name() != arithmetic::ROW_ID_COL_NAME)
-        .map(|f| f.as_ref().clone())
+        .map(|f| {
+            let mut field = f.as_ref().clone();
+            let count = seen.entry(field.name().to_string()).or_insert(0);
+            if *count > 0 {
+                field = Field::new(
+                    format!("__tt_lookup_payload_{}_{}", field.name(), count),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                );
+            }
+            *count += 1;
+            field
+        })
         .collect::<Vec<_>>();
     fields.push(Field::new(src_col_name, src_ty, true));
     crate::irs::nodes::hints::schema_only_df(fields)
