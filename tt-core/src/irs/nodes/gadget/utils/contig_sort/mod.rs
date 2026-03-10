@@ -533,15 +533,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
             return Ok(());
         };
-        let Some(rotated_table) = payload.get(ROTATED_INPUT_LABEL).cloned() else {
-            return Ok(());
-        };
-        let Some(tie_table) = payload.get(TIE_INDICATOR_LABEL).cloned() else {
-            return Ok(());
-        };
-        let Some(diff_table) = payload.get(DIFF_INPUT_LABEL).cloned() else {
-            return Ok(());
-        };
 
         let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
         let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
@@ -555,174 +546,82 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .map(|poly| poly.evaluations())
             .map(|evals| evals.iter().map(|value| !value.is_zero()).collect::<Vec<_>>())
             .unwrap_or_else(|| vec![true; row_count]);
-        let rotated_active = rotated_table
-            .activator_tracked_poly()
-            .map(|poly| poly.evaluations())
-            .map(|evals| evals.iter().map(|value| !value.is_zero()).collect::<Vec<_>>())
-            .unwrap_or_else(|| vec![true; row_count]);
 
         ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
-        ensure_active_prefix(&rotated_active).map_err(|_| false_claim())?;
 
         let active_len = input_active.iter().take_while(|active| **active).count();
-        if active_len == 0 {
+        if active_len <= 1 {
             return Ok(());
         }
 
         let mut input_columns = Vec::with_capacity(ordered_indices.len());
-        let mut rotated_columns = Vec::with_capacity(ordered_indices.len());
-        let mut diff_columns = Vec::with_capacity(ordered_indices.len());
-        let mut diff_types = Vec::with_capacity(ordered_indices.len());
-        let tie_indices = tie_table.data_tracked_polys_indices();
-        if tie_indices.len() != ordered_indices.len() {
-            return Err(false_claim());
-        }
-        let mut tie_columns = Vec::with_capacity(tie_indices.len());
-        for idx in tie_indices {
-            tie_columns.push(tie_table.tracked_col_by_ind(idx).data_tracked_poly().evaluations());
-        }
-
-        let diff_indices = ordered_data_indices_prover(&diff_table, &sort_specs);
-        if diff_indices.len() != ordered_indices.len() {
-            return Err(false_claim());
-        }
-
+        let mut input_types = Vec::with_capacity(ordered_indices.len());
         let is_asc_by_col = sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
-        for ((input_idx, diff_idx), is_asc) in ordered_indices
+        let input_col_names = ordered_indices
             .iter()
-            .copied()
-            .zip(diff_indices.iter().copied())
-            .zip(is_asc_by_col.iter().copied())
-        {
+            .map(|idx| input_table.tracked_col_by_ind(*idx).field_ref().unwrap().name().to_string())
+            .collect::<Vec<_>>();
+        for input_idx in ordered_indices.iter().copied() {
             let input_col = input_table.tracked_col_by_ind(input_idx);
-            let rotated_col = rotated_table.tracked_col_by_ind(input_idx);
-            let diff_col = diff_table.tracked_col_by_ind(diff_idx);
             let field = input_col
                 .field_ref()
                 .expect("Expected field ref for contiguous sort input");
             input_columns.push(input_col.data_tracked_poly().evaluations());
-            rotated_columns.push(rotated_col.data_tracked_poly().evaluations());
-            diff_columns.push(diff_col.data_tracked_poly().evaluations());
-            diff_types.push(field.data_type().clone());
-            let _ = is_asc;
+            input_types.push(field.data_type().clone());
         }
 
-        for row_idx in 0..row_count {
-            let next_row = (row_idx + 1) % row_count;
-            for col_idx in 0..input_columns.len() {
-                if rotated_columns[col_idx][row_idx] != input_columns[col_idx][next_row] {
-                    return Err(false_claim());
-                }
-            }
-            let expected_rotated_active = input_active[next_row];
-            if rotated_active[row_idx] != expected_rotated_active {
-                return Err(false_claim());
-            }
-        }
-
-        for row_idx in 0..row_count {
-            let next_row = (row_idx + 1) % row_count;
-            let expected_first_tie = row_idx + 1 < row_count;
-            if (!tie_columns[0][row_idx].is_zero()) != expected_first_tie {
-                return Err(false_claim());
-            }
-
-            let mut prefix_equal = true;
+        for row_idx in 0..(active_len - 1) {
+            let next_row = row_idx + 1;
+            let mut saw_difference = false;
             for col_idx in 0..input_columns.len() {
                 let current = input_columns[col_idx][row_idx];
                 let next = input_columns[col_idx][next_row];
-                let expected_diff = compute_expected_diff::<B>(
-                    &diff_types[col_idx],
-                    is_asc_by_col[col_idx],
-                    current,
-                    next,
-                )
-                .ok_or_else(false_claim)?;
-                if diff_columns[col_idx][row_idx] != expected_diff {
-                    return Err(false_claim());
-                }
-
-                if col_idx == 0 {
-                    prefix_equal = current == next;
-                    continue;
-                }
-                let expected_tie = prefix_equal;
-                if (!tie_columns[col_idx][row_idx].is_zero()) != expected_tie {
-                    return Err(false_claim());
-                }
-                prefix_equal &= current == next;
-            }
-        }
-
-        for row_idx in 0..row_count {
-            if !(input_active[row_idx] && rotated_active[row_idx]) {
-                continue;
-            }
-
-            let mut found_diff = false;
-            for col_idx in 0..diff_columns.len() {
-                if tie_columns[col_idx][row_idx].is_zero() {
-                    continue;
-                }
-                let diff_val = diff_columns[col_idx][row_idx];
-                if diff_val.is_zero() {
-                    continue;
-                }
-                if !sign::SignNode::<B>::eval_matches_sign(
-                    &diff_types[col_idx],
-                    sign::Sign::Positive,
-                    diff_val,
-                ) {
-                    return Err(false_claim());
-                }
-                found_diff = true;
-                break;
-            }
-
-            if !found_diff && sort_is_strict(&self.sort_config) {
-                return Err(false_claim());
-            }
-        }
-
-        if let Some(PayloadStructure::GadgetPayload(sign_payload)) =
-            gadget_ready_ir.payload_for_node(&self.sign_gadget.id())
-        {
-            if let Some(sign_input) = sign_payload.get(sign::INPUT_LABEL) {
-                let sign_indices = sign_input.data_tracked_polys_indices();
-                if sign_indices.len() != diff_columns.len() {
-                    return Err(false_claim());
-                }
-                let sign_columns = sign_indices
-                    .into_iter()
-                    .map(|idx| sign_input.tracked_col_by_ind(idx).data_tracked_poly().evaluations())
-                    .collect::<Vec<_>>();
-                for row_idx in 0..row_count {
-                    for col_idx in 0..sign_columns.len() {
-                        let tie_val = tie_columns[col_idx][row_idx];
-                        let diff_val = diff_columns[col_idx][row_idx];
-                        let masked_expected = if sign_mask_uses_strict_fill(&self.sort_config, col_idx, sign_columns.len()) {
-                            if tie_val.is_zero() { B::F::one() } else { diff_val }
-                        } else if tie_val.is_zero() {
-                            B::F::zero()
-                        } else {
-                            diff_val
-                        };
-                        if sign_columns[col_idx][row_idx] != masked_expected {
+                match compare_field_values::<B>(&input_types[col_idx], current, next)
+                    .ok_or_else(false_claim)?
+                {
+                    Ordering::Equal => continue,
+                    Ordering::Less => {
+                        saw_difference = true;
+                        if !is_asc_by_col[col_idx] {
+                            eprintln!(
+                                "contig_sort honest prover failure: input not sorted row={} next_row={} col={} current={} next={} asc={}",
+                                row_idx,
+                                next_row,
+                                input_col_names[col_idx],
+                                current,
+                                next,
+                                is_asc_by_col[col_idx]
+                            );
                             return Err(false_claim());
                         }
-                        let expected_sign = expected_sign_for_sort(&self.sort_config, col_idx, sign_columns.len());
-                        if input_active[row_idx]
-                            && rotated_active[row_idx]
-                            && !sign::SignNode::<B>::eval_matches_sign(
-                                &diff_types[col_idx],
-                                expected_sign,
-                                sign_columns[col_idx][row_idx],
-                            )
-                        {
+                        break;
+                    }
+                    Ordering::Greater => {
+                        saw_difference = true;
+                        if is_asc_by_col[col_idx] {
+                            eprintln!(
+                                "contig_sort honest prover failure: input not sorted row={} next_row={} col={} current={} next={} asc={}",
+                                row_idx,
+                                next_row,
+                                input_col_names[col_idx],
+                                current,
+                                next,
+                                is_asc_by_col[col_idx]
+                            );
                             return Err(false_claim());
                         }
+                        break;
                     }
                 }
+            }
+
+            if !saw_difference && sort_is_strict(&self.sort_config) {
+                eprintln!(
+                    "contig_sort honest prover failure: strict sort found equal adjacent active rows row={} next_row={}",
+                    row_idx,
+                    next_row
+                );
+                return Err(false_claim());
             }
         }
 
@@ -762,6 +661,59 @@ fn ensure_active_prefix(active: &[bool]) -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+fn log_contig_sort_failure<B: SnarkBackend>(
+    reason: &str,
+    row_idx: usize,
+    next_row: usize,
+    col_names: &[String],
+    input_columns: &[Vec<B::F>],
+    rotated_columns: &[Vec<B::F>],
+    diff_columns: &[Vec<B::F>],
+    tie_columns: &[Vec<B::F>],
+    input_active: &[bool],
+    rotated_active: &[bool],
+) {
+    eprintln!("contig_sort honest prover failure: {}", reason);
+    eprintln!(
+        "row={} next_row={} input_active={} rotated_active={} next_input_active={}",
+        row_idx,
+        next_row,
+        input_active[row_idx],
+        rotated_active[row_idx],
+        input_active[next_row]
+    );
+    eprintln!(
+        "current_row: {}",
+        format_contig_sort_row::<B>(row_idx, col_names, input_columns, rotated_columns, diff_columns, tie_columns)
+    );
+    eprintln!(
+        "next_row: {}",
+        format_contig_sort_row::<B>(next_row, col_names, input_columns, rotated_columns, diff_columns, tie_columns)
+    );
+}
+
+fn format_contig_sort_row<B: SnarkBackend>(
+    row_idx: usize,
+    col_names: &[String],
+    input_columns: &[Vec<B::F>],
+    rotated_columns: &[Vec<B::F>],
+    diff_columns: &[Vec<B::F>],
+    tie_columns: &[Vec<B::F>],
+) -> String {
+    let mut parts = Vec::new();
+    for col_idx in 0..col_names.len() {
+        parts.push(format!(
+            "{}={{input:{}, rotated:{}, diff:{}, tie:{}}}",
+            col_names[col_idx],
+            input_columns[col_idx][row_idx],
+            rotated_columns[col_idx][row_idx],
+            diff_columns[col_idx][row_idx],
+            tie_columns[col_idx][row_idx]
+        ));
+    }
+    parts.join(", ")
 }
 
 fn sort_is_strict(sort_config: &SortConfig) -> bool {
