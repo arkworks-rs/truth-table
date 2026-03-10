@@ -583,15 +583,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     Ordering::Less => {
                         saw_difference = true;
                         if !is_asc_by_col[col_idx] {
-                            eprintln!(
-                                "contig_sort honest prover failure: input not sorted row={} next_row={} col={} current={} next={} asc={}",
-                                row_idx,
-                                next_row,
-                                input_col_names[col_idx],
-                                current,
-                                next,
-                                is_asc_by_col[col_idx]
-                            );
                             return Err(false_claim());
                         }
                         break;
@@ -599,15 +590,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                     Ordering::Greater => {
                         saw_difference = true;
                         if is_asc_by_col[col_idx] {
-                            eprintln!(
-                                "contig_sort honest prover failure: input not sorted row={} next_row={} col={} current={} next={} asc={}",
-                                row_idx,
-                                next_row,
-                                input_col_names[col_idx],
-                                current,
-                                next,
-                                is_asc_by_col[col_idx]
-                            );
                             return Err(false_claim());
                         }
                         break;
@@ -616,11 +598,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             }
 
             if !saw_difference && sort_is_strict(&self.sort_config) {
-                eprintln!(
-                    "contig_sort honest prover failure: strict sort found equal adjacent active rows row={} next_row={}",
-                    row_idx,
-                    next_row
-                );
                 return Err(false_claim());
             }
         }
@@ -661,59 +638,6 @@ fn ensure_active_prefix(active: &[bool]) -> Result<(), ()> {
         }
     }
     Ok(())
-}
-
-fn log_contig_sort_failure<B: SnarkBackend>(
-    reason: &str,
-    row_idx: usize,
-    next_row: usize,
-    col_names: &[String],
-    input_columns: &[Vec<B::F>],
-    rotated_columns: &[Vec<B::F>],
-    diff_columns: &[Vec<B::F>],
-    tie_columns: &[Vec<B::F>],
-    input_active: &[bool],
-    rotated_active: &[bool],
-) {
-    eprintln!("contig_sort honest prover failure: {}", reason);
-    eprintln!(
-        "row={} next_row={} input_active={} rotated_active={} next_input_active={}",
-        row_idx,
-        next_row,
-        input_active[row_idx],
-        rotated_active[row_idx],
-        input_active[next_row]
-    );
-    eprintln!(
-        "current_row: {}",
-        format_contig_sort_row::<B>(row_idx, col_names, input_columns, rotated_columns, diff_columns, tie_columns)
-    );
-    eprintln!(
-        "next_row: {}",
-        format_contig_sort_row::<B>(next_row, col_names, input_columns, rotated_columns, diff_columns, tie_columns)
-    );
-}
-
-fn format_contig_sort_row<B: SnarkBackend>(
-    row_idx: usize,
-    col_names: &[String],
-    input_columns: &[Vec<B::F>],
-    rotated_columns: &[Vec<B::F>],
-    diff_columns: &[Vec<B::F>],
-    tie_columns: &[Vec<B::F>],
-) -> String {
-    let mut parts = Vec::new();
-    for col_idx in 0..col_names.len() {
-        parts.push(format!(
-            "{}={{input:{}, rotated:{}, diff:{}, tie:{}}}",
-            col_names[col_idx],
-            input_columns[col_idx][row_idx],
-            rotated_columns[col_idx][row_idx],
-            diff_columns[col_idx][row_idx],
-            tie_columns[col_idx][row_idx]
-        ));
-    }
-    parts.join(", ")
 }
 
 fn sort_is_strict(sort_config: &SortConfig) -> bool {
@@ -1085,6 +1009,13 @@ fn sort_specs_for_table_prover<B: SnarkBackend>(
         SortConfig::Uniform(config) => input_table
             .data_tracked_polys_indices()
             .into_iter()
+            .filter(|idx| {
+                let field = input_table
+                    .tracked_col_by_ind(*idx)
+                    .field_ref()
+                    .expect("Expected field ref for Sort input");
+                field.name() != ROW_ID_COL_NAME
+            })
             .map(|idx| {
                 let field = input_table
                     .tracked_col_by_ind(idx)
@@ -1105,6 +1036,13 @@ fn sort_specs_for_table_verifier<B: SnarkBackend>(
         SortConfig::Uniform(config) => input_table
             .data_tracked_oracles_indices()
             .into_iter()
+            .filter(|idx| {
+                let field = input_table
+                    .tracked_col_oracle_by_ind(*idx)
+                    .field_ref()
+                    .expect("Expected field ref for Sort input");
+                field.name() != ROW_ID_COL_NAME
+            })
             .map(|idx| {
                 let field = input_table
                     .tracked_col_oracle_by_ind(idx)
@@ -1120,7 +1058,7 @@ fn ordered_data_indices_prover<B: SnarkBackend>(
     table: &TrackedTable<B>,
     sort_specs: &[(String, bool, bool)],
 ) -> Vec<usize> {
-    let data_indices = table.data_tracked_polys_indices();
+    let data_indices: Vec<usize> = non_row_id_data_indices_prover(table);
     if sort_specs.is_empty() {
         return data_indices;
     }
@@ -1137,7 +1075,7 @@ fn ordered_data_indices_prover<B: SnarkBackend>(
             ordered.push(idx);
         }
     }
-    if ordered.len() == data_indices.len() {
+    if ordered.len() == sort_specs.len() {
         ordered
     } else {
         data_indices
@@ -1148,7 +1086,7 @@ fn ordered_data_indices_verifier<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     sort_specs: &[(String, bool, bool)],
 ) -> Vec<usize> {
-    let data_indices = table.data_tracked_oracles_indices();
+    let data_indices: Vec<usize> = non_row_id_data_indices_verifier(table);
     if sort_specs.is_empty() {
         return data_indices;
     }
@@ -1165,11 +1103,41 @@ fn ordered_data_indices_verifier<B: SnarkBackend>(
             ordered.push(idx);
         }
     }
-    if ordered.len() == data_indices.len() {
+    if ordered.len() == sort_specs.len() {
         ordered
     } else {
         data_indices
     }
+}
+
+fn non_row_id_data_indices_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<usize> {
+    table
+        .data_tracked_polys_indices()
+        .into_iter()
+        .filter(|idx| {
+            let field = table
+                .tracked_col_by_ind(*idx)
+                .field_ref()
+                .expect("Expected field ref for Sort input");
+            field.name() != ROW_ID_COL_NAME
+        })
+        .collect()
+}
+
+fn non_row_id_data_indices_verifier<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+) -> Vec<usize> {
+    table
+        .data_tracked_oracles_indices()
+        .into_iter()
+        .filter(|idx| {
+            let field = table
+                .tracked_col_oracle_by_ind(*idx)
+                .field_ref()
+                .expect("Expected field ref for Sort input");
+            field.name() != ROW_ID_COL_NAME
+        })
+        .collect()
 }
 
 fn sort_is_asc(sort_specs: &[(String, bool, bool)], col_name: &str) -> bool {
@@ -1808,8 +1776,8 @@ fn add_tie_rotation_consistency_zerochecks_prover<B: SnarkBackend>(
     };
 
     let tie_indices = tie_table.data_tracked_polys_indices();
-    let input_indices = input_table.data_tracked_polys_indices();
-    let rotated_indices = rotated_table.data_tracked_polys_indices();
+    let input_indices = non_row_id_data_indices_prover(&input_table);
+    let rotated_indices = non_row_id_data_indices_prover(&rotated_table);
     debug_assert_eq!(
         input_indices.len(),
         rotated_indices.len(),
@@ -1868,8 +1836,8 @@ fn add_tie_rotation_consistency_zerochecks_verifier<B: SnarkBackend>(
     };
 
     let tie_indices = tie_table.data_tracked_oracles_indices();
-    let input_indices = input_table.data_tracked_oracles_indices();
-    let rotated_indices = rotated_table.data_tracked_oracles_indices();
+    let input_indices = non_row_id_data_indices_verifier(&input_table);
+    let rotated_indices = non_row_id_data_indices_verifier(&rotated_table);
     debug_assert_eq!(
         input_indices.len(),
         rotated_indices.len(),

@@ -109,7 +109,6 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
-    dbg!(input_hint.data_frame().schema());
     let lex_sorted_hint = build_lex_sorted_hint(input_hint);
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));

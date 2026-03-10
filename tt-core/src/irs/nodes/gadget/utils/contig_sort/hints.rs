@@ -1,11 +1,14 @@
 use crate::irs::nodes::gadget::utils::contig_sort::{
-    DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL,
+    DIFF_INPUT_LABEL, ROTATED_INPUT_LABEL, TIE_INDICATOR_LABEL, diff_output_type,
 };
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
 use datafusion::arrow::{
-    array::{ArrayRef, BooleanArray, Int64Array, new_null_array},
+    array::{
+        Array, ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int8Array,
+        Int16Array, Int32Array, Int64Array, new_null_array,
+    },
     compute::{concat, concat_batches},
-    datatypes::DataType,
+    datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
 use datafusion::logical_expr::Expr;
@@ -356,6 +359,18 @@ fn diff_input_on_ordered(
     order_by: Vec<SortExpr>,
     sort_specs: &[(String, bool, bool)],
 ) -> DataFusionResult<DataFrame> {
+    if has_only_explicit_diff_types(&ordered)? {
+        return diff_input_on_ordered_explicit(ordered, sort_specs);
+    }
+
+    diff_input_on_ordered_via_windows(ordered, order_by, sort_specs)
+}
+
+fn diff_input_on_ordered_via_windows(
+    ordered: DataFrame,
+    order_by: Vec<SortExpr>,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<DataFrame> {
     let mut diff_cols = Vec::new();
 
     for field in ordered.schema().fields() {
@@ -428,6 +443,270 @@ fn diff_input_on_ordered(
     }
 
     ordered.select(diff_cols)
+}
+
+fn diff_input_on_ordered_explicit(
+    ordered: DataFrame,
+    sort_specs: &[(String, bool, bool)],
+) -> DataFusionResult<DataFrame> {
+    let batches = collect_blocking(ordered, false)?;
+    if batches.is_empty() {
+        return Err(DataFusionError::Execution(
+            "diff_input_on_ordered produced no batches".to_string(),
+        ));
+    }
+
+    let schema_ref = batches[0].schema();
+    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+    let combined = concat_batches(&schema_ref, batch_refs)?;
+    let row_count = combined.num_rows();
+
+    let mut out_fields = Vec::new();
+    let mut out_cols = Vec::new();
+    for (idx, field) in combined.schema().fields().iter().enumerate() {
+        let name = field.name();
+        if is_system_column(name) {
+            continue;
+        }
+
+        let source = combined.column(idx).clone();
+        let rotated = rotate_array(source.clone(), row_count)?;
+        let is_asc = sort_is_asc(sort_specs, name);
+        let (lhs, rhs) = if is_asc {
+            (rotated.as_ref(), source.as_ref())
+        } else {
+            (source.as_ref(), rotated.as_ref())
+        };
+        let diff_col = materialize_diff_array(field.data_type(), lhs, rhs)?;
+        out_fields.push(Field::new(
+            name,
+            diff_output_type(field.data_type()),
+            field.is_nullable(),
+        ));
+        out_cols.push(diff_col);
+    }
+
+    let out_schema = std::sync::Arc::new(Schema::new_with_metadata(
+        out_fields,
+        combined.schema().metadata().clone(),
+    ));
+    let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
+    SessionContext::new().read_batch(out_batch)
+}
+
+fn rotate_array(source: ArrayRef, row_count: usize) -> DataFusionResult<ArrayRef> {
+    if row_count <= 1 {
+        return Ok(source);
+    }
+    let tail = source.slice(1, row_count - 1);
+    let head = source.slice(0, 1);
+    concat(&[tail.as_ref(), head.as_ref()]).map_err(Into::into)
+}
+
+fn has_only_explicit_diff_types(df: &DataFrame) -> DataFusionResult<bool> {
+    Ok(df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !is_system_column(field.name()))
+        .all(|field| is_explicit_diff_type(field.data_type())))
+}
+
+fn is_explicit_diff_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Date32
+    )
+}
+
+fn materialize_diff_array(
+    data_type: &DataType,
+    lhs: &dyn Array,
+    rhs: &dyn Array,
+) -> DataFusionResult<ArrayRef> {
+    match data_type {
+        DataType::Int8 => diff_int8_array(lhs, rhs),
+        DataType::Int16 => diff_int16_array(lhs, rhs),
+        DataType::Int32 => diff_int32_array(lhs, rhs),
+        DataType::Int64 => diff_int64_array(lhs, rhs),
+        DataType::Float32 => diff_float32_array(lhs, rhs),
+        DataType::Float64 => diff_float64_array(lhs, rhs),
+        DataType::Date32 => diff_date32_array(lhs, rhs),
+        _ => sign_only_diff_array(lhs, rhs),
+    }
+}
+
+fn diff_int8_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Int8Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Int8 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Int8Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Int8 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Int8Array::from(values)))
+}
+
+fn diff_int16_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Int16Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Int16 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Int16Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Int16 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Int16Array::from(values)))
+}
+
+fn diff_int32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Int32 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Int32 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Int32Array::from(values)))
+}
+
+fn diff_int64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Int64 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Int64 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Int64Array::from(values)))
+}
+
+fn diff_float32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Float32 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Float32 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Float32Array::from(values)))
+}
+
+fn diff_float64_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Float64 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Float64 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Float64Array::from(values)))
+}
+
+fn diff_date32_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let lhs = lhs
+        .as_any()
+        .downcast_ref::<Date32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff lhs Date32 mismatch".to_string()))?;
+    let rhs = rhs
+        .as_any()
+        .downcast_ref::<Date32Array>()
+        .ok_or_else(|| DataFusionError::Execution("diff rhs Date32 mismatch".to_string()))?;
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                None
+            } else {
+                Some(lhs.value(idx) - rhs.value(idx))
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(std::sync::Arc::new(Int32Array::from(values)))
+}
+
+fn sign_only_diff_array(lhs: &dyn Array, rhs: &dyn Array) -> DataFusionResult<ArrayRef> {
+    let values = (0..lhs.len())
+        .map(|idx| {
+            if lhs.is_null(idx) || rhs.is_null(idx) {
+                Ok(None)
+            } else {
+                let left = ScalarValue::try_from_array(lhs, idx)?;
+                let right = ScalarValue::try_from_array(rhs, idx)?;
+                let sign = match left.partial_cmp(&right) {
+                    Some(std::cmp::Ordering::Greater) => 1_i64,
+                    Some(std::cmp::Ordering::Less) => -1_i64,
+                    _ => 0_i64,
+                };
+                Ok(Some(sign))
+            }
+        })
+        .collect::<DataFusionResult<Vec<_>>>()?;
+    Ok(std::sync::Arc::new(Int64Array::from(values)))
 }
 
 // Keep diff materialization on numeric types to avoid invalid arithmetic in DataFusion.
@@ -529,34 +808,77 @@ fn tie_indicator_on_ordered(
     if data_cols.is_empty() {
         return ordered.select(Vec::<Expr>::new());
     }
+    // Materialize ties from the already sorted batch so the tie rows are aligned
+    // with the same physical row order consumed by TABLE/ROTATED/DIFF.
+    let ordered = if order_by.is_empty() {
+        ordered
+    } else {
+        ordered.sort(order_by)?
+    };
+    let batches = collect_blocking(ordered, false)?;
+    if batches.is_empty() {
+        return Err(DataFusionError::Execution(
+            "tie input produced no batches".to_string(),
+        ));
+    }
+    let schema_ref = batches[0].schema();
+    let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+    let combined = concat_batches(&schema_ref, batch_refs)?;
+    let row_count = combined.num_rows();
+
+    let data_arrays = data_cols
+        .iter()
+        .map(|col_name| {
+            combined
+                .schema()
+                .index_of(col_name)
+                .map(|idx| combined.column(idx).clone())
+                .map_err(Into::into)
+        })
+        .collect::<DataFusionResult<Vec<_>>>()?;
+
     if data_cols.len() == 1 {
-        // For a single sort key, tie_0 must be false on the wrap row (last -> first).
-        // Otherwise tie-gated consistency checks incorrectly constrain the cyclic boundary.
-        let next_val = lead(col(&data_cols[0]), Some(1), None)
-            .order_by(order_by.clone())
-            .build()?;
-        let tie_0 = when(next_val.is_null(), lit(false)).otherwise(lit(true))?;
-        return ordered.select(vec![tie_0.alias("tie_0")]);
+        let values = (0..row_count)
+            .map(|row_idx| row_idx + 1 < row_count)
+            .collect::<Vec<_>>();
+        let out_schema = std::sync::Arc::new(Schema::new(vec![Field::new(
+            "tie_0",
+            DataType::Boolean,
+            false,
+        )]));
+        let out_batch = RecordBatch::try_new(
+            out_schema,
+            vec![std::sync::Arc::new(BooleanArray::from(values))],
+        )?;
+        return SessionContext::new().read_batch(out_batch);
     }
 
-    let mut prefix = lit(true);
-    let mut out = Vec::with_capacity(data_cols.len() - 1);
-
-    for (idx, col_name) in data_cols.iter().enumerate().take(data_cols.len() - 1) {
-        let next_val = lead(col(col_name), Some(1), None)
-            .order_by(order_by.clone())
-            .build()?;
-        // Treat NULL = NULL as equal for tie propagation.
-        let eq = Expr::BinaryExpr(BinaryExpr {
-            left: Box::new(col(col_name)),
-            op: Operator::IsNotDistinctFrom,
-            right: Box::new(next_val),
-        });
-        prefix = prefix.and(eq);
-        out.push(prefix.clone().alias(format!("tie_{}", idx + 1)));
+    let mut out_fields = Vec::with_capacity(data_cols.len() - 1);
+    let mut out_cols = Vec::with_capacity(data_cols.len() - 1);
+    for prefix_len in 1..data_cols.len() {
+        let values = (0..row_count)
+            .map(|row_idx| {
+                if row_idx + 1 >= row_count {
+                    return Ok(false);
+                }
+                let next_idx = row_idx + 1;
+                for arr in data_arrays.iter().take(prefix_len) {
+                    let left = ScalarValue::try_from_array(arr.as_ref(), row_idx)?;
+                    let right = ScalarValue::try_from_array(arr.as_ref(), next_idx)?;
+                    if left != right {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            })
+            .collect::<DataFusionResult<Vec<_>>>()?;
+        out_fields.push(Field::new(format!("tie_{prefix_len}"), DataType::Boolean, false));
+        out_cols.push(std::sync::Arc::new(BooleanArray::from(values)) as ArrayRef);
     }
 
-    ordered.select(out)
+    let out_schema = std::sync::Arc::new(Schema::new(out_fields));
+    let out_batch = RecordBatch::try_new(out_schema, out_cols)?;
+    SessionContext::new().read_batch(out_batch)
 }
 
 fn sort_order_from_hint(
