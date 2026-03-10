@@ -13,88 +13,88 @@ fn join_cases() -> &'static [BenchCase] {
     static CASES: OnceLock<&'static [BenchCase]> = OnceLock::new();
     CASES.get_or_init(|| {
         let cases = vec![
-            // BenchCase {
-            //     name: "join_supplier_customer_small_many_to_many",
-            //     query: r#"
-            //         SELECT s.s_suppkey, s.s_nationkey, c.c_custkey
-            //         FROM supplier s
-            //         INNER JOIN customer c
-            //             ON s.s_nationkey = c.c_nationkey
-            //     "#,
-            //     tables: &["supplier", "customer"],
-            // },
-            // BenchCase {
-            //     name: "join_partsupp_self_medium_many_to_many",
-            //     query: r#"
-            //         SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_suppkey
-            //         FROM partsupp ps1
-            //         INNER JOIN partsupp ps2
-            //             ON ps1.ps_partkey = ps2.ps_partkey
-            //     "#,
-            //     tables: &["partsupp"],
-            // },
-            // BenchCase {
-            //     name: "join_lineitem_self_large_many_to_many",
-            //     query: r#"
-            //         SELECT l1.l_orderkey, l1.l_linenumber, l2.l_linenumber
-            //         FROM lineitem l1
-            //         INNER JOIN lineitem l2
-            //             ON l1.l_orderkey = l2.l_orderkey
-            //     "#,
-            //     tables: &["lineitem"],
-            // },
-            // BenchCase {
-            //     name: "join_supplier_nation_small_one_to_many",
-            //     query: r#"
-            //         SELECT s.s_suppkey, s.s_nationkey, n.n_name
-            //         FROM supplier s
-            //         INNER JOIN nation n
-            //             ON s.s_nationkey = n.n_nationkey
-            //     "#,
-            //     tables: &["supplier", "nation"],
-            // },
-            // BenchCase {
-            //     name: "join_orders_customer_medium_one_to_many",
-            //     query: r#"
-            //         SELECT o.o_orderkey, o.o_custkey, c.c_nationkey
-            //         FROM orders o
-            //         INNER JOIN customer c
-            //             ON o.o_custkey = c.c_custkey
-            //     "#,
-            //     tables: &["orders", "customer"],
-            // },
-            // BenchCase {
-            //     name: "join_lineitem_orders_large_one_to_many",
-            //     query: r#"
-            //         SELECT l.l_orderkey, l.l_partkey, o.o_orderpriority
-            //         FROM lineitem l
-            //         INNER JOIN orders o
-            //             ON l.l_orderkey = o.o_orderkey
-            //     "#,
-            //     tables: &["lineitem", "orders"],
-            // },
-            // BenchCase {
-            //     name: "join_partsupp_self_small_composite_key",
-            //     query: r#"
-            //         SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_supplycost
-            //         FROM partsupp ps1
-            //         INNER JOIN partsupp ps2
-            //             ON ps1.ps_partkey = ps2.ps_partkey
-            //            AND ps1.ps_suppkey = ps2.ps_suppkey
-            //     "#,
-            //     tables: &["partsupp"],
-            // },
-            // BenchCase {
-            //     name: "join_lineitem_partsupp_medium_composite_key",
-            //     query: r#"
-            //         SELECT l.l_orderkey, l.l_partkey, l.l_suppkey, ps.ps_supplycost
-            //         FROM lineitem l
-            //         INNER JOIN partsupp ps
-            //             ON l.l_partkey = ps.ps_partkey
-            //            AND l.l_suppkey = ps.ps_suppkey
-            //     "#,
-            //     tables: &["lineitem", "partsupp"],
-            // },
+            BenchCase {
+                name: "join_supplier_customer_small_many_to_many",
+                query: r#"
+                    SELECT s.s_suppkey, s.s_nationkey, c.c_custkey
+                    FROM supplier s
+                    INNER JOIN customer c
+                        ON s.s_nationkey = c.c_nationkey
+                "#,
+                tables: &["supplier", "customer"],
+            },
+            BenchCase {
+                name: "join_partsupp_self_medium_many_to_many",
+                query: r#"
+                    SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_suppkey
+                    FROM partsupp ps1
+                    INNER JOIN partsupp ps2
+                        ON ps1.ps_partkey = ps2.ps_partkey
+                "#,
+                tables: &["partsupp"],
+            },
+            BenchCase {
+                name: "join_lineitem_self_large_many_to_many",
+                query: r#"
+                    SELECT l1.l_orderkey, l1.l_linenumber, l2.l_linenumber
+                    FROM lineitem l1
+                    INNER JOIN lineitem l2
+                        ON l1.l_orderkey = l2.l_orderkey
+                "#,
+                tables: &["lineitem"],
+            },
+            BenchCase {
+                name: "join_supplier_nation_small_one_to_many",
+                query: r#"
+                    SELECT s.s_suppkey, s.s_nationkey, n.n_name
+                    FROM supplier s
+                    INNER JOIN nation n
+                        ON s.s_nationkey = n.n_nationkey
+                "#,
+                tables: &["supplier", "nation"],
+            },
+            BenchCase {
+                name: "join_orders_customer_medium_one_to_many",
+                query: r#"
+                    SELECT o.o_orderkey, o.o_custkey, c.c_nationkey
+                    FROM orders o
+                    INNER JOIN customer c
+                        ON o.o_custkey = c.c_custkey
+                "#,
+                tables: &["orders", "customer"],
+            },
+            BenchCase {
+                name: "join_lineitem_orders_large_one_to_many",
+                query: r#"
+                    SELECT l.l_orderkey, l.l_partkey, o.o_orderpriority
+                    FROM lineitem l
+                    INNER JOIN orders o
+                        ON l.l_orderkey = o.o_orderkey
+                "#,
+                tables: &["lineitem", "orders"],
+            },
+            BenchCase {
+                name: "join_partsupp_self_small_composite_key",
+                query: r#"
+                    SELECT ps1.ps_partkey, ps1.ps_suppkey, ps2.ps_supplycost
+                    FROM partsupp ps1
+                    INNER JOIN partsupp ps2
+                        ON ps1.ps_partkey = ps2.ps_partkey
+                       AND ps1.ps_suppkey = ps2.ps_suppkey
+                "#,
+                tables: &["partsupp"],
+            },
+            BenchCase {
+                name: "join_lineitem_partsupp_medium_composite_key",
+                query: r#"
+                    SELECT l.l_orderkey, l.l_partkey, l.l_suppkey, ps.ps_supplycost
+                    FROM lineitem l
+                    INNER JOIN partsupp ps
+                        ON l.l_partkey = ps.ps_partkey
+                       AND l.l_suppkey = ps.ps_suppkey
+                "#,
+                tables: &["lineitem", "partsupp"],
+            },
             BenchCase {
                 name: "join_lineitem_self_large_composite_key",
                 query: r#"
