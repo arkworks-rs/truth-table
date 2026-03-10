@@ -30,6 +30,8 @@ mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
 pub const RIGHT_LABEL: &str = "__RIGHT__";
 pub const OUTPUT_LABEL: &str = "__OUTPUT__";
+pub const OUTPUT_LEFT_LABEL: &str = "__OUTPUT_LEFT__";
+pub const OUTPUT_RIGHT_LABEL: &str = "__OUTPUT_RIGHT__";
 pub const SRC_LEFT_LABEL: &str = "__SRC_LEFT__";
 pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
@@ -41,6 +43,8 @@ struct JoinPlanningDerivedHints {
     left_hint: crate::irs::nodes::hints::HintDF,
     right_hint: crate::irs::nodes::hints::HintDF,
     output_hint: crate::irs::nodes::hints::HintDF,
+    output_left_hint: crate::irs::nodes::hints::HintDF,
+    output_right_hint: crate::irs::nodes::hints::HintDF,
     src_left_hint: crate::irs::nodes::hints::HintDF,
     src_right_hint: crate::irs::nodes::hints::HintDF,
     nodup_input_hint: crate::irs::nodes::hints::HintDF,
@@ -67,26 +71,23 @@ fn derive_many_to_many_hints(
     join: &Join,
     left_hint: &crate::irs::nodes::hints::HintDF,
     right_hint: &crate::irs::nodes::hints::HintDF,
-    output_hint: &crate::irs::nodes::hints::HintDF,
+    _output_hint: &crate::irs::nodes::hints::HintDF,
 ) -> JoinPlanningDerivedHints {
     let left_hint = force_materialize_all(&force_materialize_row_id(left_hint));
     let right_hint = force_materialize_all(&force_materialize_row_id(right_hint));
-    let output_hint = force_materialize_all(output_hint);
 
     let left_df = left_hint.data_frame().clone();
     let right_df = right_hint.data_frame().clone();
-    let output_df = output_hint.data_frame().clone();
-
-    let (left_src_df, right_src_df) =
-        hints::build_source_dfs(left_df.clone(), right_df.clone(), output_df.clone(), join)
-            .expect("join source dataframe derivation should succeed");
-    let nodup_input_df = hints::build_nodup_input_df(left_df, right_df, output_df, join)
-        .expect("join nodup dataframe derivation should succeed");
+    let (output_df, output_left_df, output_right_df, left_src_df, right_src_df, nodup_input_df) =
+        hints::build_output_and_source_dfs(left_df, right_df, join)
+            .expect("join output/source dataframe derivation should succeed");
 
     JoinPlanningDerivedHints {
         left_hint,
         right_hint,
-        output_hint,
+        output_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_df),
+        output_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_left_df),
+        output_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_right_df),
         src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
         src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
@@ -245,6 +246,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
+                output_left_hint,
+                output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -255,6 +258,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
+            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -384,6 +389,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
+                output_left_hint,
+                output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -391,6 +398,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
+            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -545,8 +554,8 @@ fn derive_many_to_many_hints_verifier(
         Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty.clone(), true),
     ]));
     let nodup_schema = Arc::new(Schema::new(vec![
-        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty, true),
-        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty, true),
+        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty.clone(), true),
+        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty.clone(), true),
         Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
         Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty, true),
     ]));
@@ -572,15 +581,37 @@ fn derive_many_to_many_hints_verifier(
             .map(|f| f.as_ref().clone())
             .collect(),
     );
+    let output_left_df =
+        schema_only_output_lookup_base_with_src(left_hint.data_frame(), SRC_LEFT_COL_NAME, left_row_id_ty.clone());
+    let output_right_df =
+        schema_only_output_lookup_base_with_src(right_hint.data_frame(), SRC_RIGHT_COL_NAME, right_row_id_ty.clone());
 
     JoinPlanningDerivedHints {
         left_hint,
         right_hint,
         output_hint,
+        output_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_left_df),
+        output_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_right_df),
         src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_left_df),
         src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_right_df),
         nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_df),
     }
+}
+
+fn schema_only_output_lookup_base_with_src(
+    df: &datafusion::prelude::DataFrame,
+    src_col_name: &str,
+    src_ty: DataType,
+) -> datafusion::prelude::DataFrame {
+    let mut fields = df
+        .schema()
+        .fields()
+        .iter()
+        .filter(|f| f.name() != arithmetic::ROW_ID_COL_NAME)
+        .map(|f| f.as_ref().clone())
+        .collect::<Vec<_>>();
+    fields.push(Field::new(src_col_name, src_ty, true));
+    crate::irs::nodes::hints::schema_only_df(fields)
 }
 
 fn lookup_fold_challenges_prover<B: SnarkBackend>(
@@ -627,21 +658,6 @@ fn fold_lookup_table_verifier<B: SnarkBackend>(
         return table.tracked_col_oracle_by_ind(data_indices[0]);
     }
     table.fold_all_data_oracles(challenges)
-}
-
-fn single_data_col_from_table<B: SnarkBackend>(
-    table: &TrackedTable<B>,
-    label: &str,
-) -> (FieldRef, TrackedPoly<B>) {
-    let data_indices = table.data_tracked_polys_indices();
-    if data_indices.len() != 1 {
-        panic!("Join {label} table must have exactly one data column");
-    }
-    let data_cols = table.tracked_polys();
-    let (field, poly) = data_cols
-        .get_index(data_indices[0])
-        .expect("Join src data column missing");
-    (field.clone(), poly.clone())
 }
 
 fn index_tracked_poly<B: SnarkBackend>(
@@ -913,21 +929,6 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
     TrackedTableOracle::new(schema, data_fields, output.log_size())
 }
 
-fn single_data_col_from_table_oracle<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-    label: &str,
-) -> (FieldRef, TrackedOracle<B>) {
-    let data_indices = table.data_tracked_oracles_indices();
-    if data_indices.len() != 1 {
-        panic!("Join {label} table must have exactly one data column");
-    }
-    let data_cols = table.tracked_oracles();
-    let (field, oracle) = data_cols
-        .get_index(data_indices[0])
-        .expect("Join src data column missing");
-    (field.clone(), oracle.clone())
-}
-
 fn index_tracked_oracle<B: SnarkBackend>(
     _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     table: &TrackedTableOracle<B>,
@@ -971,34 +972,33 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
-                panic!("Expected src-left table for Join gadget");
-            };
-            let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
-                panic!("Expected src-right table for Join gadget");
-            };
-
+            let output_left_base = payload
+                .get(OUTPUT_LEFT_LABEL)
+                .cloned()
+                .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, true));
+            let output_right_base = payload
+                .get(OUTPUT_RIGHT_LABEL)
+                .cloned()
+                .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, false));
             // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
             // Method: We look up table output_left in input_left
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
             // input left = [left activator | left keys + left data + normal index]
-            let (src_field, src_poly) = single_data_col_from_table(&left_src, "src-left");
-            let output_left_base =
-                output_lookup_base_from_output(&output, &left_table, &right_table, true);
-            let output_left = append_tracked_col(&output_left_base, src_field.clone(), src_poly);
+            let output_left = output_left_base;
 
             let index_poly = index_tracked_poly(prover, &left_table);
             let input_left_base = input_lookup_base_from_table(&left_table);
-            let input_left = append_tracked_col(&input_left_base, src_field, index_poly);
-
+            let input_left = append_tracked_col(
+                &input_left_base,
+                Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+                index_poly,
+            );
             // Fold both sides with the same transcript challenges for this lookup.
             let left_fold_challs =
                 lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
             let output_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
             let input_folded = fold_lookup_table_prover(&input_left, &left_fold_challs);
 
-            // Use activator-aware lookup so empty joins / padded rows do not
-            // create false provenance claims.
             LookupPIOP::<B>::prove(
                 prover,
                 LookupProverInput {
@@ -1012,18 +1012,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
             // input right = [right activator | right keys + right data + normal index]
 
-            let (right_src_field, right_src_poly) =
-                single_data_col_from_table(&right_src, "src-right");
-            let output_right_base =
-                output_lookup_base_from_output(&output, &left_table, &right_table, false);
-            let output_right =
-                append_tracked_col(&output_right_base, right_src_field.clone(), right_src_poly);
+            let output_right = output_right_base;
 
             let right_index_poly = index_tracked_poly(prover, &right_table);
             let input_right_base = input_lookup_base_from_table(&right_table);
-            let input_right =
-                append_tracked_col(&input_right_base, right_src_field, right_index_poly);
-
+            let input_right = append_tracked_col(
+                &input_right_base,
+                Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+                right_index_poly,
+            );
             // Fold both sides with the same transcript challenges for this lookup.
             let right_fold_challs =
                 lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
@@ -1073,22 +1070,23 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let Some(left_src) = payload.get(SRC_LEFT_LABEL).cloned() else {
-                panic!("Expected src-left table for Join gadget");
-            };
-            let Some(right_src) = payload.get(SRC_RIGHT_LABEL).cloned() else {
-                panic!("Expected src-right table for Join gadget");
-            };
-
-            let (src_field, src_oracle) = single_data_col_from_table_oracle(&left_src, "src-left");
-            let output_left_base =
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
-            let output_left =
-                append_tracked_oracle(&output_left_base, src_field.clone(), src_oracle);
+            let output_left_base = payload
+                .get(OUTPUT_LEFT_LABEL)
+                .cloned()
+                .unwrap_or_else(|| output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true));
+            let output_right_base = payload
+                .get(OUTPUT_RIGHT_LABEL)
+                .cloned()
+                .unwrap_or_else(|| output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false));
+            let output_left = output_left_base;
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
             let input_left_base = input_lookup_base_from_table_oracle(&left_table);
-            let input_left = append_tracked_oracle(&input_left_base, src_field, index_oracle);
+            let input_left = append_tracked_oracle(
+                &input_left_base,
+                Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+                index_oracle,
+            );
 
             // Mirror prover-side challenge reuse exactly.
             let left_fold_challs =
@@ -1104,20 +1102,15 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 },
             )?;
 
-            let (right_src_field, right_src_oracle) =
-                single_data_col_from_table_oracle(&right_src, "src-right");
-            let output_right_base =
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
-            let output_right = append_tracked_oracle(
-                &output_right_base,
-                right_src_field.clone(),
-                right_src_oracle,
-            );
+            let output_right = output_right_base;
 
             let right_index_oracle = index_tracked_oracle(verifier, &right_table);
             let input_right_base = input_lookup_base_from_table_oracle(&right_table);
-            let input_right =
-                append_tracked_oracle(&input_right_base, right_src_field, right_index_oracle);
+            let input_right = append_tracked_oracle(
+                &input_right_base,
+                Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+                right_index_oracle,
+            );
 
             // Mirror prover-side challenge reuse exactly.
             let right_fold_challs = lookup_fold_challenges_verifier(
@@ -1213,56 +1206,4 @@ impl<B: SnarkBackend> GadgetNode<B> {
             }
         }
     }
-}
-
-fn build_match_pair_hints(
-    join: &datafusion_expr::Join,
-    left_hint: &crate::irs::nodes::hints::HintDF,
-    right_hint: &crate::irs::nodes::hints::HintDF,
-    output_hint: &crate::irs::nodes::hints::HintDF,
-) -> DataFusionResult<(
-    crate::irs::nodes::hints::HintDF,
-    crate::irs::nodes::hints::HintDF,
-    crate::irs::nodes::hints::HintDF,
-)> {
-    let mut left_exprs: Vec<Expr> = join.on.iter().map(|(l, _)| l.clone()).collect();
-    let mut right_exprs: Vec<Expr> = join.on.iter().map(|(_, r)| r.clone()).collect();
-    crate::irs::nodes::hints::append_row_id_expr_if_present(
-        left_hint.data_frame(),
-        &mut left_exprs,
-    );
-    crate::irs::nodes::hints::append_activator_exprs_if_present(
-        left_hint.data_frame(),
-        &mut left_exprs,
-    );
-    crate::irs::nodes::hints::append_row_id_expr_if_present(
-        right_hint.data_frame(),
-        &mut right_exprs,
-    );
-    crate::irs::nodes::hints::append_activator_exprs_if_present(
-        right_hint.data_frame(),
-        &mut right_exprs,
-    );
-
-    let left_df = left_hint.data_frame().clone().select(left_exprs)?;
-    let left_df = crate::irs::nodes::hints::sort_by_row_id_if_present(left_df)?;
-    let right_df = right_hint.data_frame().clone().select(right_exprs)?;
-    let right_df = crate::irs::nodes::hints::sort_by_row_id_if_present(right_df)?;
-
-    let output_sorted =
-        crate::irs::nodes::hints::sort_by_row_id_if_present(output_hint.data_frame().clone())?;
-    let mut out_exprs = Vec::new();
-    crate::irs::nodes::hints::append_activator_exprs_if_present(&output_sorted, &mut out_exprs);
-    if out_exprs.is_empty() {
-        return Err(DataFusionError::Plan(
-            "Join output is missing an activator column".to_string(),
-        ));
-    }
-    let output_df = output_sorted.select(out_exprs)?;
-
-    Ok((
-        crate::irs::nodes::hints::HintDF::new_virtual(left_df),
-        crate::irs::nodes::hints::HintDF::new_virtual(right_df),
-        crate::irs::nodes::hints::HintDF::new_virtual(output_df),
-    ))
 }

@@ -30,6 +30,11 @@ struct ColumnConstraintMetadata {
 /// - join filter present => MANY_TO_MANY
 /// - if PK side has a Filter in its input subtree => MANY_TO_MANY
 pub fn decide_join_mode(join: &Join) -> JoinMode {
+    // Temporary override for debugging: force all joins through the
+    // full many-to-many path regardless of inferred PK/FK metadata.
+    let _ = join;
+    return JoinMode::MANY_TO_MANY;
+
     if join.join_type != JoinType::Inner {
         return JoinMode::MANY_TO_MANY;
     }

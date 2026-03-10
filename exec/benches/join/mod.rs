@@ -106,6 +106,40 @@ fn join_cases() -> &'static [BenchCase] {
                 "#,
                 tables: &["lineitem"],
             },
+            BenchCase {
+                name: "join_customer_orders_lineitem_large_chain",
+                query: r#"
+                    SELECT
+    *
+FROM
+    customer,
+    orders,
+    lineitem
+WHERE
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+                "#,
+                tables: &["lineitem", "orders", "customer"],
+            },
+            BenchCase {
+                name: "join_customer_orders_lineitem_supplier_large_chain",
+                query: r#"
+                    SELECT
+    *
+FROM
+    customer,
+    orders,
+    lineitem,
+    supplier
+WHERE
+    c_custkey = o_custkey
+    AND l_orderkey = o_orderkey
+    AND l_suppkey = s_suppkey
+                "#,
+                tables: &[
+                    "lineitem", "orders", "partsupp", "supplier", "customer", "nation", "region",
+                ],
+            },
         ];
         Box::leak(cases.into_boxed_slice())
     })

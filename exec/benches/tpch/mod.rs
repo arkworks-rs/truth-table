@@ -33,6 +33,8 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q18_poneglyph = query_spec(18, true);
         let q19 = query_spec(19, false);
 
+        println!("{}", q5.sql);
+
         let cases = vec![
             BenchCase {
                 name: "tpch_q1",

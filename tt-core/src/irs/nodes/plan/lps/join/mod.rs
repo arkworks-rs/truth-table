@@ -11,9 +11,7 @@ use crate::irs::{
     payloads::PayloadStructure,
     tree::Tree,
 };
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, ROW_ID_FIELD, is_system_column,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_ff::BigInteger;
 use ark_piop::SnarkBackend;
 use datafusion::arrow::array::Array;
@@ -613,11 +611,12 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = if name == ROW_ID_COL_NAME
-                    || (full_materialization && name == ACTIVATOR_COL_NAME)
-                {
+                let mat = if full_materialization && name == ACTIVATOR_COL_NAME {
                     false
                 } else if full_materialization {
+                    // Nested joins rely on the current join output carrying its own
+                    // fresh row ids. Keeping row ids virtual here can let a parent
+                    // reattach a stale row-id witness from an older payload order.
                     true
                 } else {
                     // Partial path (HasOne): materialize only one side's data and
@@ -693,9 +692,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| {
                 let name = field.name();
-                let mat = if name == ROW_ID_COL_NAME
-                    || (full_materialization && name == ACTIVATOR_COL_NAME)
-                {
+                let mat = if full_materialization && name == ACTIVATOR_COL_NAME {
                     false
                 } else if full_materialization {
                     true
