@@ -18,8 +18,7 @@ use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{piop::PIOP, SnarkBackend};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
-use datafusion_common::{DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{Expr, Join};
+use datafusion_expr::Join;
 use either::Either;
 use indexmap::IndexMap;
 use std::cell::RefCell;
@@ -71,21 +70,22 @@ fn derive_many_to_many_hints(
     join: &Join,
     left_hint: &crate::irs::nodes::hints::HintDF,
     right_hint: &crate::irs::nodes::hints::HintDF,
-    _output_hint: &crate::irs::nodes::hints::HintDF,
+    output_hint: &crate::irs::nodes::hints::HintDF,
 ) -> JoinPlanningDerivedHints {
     let left_hint = force_materialize_all(&force_materialize_row_id(left_hint));
     let right_hint = force_materialize_all(&force_materialize_row_id(right_hint));
+    let output_hint = force_materialize_all(&force_materialize_row_id(output_hint));
 
     let left_df = left_hint.data_frame().clone();
     let right_df = right_hint.data_frame().clone();
-    let (output_df, output_left_df, output_right_df, left_src_df, right_src_df, nodup_input_df) =
+    let (output_left_df, output_right_df, left_src_df, right_src_df, nodup_input_df) =
         hints::build_output_and_source_dfs(left_df, right_df, join)
             .expect("join output/source dataframe derivation should succeed");
 
     JoinPlanningDerivedHints {
         left_hint,
         right_hint,
-        output_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_df),
+        output_hint,
         output_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_left_df),
         output_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_right_df),
         src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),

@@ -11,7 +11,6 @@ use tokio::runtime::RuntimeFlavor;
 use super::{SRC_LEFT_COL_NAME, SRC_RIGHT_COL_NAME};
 
 struct IndexedJoinFrames {
-    output: DataFrame,
     output_left: DataFrame,
     output_right: DataFrame,
     src_left: DataFrame,
@@ -34,10 +33,9 @@ pub(crate) fn build_output_and_source_dfs(
     left: DataFrame,
     right: DataFrame,
     join: &Join,
-) -> DataFusionResult<(DataFrame, DataFrame, DataFrame, DataFrame, DataFrame, DataFrame)> {
+) -> DataFusionResult<(DataFrame, DataFrame, DataFrame, DataFrame, DataFrame)> {
     let frames = build_indexed_join_frames(left, right, join)?;
     Ok((
-        frames.output,
         frames.output_left,
         frames.output_right,
         frames.src_left,
@@ -124,10 +122,18 @@ fn build_indexed_join_frames_impl(
 
     let left_payload_exprs = resolve_payload_exprs(&sorted, &left_payload_templates)?;
     let right_payload_exprs = resolve_payload_exprs(&sorted, &right_payload_templates)?;
+    let left_indexed_aliases = indexed_aliases("__tt_left_payload", left_payload_exprs.len());
+    let right_indexed_aliases = indexed_aliases("__tt_right_payload", right_payload_exprs.len());
     let payload_exprs = left_payload_exprs
         .iter()
-        .cloned()
-        .chain(right_payload_exprs.iter().cloned())
+        .zip(left_indexed_aliases.iter())
+        .map(|(expr, alias)| expr.clone().alias(alias))
+        .chain(
+            right_payload_exprs
+                .iter()
+                .zip(right_indexed_aliases.iter())
+                .map(|(expr, alias)| expr.clone().alias(alias)),
+        )
         .collect::<Vec<_>>();
 
     let row_number_expr = row_number()
@@ -144,41 +150,30 @@ fn build_indexed_join_frames_impl(
         exprs
     })?;
     let indexed = materialize_dataframe(indexed)?;
-    let left_payload_exprs = resolve_payload_exprs(&indexed, &left_payload_templates)?;
-    let right_payload_exprs = resolve_payload_exprs(&indexed, &right_payload_templates)?;
-
-    let output_row_id = (col("__row_number__") - lit(1_i64)).alias(ROW_ID_COL_NAME);
-    let output = indexed
-        .clone()
-        .select({
-            let mut exprs = Vec::new();
-            for (qualifier, field) in indexed.schema().iter() {
-                if field.name() == "__row_number__"
-                    || field.name() == "__src_left_row_id__"
-                    || field.name() == "__src_right_row_id__"
-                {
-                    continue;
-                }
-                exprs.push(Expr::Column(Column::new(qualifier.cloned(), field.name())));
-            }
-            exprs.push(output_row_id.clone());
-            exprs
-        })?
-        .sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])?;
 
     // Materialize the step-3 output-side lookup bases here so the join gadget
     // does not need to reconstruct left/right payload slices later from the
     // combined output table.
     let output_left = indexed
         .clone()
-        .select(with_helper_col(left_payload_exprs.clone(), "__row_number__"))?
+        .select(with_helper_col(
+            project_indexed_payload(&left_indexed_aliases, &left_payload_templates),
+            "__row_number__",
+        ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
-        .select(with_activator_only(left_payload_exprs))?;
+        .select(with_activator_only(project_named_payload(
+            &left_payload_templates,
+        )))?;
     let output_right = indexed
         .clone()
-        .select(with_helper_col(right_payload_exprs.clone(), "__row_number__"))?
+        .select(with_helper_col(
+            project_indexed_payload(&right_indexed_aliases, &right_payload_templates),
+            "__row_number__",
+        ))?
         .sort(vec![col("__row_number__").sort(true, true)])?
-        .select(with_activator_only(right_payload_exprs))?;
+        .select(with_activator_only(project_named_payload(
+            &right_payload_templates,
+        )))?;
 
     // Step 3 only needs a valid immediate-parent row id for each output-side
     // payload row. Deriving source ids from the replayed join row ordering is
@@ -204,7 +199,6 @@ fn build_indexed_join_frames_impl(
     let nodup_input = build_nodup_input_from_sources(&src_left, &src_right)?;
 
     Ok(IndexedJoinFrames {
-        output,
         output_left,
         output_right,
         src_left,
@@ -588,6 +582,25 @@ fn resolve_payload_exprs(
     templates
         .iter()
         .map(|template| resolve_column_like(df, template).map(Expr::Column))
+        .collect()
+}
+
+fn indexed_aliases(prefix: &str, len: usize) -> Vec<String> {
+    (0..len).map(|idx| format!("{prefix}_{idx}")).collect()
+}
+
+fn project_indexed_payload(aliases: &[String], templates: &[Column]) -> Vec<Expr> {
+    aliases
+        .iter()
+        .zip(templates.iter())
+        .map(|(alias, template)| col(alias).alias(template.name.as_str()))
+        .collect()
+}
+
+fn project_named_payload(templates: &[Column]) -> Vec<Expr> {
+    templates
+        .iter()
+        .map(|template| col(template.name.as_str()).alias(template.name.as_str()))
         .collect()
 }
 
