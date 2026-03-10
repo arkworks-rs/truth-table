@@ -89,35 +89,14 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     is_verifier: bool,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let input_hint_ref = match planned_ir.payload_for_node(&id) {
-        Some(PayloadStructure::GadgetPayload(payload)) => payload.get(INPUT_LABEL),
-        _ => None,
-    };
-    let Some(input_hint_ref) = input_hint_ref else {
-        node.cache_is_pk(false);
-        return Ok(());
-    };
-    // Determine whether all data columns of the NoDup input are PK columns.
-    // "Data columns" exclude system columns (activator/row_id).
-    let is_pk = nodup_input_is_pk(input_hint_ref);
-    node.cache_is_pk(is_pk);
-
-    if node.is_pk() {
-        // PK inputs are guaranteed to have no duplicates, so we can skip
-        // adding any gadgets and checks in this case.
-        return Ok(());
-    }
-
     let mut self_payload = match planned_ir.payload_for_node(&id).cloned() {
         Some(PayloadStructure::GadgetPayload(payload)) => payload,
         _ => {
-            node.cache_is_pk(false);
-            return Ok(());
+            panic!("No payload found for NoDup gadget at node {:?}", id);
         }
     };
     let Some(input_hint) = self_payload.get(INPUT_LABEL) else {
-        node.cache_is_pk(false);
-        return Ok(());
+        panic!("No input hint found for NoDup gadget at node {:?}", id);
     };
 
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
@@ -130,11 +109,8 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
-    let lex_sorted_hint = if is_verifier {
-        build_lex_sorted_hint_for_verifier(input_hint)
-    } else {
-        build_lex_sorted_hint(input_hint)
-    };
+    dbg!(input_hint.data_frame().schema());
+    let lex_sorted_hint = build_lex_sorted_hint(input_hint);
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
 

@@ -97,7 +97,7 @@ pub fn lex_sort_contiguous(df: DataFrame) -> DataFusionResult<DataFrame> {
 mod tests {
     use super::lex_sort_contiguous;
     use datafusion::arrow::{
-        array::{ArrayRef, BooleanArray, Int64Array},
+        array::{Array, ArrayRef, BooleanArray, Int64Array},
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
@@ -120,22 +120,26 @@ mod tests {
         batches[0].clone()
     }
 
-    fn int64_column(batch: &RecordBatch, name: &str) -> Vec<i64> {
-        let array = batch
-            .column(batch.schema().index_of(name).expect("column"))
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .expect("int64 column");
-        (0..array.len()).map(|i| array.value(i)).collect()
+    fn batch_rows(batch: &RecordBatch) -> Vec<Vec<String>> {
+        (0..batch.num_rows())
+            .map(|row_idx| {
+                batch
+                    .columns()
+                    .iter()
+                    .map(|col| scalar_to_string(col.as_ref(), row_idx))
+                    .collect()
+            })
+            .collect()
     }
 
-    fn bool_column(batch: &RecordBatch, name: &str) -> Vec<bool> {
-        let array = batch
-            .column(batch.schema().index_of(name).expect("column"))
-            .as_any()
-            .downcast_ref::<BooleanArray>()
-            .expect("bool column");
-        (0..array.len()).map(|i| array.value(i)).collect()
+    fn scalar_to_string(array: &dyn Array, row_idx: usize) -> String {
+        if let Some(array) = array.as_any().downcast_ref::<Int64Array>() {
+            return array.value(row_idx).to_string();
+        }
+        if let Some(array) = array.as_any().downcast_ref::<BooleanArray>() {
+            return array.value(row_idx).to_string();
+        }
+        panic!("unsupported test array type: {:?}", array.data_type());
     }
 
     #[test]
@@ -160,12 +164,23 @@ mod tests {
 
         let sorted = lex_sort_contiguous(df).expect("lex sort");
         let batch = collect_single_batch(sorted);
-
-        assert_eq!(
-            bool_column(&batch, "__activator__"),
-            vec![true, true, false, false]
+        let expected = build_df(
+            Schema::new(vec![
+                Field::new("k1", DataType::Int64, false),
+                Field::new("k2", DataType::Int64, false),
+                Field::new("__activator__", DataType::Boolean, false),
+                Field::new("__row_id__", DataType::Int64, false),
+            ]),
+            vec![
+                Arc::new(Int64Array::from(vec![2, 1, 2, 1])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![5, 4, 5, 3])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, false, false])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![0, 1, 2, 3])) as ArrayRef,
+            ],
         );
-        assert_eq!(int64_column(&batch, "__row_id__"), vec![0, 1, 2, 3]);
+        let expected_batch = collect_single_batch(expected);
+
+        assert_eq!(batch_rows(&batch), batch_rows(&expected_batch));
     }
 
     #[test]
@@ -188,9 +203,21 @@ mod tests {
 
         let sorted = lex_sort_contiguous(df).expect("lex sort");
         let batch = collect_single_batch(sorted);
+        let expected = build_df(
+            Schema::new(vec![
+                Field::new("k1", DataType::Int64, false),
+                Field::new("__activator__", DataType::Boolean, false),
+                Field::new("__row_id__", DataType::Int64, false),
+            ]),
+            vec![
+                Arc::new(Int64Array::from(vec![7, 7, 7, 7])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, true, true])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![0, 1, 2, 3])) as ArrayRef,
+            ],
+        );
+        let expected_batch = collect_single_batch(expected);
 
-        assert_eq!(int64_column(&batch, "__row_id__"), vec![0, 1, 2, 3]);
-        assert_eq!(int64_column(&batch, "k1"), vec![7, 7, 7, 7]);
+        assert_eq!(batch_rows(&batch), batch_rows(&expected_batch));
     }
 
     #[test]
@@ -210,12 +237,87 @@ mod tests {
 
         let sorted = lex_sort_contiguous(df).expect("lex sort");
         let batch = collect_single_batch(sorted);
-
-        assert_eq!(
-            bool_column(&batch, "__activator__"),
-            vec![true, true, false]
+        let expected = build_df(
+            Schema::new(vec![
+                Field::new("k1", DataType::Int64, false),
+                Field::new("__activator__", DataType::Boolean, false),
+                Field::new("__row_id__", DataType::Int64, false),
+            ]),
+            vec![
+                Arc::new(Int64Array::from(vec![2, 1, 3])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, false])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![0, 1, 2])) as ArrayRef,
+            ],
         );
-        assert_eq!(int64_column(&batch, "k1"), vec![2, 1, 3]);
-        assert_eq!(int64_column(&batch, "__row_id__"), vec![0, 1, 2]);
+        let expected_batch = collect_single_batch(expected);
+
+        assert_eq!(batch_rows(&batch), batch_rows(&expected_batch));
+    }
+
+    #[test]
+    fn lex_sort_contiguous_three_columns_mixed_activity_and_scrambled_row_ids() {
+        // Input: 16 rows with three data columns, mixed active/inactive rows, and row ids in a
+        // scrambled order. Output should sort by activator desc, then lexicographically by the
+        // three key columns, using original row_id only as the final tie-breaker, and then
+        // rewrite row ids densely to 0..15.
+        let schema = Schema::new(vec![
+            Field::new("k1", DataType::Int64, false),
+            Field::new("k2", DataType::Int64, false),
+            Field::new("k3", DataType::Int64, false),
+            Field::new("__activator__", DataType::Boolean, false),
+            Field::new("__row_id__", DataType::Int64, false),
+        ]);
+        let df = build_df(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![
+                    3, 1, 2, 0, 2, 1, 3, 0, 1, 2, 0, 3, 1, 2, 0, 3,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![
+                    2, 0, 3, 1, 2, 3, 0, 2, 1, 0, 3, 1, 2, 1, 0, 3,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![
+                    9, 5, 8, 4, 7, 6, 3, 2, 1, 0, 11, 10, 13, 12, 15, 14,
+                ])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![
+                    false, true, false, true, true, false, true, false, true, false, true,
+                    false, true, false, true, false,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![
+                    9, 3, 14, 1, 7, 12, 0, 15, 4, 10, 2, 13, 5, 8, 6, 11,
+                ])) as ArrayRef,
+            ],
+        );
+
+        let sorted = lex_sort_contiguous(df).expect("lex sort");
+        let batch = collect_single_batch(sorted);
+        let expected = build_df(
+            Schema::new(vec![
+                Field::new("k1", DataType::Int64, false),
+                Field::new("k2", DataType::Int64, false),
+                Field::new("k3", DataType::Int64, false),
+                Field::new("__activator__", DataType::Boolean, false),
+                Field::new("__row_id__", DataType::Int64, false),
+            ]),
+            vec![
+                Arc::new(Int64Array::from(vec![
+                    3, 2, 1, 1, 1, 0, 0, 0, 3, 3, 3, 2, 2, 2, 1, 0,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![
+                    0, 2, 2, 1, 0, 3, 1, 0, 3, 2, 1, 3, 1, 0, 3, 2,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![
+                    3, 7, 13, 1, 5, 11, 4, 15, 14, 9, 10, 8, 12, 0, 6, 2,
+                ])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![
+                    true, true, true, true, true, true, true, true, false, false, false,
+                    false, false, false, false, false,
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from((0_i64..16).collect::<Vec<_>>())) as ArrayRef,
+            ],
+        );
+        let expected_batch = collect_single_batch(expected);
+
+        assert_eq!(batch_rows(&batch), batch_rows(&expected_batch));
     }
 }
