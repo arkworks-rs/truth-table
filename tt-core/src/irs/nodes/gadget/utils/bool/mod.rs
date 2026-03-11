@@ -143,9 +143,35 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+        let Some(table) = payload.get(TABLE_LABEL) else {
+            return Ok(());
+        };
+
+        for idx in table.data_tracked_polys_indices() {
+            let col = table.tracked_col_by_ind(idx);
+            let values = col.data_tracked_poly().evaluations();
+            let activator = col.activator_tracked_poly().map(|poly| poly.evaluations());
+            for row_idx in 0..values.len() {
+                if let Some(act) = activator.as_ref()
+                    && act[row_idx] != B::F::one()
+                {
+                    continue;
+                }
+                let value = values[row_idx];
+                if value != B::F::zero() && value != B::F::one() {
+                    return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                        HonestProverError::FalseClaim,
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -211,5 +237,45 @@ impl<B: SnarkBackend> Default for GadgetNode<B> {
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
         Self(PhantomData)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_ff::{One, Zero};
+    use ark_test_curves::bls12_381::Fr;
+
+    fn bool_honest_check_values(values: &[Fr], activator: Option<&[Fr]>) -> bool {
+        for row_idx in 0..values.len() {
+            if let Some(act) = activator
+                && act[row_idx] != Fr::one()
+            {
+                continue;
+            }
+            let value = values[row_idx];
+            if value != Fr::zero() && value != Fr::one() {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn bool_honest_check_accepts_binary_values() {
+        let values = vec![Fr::zero(), Fr::one(), Fr::zero(), Fr::one()];
+        assert!(bool_honest_check_values(&values, None));
+    }
+
+    #[test]
+    fn bool_honest_check_rejects_non_binary_active_values() {
+        let values = vec![Fr::zero(), Fr::from(2u64), Fr::one()];
+        assert!(!bool_honest_check_values(&values, None));
+    }
+
+    #[test]
+    fn bool_honest_check_ignores_inactive_non_binary_values() {
+        let values = vec![Fr::zero(), Fr::from(2u64), Fr::one()];
+        let activator = vec![Fr::one(), Fr::zero(), Fr::one()];
+        assert!(bool_honest_check_values(&values, Some(&activator)));
     }
 }
