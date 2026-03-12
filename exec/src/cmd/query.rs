@@ -125,8 +125,10 @@ fn expand_parquet_inputs(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             files.push(path);
         } else if path.is_dir() {
             let mut found = false;
-            for entry in fs::read_dir(&path)? {
-                let entry = entry?;
+            let mut dir_entries = fs::read_dir(&path)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            dir_entries.sort_by_key(|entry| entry.path());
+            for entry in dir_entries {
                 let file_path = entry.path();
                 if is_parquet_file(&file_path) {
                     files.push(file_path);
@@ -143,6 +145,8 @@ fn expand_parquet_inputs(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             bail!("parquet input path {} does not exist", path.display());
         }
     }
+    files.sort();
+    files.dedup();
     Ok(files)
 }
 

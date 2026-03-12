@@ -237,7 +237,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         {
             for (idx, included_col) in included_cols.iter().enumerate() {
                 let included_vals: Vec<B::F> = included_col.effective_iter().into_iter().collect();
-                let super_set: HashSet<B::F> = super_col.effective_hashset();
+                let super_set = super_col.effective_hashset();
                 let missing: Vec<B::F> = included_vals
                     .iter()
                     .copied()

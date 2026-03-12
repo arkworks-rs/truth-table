@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::BTreeSet,
     sync::{Arc, Mutex, Weak},
 };
 
@@ -186,7 +186,7 @@ impl<B: SnarkBackend> LpNode<B> {
         )
     }
 
-    fn field_names_prover(table: &arithmetic::table::TrackedTable<B>) -> HashSet<String> {
+    fn field_names_prover(table: &arithmetic::table::TrackedTable<B>) -> BTreeSet<String> {
         table
             .tracked_polys_iter()
             .map(|(field, _)| field.name().to_string())
@@ -195,7 +195,7 @@ impl<B: SnarkBackend> LpNode<B> {
 
     fn field_names_verifier(
         table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-    ) -> HashSet<String> {
+    ) -> BTreeSet<String> {
         table
             .tracked_oracles_iter()
             .map(|(field, _)| field.name().to_string())
@@ -205,8 +205,8 @@ impl<B: SnarkBackend> LpNode<B> {
     fn preserve_constraints_for_field(
         mode: modes::JoinMode,
         field_name: &str,
-        left_names: &HashSet<String>,
-        right_names: &HashSet<String>,
+        left_names: &BTreeSet<String>,
+        right_names: &BTreeSet<String>,
     ) -> bool {
         match mode {
             // left unique, right is FK-preserved side
@@ -243,8 +243,8 @@ impl<B: SnarkBackend> LpNode<B> {
     fn update_constraints_prover(
         table: &arithmetic::table::TrackedTable<B>,
         mode: modes::JoinMode,
-        left_names: &HashSet<String>,
-        right_names: &HashSet<String>,
+        left_names: &BTreeSet<String>,
+        right_names: &BTreeSet<String>,
     ) -> arithmetic::table::TrackedTable<B> {
         let mut updated_polys = IndexMap::new();
         for (field, poly) in table.tracked_polys_iter() {
@@ -263,8 +263,8 @@ impl<B: SnarkBackend> LpNode<B> {
     fn update_constraints_verifier(
         table: &arithmetic::table_oracle::TrackedTableOracle<B>,
         mode: modes::JoinMode,
-        left_names: &HashSet<String>,
-        right_names: &HashSet<String>,
+        left_names: &BTreeSet<String>,
+        right_names: &BTreeSet<String>,
     ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
         let mut updated_oracles = IndexMap::new();
         for (field, oracle) in table.tracked_oracles_iter() {
@@ -596,14 +596,14 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             .fields()
             .iter()
             .map(|field| field.name().clone())
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<std::collections::BTreeSet<_>>();
         let right_fields = right_hint_df
             .data_frame()
             .schema()
             .fields()
             .iter()
             .map(|field| field.name().clone())
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<std::collections::BTreeSet<_>>();
 
         let should_materialize: IndexMap<_, _> = joined
             .schema()
@@ -677,14 +677,14 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .fields()
             .iter()
             .map(|field| field.name().clone())
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<std::collections::BTreeSet<_>>();
         let right_fields = right_hint_df
             .data_frame()
             .schema()
             .fields()
             .iter()
             .map(|field| field.name().clone())
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<std::collections::BTreeSet<_>>();
 
         let should_materialize: IndexMap<_, _> = joined
             .schema()

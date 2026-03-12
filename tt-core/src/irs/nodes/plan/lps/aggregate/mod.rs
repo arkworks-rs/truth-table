@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
@@ -255,13 +255,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .unwrap_or_default();
 
         let mut merged_polys = current_table.tracked_polys();
-        let aggregate_output_names: HashSet<String> = self
+        let aggregate_output_names: BTreeSet<String> = self
             .aggregate
             .aggr_expr
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
-        let group_output_names: HashSet<String> = self
+        let group_output_names: BTreeSet<String> = self
             .aggregate
             .group_expr
             .iter()
@@ -414,7 +414,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
-        let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
+        let aggregate_field_names: std::collections::BTreeSet<String> = schema_fields[aggr_start..]
             .iter()
             .map(|field| field.name().to_string())
             .collect();
@@ -451,7 +451,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
-        let aggregate_field_names: std::collections::HashSet<String> = schema_fields[aggr_start..]
+        let aggregate_field_names: std::collections::BTreeSet<String> = schema_fields[aggr_start..]
             .iter()
             .map(|field| field.name().to_string())
             .collect();
@@ -637,13 +637,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         let mut merged_oracles = current_table_opt
             .map(TrackedTableOracle::tracked_oracles)
             .unwrap_or_default();
-        let aggregate_output_names: HashSet<String> = self
+        let aggregate_output_names: BTreeSet<String> = self
             .aggregate
             .aggr_expr
             .iter()
             .map(|expr| expr.schema_name().to_string())
             .collect();
-        let group_output_names: HashSet<String> = self
+        let group_output_names: BTreeSet<String> = self
             .aggregate
             .group_expr
             .iter()
@@ -769,7 +769,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
                 "Aggregate aggr expr list must align with expr nodes"
             );
 
-            let count_output_names: std::collections::HashSet<String> =
+            let count_output_names: std::collections::BTreeSet<String> =
                 count_output_names(&aggregate.aggr_expr)
                     .into_iter()
                     .collect();
@@ -978,7 +978,7 @@ fn populate_aggregate_function_exprs<B: SnarkBackend>(
         "Aggregate aggr expr list must align with expr nodes"
     );
 
-    let count_output_names: std::collections::HashSet<String> =
+    let count_output_names: std::collections::BTreeSet<String> =
         count_output_names(&aggregate.aggr_expr)
             .into_iter()
             .collect();

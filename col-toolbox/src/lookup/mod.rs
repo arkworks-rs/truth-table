@@ -102,14 +102,14 @@ impl<B: SnarkBackend> PIOP<B> for HintedLookupPIOP<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        use std::collections::HashSet;
+        use indexmap::IndexSet;
 
         use ark_piop::{
             errors::SnarkError,
             prover::errors::{HonestProverError, ProverError},
         };
 
-        let super_col_hash_set: HashSet<B::F> = input.super_col.effective_hashset();
+        let super_col_hash_set: IndexSet<B::F> = input.super_col.effective_hashset();
         for elem in input.included_cols.iter().flat_map(|c| c.effective_iter()) {
             if !super_col_hash_set.contains(&elem) {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(
@@ -204,14 +204,14 @@ impl<B: SnarkBackend> PIOP<B> for LookupPIOP<B> {
 
     #[cfg(feature = "honest-prover")]
     fn honest_prover_check(input: Self::ProverInput) -> SnarkResult<()> {
-        use std::collections::HashSet;
+        use indexmap::IndexSet;
 
         use ark_piop::{
             errors::SnarkError,
             prover::errors::{HonestProverError, ProverError},
         };
 
-        let super_col_hash_set: HashSet<B::F> = input.super_col.effective_hashset();
+        let super_col_hash_set: IndexSet<B::F> = input.super_col.effective_hashset();
         for elem in input.included_cols.iter().flat_map(|c| c.effective_iter()) {
             if !super_col_hash_set.contains(&elem) {
                 return Err(SnarkError::ProverError(ProverError::HonestProverError(

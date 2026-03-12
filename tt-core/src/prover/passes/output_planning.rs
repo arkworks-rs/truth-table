@@ -1,6 +1,6 @@
 use crate::irs::{
     ir::LocalPass,
-    nodes::{IsProverPlanNode, Node, NodeId},
+    nodes::{IsProverPlanNode, Node, NodeId, hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope}},
     payloads::{EmptyPayload, HintDFPayload, PayloadStructure},
 };
 use ark_piop::SnarkBackend;
@@ -44,6 +44,14 @@ where
             }
             Node::Gadget(_) => None,
         }
+    }
+
+    fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, EmptyPayload>) {
+        begin_schema_only_ctx_scope();
+    }
+
+    fn end_pass(&self) {
+        end_schema_only_ctx_scope();
     }
 
     fn name(&self) -> &'static str {

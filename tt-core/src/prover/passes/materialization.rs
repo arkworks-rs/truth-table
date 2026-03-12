@@ -26,7 +26,7 @@ use indexmap::IndexMap;
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
 };
@@ -38,7 +38,7 @@ const PK_METADATA_KEY: &str = "tt.pk";
 const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
 const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
 
-static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<HashMap<String, TableConstraint>>> = OnceLock::new();
+static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<BTreeMap<String, TableConstraint>>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 struct ConstraintManifest {
@@ -63,8 +63,8 @@ struct ForeignKeySpec {
 
 #[derive(Clone, Debug, Default)]
 struct TableConstraint {
-    primary_key_cols: HashSet<String>,
-    foreign_key_by_col: HashMap<String, ForeignKeyColConstraint>,
+    primary_key_cols: BTreeSet<String>,
+    foreign_key_by_col: BTreeMap<String, ForeignKeyColConstraint>,
 }
 
 #[derive(Clone, Debug)]
@@ -96,14 +96,14 @@ impl<B> Default for MaterializationPass<B> {
 /// `tt.fk.*` metadata onto output schema fields.
 pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
     crate::irs::nodes::hints::configure_constraint_metadata_from_parquet_paths(parquet_paths);
-    let mut merged = HashMap::new();
+    let mut merged = BTreeMap::new();
     for parquet_path in parquet_paths {
         let Some(dir) = parquet_path.parent() else {
             continue;
         };
         merge_constraints_from_dir(dir, &mut merged);
     }
-    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(HashMap::new()));
+    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(BTreeMap::new()));
     if let Ok(mut guard) = lock.write() {
         *guard = merged;
     }
@@ -182,6 +182,8 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let df = df
         .select(projection)
         .expect("materialization projection should succeed");
+    let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)
+        .expect("materialization row-id sort should succeed");
 
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
 
@@ -228,7 +230,7 @@ fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
     Schema::new_with_metadata(fields, arrow_schema.metadata().clone())
 }
 
-fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstraint>) {
+fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstraint>) {
     let path = dir.join(CONSTRAINTS_FILE_NAME);
     let Ok(raw) = std::fs::read_to_string(path) else {
         return;
@@ -245,7 +247,7 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstra
                 .into_iter()
                 .map(|c| c.to_lowercase())
                 .collect(),
-            foreign_key_by_col: HashMap::new(),
+            foreign_key_by_col: BTreeMap::new(),
         };
 
         for fk in table.foreign_keys {

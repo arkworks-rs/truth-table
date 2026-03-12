@@ -12,7 +12,8 @@ use datafusion_expr::{Expr, LogicalPlan, SortExpr, col, expr::Alias, expr_fn::tr
 use indexmap::IndexMap;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
 };
@@ -153,9 +154,30 @@ pub fn sort_by_row_id_if_present(df: DataFrame) -> DataFusionResult<DataFrame> {
 
 pub fn schema_only_df(fields: Vec<Field>) -> DataFrame {
     static SCHEMA_ONLY_CTX: OnceLock<SessionContext> = OnceLock::new();
-    let ctx = SCHEMA_ONLY_CTX.get_or_init(SessionContext::new);
+    let ctx = scoped_schema_only_ctx()
+        .unwrap_or_else(|| SCHEMA_ONLY_CTX.get_or_init(SessionContext::new).clone());
     ctx.read_batch(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
         .expect("schema-only dataframe construction should succeed")
+}
+
+thread_local! {
+    static SCHEMA_ONLY_CTX_SCOPE: RefCell<Option<SessionContext>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn begin_schema_only_ctx_scope() {
+    SCHEMA_ONLY_CTX_SCOPE.with(|cell| {
+        *cell.borrow_mut() = Some(SessionContext::new());
+    });
+}
+
+pub(crate) fn end_schema_only_ctx_scope() {
+    SCHEMA_ONLY_CTX_SCOPE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+pub(crate) fn scoped_schema_only_ctx() -> Option<SessionContext> {
+    SCHEMA_ONLY_CTX_SCOPE.with(|cell| cell.borrow().clone())
 }
 
 pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
@@ -291,7 +313,7 @@ const PK_METADATA_KEY: &str = "tt.pk";
 const FK_REF_TABLE_METADATA_KEY: &str = "tt.fk.ref_table";
 const FK_REF_COLUMNS_METADATA_KEY: &str = "tt.fk.ref_columns";
 
-static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<HashMap<String, TableConstraint>>> = OnceLock::new();
+static CONSTRAINTS_BY_TABLE: OnceLock<RwLock<BTreeMap<String, TableConstraint>>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 struct ConstraintManifest {
@@ -316,8 +338,8 @@ struct ForeignKeySpec {
 
 #[derive(Clone, Debug, Default)]
 struct TableConstraint {
-    primary_key_cols: HashSet<String>,
-    foreign_key_by_col: HashMap<String, ForeignKeyColConstraint>,
+    primary_key_cols: BTreeSet<String>,
+    foreign_key_by_col: BTreeMap<String, ForeignKeyColConstraint>,
 }
 
 #[derive(Clone, Debug)]
@@ -358,14 +380,14 @@ pub fn column_constraint_metadata(
 }
 
 pub fn configure_constraint_metadata_from_parquet_paths(parquet_paths: &[PathBuf]) {
-    let mut merged = HashMap::new();
+    let mut merged = BTreeMap::new();
     for parquet_path in parquet_paths {
         let Some(dir) = parquet_path.parent() else {
             continue;
         };
         merge_constraints_from_dir(dir, &mut merged);
     }
-    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(HashMap::new()));
+    let lock = CONSTRAINTS_BY_TABLE.get_or_init(|| RwLock::new(BTreeMap::new()));
     if let Ok(mut guard) = lock.write() {
         *guard = merged;
     }
@@ -392,7 +414,7 @@ fn field_with_qualifier_metadata(field: &FieldRef, qualifier: Option<&TableRefer
     Arc::new(updated)
 }
 
-fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstraint>) {
+fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstraint>) {
     let path = dir.join(CONSTRAINTS_FILE_NAME);
     let Ok(raw) = std::fs::read_to_string(path) else {
         return;
@@ -409,7 +431,7 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut HashMap<String, TableConstra
                 .into_iter()
                 .map(|c| c.to_lowercase())
                 .collect(),
-            foreign_key_by_col: HashMap::new(),
+            foreign_key_by_col: BTreeMap::new(),
         };
 
         for fk in table.foreign_keys {

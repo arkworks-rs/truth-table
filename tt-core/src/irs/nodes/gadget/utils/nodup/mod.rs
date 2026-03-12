@@ -80,6 +80,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
             Gadgets::BezoutNoDup => vec![],
             Gadgets::SortNoDup(g) => vec![g.0.clone()],
         }
+        // vec![]
     }
 }
 

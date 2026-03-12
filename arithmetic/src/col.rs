@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::{collections::HashSet, fmt};
+use std::fmt;
 
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
@@ -12,6 +12,7 @@ use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::common::Column;
 use datafusion_expr::Expr;
 use derivative::Derivative;
+use indexmap::IndexSet;
 use once_cell::sync::Lazy;
 
 pub const ACTIVATOR_COL_NAME: &str = "__activator__";
@@ -212,10 +213,8 @@ impl<B: SnarkBackend> TrackedCol<B> {
 
     /// Returns a hashset of the activated data elements
     /// Useful for testing and debugging
-    pub fn effective_hashset(&self) -> HashSet<B::F> {
-        self.effective_iter()
-            .into_iter()
-            .collect::<std::collections::HashSet<B::F>>()
+    pub fn effective_hashset(&self) -> IndexSet<B::F> {
+        self.effective_iter().into_iter().collect::<IndexSet<B::F>>()
     }
 
     /// Pretty-print the tracked column, optionally showing the activator

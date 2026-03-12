@@ -17,7 +17,7 @@
 
 //! [`OptimizeProjections`] identifies and eliminates unused columns
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
@@ -591,9 +591,9 @@ fn rewrite_expr(expr: Expr, input: &Projection) -> Result<Transformed<Expr>> {
 /// # Parameters
 ///
 /// * `expr` - The expression to analyze for outer-referenced columns.
-/// * `columns` - A mutable reference to a `HashSet<Column>` where detected
+/// * `columns` - A mutable reference to a `BTreeSet<Column>` where detected
 ///   columns are collected.
-fn outer_columns<'a>(expr: &'a Expr, columns: &mut HashSet<&'a Column>) {
+fn outer_columns<'a>(expr: &'a Expr, columns: &mut BTreeSet<&'a Column>) {
     // inspect_expr_pre doesn't handle subquery references, so find them explicitly
     expr.apply(|expr| {
         match expr {
@@ -623,11 +623,11 @@ fn outer_columns<'a>(expr: &'a Expr, columns: &mut HashSet<&'a Column>) {
 /// # Parameters
 ///
 /// * `exprs` - The expressions to analyze for outer-referenced columns.
-/// * `columns` - A mutable reference to a `HashSet<Column>` where detected
+/// * `columns` - A mutable reference to a `BTreeSet<Column>` where detected
 ///   columns are collected.
 fn outer_columns_helper_multi<'a, 'b>(
     exprs: impl IntoIterator<Item = &'a Expr>,
-    columns: &'b mut HashSet<&'a Column>,
+    columns: &'b mut BTreeSet<&'a Column>,
 ) {
     exprs.into_iter().for_each(|e| outer_columns(e, columns));
 }
@@ -886,7 +886,8 @@ mod required_indices {
         /// * `expr`: An expression for which we want to find necessary field indices.
         fn add_expr(&mut self, input_schema: &DFSchemaRef, expr: &Expr) {
             // TODO could remove these clones (and visit the expression directly)
-            let mut cols = expr.column_refs();
+            let mut cols: std::collections::BTreeSet<&Column> =
+                expr.column_refs().into_iter().collect();
             // Get outer-referenced (subquery) columns:
             outer_columns(expr, &mut cols);
             self.indices.reserve(cols.len());

@@ -1,13 +1,13 @@
 use ark_ff::PrimeField;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 // Returns a map from the unique evaluations of col to their multiplicities
 // does not include values where the selector is zero
-pub fn vec_multiplicity_count<F>(poly: &[F], sel: Option<&[F]>) -> HashMap<F, u64>
+pub fn vec_multiplicity_count<F>(poly: &[F], sel: Option<&[F]>) -> IndexMap<F, u64>
 where
     F: PrimeField,
 {
-    let mut mults_map = HashMap::<F, u64>::new();
+    let mut mults_map = IndexMap::<F, u64>::new();
 
     if let Some(sel) = sel {
         for (i, &val) in poly.iter().enumerate() {

@@ -258,7 +258,14 @@ fn source_ids_from_payload_lookup(
                 ScalarValue::try_from_array(batch.column(row_id_idx).as_ref(), row)?,
                 input_row_id_name,
             )?;
-            payload_to_source.entry(payload).or_insert(row_id);
+            payload_to_source
+                .entry(payload)
+                .and_modify(|existing| {
+                    if row_id < *existing {
+                        *existing = row_id;
+                    }
+                })
+                .or_insert(row_id);
         }
     }
 
@@ -613,6 +620,7 @@ fn with_activator_only(mut exprs: Vec<Expr>) -> Vec<Expr> {
 }
 
 fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
+    let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)?;
     let batches = collect_blocking(df)?;
     let ctx = SessionContext::new();
     if batches.is_empty() {

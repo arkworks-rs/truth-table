@@ -104,7 +104,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
 
         // Keep qualifier-aware DFSchema for verifier column resolution while staying schema-only.
         static VERIFIER_SCHEMA_CTX: OnceLock<SessionContext> = OnceLock::new();
-        let ctx = VERIFIER_SCHEMA_CTX.get_or_init(SessionContext::new);
+        let ctx = crate::irs::nodes::hints::scoped_schema_only_ctx()
+            .unwrap_or_else(|| VERIFIER_SCHEMA_CTX.get_or_init(SessionContext::new).clone());
         let df = DataFrame::new(
             ctx.state(),
             LogicalPlan::EmptyRelation(EmptyRelation {

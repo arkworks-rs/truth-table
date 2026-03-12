@@ -1,6 +1,7 @@
 use crate::irs::{
     ir::LocalPass,
     nodes::{
+        hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope},
         IsVerifierPlanNode, Node, NodeId, begin_verifier_output_cache_scope,
         end_verifier_output_cache_scope,
     },
@@ -50,11 +51,13 @@ where
     }
 
     fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, EmptyPayload>) {
+        begin_schema_only_ctx_scope();
         begin_verifier_output_cache_scope();
     }
 
     fn end_pass(&self) {
         end_verifier_output_cache_scope();
+        end_schema_only_ctx_scope();
     }
 
     fn name(&self) -> &'static str {
