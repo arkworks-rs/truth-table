@@ -35,41 +35,41 @@ fn tpch_cases() -> &'static [BenchCase] {
 
 
         let cases = vec![
-            // BenchCase {
-            //     name: "tpch_q1",
-            //     query: q1.sql,
-            //     tables: q1.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q1_poneglyph",
-            //     query: q1_poneglyph.sql,
-            //     tables: q1_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q3_poneglyph",
-            //     query: q3_poneglyph.sql,
-            //     tables: q3_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q3",
-            //     query: q3.sql,
-            //     tables: q3.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q5",
-            //     query: q5.sql,
-            //     tables: q5.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q5_poneglyph",
-            //     query: q5_poneglyph.sql,
-            //     tables: q5_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q6",
-            //     query: q6.sql,
-            //     tables: q6.tables,
-            // },
+            BenchCase {
+                name: "tpch_q1",
+                query: q1.sql,
+                tables: q1.tables,
+            },
+            BenchCase {
+                name: "tpch_q1_poneglyph",
+                query: q1_poneglyph.sql,
+                tables: q1_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q3_poneglyph",
+                query: q3_poneglyph.sql,
+                tables: q3_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q3",
+                query: q3.sql,
+                tables: q3.tables,
+            },
+            BenchCase {
+                name: "tpch_q5",
+                query: q5.sql,
+                tables: q5.tables,
+            },
+            BenchCase {
+                name: "tpch_q5_poneglyph",
+                query: q5_poneglyph.sql,
+                tables: q5_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q6",
+                query: q6.sql,
+                tables: q6.tables,
+            },
             BenchCase {
                 name: "tpch_q7",
                 query: q7.sql,

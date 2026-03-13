@@ -24,6 +24,7 @@ use rayon::prelude::*;
 pub struct CommitmentPass<B: SnarkBackend> {
     mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
     ctx_oracles: CtxOracles<B>,
+    allow_table_scan_commit_without_ctx: bool,
     total_committed: AtomicUsize, // Count polynomials committed by this pass.
     total_ctx_loaded: AtomicUsize, // Count polynomials loaded from ctx oracles.
 }
@@ -32,10 +33,12 @@ impl<B: SnarkBackend> CommitmentPass<B> {
     pub fn new(
         mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
         ctx_oracles: CtxOracles<B>,
+        allow_table_scan_commit_without_ctx: bool,
     ) -> Self {
         Self {
             mv_pcs_param,
             ctx_oracles,
+            allow_table_scan_commit_without_ctx,
             total_committed: AtomicUsize::new(0),
             total_ctx_loaded: AtomicUsize::new(0),
         }
@@ -73,7 +76,7 @@ where
             ArithPayload::PlanPayload(arith_table) => {
                 if node.name() == "TableScan" {
                     if let Some(schema) = arith_table.schema() {
-                        if let Some(oracle) = self.ctx_oracles.table_oracle(&schema) {
+                        if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
                             // A cached table-scan commitment is only safe to reuse when it lives
                             // on the same multilinear domain as the current arithmetized table.
                             if oracle.log_size() == arith_table.log_size() {
@@ -87,18 +90,21 @@ where
                                     .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
                                 return Some(CommittedPayload::PlanPayload(oracle.clone()));
                             }
+                            panic!(
+                                "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
+                                schema,
+                                oracle.log_size(),
+                                arith_table.log_size()
+                            );
                         }
-                        if let Some(oracle) = self.ctx_oracles.table_oracles().iter().find_map(
-                            |(ctx_schema, oracle)| {
-                                (schema_eq_ignoring_metadata(ctx_schema, &schema)
-                                    && oracle.log_size() == arith_table.log_size())
-                                    .then_some(oracle)
-                            },
-                        ) {
-                            self.total_ctx_loaded
-                                .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
-                            return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                        if self.allow_table_scan_commit_without_ctx {
+                            let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
+                            debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
+                            self.total_committed
+                                .fetch_add(commited_payloadd.comitments().len(), Ordering::Relaxed);
+                            return Some(CommittedPayload::PlanPayload(commited_payloadd));
                         }
+                        panic!("Missing ctx_oracle for TableScan schema {:?}", schema);
                     }
                 }
                 let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
@@ -173,21 +179,6 @@ fn arith_to_oracle<B: SnarkBackend>(
 
     let schema = enrich_schema_with_constraint_summary(arith_table.schema());
     ArithTableOracle::new(schema, commitments, arith_table.log_size())
-}
-
-fn schema_eq_ignoring_metadata(left: &Schema, right: &Schema) -> bool {
-    if left.fields().len() != right.fields().len() {
-        return false;
-    }
-    left.fields()
-        .iter()
-        .zip(right.fields().iter())
-        .all(|(l, r)| {
-            l.name() == r.name()
-                && l.data_type() == r.data_type()
-                && l.is_nullable() == r.is_nullable()
-                && l.metadata() == r.metadata()
-        })
 }
 
 fn enrich_schema_with_constraint_summary(schema: Option<Schema>) -> Option<Schema> {

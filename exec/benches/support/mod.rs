@@ -449,7 +449,8 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
         .map(load_oracle)
         .collect::<Result<Vec<_>>>()
         .expect("load oracles for bench");
-    let ctx_oracles = ctx_oracles_from_oracles(&oracles).expect("build ctx oracles for bench");
+    let ctx_oracles = ctx_oracles_from_oracles(&assets.parquet_paths, &oracles)
+        .expect("build ctx oracles for bench");
 
     let tt_vk = TTVk::<B>::load(&assets.vk_path).expect("load verifying key for bench");
     let arg_verifier = ArgVerifier::new_from_vk(tt_vk.into_inner());
@@ -472,17 +473,25 @@ fn load_oracle(path: &PathBuf) -> Result<arithmetic::table_oracle::ArithTableOra
 }
 
 fn ctx_oracles_from_oracles(
+    parquet_paths: &[PathBuf],
     oracles: &[arithmetic::table_oracle::ArithTableOracle<B>],
 ) -> Result<CtxOracles<B>> {
     // Build the oracle map keyed by schema.
     let mut table_oracles = IndexMap::new();
-    for oracle in oracles {
+    let mut named_oracles = IndexMap::new();
+    for (path, oracle) in parquet_paths.iter().zip(oracles.iter()) {
         let schema = oracle
             .schema()
             .ok_or_else(|| anyhow::anyhow!("oracle does not provide a schema"))?;
+        let table_name = path
+            .file_stem()
+            .ok_or_else(|| anyhow::anyhow!("parquet {} missing file stem", path.display()))?
+            .to_string_lossy()
+            .to_string();
         table_oracles.insert(schema, oracle.clone());
+        named_oracles.insert(table_name, oracle.clone());
     }
-    Ok(CtxOracles::new(table_oracles))
+    Ok(CtxOracles::with_named_oracles(table_oracles, named_oracles))
 }
 
 fn build_shared_config(

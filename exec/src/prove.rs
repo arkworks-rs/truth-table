@@ -215,15 +215,22 @@ impl ProveRunner {
     #[instrument(level = "debug", skip_all)]
     fn ctx_oracles_from_paths(&self) -> Result<CtxOracles<B>> {
         let mut table_oracles = IndexMap::new();
-        for oracle_path in &self.oracle_paths {
+        let mut named_oracles = IndexMap::new();
+        for (parquet_path, oracle_path) in self.parquet_paths.iter().zip(self.oracle_paths.iter()) {
             let oracle = self.load_oracle(oracle_path)?;
             let schema = oracle
                 .schema()
                 .ok_or_else(|| anyhow!("oracle {} missing schema", oracle_path.display()))?;
+            let table_name = parquet_path
+                .file_stem()
+                .ok_or_else(|| anyhow!("parquet {} missing file stem", parquet_path.display()))?
+                .to_string_lossy()
+                .to_string();
             table_oracles.insert(schema, oracle.clone());
+            named_oracles.insert(table_name, oracle);
         }
 
-        Ok(CtxOracles::new(table_oracles))
+        Ok(CtxOracles::with_named_oracles(table_oracles, named_oracles))
     }
 
     fn build_shared_config(&self, session_ctx: SessionContext) -> Result<TTSharedConfig<B>> {

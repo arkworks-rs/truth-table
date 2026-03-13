@@ -1,4 +1,4 @@
-use arithmetic::table_oracle::TrackedTableOracle;
+use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
 use datafusion::arrow::datatypes::{FieldRef, Schema};
 use datafusion_common::DFSchema;
@@ -44,7 +44,7 @@ where
     }
     fn transform(
         &self,
-        _node: &Node<B>,
+        node: &Node<B>,
         _id: NodeId,
         payload: Option<&HintDFPayload>,
     ) -> Option<TrackedPayload<B>> {
@@ -53,8 +53,17 @@ where
         match payload {
             // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
-                // TableScan commitments must come from the proof so the verifier follows the
-                // exact IDs and domains chosen by the prover for this run.
+                if node.name() == "TableScan" {
+                    let base_schema: Schema =
+                        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
+                    if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&base_schema) {
+                        // TableScan commitments are public input and must come from the oracle
+                        // files, not from prover-selected proof commitments.
+                        return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
+                            .map(TrackedPayload::PlanPayload);
+                    }
+                    panic!("Missing ctx_oracle for verifier TableScan schema {:?}", base_schema);
+                }
                 track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
             }
             HintDFPayload::GadgetPayload(map) => {
@@ -75,6 +84,61 @@ where
 
     fn name(&self) -> &'static str {
         "Verifier Tracking"
+    }
+}
+
+fn track_hint_df_from_oracle<B: SnarkBackend>(
+    hint_df: &crate::irs::nodes::hints::HintDF,
+    oracle: &ArithTableOracle<B>,
+    verifier: &RefCell<ArgVerifier<B>>,
+) -> Option<TrackedTableOracle<B>> {
+    let df_schema_ref = hint_df.data_frame().schema();
+    let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
+    let qualified_fields = qualify_fields(&df_schema_ref);
+    let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
+    let mut log_size = 0usize;
+
+    let mut verifier = verifier.borrow_mut();
+    for (field, should_mat) in hint_df.field_materialization_iter() {
+        if !*should_mat {
+            continue;
+        }
+        let qualified_field = qualified_fields
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| field.clone());
+        let commitment = oracle
+            .comitments()
+            .get(field)
+            .cloned()
+            .or_else(|| {
+                oracle
+                    .comitments()
+                    .iter()
+                    .find(|(oracle_field, _)| oracle_field.name() == field.name())
+                    .map(|(_, commitment)| commitment.clone())
+            })
+            .unwrap_or_else(|| panic!("ctx_oracle missing commitment for field {}", field.name()));
+        let tracked_oracle = verifier
+            .track_mat_mv_com(commitment)
+            .expect("verifier should track ctx_oracle commitment");
+        if log_size == 0 {
+            log_size = tracked_oracle.log_size();
+        } else {
+            debug_assert_eq!(log_size, tracked_oracle.log_size());
+        }
+        tracked_oracles.insert(qualified_field, tracked_oracle);
+    }
+
+    if tracked_oracles.is_empty() {
+        None
+    } else {
+        let schema = Some(build_tracked_schema(
+            &base_schema,
+            tracked_oracles.keys(),
+            oracle.schema_ref(),
+        ));
+        Some(TrackedTableOracle::new(schema, tracked_oracles, log_size))
     }
 }
 

@@ -27,6 +27,7 @@ clap = { workspace = true }
 indexmap = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+parquet = { workspace = true }
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 divan = { workspace = true }

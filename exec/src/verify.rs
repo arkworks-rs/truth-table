@@ -165,7 +165,7 @@ impl VerifyRunner {
             .iter()
             .map(|path| load_oracle(path))
             .collect::<Result<Vec<_>>>()?;
-        let ctx_oracles = ctx_oracles_from_oracles(&oracles)?;
+        let ctx_oracles = ctx_oracles_from_oracles(&self.parquet_paths, &oracles)?;
         let shared_config = build_shared_config(ctx, ctx_oracles);
 
         let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
@@ -187,15 +187,25 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
         .context("failed to deserialize oracle")
 }
 
-fn ctx_oracles_from_oracles(oracles: &[ArithTableOracle<B>]) -> Result<CtxOracles<B>> {
+fn ctx_oracles_from_oracles(
+    parquet_paths: &[PathBuf],
+    oracles: &[ArithTableOracle<B>],
+) -> Result<CtxOracles<B>> {
     let mut table_oracles = IndexMap::new();
-    for oracle in oracles {
+    let mut named_oracles = IndexMap::new();
+    for (path, oracle) in parquet_paths.iter().zip(oracles.iter()) {
         let schema = oracle
             .schema()
             .ok_or_else(|| anyhow!("oracle does not provide a schema"))?;
+        let table_name = path
+            .file_stem()
+            .ok_or_else(|| anyhow!("parquet {} missing file stem", path.display()))?
+            .to_string_lossy()
+            .to_string();
         table_oracles.insert(schema, oracle.clone());
+        named_oracles.insert(table_name, oracle.clone());
     }
-    Ok(CtxOracles::new(table_oracles))
+    Ok(CtxOracles::with_named_oracles(table_oracles, named_oracles))
 }
 
 fn build_shared_config(

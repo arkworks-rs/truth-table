@@ -38,11 +38,19 @@ use tt_core::{
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
 pub struct TTProverConfig<B: SnarkBackend> {
+    allow_table_scan_commit_without_ctx: bool,
     phantom: std::marker::PhantomData<B>,
 }
 impl<B: SnarkBackend> TTProverConfig<B> {
     pub fn new() -> Self {
         Self {
+            allow_table_scan_commit_without_ctx: false,
+            phantom: std::marker::PhantomData,
+        }
+    }
+    pub fn for_commit() -> Self {
+        Self {
+            allow_table_scan_commit_without_ctx: true,
             phantom: std::marker::PhantomData,
         }
     }
@@ -66,7 +74,11 @@ impl<B: SnarkBackend> TTProverConfig<B> {
         mv_pcs_param: Arc<<B::MvPCS as PCS<B::F>>::ProverParam>,
         ctx_oracles: CtxOracles<B>,
     ) -> CommitmentPass<B> {
-        CommitmentPass::new(mv_pcs_param, ctx_oracles)
+        CommitmentPass::new(
+            mv_pcs_param,
+            ctx_oracles,
+            self.allow_table_scan_commit_without_ctx,
+        )
     }
     pub fn tracking_pass<'a>(
         &self,

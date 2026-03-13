@@ -2,6 +2,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use ark_piop::test_utils::init_subscriber;
+use arithmetic::table_oracle::ArithTableOracle;
+use ark_piop::DefaultSnarkBackend;
+use ark_serialize::CanonicalDeserialize;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use std::fs::File;
+use tracing::warn;
 
 use crate::{
     commit::CommitBuilder,
@@ -11,6 +17,8 @@ use crate::{
     verify::VerifyBuilder,
 };
 use tpch_data::{bench_data_path, test_data_path};
+
+type B = DefaultSnarkBackend;
 
 /// Executes an end-to-end proving and verification pipeline for the provided
 /// query by delegating to the CLI runners defined in `prove` and `verify`.
@@ -77,21 +85,16 @@ pub fn resolve_key_paths(log_size: usize) -> Result<(PathBuf, PathBuf)> {
 }
 
 pub async fn resolve_oracle_path(parquet_path: &Path, pk_path: &Path) -> Result<PathBuf> {
-    let table_name = parquet_path
-        .file_stem()
-        .ok_or_else(|| anyhow!("parquet path must include a file name"))?
-        .to_string_lossy()
-        .to_string();
     let parquet_oracle = parquet_path.with_extension("oracle");
-    if parquet_oracle.exists() {
+    if parquet_oracle.exists() && oracle_matches_parquet(&parquet_oracle, parquet_path)? {
         return Ok(parquet_oracle);
     }
-
-    let default_oracle = std::env::current_dir()
-        .context("failed to determine current directory")?
-        .join(format!("{table_name}.oracle"));
-    if default_oracle.exists() {
-        return Ok(default_oracle);
+    if parquet_oracle.exists() {
+        warn!(
+            parquet = %parquet_path.display(),
+            oracle = %parquet_oracle.display(),
+            "stale oracle detected; regenerating from parquet"
+        );
     }
 
     let output_root = parquet_oracle.parent().map(Path::to_path_buf);
@@ -125,4 +128,29 @@ pub fn resolve_parquet_path(table_name: &str) -> Result<PathBuf> {
     Err(anyhow!(
         "could not locate parquet file for table '{table_name}'"
     ))
+}
+
+fn oracle_matches_parquet(oracle_path: &Path, parquet_path: &Path) -> Result<bool> {
+    let oracle_log_size = load_oracle_log_size(oracle_path)?;
+    let parquet_log_size = parquet_log_size(parquet_path)?;
+    Ok(oracle_log_size == parquet_log_size)
+}
+
+fn load_oracle_log_size(oracle_path: &Path) -> Result<usize> {
+    let file = File::open(oracle_path)
+        .with_context(|| format!("failed to open oracle file {}", oracle_path.display()))?;
+    let mut reader = std::io::BufReader::new(file);
+    let oracle = ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
+        .with_context(|| format!("failed to deserialize oracle {}", oracle_path.display()))?;
+    Ok(oracle.log_size())
+}
+
+fn parquet_log_size(parquet_path: &Path) -> Result<usize> {
+    let file = File::open(parquet_path)
+        .with_context(|| format!("failed to open parquet file {}", parquet_path.display()))?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+        .with_context(|| format!("failed to read parquet metadata {}", parquet_path.display()))?;
+    let total_rows = builder.metadata().file_metadata().num_rows() as usize;
+    let padded_rows = total_rows.max(1).next_power_of_two();
+    Ok(padded_rows.ilog2() as usize)
 }

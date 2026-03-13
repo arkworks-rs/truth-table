@@ -160,7 +160,9 @@ async fn commit_parquet_with_pk(
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
-    let prover = TTProver::new(TTProverConfig::default(), shared_config, arg_prover);
+    // Oracle generation bootstraps the public table commitment, so this prover
+    // is allowed to commit a TableScan directly when no ctx_oracle exists yet.
+    let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, arg_prover);
     let (table_scan_table, tt_proof) = prover.prove_with_table_scan(&query).await?;
     verifier.set_proof(tt_proof.into_inner());
 
