@@ -6,7 +6,6 @@ use arithmetic::{
     col_oracle::TrackedColOracle,
     is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
 };
-use ark_ff::One;
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
 use col_toolbox::lookup::{HintedLookupPIOP, HintedLookupProverInput, HintedLookupVerifierInput};
@@ -271,9 +270,98 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        use ark_piop::errors::SnarkError;
+        use ark_piop::prover::errors::{HonestProverError, ProverError};
+        use indexmap::IndexSet;
+
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+
+        let (Some(included_table), Some(super_table), Some(multiplicities_table)) = (
+            payload.get(INCLUDED_LABEL).cloned(),
+            payload.get(SUPER_LABEL).cloned(),
+            payload.get(SUPER_MULTIPLICITIES_LABEL).cloned(),
+        ) else {
+            return Ok(());
+        };
+
+        let included_values = data_column_values(&included_table);
+        let super_values = data_column_values(&super_table);
+        if included_values.len() != super_values.len() {
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        let super_active = active_row_mask(&super_table);
+        let included_active = active_row_mask(&included_table);
+        let multiplicity_values = multiplicity_column_values(&multiplicities_table);
+        let multiplicity_active = active_row_mask(&multiplicities_table);
+
+        let active_super_keys: IndexSet<String> = (0..super_table.size())
+            .filter(|&row| super_active[row])
+            .map(|row| key_at_row(&super_values, row))
+            .collect();
+
+        for row in 0..included_table.size() {
+            if !included_active[row] {
+                continue;
+            }
+            let key = key_at_row(&included_values, row);
+            if !active_super_keys.contains(&key) {
+                tracing::debug!(
+                    node_id = ?id,
+                    row,
+                    key = %key,
+                    "lookup honest check found included key missing from super table"
+                );
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+
+        let expected = expected_lookup_multiplicities_from_values::<B>(
+            &super_values,
+            &included_values,
+            &super_active,
+            &included_active,
+        );
+
+        if multiplicity_values.len() != expected.len() || multiplicity_active.len() != expected.len() {
+            return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                HonestProverError::FalseClaim,
+            )));
+        }
+
+        for row in 0..expected.len() {
+            if multiplicity_active[row] != super_active[row] {
+                tracing::debug!(
+                    node_id = ?id,
+                    row,
+                    "lookup honest check found multiplicity activator mismatch"
+                );
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+            if multiplicity_values[row] != expected[row] {
+                tracing::debug!(
+                    node_id = ?id,
+                    row,
+                    "lookup honest check found multiplicity mismatch"
+                );
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -637,37 +725,12 @@ fn multiplicities_from_runtime_tables_prover<B: SnarkBackend>(
         .activator_tracked_poly()
         .map(|poly| poly.evaluations());
 
-    let mut included_counts = std::collections::HashMap::<String, u64>::new();
-    for row in 0..included_table.size() {
-        let active = included_activator
-            .as_ref()
-            .is_none_or(|vals| vals[row] == B::F::one());
-        if !active {
-            continue;
-        }
-        let key = key_at_row(&included_values, row);
-        *included_counts.entry(key).or_insert(0) += 1;
-    }
-
-    let mut seen_active_super = HashSet::<String>::new();
-    let mut multiplicities = vec![B::F::from(0u64); super_table.size()];
-    for (row, out) in multiplicities
-        .iter_mut()
-        .enumerate()
-        .take(super_table.size())
-    {
-        let active = super_activator
-            .as_ref()
-            .is_none_or(|vals| vals[row] == B::F::one());
-        if !active {
-            continue;
-        }
-        let key = key_at_row(&super_values, row);
-        if seen_active_super.insert(key.clone()) {
-            let count = included_counts.get(&key).copied().unwrap_or(0);
-            *out = B::F::from(count);
-        }
-    }
+    let multiplicities = expected_lookup_multiplicities_from_values::<B>(
+        &super_values,
+        &included_values,
+        &active_mask_from_optional(super_activator.as_ref(), super_table.size()),
+        &active_mask_from_optional(included_activator.as_ref(), included_table.size()),
+    );
 
     let multiplicity_poly = prover.track_and_commit_mat_mv_poly(&MLE::from_evaluations_vec(
         super_table.log_size(),
@@ -704,4 +767,71 @@ fn key_at_row<F: core::fmt::Debug>(cols: &[Vec<F>], row: usize) -> String {
         parts.push(format!("{:?}", col[row]));
     }
     parts.join("|")
+}
+
+fn data_column_values<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<Vec<B::F>> {
+    table
+        .data_tracked_polys_indices()
+        .iter()
+        .map(|idx| {
+            table
+                .tracked_col_by_ind(*idx)
+                .data_tracked_poly()
+                .evaluations()
+        })
+        .collect()
+}
+
+fn multiplicity_column_values<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B::F> {
+    let data_indices = table.data_tracked_polys_indices();
+    assert_eq!(
+        data_indices.len(),
+        1,
+        "Lookup multiplicity table must have exactly one data column"
+    );
+    table
+        .tracked_col_by_ind(data_indices[0])
+        .data_tracked_poly()
+        .evaluations()
+}
+
+fn active_row_mask<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<bool> {
+    active_mask_from_optional(table.activator_tracked_poly().map(|poly| poly.evaluations()).as_ref(), table.size())
+}
+
+fn active_mask_from_optional<F: ark_ff::Field>(values: Option<&Vec<F>>, size: usize) -> Vec<bool> {
+    match values {
+        Some(vals) => vals.iter().take(size).map(|value| !value.is_zero()).collect(),
+        None => vec![true; size],
+    }
+}
+
+fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
+    super_values: &[Vec<B::F>],
+    included_values: &[Vec<B::F>],
+    super_active: &[bool],
+    included_active: &[bool],
+) -> Vec<B::F> {
+    let mut included_counts = std::collections::HashMap::<String, u64>::new();
+    for row in 0..included_active.len() {
+        if !included_active[row] {
+            continue;
+        }
+        let key = key_at_row(included_values, row);
+        *included_counts.entry(key).or_insert(0) += 1;
+    }
+
+    let mut seen_active_super = HashSet::<String>::new();
+    let mut multiplicities = vec![B::F::from(0u64); super_active.len()];
+    for (row, out) in multiplicities.iter_mut().enumerate().take(super_active.len()) {
+        if !super_active[row] {
+            continue;
+        }
+        let key = key_at_row(super_values, row);
+        if seen_active_super.insert(key.clone()) {
+            let count = included_counts.get(&key).copied().unwrap_or(0);
+            *out = B::F::from(count);
+        }
+    }
+    multiplicities
 }

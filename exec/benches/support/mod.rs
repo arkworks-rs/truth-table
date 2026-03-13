@@ -289,34 +289,7 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
         return existing;
     }
 
-    let verifier = build_verifier(assets);
-    let mut last_err = None;
-    let mut verified_proof = None;
-    for attempt in 1..=3 {
-        let proof = run_prover_once(assets);
-        match block_on(verifier.verify(assets.case.query, &proof)) {
-            Ok(()) => {
-                verified_proof = Some(proof);
-                break;
-            }
-            Err(err) => {
-                last_err = Some(err);
-                tracing::warn!(
-                    case = assets.case.name,
-                    attempt,
-                    "bench warmup proof failed verification; regenerating"
-                );
-            }
-        }
-    }
-
-    let proof = verified_proof.unwrap_or_else(|| {
-        panic!(
-            "failed to generate a verifiable warmup proof for {} after retries: {:?}",
-            assets.case.name,
-            last_err
-        )
-    });
+    let proof = run_prover_once(assets);
     let bench_proof = save_proof(assets.case.name, &proof);
 
     cache

@@ -74,18 +74,25 @@ where
                 if node.name() == "TableScan" {
                     if let Some(schema) = arith_table.schema() {
                         if let Some(oracle) = self.ctx_oracles.table_oracle(&schema) {
-                            debug!(
-                                node = %node.name(),
-                                num = %oracle.comitments().len(),
-                                "commitment loaded"
-                            );
-                            self.total_ctx_loaded
-                                .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
-                            return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                            // A cached table-scan commitment is only safe to reuse when it lives
+                            // on the same multilinear domain as the current arithmetized table.
+                            if oracle.log_size() == arith_table.log_size() {
+                                debug!(
+                                    node = %node.name(),
+                                    num = %oracle.comitments().len(),
+                                    log_size = oracle.log_size(),
+                                    "commitment loaded"
+                                );
+                                self.total_ctx_loaded
+                                    .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
+                                return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                            }
                         }
                         if let Some(oracle) = self.ctx_oracles.table_oracles().iter().find_map(
                             |(ctx_schema, oracle)| {
-                                schema_eq_ignoring_metadata(ctx_schema, &schema).then_some(oracle)
+                                (schema_eq_ignoring_metadata(ctx_schema, &schema)
+                                    && oracle.log_size() == arith_table.log_size())
+                                    .then_some(oracle)
                             },
                         ) {
                             self.total_ctx_loaded

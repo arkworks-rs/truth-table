@@ -1054,10 +1054,90 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
     fn honest_prover_check(
         &self,
-        _prover: &mut ark_piop::prover::ArgProver<B>,
-        _gadget_ready_ir: &mut GadgetReadyIr<B>,
-        _id: crate::irs::nodes::NodeId,
+        prover: &mut ark_piop::prover::ArgProver<B>,
+        gadget_ready_ir: &mut GadgetReadyIr<B>,
+        id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
+        use ark_piop::errors::SnarkError;
+        use ark_piop::prover::errors::{HonestProverError, ProverError};
+        use indexmap::IndexSet;
+
+        if self.many_to_many_gadgets().is_none() {
+            return Ok(());
+        }
+
+        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        else {
+            return Ok(());
+        };
+
+        let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
+            return Ok(());
+        };
+
+        let output_left = payload
+            .get(OUTPUT_LEFT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, true));
+        let output_right = payload
+            .get(OUTPUT_RIGHT_LABEL)
+            .cloned()
+            .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, false));
+
+        let index_poly = index_tracked_poly(prover, &left_table);
+        let input_left = append_tracked_col(
+            &input_lookup_base_from_table(&left_table),
+            Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+            index_poly,
+        );
+        let left_fold_challs =
+            lookup_fold_challenges_prover(prover, output_left.num_data_tracked_cols())?;
+        let output_left_folded = fold_lookup_table_prover(&output_left, &left_fold_challs);
+        let input_left_folded = fold_lookup_table_prover(&input_left, &left_fold_challs);
+        let left_super_set: IndexSet<B::F> = input_left_folded.effective_hashset();
+        for value in output_left_folded.effective_iter() {
+            if !left_super_set.contains(&value) {
+                tracing::debug!(
+                    node_id = ?id,
+                    side = "left",
+                    "join honest check found output-left row missing from left input lookup table"
+                );
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+
+        let right_index_poly = index_tracked_poly(prover, &right_table);
+        let input_right = append_tracked_col(
+            &input_lookup_base_from_table(&right_table),
+            Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+            right_index_poly,
+        );
+        let right_fold_challs =
+            lookup_fold_challenges_prover(prover, output_right.num_data_tracked_cols())?;
+        let output_right_folded = fold_lookup_table_prover(&output_right, &right_fold_challs);
+        let input_right_folded = fold_lookup_table_prover(&input_right, &right_fold_challs);
+        let right_super_set: IndexSet<B::F> = input_right_folded.effective_hashset();
+        for value in output_right_folded.effective_iter() {
+            if !right_super_set.contains(&value) {
+                tracing::debug!(
+                    node_id = ?id,
+                    side = "right",
+                    "join honest check found output-right row missing from right input lookup table"
+                );
+                return Err(SnarkError::ProverError(ProverError::HonestProverError(
+                    HonestProverError::FalseClaim,
+                )));
+            }
+        }
+
         Ok(())
     }
 
