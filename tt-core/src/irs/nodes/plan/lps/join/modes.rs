@@ -31,17 +31,17 @@ struct ColumnConstraintMetadata {
 /// - if PK side has a Filter in its input subtree => MANY_TO_MANY
 pub fn decide_join_mode(join: &Join) -> JoinMode {
     if join.join_type != JoinType::Inner {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     }
     if join.on.len() != 1 || join.filter.is_some() {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     }
 
     let Some(left_col) = expr_to_column(&join.on[0].0) else {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     };
     let Some(right_col) = expr_to_column(&join.on[0].1) else {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     };
 
     let left_schema = join.left.schema().clone();
@@ -58,10 +58,10 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
     );
 
     let Some(left_meta) = left_meta else {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     };
     let Some(right_meta) = right_meta else {
-        return dbg!(JoinMode::MANY_TO_MANY);
+        return JoinMode::MANY_TO_MANY;
     };
 
     let left_col_name = left_col.name.to_lowercase();
@@ -91,26 +91,26 @@ pub fn decide_join_mode(join: &Join) -> JoinMode {
     // left PK, right FK => output cardinality follows right side.
     if left_meta.is_pk && right_is_fk_to_left {
         if has_filter_in_subtree(&join.left) {
-            return dbg!(JoinMode::MANY_TO_MANY);
+            return JoinMode::MANY_TO_MANY;
         }
-        return dbg!(JoinMode::ONE_TO_MANY);
+        return JoinMode::ONE_TO_MANY;
     }
     // right PK, left FK => output cardinality follows left side.
     if right_meta.is_pk && left_is_fk_to_right {
         if has_filter_in_subtree(&join.right) {
-            return dbg!(JoinMode::MANY_TO_MANY);
+            return JoinMode::MANY_TO_MANY;
         }
-        return dbg!(JoinMode::MANY_TO_ONE);
+        return JoinMode::MANY_TO_ONE;
     }
     // Both sides unique and no filter on either side.
     if left_meta.is_pk && right_meta.is_pk {
         if has_filter_in_subtree(&join.left) || has_filter_in_subtree(&join.right) {
-            return dbg!(JoinMode::MANY_TO_MANY);
+            return JoinMode::MANY_TO_MANY;
         }
-        return dbg!(JoinMode::ONE_TO_ONE);
+        return JoinMode::ONE_TO_ONE;
     }
 
-    dbg!(JoinMode::MANY_TO_MANY)
+    JoinMode::MANY_TO_MANY
 }
 
 #[cfg(test)]
