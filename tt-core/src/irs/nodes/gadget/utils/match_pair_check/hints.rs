@@ -1,6 +1,4 @@
-use arithmetic::{
-    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_FIELD, is_system_column};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Int64Array, UInt32Array, new_null_array},
@@ -17,7 +15,10 @@ use tokio::runtime::RuntimeFlavor;
 
 use crate::irs::nodes::hints::sort_by_row_id_if_present;
 
-pub(crate) fn build_union_hint_df(left: DataFrame, right: DataFrame) -> DataFusionResult<DataFrame> {
+pub(crate) fn build_union_hint_df(
+    left: DataFrame,
+    right: DataFrame,
+) -> DataFusionResult<DataFrame> {
     ensure_union_input_shape(&left, "left")?;
     ensure_union_input_shape(&right, "right")?;
     let left_active = project_active_key_rows(left)?;
@@ -70,8 +71,11 @@ fn project_active_key_rows(df: DataFrame) -> DataFusionResult<DataFrame> {
         .iter()
         .filter_map(|(qualifier, field)| {
             (!is_system_column(field.name())).then_some(
-                Expr::Column(datafusion_common::Column::new(qualifier.cloned(), field.name()))
-                    .alias(field.name()),
+                Expr::Column(datafusion_common::Column::new(
+                    qualifier.cloned(),
+                    field.name(),
+                ))
+                .alias(field.name()),
             )
         })
         .collect();
@@ -167,7 +171,10 @@ fn materialize_union_hint(df: DataFrame, key_names: &[String]) -> DataFusionResu
     SessionContext::new().read_batch(out_batch)
 }
 
-fn deduplicate_key_rows(batch: &RecordBatch, key_names: &[String]) -> DataFusionResult<RecordBatch> {
+fn deduplicate_key_rows(
+    batch: &RecordBatch,
+    key_names: &[String],
+) -> DataFusionResult<RecordBatch> {
     if batch.num_rows() <= 1 {
         return Ok(batch.clone());
     }
@@ -273,9 +280,7 @@ mod tests {
 
         let batch =
             RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).expect("record batch");
-        SessionContext::new()
-            .read_batch(batch)
-            .expect("dataframe")
+        SessionContext::new().read_batch(batch).expect("dataframe")
     }
 
     fn build_expected_df(
@@ -299,9 +304,7 @@ mod tests {
 
         let batch =
             RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).expect("record batch");
-        SessionContext::new()
-            .read_batch(batch)
-            .expect("dataframe")
+        SessionContext::new().read_batch(batch).expect("dataframe")
     }
 
     fn collect_single_batch(df: datafusion::prelude::DataFrame) -> RecordBatch {
@@ -332,7 +335,11 @@ mod tests {
         // Scenario: one key column with inactive rows and duplicates across the two
         // inputs. The union hint should keep only active unique values, assign fresh
         // row ids, and pad the result to the next power of two.
-        let left = build_df(&[("c0", vec![1, 2, 2])], vec![true, true, false], vec![4, 1, 7]);
+        let left = build_df(
+            &[("c0", vec![1, 2, 2])],
+            vec![true, true, false],
+            vec![4, 1, 7],
+        );
         let right = build_df(&[("c0", vec![2, 4])], vec![true, true], vec![2, 3]);
 
         let actual = collect_rows(build_union_hint_df(left, right).expect("union hint"));
@@ -402,7 +409,11 @@ mod tests {
         // The union hint should keep active unique triples and still synthesize a dense
         // row-id/activator tail after padding.
         let left = build_df(
-            &[("c0", vec![1, 2]), ("c1", vec![10, 20]), ("c2", vec![100, 200])],
+            &[
+                ("c0", vec![1, 2]),
+                ("c1", vec![10, 20]),
+                ("c2", vec![100, 200]),
+            ],
             vec![true, false],
             vec![9, 3],
         );

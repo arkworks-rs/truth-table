@@ -125,8 +125,8 @@ fn expand_parquet_inputs(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             files.push(path);
         } else if path.is_dir() {
             let mut found = false;
-            let mut dir_entries = fs::read_dir(&path)?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let mut dir_entries =
+                fs::read_dir(&path)?.collect::<std::result::Result<Vec<_>, _>>()?;
             dir_entries.sort_by_key(|entry| entry.path());
             for entry in dir_entries {
                 let file_path = entry.path();

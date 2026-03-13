@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::fmt;
+use std::sync::Arc;
 
 use ark_ff::Zero;
 use ark_piop::SnarkBackend;
@@ -214,7 +214,9 @@ impl<B: SnarkBackend> TrackedCol<B> {
     /// Returns a hashset of the activated data elements
     /// Useful for testing and debugging
     pub fn effective_hashset(&self) -> IndexSet<B::F> {
-        self.effective_iter().into_iter().collect::<IndexSet<B::F>>()
+        self.effective_iter()
+            .into_iter()
+            .collect::<IndexSet<B::F>>()
     }
 
     /// Pretty-print the tracked column, optionally showing the activator

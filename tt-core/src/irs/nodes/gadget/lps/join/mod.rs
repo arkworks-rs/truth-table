@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::irs::{
     nodes::{
-        gadget::utils::prescr_perm, IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps,
+        IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps, gadget::utils::prescr_perm,
     },
     payloads::PayloadStructure,
 };
@@ -15,7 +15,7 @@ use arithmetic::{
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use ark_piop::verifier::structs::oracle::TrackedOracle;
-use ark_piop::{piop::PIOP, SnarkBackend};
+use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use datafusion_expr::Join;
@@ -581,10 +581,16 @@ fn derive_many_to_many_hints_verifier(
             .map(|f| f.as_ref().clone())
             .collect(),
     );
-    let output_left_df =
-        schema_only_output_lookup_base_with_src(left_hint.data_frame(), SRC_LEFT_COL_NAME, left_row_id_ty.clone());
-    let output_right_df =
-        schema_only_output_lookup_base_with_src(right_hint.data_frame(), SRC_RIGHT_COL_NAME, right_row_id_ty.clone());
+    let output_left_df = schema_only_output_lookup_base_with_src(
+        left_hint.data_frame(),
+        SRC_LEFT_COL_NAME,
+        left_row_id_ty.clone(),
+    );
+    let output_right_df = schema_only_output_lookup_base_with_src(
+        right_hint.data_frame(),
+        SRC_RIGHT_COL_NAME,
+        right_row_id_ty.clone(),
+    );
 
     JoinPlanningDerivedHints {
         left_hint,
@@ -821,7 +827,8 @@ fn count_output_payload_cols<B: SnarkBackend>(table: &TrackedTable<B>) -> usize 
     fields
         .into_iter()
         .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME && field.name() != arithmetic::ACTIVATOR_COL_NAME
+            field.name() != arithmetic::ROW_ID_COL_NAME
+                && field.name() != arithmetic::ACTIVATOR_COL_NAME
         })
         .count()
 }
@@ -839,7 +846,8 @@ fn count_output_payload_cols_oracle<B: SnarkBackend>(table: &TrackedTableOracle<
     fields
         .into_iter()
         .filter(|field| {
-            field.name() != arithmetic::ROW_ID_COL_NAME && field.name() != arithmetic::ACTIVATOR_COL_NAME
+            field.name() != arithmetic::ROW_ID_COL_NAME
+                && field.name() != arithmetic::ACTIVATOR_COL_NAME
         })
         .count()
 }
@@ -867,7 +875,8 @@ fn output_lookup_base_from_output<B: SnarkBackend>(
     for field in ordered_fields
         .into_iter()
         .filter(|field| {
-            field.name() != arithmetic::ACTIVATOR_COL_NAME && field.name() != arithmetic::ROW_ID_COL_NAME
+            field.name() != arithmetic::ACTIVATOR_COL_NAME
+                && field.name() != arithmetic::ROW_ID_COL_NAME
         })
         .skip(start)
         .take(len)
@@ -878,7 +887,11 @@ fn output_lookup_base_from_output<B: SnarkBackend>(
         data_fields.insert(field, poly.clone());
     }
     if data_fields.len() != len {
-        panic!("Join output missing {} {}-side payload columns", len, if use_left { "left" } else { "right" });
+        panic!(
+            "Join output missing {} {}-side payload columns",
+            len,
+            if use_left { "left" } else { "right" }
+        );
     }
     let activator = output
         .activator_tracked_poly()
@@ -916,7 +929,8 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
     for field in ordered_fields
         .into_iter()
         .filter(|field| {
-            field.name() != arithmetic::ACTIVATOR_COL_NAME && field.name() != arithmetic::ROW_ID_COL_NAME
+            field.name() != arithmetic::ACTIVATOR_COL_NAME
+                && field.name() != arithmetic::ROW_ID_COL_NAME
         })
         .skip(start)
         .take(len)
@@ -927,7 +941,11 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
         data_fields.insert(field, oracle.clone());
     }
     if data_fields.len() != len {
-        panic!("Join output missing {} {}-side payload columns", len, if use_left { "left" } else { "right" });
+        panic!(
+            "Join output missing {} {}-side payload columns",
+            len,
+            if use_left { "left" } else { "right" }
+        );
     }
     let activator = output
         .activator_tracked_poly()
@@ -985,14 +1003,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let output_left_base = payload
-                .get(OUTPUT_LEFT_LABEL)
-                .cloned()
-                .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, true));
-            let output_right_base = payload
-                .get(OUTPUT_RIGHT_LABEL)
-                .cloned()
-                .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, false));
+            let output_left_base = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
+                output_lookup_base_from_output(&output, &left_table, &right_table, true)
+            });
+            let output_right_base = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
+                output_lookup_base_from_output(&output, &left_table, &right_table, false)
+            });
             // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
             // Method: We look up table output_left in input_left
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
@@ -1081,14 +1097,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let output_left = payload
-            .get(OUTPUT_LEFT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, true));
-        let output_right = payload
-            .get(OUTPUT_RIGHT_LABEL)
-            .cloned()
-            .unwrap_or_else(|| output_lookup_base_from_output(&output, &left_table, &right_table, false));
+        let output_left = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
+            output_lookup_base_from_output(&output, &left_table, &right_table, true)
+        });
+        let output_right = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
+            output_lookup_base_from_output(&output, &left_table, &right_table, false)
+        });
 
         let index_poly = index_tracked_poly(prover, &left_table);
         let input_left = append_tracked_col(
@@ -1163,14 +1177,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let output_left_base = payload
-                .get(OUTPUT_LEFT_LABEL)
-                .cloned()
-                .unwrap_or_else(|| output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true));
-            let output_right_base = payload
-                .get(OUTPUT_RIGHT_LABEL)
-                .cloned()
-                .unwrap_or_else(|| output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false));
+            let output_left_base = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true)
+            });
+            let output_right_base = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false)
+            });
             let output_left = output_left_base;
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
@@ -1182,8 +1194,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             );
 
             // Mirror prover-side challenge reuse exactly.
-            let left_fold_challs =
-                lookup_fold_challenges_verifier(verifier, output_left.num_data_tracked_col_oracles())?;
+            let left_fold_challs = lookup_fold_challenges_verifier(
+                verifier,
+                output_left.num_data_tracked_col_oracles(),
+            )?;
             let output_folded = fold_lookup_table_verifier(&output_left, &left_fold_challs);
             let input_folded = fold_lookup_table_verifier(&input_left, &left_fold_challs);
 
@@ -1210,10 +1224,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 verifier,
                 output_right.num_data_tracked_col_oracles(),
             )?;
-            let output_right_folded =
-                fold_lookup_table_verifier(&output_right, &right_fold_challs);
-            let input_right_folded =
-                fold_lookup_table_verifier(&input_right, &right_fold_challs);
+            let output_right_folded = fold_lookup_table_verifier(&output_right, &right_fold_challs);
+            let input_right_folded = fold_lookup_table_verifier(&input_right, &right_fold_challs);
 
             LookupPIOP::<B>::verify(
                 verifier,

@@ -57,7 +57,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
         // Fast path: reuse a previously resolved (scope_id, col_idx) binding
         // when the scope still exists and the field at that index still matches
         // this column (guards against stale indices after schema changes).
-        if let Some((scope_id, col_idx)) = *self.prover_virtual_binding_cache.lock().expect("cache lock poisoned") {
+        if let Some((scope_id, col_idx)) = *self
+            .prover_virtual_binding_cache
+            .lock()
+            .expect("cache lock poisoned")
+        {
             for scope_weak in &self.scope {
                 let scope = scope_weak
                     .upgrade()
@@ -99,8 +103,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
             {
                 if let Some(col_idx) = tracked_table_index_of_column(table, &self.column) {
                     // Record successful binding for the next call.
-                    *self.prover_virtual_binding_cache.lock().expect("cache lock poisoned") =
-                        Some((scope.id(), col_idx));
+                    *self
+                        .prover_virtual_binding_cache
+                        .lock()
+                        .expect("cache lock poisoned") = Some((scope.id(), col_idx));
                 }
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));
@@ -435,15 +441,15 @@ fn tracked_table_index_of_column<B: SnarkBackend>(
         if let Some((idx, _)) = table
             .tracked_polys()
             .iter()
-                .enumerate()
-                .find(|(_, (field, _))| {
-                    (field_name_matches_unqualified(field.name(), name)
-                        && field
-                            .metadata()
-                            .get(QUALIFIER_METADATA_KEY)
-                            .is_some_and(|q| q == &relation_str))
-                        || field_name_matches_qualified(field.name(), &relation_str, name)
-                })
+            .enumerate()
+            .find(|(_, (field, _))| {
+                (field_name_matches_unqualified(field.name(), name)
+                    && field
+                        .metadata()
+                        .get(QUALIFIER_METADATA_KEY)
+                        .is_some_and(|q| q == &relation_str))
+                    || field_name_matches_qualified(field.name(), &relation_str, name)
+            })
         {
             return Some(idx);
         }
@@ -487,7 +493,11 @@ fn tracked_table_oracle_index_of_column<B: SnarkBackend>(
 
 #[inline]
 fn field_name_matches_unqualified(field_name: &str, name: &str) -> bool {
-    field_name == name || field_name.rsplit('.').next().is_some_and(|suffix| suffix == name)
+    field_name == name
+        || field_name
+            .rsplit('.')
+            .next()
+            .is_some_and(|suffix| suffix == name)
 }
 
 #[inline]
@@ -516,7 +526,11 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         // Verifier-side equivalent of the prover fast path above.
-        if let Some((scope_id, col_idx)) = *self.verifier_virtual_binding_cache.lock().expect("cache lock poisoned") {
+        if let Some((scope_id, col_idx)) = *self
+            .verifier_virtual_binding_cache
+            .lock()
+            .expect("cache lock poisoned")
+        {
             for scope_weak in &self.scope {
                 let scope = scope_weak
                     .upgrade()
@@ -558,8 +572,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             {
                 if let Some(col_idx) = tracked_table_oracle_index_of_column(table, &self.column) {
                     // Record successful binding for the next call.
-                    *self.verifier_virtual_binding_cache.lock().expect("cache lock poisoned") =
-                        Some((scope.id(), col_idx));
+                    *self
+                        .verifier_virtual_binding_cache
+                        .lock()
+                        .expect("cache lock poisoned") = Some((scope.id(), col_idx));
                 }
                 virtualized_ir
                     .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(subtable)));

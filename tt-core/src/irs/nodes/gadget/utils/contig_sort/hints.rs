@@ -872,7 +872,11 @@ fn tie_indicator_on_ordered(
                 Ok(true)
             })
             .collect::<DataFusionResult<Vec<_>>>()?;
-        out_fields.push(Field::new(format!("tie_{prefix_len}"), DataType::Boolean, false));
+        out_fields.push(Field::new(
+            format!("tie_{prefix_len}"),
+            DataType::Boolean,
+            false,
+        ));
         out_cols.push(std::sync::Arc::new(BooleanArray::from(values)) as ArrayRef);
     }
 

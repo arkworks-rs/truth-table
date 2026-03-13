@@ -583,9 +583,7 @@ impl<B: SnarkBackend> SignNode<B> {
             Self::sparse_range_poly_by_nv(nv)
                 .expect("range oracle sparse polynomial construction should succeed"),
         );
-        Oracle::new_multivariate(nv, move |x| {
-            Ok(poly.evaluate(&x))
-        })
+        Oracle::new_multivariate(nv, move |x| Ok(poly.evaluate(&x)))
     }
 
     fn add_range_inclusion_oracle(

@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use arithmetic::{
     ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, col::TrackedCol,
-    col_oracle::TrackedColOracle,
-    is_system_column, table::TrackedTable, table_oracle::TrackedTableOracle,
+    col_oracle::TrackedColOracle, is_system_column, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_piop::arithmetic::mat_poly::mle::MLE;
 use ark_piop::{SnarkBackend, piop::PIOP, prover::ArgProver, verifier::ArgVerifier};
@@ -333,7 +333,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             &included_active,
         );
 
-        if multiplicity_values.len() != expected.len() || multiplicity_active.len() != expected.len() {
+        if multiplicity_values.len() != expected.len()
+            || multiplicity_active.len() != expected.len()
+        {
             return Err(SnarkError::ProverError(ProverError::HonestProverError(
                 HonestProverError::FalseClaim,
             )));
@@ -796,12 +798,22 @@ fn multiplicity_column_values<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<B
 }
 
 fn active_row_mask<B: SnarkBackend>(table: &TrackedTable<B>) -> Vec<bool> {
-    active_mask_from_optional(table.activator_tracked_poly().map(|poly| poly.evaluations()).as_ref(), table.size())
+    active_mask_from_optional(
+        table
+            .activator_tracked_poly()
+            .map(|poly| poly.evaluations())
+            .as_ref(),
+        table.size(),
+    )
 }
 
 fn active_mask_from_optional<F: ark_ff::Field>(values: Option<&Vec<F>>, size: usize) -> Vec<bool> {
     match values {
-        Some(vals) => vals.iter().take(size).map(|value| !value.is_zero()).collect(),
+        Some(vals) => vals
+            .iter()
+            .take(size)
+            .map(|value| !value.is_zero())
+            .collect(),
         None => vec![true; size],
     }
 }
@@ -823,7 +835,11 @@ fn expected_lookup_multiplicities_from_values<B: SnarkBackend>(
 
     let mut seen_active_super = HashSet::<String>::new();
     let mut multiplicities = vec![B::F::from(0u64); super_active.len()];
-    for (row, out) in multiplicities.iter_mut().enumerate().take(super_active.len()) {
+    for (row, out) in multiplicities
+        .iter_mut()
+        .enumerate()
+        .take(super_active.len())
+    {
         if !super_active[row] {
             continue;
         }

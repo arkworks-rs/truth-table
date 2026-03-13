@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use arithmetic::{
     ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle,
@@ -544,7 +544,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let input_active = input_table
             .activator_tracked_poly()
             .map(|poly| poly.evaluations())
-            .map(|evals| evals.iter().map(|value| !value.is_zero()).collect::<Vec<_>>())
+            .map(|evals| {
+                evals
+                    .iter()
+                    .map(|value| !value.is_zero())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_else(|| vec![true; row_count]);
 
         ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
@@ -556,10 +561,18 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
 
         let mut input_columns = Vec::with_capacity(ordered_indices.len());
         let mut input_types = Vec::with_capacity(ordered_indices.len());
-        let is_asc_by_col = sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
+        let is_asc_by_col =
+            sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
         let input_col_names = ordered_indices
             .iter()
-            .map(|idx| input_table.tracked_col_by_ind(*idx).field_ref().unwrap().name().to_string())
+            .map(|idx| {
+                input_table
+                    .tracked_col_by_ind(*idx)
+                    .field_ref()
+                    .unwrap()
+                    .name()
+                    .to_string()
+            })
             .collect::<Vec<_>>();
         for input_idx in ordered_indices.iter().copied() {
             let input_col = input_table.tracked_col_by_ind(input_idx);
@@ -756,7 +769,11 @@ fn compare_field_values<B: SnarkBackend>(
                 break;
             }
             let take = remaining.min(64);
-            let mask = if take == 64 { u64::MAX } else { (1u64 << take) - 1 };
+            let mask = if take == 64 {
+                u64::MAX
+            } else {
+                (1u64 << take) - 1
+            };
             acc |= ((*limb & mask) as u128) << shift;
             remaining -= take;
             shift += 64;
@@ -1124,9 +1141,7 @@ fn non_row_id_data_indices_prover<B: SnarkBackend>(table: &TrackedTable<B>) -> V
         .collect()
 }
 
-fn non_row_id_data_indices_verifier<B: SnarkBackend>(
-    table: &TrackedTableOracle<B>,
-) -> Vec<usize> {
+fn non_row_id_data_indices_verifier<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> Vec<usize> {
     table
         .data_tracked_oracles_indices()
         .into_iter()

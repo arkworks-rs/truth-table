@@ -6,8 +6,8 @@ use crate::irs::{
     payloads::PayloadStructure,
 };
 use arithmetic::{
-    table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME, ACTIVATOR_FIELD,
-    ROW_ID_COL_NAME,
+    ACTIVATOR_COL_NAME, ACTIVATOR_FIELD, ROW_ID_COL_NAME, table::TrackedTable,
+    table_oracle::TrackedTableOracle,
 };
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};

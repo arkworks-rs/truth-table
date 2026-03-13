@@ -1,6 +1,9 @@
 use crate::irs::{
     ir::LocalPass,
-    nodes::{IsProverPlanNode, Node, NodeId, hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope}},
+    nodes::{
+        IsProverPlanNode, Node, NodeId,
+        hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope},
+    },
     payloads::{EmptyPayload, HintDFPayload, PayloadStructure},
 };
 use ark_piop::SnarkBackend;

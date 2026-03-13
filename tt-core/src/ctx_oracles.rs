@@ -22,8 +22,8 @@ impl<B: SnarkBackend> CtxOracles<B> {
         mut named_oracles: IndexMap<String, ArithTableOracle<B>>,
     ) -> Self {
         for (schema, oracle) in &table_oracles {
-            if let Some(name) = infer_table_name(schema)
-                .or_else(|| oracle.schema_ref().and_then(infer_table_name))
+            if let Some(name) =
+                infer_table_name(schema).or_else(|| oracle.schema_ref().and_then(infer_table_name))
             {
                 named_oracles.entry(name).or_insert_with(|| oracle.clone());
             }
@@ -46,16 +46,17 @@ impl<B: SnarkBackend> CtxOracles<B> {
         self.table_oracle(schema)
             .or_else(|| infer_table_name(schema).and_then(|name| self.table_oracle_by_name(&name)))
             .or_else(|| {
-                self.table_oracles.iter().find_map(|(oracle_schema, oracle)| {
-                    schema_matches_table_scan(schema, oracle_schema).then_some(oracle)
-                })
+                self.table_oracles
+                    .iter()
+                    .find_map(|(oracle_schema, oracle)| {
+                        schema_matches_table_scan(schema, oracle_schema).then_some(oracle)
+                    })
             })
     }
 
     pub fn table_oracles(&self) -> &IndexMap<Schema, ArithTableOracle<B>> {
         &self.table_oracles
     }
-
 }
 
 impl<B: SnarkBackend> Default for CtxOracles<B> {
@@ -68,18 +69,17 @@ impl<B: SnarkBackend> Default for CtxOracles<B> {
 }
 
 fn infer_table_name(schema: &Schema) -> Option<String> {
-    schema
-        .fields()
-        .iter()
-        .find_map(|field| {
-            if field.name() == arithmetic::ACTIVATOR_COL_NAME || field.name() == arithmetic::ROW_ID_COL_NAME {
-                return None;
-            }
-            field
-                .metadata()
-                .get("tt.qualifier")
-                .map(|qualifier| table_name_from_qualifier(qualifier))
-        })
+    schema.fields().iter().find_map(|field| {
+        if field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            return None;
+        }
+        field
+            .metadata()
+            .get("tt.qualifier")
+            .map(|qualifier| table_name_from_qualifier(qualifier))
+    })
 }
 
 fn table_name_from_qualifier(qualifier: &str) -> String {

@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use ark_piop::test_utils::init_subscriber;
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::DefaultSnarkBackend;
+use ark_piop::test_utils::init_subscriber;
 use ark_serialize::CanonicalDeserialize;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;

@@ -280,8 +280,8 @@ mod tests {
                     9, 5, 8, 4, 7, 6, 3, 2, 1, 0, 11, 10, 13, 12, 15, 14,
                 ])) as ArrayRef,
                 Arc::new(BooleanArray::from(vec![
-                    false, true, false, true, true, false, true, false, true, false, true,
-                    false, true, false, true, false,
+                    false, true, false, true, true, false, true, false, true, false, true, false,
+                    true, false, true, false,
                 ])) as ArrayRef,
                 Arc::new(Int64Array::from(vec![
                     9, 3, 14, 1, 7, 12, 0, 15, 4, 10, 2, 13, 5, 8, 6, 11,
@@ -310,8 +310,8 @@ mod tests {
                     3, 7, 13, 1, 5, 11, 4, 15, 14, 9, 10, 8, 12, 0, 6, 2,
                 ])) as ArrayRef,
                 Arc::new(BooleanArray::from(vec![
-                    true, true, true, true, true, true, true, true, false, false, false,
-                    false, false, false, false, false,
+                    true, true, true, true, true, true, true, true, false, false, false, false,
+                    false, false, false, false,
                 ])) as ArrayRef,
                 Arc::new(Int64Array::from((0_i64..16).collect::<Vec<_>>())) as ArrayRef,
             ],

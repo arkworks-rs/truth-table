@@ -3,7 +3,7 @@ use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::{col, lit, Expr, ExprFunctionExt, Join};
+use datafusion_expr::{Expr, ExprFunctionExt, Join, col, lit};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::RuntimeFlavor;
@@ -99,12 +99,12 @@ fn build_indexed_join_frames_impl(
     } else {
         prepare_input(right, "right", "tt_src_right_row_id")?
     };
-    let left_payload_templates =
-        payload_template_columns(&left, left_row_id.name.as_str())?;
-    let right_payload_templates =
-        payload_template_columns(&right, right_row_id.name.as_str())?;
+    let left_payload_templates = payload_template_columns(&left, left_row_id.name.as_str())?;
+    let right_payload_templates = payload_template_columns(&right, right_row_id.name.as_str())?;
 
-    let joined = left.clone().join_on(right.clone(), join.join_type, join_exprs)?;
+    let joined = left
+        .clone()
+        .join_on(right.clone(), join.join_type, join_exprs)?;
     let joined_left_row_id = resolve_column_like(&joined, &left_row_id)?;
     let joined_right_row_id = resolve_column_like(&joined, &right_row_id)?;
     let row_id_sort_exprs = vec![
@@ -295,15 +295,29 @@ fn source_ids_from_payload_lookup(
     }
 
     let schema = Arc::new(datafusion::arrow::datatypes::Schema::new(vec![
-        datafusion::arrow::datatypes::Field::new(src_col_name, datafusion::arrow::datatypes::DataType::Int64, false),
-        datafusion::arrow::datatypes::Field::new(ACTIVATOR_COL_NAME, datafusion::arrow::datatypes::DataType::Boolean, false),
-        datafusion::arrow::datatypes::Field::new(ROW_ID_COL_NAME, datafusion::arrow::datatypes::DataType::Int64, false),
+        datafusion::arrow::datatypes::Field::new(
+            src_col_name,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        datafusion::arrow::datatypes::Field::new(
+            ACTIVATOR_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        datafusion::arrow::datatypes::Field::new(
+            ROW_ID_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
     ]));
     let batch = RecordBatch::try_new(
         schema,
         vec![
             Arc::new(datafusion::arrow::array::Int64Array::from(src_values)),
-            Arc::new(datafusion::arrow::array::BooleanArray::from(vec![true; output_row_ids.len()])),
+            Arc::new(datafusion::arrow::array::BooleanArray::from(
+                vec![true; output_row_ids.len()],
+            )),
             Arc::new(datafusion::arrow::array::Int64Array::from(output_row_ids)),
         ],
     )?;
@@ -347,11 +361,18 @@ fn build_nodup_input_from_sources(
             "Join source mapping produced a right source table with no batches".to_string(),
         ));
     };
-    let left = concat_batches(&left_first.schema(), left_batches.iter().collect::<Vec<_>>())?;
-    let right = concat_batches(&right_first.schema(), right_batches.iter().collect::<Vec<_>>())?;
+    let left = concat_batches(
+        &left_first.schema(),
+        left_batches.iter().collect::<Vec<_>>(),
+    )?;
+    let right = concat_batches(
+        &right_first.schema(),
+        right_batches.iter().collect::<Vec<_>>(),
+    )?;
     if left.num_rows() != right.num_rows() {
         return Err(DataFusionError::Execution(
-            "Join source mapping produced left/right source tables of different lengths".to_string(),
+            "Join source mapping produced left/right source tables of different lengths"
+                .to_string(),
         ));
     }
     let left_src_idx = left
@@ -377,38 +398,52 @@ fn build_nodup_input_from_sources(
     let mut src_right_vals = Vec::with_capacity(left.num_rows());
     let mut row_ids = Vec::with_capacity(left.num_rows());
     for row in 0..left.num_rows() {
-        src_left_vals.push(
-            scalar_i64(
-                ScalarValue::try_from_array(left.column(left_src_idx).as_ref(), row)?,
-                SRC_LEFT_COL_NAME,
-            )?,
-        );
-        src_right_vals.push(
-            scalar_i64(
-                ScalarValue::try_from_array(right.column(right_src_idx).as_ref(), row)?,
-                SRC_RIGHT_COL_NAME,
-            )?,
-        );
-        row_ids.push(
-            scalar_i64(
-                ScalarValue::try_from_array(left.column(row_id_idx).as_ref(), row)?,
-                ROW_ID_COL_NAME,
-            )?,
-        );
+        src_left_vals.push(scalar_i64(
+            ScalarValue::try_from_array(left.column(left_src_idx).as_ref(), row)?,
+            SRC_LEFT_COL_NAME,
+        )?);
+        src_right_vals.push(scalar_i64(
+            ScalarValue::try_from_array(right.column(right_src_idx).as_ref(), row)?,
+            SRC_RIGHT_COL_NAME,
+        )?);
+        row_ids.push(scalar_i64(
+            ScalarValue::try_from_array(left.column(row_id_idx).as_ref(), row)?,
+            ROW_ID_COL_NAME,
+        )?);
     }
 
     let schema = Arc::new(datafusion::arrow::datatypes::Schema::new(vec![
-        datafusion::arrow::datatypes::Field::new(SRC_LEFT_COL_NAME, datafusion::arrow::datatypes::DataType::Int64, false),
-        datafusion::arrow::datatypes::Field::new(SRC_RIGHT_COL_NAME, datafusion::arrow::datatypes::DataType::Int64, false),
-        datafusion::arrow::datatypes::Field::new(ACTIVATOR_COL_NAME, datafusion::arrow::datatypes::DataType::Boolean, false),
-        datafusion::arrow::datatypes::Field::new(ROW_ID_COL_NAME, datafusion::arrow::datatypes::DataType::Int64, false),
+        datafusion::arrow::datatypes::Field::new(
+            SRC_LEFT_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        datafusion::arrow::datatypes::Field::new(
+            SRC_RIGHT_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
+        datafusion::arrow::datatypes::Field::new(
+            ACTIVATOR_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Boolean,
+            false,
+        ),
+        datafusion::arrow::datatypes::Field::new(
+            ROW_ID_COL_NAME,
+            datafusion::arrow::datatypes::DataType::Int64,
+            false,
+        ),
     ]));
     let batch = RecordBatch::try_new(
         schema,
         vec![
             Arc::new(datafusion::arrow::array::Int64Array::from(src_left_vals)),
             Arc::new(datafusion::arrow::array::Int64Array::from(src_right_vals)),
-            Arc::new(datafusion::arrow::array::BooleanArray::from(vec![true; row_ids.len()])),
+            Arc::new(datafusion::arrow::array::BooleanArray::from(vec![
+                true;
+                row_ids
+                    .len()
+            ])),
             Arc::new(datafusion::arrow::array::Int64Array::from(row_ids)),
         ],
     )?;
@@ -524,7 +559,6 @@ fn prepare_input(
     Ok((df, row_id_col))
 }
 
-
 fn prepare_input_aliased(
     df: DataFrame,
     side: &str,
@@ -583,9 +617,7 @@ fn payload_template_columns(df: &DataFrame, row_id_name: &str) -> DataFusionResu
         .schema()
         .iter()
         .filter_map(|(qualifier, field)| {
-            if field.name() == ACTIVATOR_COL_NAME
-                || field.name() == row_id_name
-            {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == row_id_name {
                 None
             } else {
                 Some(Column::new(qualifier.cloned(), field.name()))
@@ -594,10 +626,7 @@ fn payload_template_columns(df: &DataFrame, row_id_name: &str) -> DataFusionResu
         .collect::<Vec<_>>())
 }
 
-fn resolve_payload_exprs(
-    df: &DataFrame,
-    templates: &[Column],
-) -> DataFusionResult<Vec<Expr>> {
+fn resolve_payload_exprs(df: &DataFrame, templates: &[Column]) -> DataFusionResult<Vec<Expr>> {
     templates
         .iter()
         .map(|template| resolve_column_like(df, template).map(Expr::Column))
@@ -624,9 +653,9 @@ fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
     let batches = collect_blocking(df)?;
     let ctx = SessionContext::new();
     if batches.is_empty() {
-        return ctx.read_batch(RecordBatch::new_empty(
-            Arc::new(datafusion::arrow::datatypes::Schema::empty()),
-        ));
+        return ctx.read_batch(RecordBatch::new_empty(Arc::new(
+            datafusion::arrow::datatypes::Schema::empty(),
+        )));
     }
     let schema_ref = batches[0].schema();
     let batch_refs = batches.iter().collect::<Vec<_>>();
@@ -733,7 +762,7 @@ mod tests {
     use datafusion::functions_window::expr_fn::row_number;
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
-    use datafusion_expr::{col, lit, Expr, ExprFunctionExt, JoinType, LogicalPlan};
+    use datafusion_expr::{Expr, ExprFunctionExt, JoinType, LogicalPlan, col, lit};
     use std::sync::Arc;
 
     fn build_df(
@@ -979,16 +1008,8 @@ mod tests {
         // reconstruction, and the final source tables should be sorted by their fresh
         // output row ids.
         assert_source_mapping(
-            &[
-                (8, 1, 100, false),
-                (3, 1, 101, true),
-                (7, 2, 102, true),
-            ],
-            &[
-                (9, 1, 200, true),
-                (4, 1, 201, false),
-                (6, 2, 202, true),
-            ],
+            &[(8, 1, 100, false), (3, 1, 101, true), (7, 2, 102, true)],
+            &[(9, 1, 200, true), (4, 1, 201, false), (6, 2, 202, true)],
             &[(3, true, 0), (7, true, 1)],
             &[(9, true, 0), (6, true, 1)],
         )

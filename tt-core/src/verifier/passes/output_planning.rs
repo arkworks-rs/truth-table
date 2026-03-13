@@ -1,9 +1,9 @@
 use crate::irs::{
     ir::LocalPass,
     nodes::{
-        hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope},
         IsVerifierPlanNode, Node, NodeId, begin_verifier_output_cache_scope,
         end_verifier_output_cache_scope,
+        hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope},
     },
     payloads::{EmptyPayload, HintDFDFPayload, HintDFPayload, PayloadStructure},
 };

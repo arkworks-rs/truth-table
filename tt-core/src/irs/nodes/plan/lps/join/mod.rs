@@ -202,6 +202,185 @@ impl<B: SnarkBackend> LpNode<B> {
             .collect()
     }
 
+    fn ordered_fields_prover(
+        table: &arithmetic::table::TrackedTable<B>,
+    ) -> Vec<datafusion::arrow::datatypes::FieldRef> {
+        match table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect(),
+            None => table.tracked_polys().keys().cloned().collect(),
+        }
+    }
+
+    fn ordered_fields_verifier(
+        table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    ) -> Vec<datafusion::arrow::datatypes::FieldRef> {
+        match table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect(),
+            None => table.tracked_oracles().keys().cloned().collect(),
+        }
+    }
+
+    fn merge_partial_output_prover(
+        current_table: &arithmetic::table::TrackedTable<B>,
+        fk_table: &arithmetic::table::TrackedTable<B>,
+    ) -> arithmetic::table::TrackedTable<B> {
+        let current_cols = current_table.tracked_polys();
+        let fk_cols = fk_table.tracked_polys();
+        let mut merged_polys = IndexMap::new();
+
+        // Keep the partial-output payload order aligned with the DataFrame hint:
+        // FK-side payload columns first, then PK-side payload columns, then
+        // activator and row_id at the end.
+        for field in Self::ordered_fields_prover(fk_table) {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                continue;
+            }
+            if let Some(poly) = fk_cols.get(&field) {
+                merged_polys.insert(field.clone(), poly.clone());
+            }
+        }
+        for field in Self::ordered_fields_prover(current_table) {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                continue;
+            }
+            if merged_polys
+                .keys()
+                .any(|existing| existing.name() == field.name())
+            {
+                continue;
+            }
+            if let Some(poly) = current_cols.get(&field) {
+                merged_polys.insert(field.clone(), poly.clone());
+            }
+        }
+
+        if let Some((field, poly)) = current_cols
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+        {
+            merged_polys.insert(field, poly);
+        }
+        if let Some((field, poly)) = fk_cols
+            .iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+            .map(|(field, poly)| (field.clone(), poly.clone()))
+            .or_else(|| {
+                current_cols
+                    .iter()
+                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                    .map(|(field, poly)| (field.clone(), poly.clone()))
+            })
+        {
+            merged_polys.insert(field, poly);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_polys
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), fk_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
+                current
+            }
+        };
+
+        arithmetic::table::TrackedTable::new(schema, merged_polys, log_size)
+    }
+
+    fn merge_partial_output_verifier(
+        current_table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+        fk_table: &arithmetic::table_oracle::TrackedTableOracle<B>,
+    ) -> arithmetic::table_oracle::TrackedTableOracle<B> {
+        let current_cols = current_table.tracked_oracles();
+        let fk_cols = fk_table.tracked_oracles();
+        let mut merged_oracles = IndexMap::new();
+
+        for field in Self::ordered_fields_verifier(fk_table) {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                continue;
+            }
+            if let Some(oracle) = fk_cols.get(&field) {
+                merged_oracles.insert(field.clone(), oracle.clone());
+            }
+        }
+        for field in Self::ordered_fields_verifier(current_table) {
+            if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
+                continue;
+            }
+            if merged_oracles
+                .keys()
+                .any(|existing| existing.name() == field.name())
+            {
+                continue;
+            }
+            if let Some(oracle) = current_cols.get(&field) {
+                merged_oracles.insert(field.clone(), oracle.clone());
+            }
+        }
+
+        if let Some((field, oracle)) = current_cols
+            .iter()
+            .find(|(field, _)| field.name() == ACTIVATOR_COL_NAME)
+            .map(|(field, oracle)| (field.clone(), oracle.clone()))
+        {
+            merged_oracles.insert(field, oracle);
+        }
+        if let Some((field, oracle)) = fk_cols
+            .iter()
+            .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+            .map(|(field, oracle)| (field.clone(), oracle.clone()))
+            .or_else(|| {
+                current_cols
+                    .iter()
+                    .find(|(field, _)| field.name() == ROW_ID_COL_NAME)
+                    .map(|(field, oracle)| (field.clone(), oracle.clone()))
+            })
+        {
+            merged_oracles.insert(field, oracle);
+        }
+
+        let metadata = current_table
+            .schema_ref()
+            .map(|s| s.metadata().clone())
+            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
+            .unwrap_or_default();
+        let fields = merged_oracles
+            .keys()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        let schema = Some(Schema::new_with_metadata(fields, metadata));
+
+        let log_size = match (current_table.log_size(), fk_table.log_size()) {
+            (0, other) => other,
+            (current, 0) => current,
+            (current, input) => {
+                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
+                current
+            }
+        };
+
+        arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size)
+    }
+
     fn preserve_constraints_for_field(
         mode: modes::JoinMode,
         field_name: &str,
@@ -279,7 +458,6 @@ impl<B: SnarkBackend> LpNode<B> {
         });
         arithmetic::table_oracle::TrackedTableOracle::new(schema, updated_oracles, table.log_size())
     }
-
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -406,44 +584,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             })
             .unwrap_or_default();
 
-        let mut merged_polys = current_table.tracked_polys();
-
-        // Copy FK-side columns exactly into the join output payload.
-        for (field, poly) in fk_table.tracked_polys_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            if let Some(existing_field) = merged_polys
-                .keys()
-                .find(|existing| existing.name() == field.name())
-                .cloned()
-            {
-                merged_polys.swap_remove(&existing_field);
-            }
-            merged_polys.insert(field.clone(), poly.clone());
-        }
-
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-        let fields = merged_polys
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        let log_size = match (current_table.log_size(), fk_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
-                current
-            }
-        };
-
-        let updated_table = arithmetic::table::TrackedTable::new(schema, merged_polys, log_size);
+        let updated_table = Self::merge_partial_output_prover(&current_table, &fk_table);
         let updated_table = Self::update_constraints_prover(
             &updated_table,
             self.join_mode(),
@@ -920,45 +1061,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             })
             .unwrap_or_default();
 
-        let mut merged_oracles = current_table.tracked_oracles();
-
-        // Copy FK-side columns exactly into the join output payload.
-        for (field, oracle) in fk_table.tracked_oracles_iter() {
-            if field.name() == ACTIVATOR_COL_NAME {
-                continue;
-            }
-            if let Some(existing_field) = merged_oracles
-                .keys()
-                .find(|existing| existing.name() == field.name())
-                .cloned()
-            {
-                merged_oracles.swap_remove(&existing_field);
-            }
-            merged_oracles.insert(field.clone(), oracle.clone());
-        }
-
-        let metadata = current_table
-            .schema_ref()
-            .map(|s| s.metadata().clone())
-            .or_else(|| fk_table.schema_ref().map(|s| s.metadata().clone()))
-            .unwrap_or_default();
-        let fields = merged_oracles
-            .keys()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        let schema = Some(Schema::new_with_metadata(fields, metadata));
-
-        let log_size = match (current_table.log_size(), fk_table.log_size()) {
-            (0, other) => other,
-            (current, 0) => current,
-            (current, input) => {
-                debug_assert_eq!(current, input, "Join log sizes should match FK-side input");
-                current
-            }
-        };
-
-        let updated_table =
-            arithmetic::table_oracle::TrackedTableOracle::new(schema, merged_oracles, log_size);
+        let updated_table = Self::merge_partial_output_verifier(&current_table, &fk_table);
         let updated_table = Self::update_constraints_verifier(
             &updated_table,
             self.join_mode(),

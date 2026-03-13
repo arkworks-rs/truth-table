@@ -62,7 +62,10 @@ where
                         return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
                             .map(TrackedPayload::PlanPayload);
                     }
-                    panic!("Missing ctx_oracle for verifier TableScan schema {:?}", base_schema);
+                    panic!(
+                        "Missing ctx_oracle for verifier TableScan schema {:?}",
+                        base_schema
+                    );
                 }
                 track_hint_df(hint_df, &self.verifier).map(TrackedPayload::PlanPayload)
             }

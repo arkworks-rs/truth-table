@@ -98,7 +98,8 @@ where
                             );
                         }
                         if self.allow_table_scan_commit_without_ctx {
-                            let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
+                            let commited_payloadd =
+                                arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
                             debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
                             self.total_committed
                                 .fetch_add(commited_payloadd.comitments().len(), Ordering::Relaxed);
