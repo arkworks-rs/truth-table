@@ -148,11 +148,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q19.sql,
                 tables: q19.tables,
             },
-            // BenchCase {
-            //     name: "tpch_q20",
-            //     query: q20.sql,
-            //     tables: q20.tables,
-            // },
+            BenchCase {
+                name: "tpch_q20",
+                query: q20.sql,
+                tables: q20.tables,
+            },
         ];
         Box::leak(cases.into_boxed_slice())
     })

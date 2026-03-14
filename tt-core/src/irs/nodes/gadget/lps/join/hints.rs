@@ -1,9 +1,10 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
+use datafusion::arrow::datatypes::DataType;
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
-use datafusion_expr::{Expr, ExprFunctionExt, Join, col, lit};
+use datafusion_expr::{Expr, ExprFunctionExt, ExprSchemable, Join, col, lit};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::RuntimeFlavor;
@@ -196,13 +197,19 @@ fn build_indexed_join_frames_impl(
         &left,
         left_row_id.name.as_str(),
         SRC_LEFT_COL_NAME,
-    )?;
+    )
+    // Most joins can map output payload rows back to immediate input rows by
+    // payload equality. Keep a row-id fallback for rewritten subquery joins
+    // where DataFusion may reshape the right-side payload enough to break that
+    // direct lookup even though the replayed join still carries the source ids.
+    .or_else(|_| source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME))?;
     let src_right = source_ids_from_payload_lookup(
         &output_right,
         &right,
         right_row_id.name.as_str(),
         SRC_RIGHT_COL_NAME,
-    )?;
+    )
+    .or_else(|_| source_ids_from_indexed_rows(&indexed, "__src_right_row_id__", SRC_RIGHT_COL_NAME))?;
 
     let output_left = append_source_to_output_payload(&output_left, &src_left, SRC_LEFT_COL_NAME)?;
     let output_right =
@@ -322,6 +329,27 @@ fn source_ids_from_payload_lookup(
         ],
     )?;
     SessionContext::new().read_batch(batch)
+}
+
+fn source_ids_from_indexed_rows(
+    indexed: &DataFrame,
+    helper_col_name: &str,
+    src_col_name: &str,
+) -> DataFusionResult<DataFrame> {
+    // Normalize replayed source ids back to the same Int64 row-id shape used by
+    // the immediate input hints before the nodup/lookup helpers consume them.
+    indexed
+        .clone()
+        .select(vec![
+            col(helper_col_name)
+                .cast_to(&DataType::Int64, indexed.schema())?
+                .alias(src_col_name),
+            col(ACTIVATOR_COL_NAME),
+            col("__row_number__")
+                .cast_to(&DataType::Int64, indexed.schema())?
+                .alias(ROW_ID_COL_NAME),
+        ])?
+        .sort(vec![col(ROW_ID_COL_NAME).sort(true, true)])
 }
 
 fn build_nodup_input_from_sources(
@@ -453,6 +481,14 @@ fn build_nodup_input_from_sources(
 fn scalar_i64(value: ScalarValue, col_name: &str) -> DataFusionResult<i64> {
     match value {
         ScalarValue::Int64(Some(v)) => Ok(v),
+        // Row-number helpers can surface as UInt64 depending on the DataFusion
+        // path that produced the source table, but the downstream lookup helpers
+        // expect a stable signed row-id domain.
+        ScalarValue::UInt64(Some(v)) => i64::try_from(v).map_err(|_| {
+            DataFusionError::Execution(format!(
+                "Join source mapping column {col_name} overflowed Int64"
+            ))
+        }),
         _ => Err(DataFusionError::Execution(format!(
             "Join source mapping column {col_name} was not Int64"
         ))),

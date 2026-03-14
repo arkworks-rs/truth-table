@@ -1300,37 +1300,48 @@ WHERE
             l_partkey = p_partkey);
 "#;
 
+// Flatten Q20 to inner joins so the benchmark exercises the same join gadget
+// path as the other rewritten subquery queries instead of planner-generated
+// semi-joins with null right-side provenance.
 const TPCH_Q20_SQL_REWRITTEN: &str = r#"
 SELECT
     s_name,
     s_address
 FROM
-    supplier,
-    nation
-WHERE
-    s_suppkey IN (
+    supplier
+INNER JOIN nation
+    ON s_nationkey = n_nationkey
+INNER JOIN (
+    SELECT
+        ps_suppkey
+    FROM
+        partsupp
+    INNER JOIN part
+        ON ps_partkey = p_partkey
+    INNER JOIN (
         SELECT
-            ps_suppkey
+            l_partkey,
+            l_suppkey,
+            CAST(0.5 AS DECIMAL(15, 2)) * sum(l_quantity) AS half_sum_qty
         FROM
-            partsupp
+            lineitem
         WHERE
-            ps_partkey IN (
-                SELECT
-                    p_partkey
-                FROM
-                    part)
-            AND ps_availqty > (
-                SELECT
-                    CAST(0.5 AS DECIMAL(15, 2)) * sum(l_quantity)
-                FROM
-                    lineitem
-                WHERE
-                    l_partkey = ps_partkey
-                    AND l_suppkey = ps_suppkey
-                    AND l_shipdate >= CAST('1994-01-01' AS date)
-                    AND l_shipdate < CAST('1995-01-01' AS date)))
-    AND s_nationkey = n_nationkey
-    AND n_name = 'CANADA'
+            l_shipdate >= CAST('1994-01-01' AS date)
+            AND l_shipdate < CAST('1995-01-01' AS date)
+        GROUP BY
+            l_partkey,
+            l_suppkey
+    ) AS lineitem_half_sum
+        ON ps_partkey = l_partkey
+        AND ps_suppkey = l_suppkey
+    WHERE
+        ps_availqty > half_sum_qty
+    GROUP BY
+        ps_suppkey
+) AS candidate_suppliers
+    ON s_suppkey = ps_suppkey
+WHERE
+    n_name = 'CANADA'
 ORDER BY
     s_name;
 "#;
