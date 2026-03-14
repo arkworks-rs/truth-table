@@ -15,7 +15,7 @@ use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
     optimizer::{Analyzer, Optimizer, OptimizerContext},
-    prelude::{ParquetReadOptions, SessionContext},
+    prelude::{ParquetReadOptions, SessionConfig, SessionContext},
 };
 use exec::{
     prove::ProveBuilder,
@@ -367,8 +367,9 @@ pub fn build_verifier_state(
     // Build and plan once; bench timing captures only cryptographic verifier checks.
     let verifier = build_verifier(assets);
     let proof = proof_from_bytes(proof_bytes.as_ref());
-    let (_stages, arg_verifier) = block_on(verifier.build_ir_stages(assets.case.query, &proof))
-        .expect("build verifier stages for bench");
+    let (_stages, arg_verifier) =
+        block_on_verifier(verifier.build_ir_stages(assets.case.query, &proof))
+            .expect("build verifier stages for bench");
     VerifierBenchState { arg_verifier }
 }
 
@@ -405,14 +406,15 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
         .expect("preprocessed ir lock poisoned")
         .clone();
     if let Some(gadget_planned_ir) = cached_ir {
-        block_on(
+        block_on_verifier(
             state
                 .verifier
                 .verify_with_preprocessed(&state.proof, gadget_planned_ir.as_ref()),
         )
         .expect("verify for bench");
     } else {
-        block_on(state.verifier.verify(&state.query, &state.proof)).expect("verify for bench");
+        block_on_verifier(state.verifier.verify(&state.query, &state.proof))
+            .expect("verify for bench");
     }
 }
 
@@ -427,7 +429,7 @@ pub fn run_preprocess_once(state: &VerifierFullBenchState) {
 
 fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
     // Mirror the CLI verifier setup so bench verification matches production.
-    let ctx = SessionContext::new();
+    let ctx = SessionContext::new_with_config(SessionConfig::new().with_target_partitions(1));
     for parquet_path in &assets.parquet_paths {
         let table_name = parquet_path
             .file_stem()
@@ -435,7 +437,7 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
             .to_string_lossy()
             .to_string();
 
-        block_on(ctx.register_parquet(
+        block_on_verifier(ctx.register_parquet(
             &table_name,
             parquet_path.to_str().expect("parquet path must be UTF-8"),
             ParquetReadOptions::default(),
@@ -515,6 +517,16 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
     // or executor state leaking across benchmark cases in the same process.
     let rt = Runtime::new().expect("build tokio runtime");
     rt.block_on(future)
+}
+
+fn block_on_verifier<F: std::future::Future>(future: F) -> F::Output {
+    // Verifier benchmarks intentionally use a single-thread runtime so IR passes
+    // and DataFusion async work do not spill across multiple executor threads.
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build single-thread verifier runtime")
+        .block_on(future)
 }
 
 fn format_bytes(byte_len: usize) -> String {
