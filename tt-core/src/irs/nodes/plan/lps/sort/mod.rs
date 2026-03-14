@@ -166,6 +166,10 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             .iter()
             .map(|sort_expr| sort_expr.expr.clone())
             .collect();
+        exprs = output::resolve_sort_exprs(input_df.schema(), &self.sort.expr)
+            .into_iter()
+            .map(|sort_expr| sort_expr.expr)
+            .collect();
         if input_df
             .schema()
             .fields()
@@ -266,11 +270,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        let sort_exprs_hint = build_verifier_sort_exprs_hint_from_expr_nodes(
-            &self.sort_exprs,
-            &input_hint_df,
-            planned_ir,
-        )?;
+        // Build the verifier sort-expression payload from the same resolved
+        // expressions as the prover; schema-only placeholders changed tracker order.
+        let input_df =
+            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
+                .expect("verifier sort input row-id sort should succeed");
+        let mut exprs: Vec<Expr> = self
+            .sort
+            .expr
+            .iter()
+            .map(|sort_expr| sort_expr.expr.clone())
+            .collect();
+        exprs = output::resolve_sort_exprs(input_df.schema(), &self.sort.expr)
+            .into_iter()
+            .map(|sort_expr| sort_expr.expr)
+            .collect();
+        if input_df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME)
+        {
+            exprs.push(col(ACTIVATOR_COL_NAME));
+        }
+        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
+        let sort_exprs_df = input_df
+            .select(exprs)
+            .expect("verifier sort expr projection should succeed");
+        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
+            .expect("verifier sort expr output sort should succeed");
+        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -283,74 +312,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         );
         Ok(())
     }
-}
-
-fn build_verifier_sort_exprs_hint_from_expr_nodes<B: SnarkBackend>(
-    sort_expr_nodes: &[Arc<Node<B>>],
-    input_hint_df: &HintDF,
-    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
-) -> ark_piop::errors::SnarkResult<HintDF> {
-    // Verifier planning only needs schema/materialization shape. Reuse each sort
-    // expression's already-planned output field and avoid expression projection.
-    let mut fields: Vec<Field> = Vec::with_capacity(sort_expr_nodes.len() + 2);
-    for node in sort_expr_nodes {
-        let expr_hint = if let Some(PayloadStructure::PlanPayload(hint)) =
-            planned_ir.payload_for_node(&node.id())
-        {
-            hint.clone()
-        } else {
-            match node.as_ref() {
-                    Node::Plan(plan_node) => {
-                        <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<B>>::output(
-                            plan_node,
-                        )
-                    }
-                    Node::Gadget(_) => panic!("Sort expression cannot be a gadget node"),
-                }
-        };
-        let data_field = expr_hint
-            .data_frame()
-            .schema()
-            .fields()
-            .iter()
-            .find(|field| {
-                let name = field.name();
-                name != ACTIVATOR_COL_NAME && name != ROW_ID_COL_NAME
-            })
-            .cloned()
-            .unwrap_or_else(|| {
-                expr_hint
-                    .data_frame()
-                    .schema()
-                    .fields()
-                    .first()
-                    .cloned()
-                    .expect("Sort expression output should have at least one field")
-            });
-        fields.push(data_field.as_ref().clone());
-    }
-
-    if input_hint_df
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ACTIVATOR_COL_NAME)
-    {
-        fields.push(Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, true));
-    }
-    if input_hint_df
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.name() == ROW_ID_COL_NAME)
-    {
-        fields.push(Field::new(ROW_ID_COL_NAME, DataType::Int64, true));
-    }
-
-    let df = crate::irs::nodes::hints::schema_only_df(fields);
-    Ok(HintDF::new_virtual(df))
 }
 
 fn build_sort_exprs_table_prover<B: SnarkBackend>(
@@ -604,16 +565,27 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        // Verifier planning only needs output schema; avoid building a projection plan.
-        let fields: Vec<Field> = input_hint_df
-            .data_frame()
+        // Reuse the prover's output ordering logic here so verifier planning keeps
+        // the same column order and row-id handling through sort output shaping.
+        let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
+        let output_df = if output_df
             .schema()
             .fields()
             .iter()
-            .filter(|field| field.name() != ROW_ID_COL_NAME)
-            .map(|field| field.as_ref().clone())
-            .collect();
-        let output_df = crate::irs::nodes::hints::schema_only_df(fields);
+            .any(|field| field.name() == ROW_ID_COL_NAME)
+        {
+            let projected = output_df
+                .schema()
+                .fields()
+                .iter()
+                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
+                .collect();
+            output_df
+                .select(projected)
+                .expect("verifier sort output projection should succeed")
+        } else {
+            output_df
+        };
         HintDF::new_materialized(output_df)
     }
 }

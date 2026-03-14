@@ -18,6 +18,7 @@ use ark_piop::verifier::structs::oracle::TrackedOracle;
 use ark_piop::{SnarkBackend, piop::PIOP};
 use col_toolbox::lookup::{LookupPIOP, LookupProverInput, LookupVerifierInput};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
+use datafusion::prelude::lit;
 use datafusion_expr::Join;
 use either::Either;
 use indexmap::IndexMap;
@@ -246,8 +247,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint,
-                output_right_hint,
+                output_left_hint: _output_left_hint,
+                output_right_hint: _output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -258,8 +259,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
-            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
-            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -382,15 +381,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 let Some(output_hint) = gadget_payload.get(OUTPUT_LABEL) else {
                     return Ok(());
                 };
-                derive_many_to_many_hints_verifier(left_hint, right_hint, output_hint)
+                derive_many_to_many_hints_verifier(&self.join, left_hint, right_hint, output_hint)
             };
 
             let JoinPlanningDerivedHints {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint,
-                output_right_hint,
+                output_left_hint: _output_left_hint,
+                output_right_hint: _output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -398,8 +397,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
-            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
-            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -508,129 +505,58 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 }
 
 fn derive_many_to_many_hints_verifier(
+    join: &Join,
     left_hint: &crate::irs::nodes::hints::HintDF,
     right_hint: &crate::irs::nodes::hints::HintDF,
     output_hint: &crate::irs::nodes::hints::HintDF,
 ) -> JoinPlanningDerivedHints {
-    // Verifier join planning only needs fully materialized schemas; forcing all
-    // columns materialized already implies row_id materialization.
-    let left_hint = force_materialize_all(left_hint);
-    let right_hint = force_materialize_all(right_hint);
-    let output_hint = force_materialize_all(output_hint);
+    // The verifier must derive the same helper tables as the prover here; the
+    // earlier schema-only approximation drifted tracker IDs on nested joins.
+    let left_hint = force_materialize_all(&force_materialize_row_id(left_hint));
+    let right_hint = force_materialize_all(&force_materialize_row_id(right_hint));
+    let output_hint = force_materialize_all(&force_materialize_row_id(output_hint));
 
-    let left_row_id_ty = left_hint
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
-        .map(|f| f.data_type().clone())
-        .unwrap_or(DataType::Int64);
-    let right_row_id_ty = right_hint
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
-        .map(|f| f.data_type().clone())
-        .unwrap_or(DataType::Int64);
-    let output_row_id_ty = output_hint
-        .data_frame()
-        .schema()
-        .fields()
-        .iter()
-        .find(|f| f.name() == arithmetic::ROW_ID_COL_NAME)
-        .map(|f| f.data_type().clone())
-        .unwrap_or(DataType::Int64);
-
-    let src_left_schema = Arc::new(Schema::new(vec![
-        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty.clone(), true),
-        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
-        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty.clone(), true),
-    ]));
-    let src_right_schema = Arc::new(Schema::new(vec![
-        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty.clone(), true),
-        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
-        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty.clone(), true),
-    ]));
-    let nodup_schema = Arc::new(Schema::new(vec![
-        Field::new(SRC_LEFT_COL_NAME, left_row_id_ty.clone(), true),
-        Field::new(SRC_RIGHT_COL_NAME, right_row_id_ty.clone(), true),
-        Field::new(arithmetic::ACTIVATOR_COL_NAME, DataType::Boolean, true),
-        Field::new(arithmetic::ROW_ID_COL_NAME, output_row_id_ty, true),
-    ]));
-
-    let src_left_df = crate::irs::nodes::hints::schema_only_df(
-        src_left_schema
-            .fields()
-            .iter()
-            .map(|f| f.as_ref().clone())
-            .collect(),
-    );
-    let src_right_df = crate::irs::nodes::hints::schema_only_df(
-        src_right_schema
-            .fields()
-            .iter()
-            .map(|f| f.as_ref().clone())
-            .collect(),
-    );
-    let nodup_df = crate::irs::nodes::hints::schema_only_df(
-        nodup_schema
-            .fields()
-            .iter()
-            .map(|f| f.as_ref().clone())
-            .collect(),
-    );
-    let output_left_df = schema_only_output_lookup_base_with_src(
-        left_hint.data_frame(),
-        SRC_LEFT_COL_NAME,
-        left_row_id_ty.clone(),
-    );
-    let output_right_df = schema_only_output_lookup_base_with_src(
-        right_hint.data_frame(),
-        SRC_RIGHT_COL_NAME,
-        right_row_id_ty.clone(),
-    );
+    let left_df = left_hint.data_frame().clone();
+    let right_df = right_hint.data_frame().clone();
+    let (_output_left_df, _output_right_df, src_left_df, src_right_df, nodup_df) =
+        hints::build_output_and_source_dfs(left_df, right_df, join)
+            .expect("join verifier output/source dataframe derivation should succeed");
 
     JoinPlanningDerivedHints {
+        output_left_hint: build_verifier_output_side_hint(&left_hint, SRC_LEFT_COL_NAME),
+        output_right_hint: build_verifier_output_side_hint(&right_hint, SRC_RIGHT_COL_NAME),
         left_hint,
         right_hint,
         output_hint,
-        output_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_left_df),
-        output_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_right_df),
         src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_left_df),
         src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(src_right_df),
         nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_df),
     }
 }
 
-fn schema_only_output_lookup_base_with_src(
-    df: &datafusion::prelude::DataFrame,
+fn build_verifier_output_side_hint(
+    base_hint: &crate::irs::nodes::hints::HintDF,
     src_col_name: &str,
-    src_ty: DataType,
-) -> datafusion::prelude::DataFrame {
-    let mut seen = std::collections::HashMap::<String, usize>::new();
-    let mut fields = df
+) -> crate::irs::nodes::hints::HintDF {
+    // Keep the output-side lookup shape aligned with the prover without adding
+    // extra tracked payload entries that the verifier would have to transfer.
+    let mut exprs = base_hint
+        .data_frame()
         .schema()
-        .fields()
         .iter()
-        .filter(|f| f.name() != arithmetic::ROW_ID_COL_NAME)
-        .map(|f| {
-            let mut field = f.as_ref().clone();
-            let count = seen.entry(field.name().to_string()).or_insert(0);
-            if *count > 0 {
-                field = Field::new(
-                    format!("__tt_lookup_payload_{}_{}", field.name(), count),
-                    field.data_type().clone(),
-                    field.is_nullable(),
-                );
-            }
-            *count += 1;
-            field
+        .filter_map(|(qualifier, field)| {
+            (field.name() != arithmetic::ROW_ID_COL_NAME).then_some(datafusion_expr::Expr::Column(
+                datafusion_common::Column::new(qualifier.cloned(), field.name()),
+            ))
         })
         .collect::<Vec<_>>();
-    fields.push(Field::new(src_col_name, src_ty, true));
-    crate::irs::nodes::hints::schema_only_df(fields)
+    exprs.push(lit(0_i64).alias(src_col_name));
+    let df = base_hint
+        .data_frame()
+        .clone()
+        .select(exprs)
+        .expect("verifier join output-side projection should succeed");
+    crate::irs::nodes::hints::HintDF::new_materialized(df)
 }
 
 fn lookup_fold_challenges_prover<B: SnarkBackend>(

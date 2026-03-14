@@ -229,26 +229,23 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             );
         };
 
-        // Verifier planning only needs schema shape for downstream gadget payload wiring.
         let (left_cols, right_cols, key_names) =
             join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
-        let left_keys_df = build_lookup_keys_schema_only(
-            ctx.left_hint.data_frame(),
-            &left_cols,
-            &key_names,
-            "left",
-        )
-        .expect("match-pair verifier left key schema should succeed");
-        let right_keys_df = build_lookup_keys_schema_only(
+        let left_keys_df =
+            build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
+                .expect("match-pair verifier left key projection should succeed");
+        let right_keys_df = build_lookup_keys_df(
             ctx.right_hint.data_frame(),
             &right_cols,
             &key_names,
             "right",
         )
-        .expect("match-pair verifier right key schema should succeed");
-        let union_df = build_union_schema_only(&key_names, &left_keys_df)
-            .expect("match-pair verifier union schema should succeed");
-        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(union_df.clone());
+        .expect("match-pair verifier right key projection should succeed");
+        let key_union = build_union_hint_df(left_keys_df.clone(), right_keys_df.clone())
+            .expect("match-pair verifier union hint should succeed");
+        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
+            .expect("match-pair verifier union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
         let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
         let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);

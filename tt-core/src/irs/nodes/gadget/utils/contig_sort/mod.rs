@@ -200,27 +200,6 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         Some(hint_df) => hint_df.clone(),
         None => return Ok(()),
     };
-    if is_verifier {
-        // Verifier planning must still provide rotated/tie/diff payload entries so
-        // gadget initialization can wire constraints, but should avoid any eager
-        // collection/materialization work.
-        let input_hint = if node.strip_row_id {
-            strip_row_id_schema_only_hint(&input_hint)
-        } else {
-            input_hint
-        };
-        let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
-        let ordered_data_fields = ordered_data_fields_for_hint(&input_hint, &sort_specs);
-        let rotated_hint = build_verifier_rotated_hint(&input_hint);
-        let tie_hint = build_verifier_tie_hint_from_ordered(&ordered_data_fields);
-        let diff_hint = build_verifier_diff_hint_from_ordered(&ordered_data_fields);
-        gadget_payload.insert(ROTATED_INPUT_LABEL.to_string(), rotated_hint);
-        gadget_payload.insert(TIE_INDICATOR_LABEL.to_string(), tie_hint);
-        gadget_payload.insert(DIFF_INPUT_LABEL.to_string(), diff_hint);
-        gadget_payload.insert(TABLE_LABEL.to_string(), input_hint);
-        planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(gadget_payload)));
-        return Ok(());
-    }
     let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
     let sorted_input_hint = {
         let sorted_df =

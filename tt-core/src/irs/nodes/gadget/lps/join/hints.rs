@@ -650,12 +650,13 @@ fn with_activator_only(mut exprs: Vec<Expr>) -> Vec<Expr> {
 
 fn materialize_dataframe(df: DataFrame) -> DataFusionResult<DataFrame> {
     let df = crate::irs::nodes::hints::sort_by_row_id_if_present(df)?;
+    // Keep the projected schema even when the join helper is empty; downstream
+    // source-table derivation still expects the payload columns to exist.
+    let schema = Arc::new(df.schema().as_arrow().clone());
     let batches = collect_blocking(df)?;
     let ctx = SessionContext::new();
     if batches.is_empty() {
-        return ctx.read_batch(RecordBatch::new_empty(Arc::new(
-            datafusion::arrow::datatypes::Schema::empty(),
-        )));
+        return ctx.read_batch(RecordBatch::new_empty(schema));
     }
     let schema_ref = batches[0].schema();
     let batch_refs = batches.iter().collect::<Vec<_>>();

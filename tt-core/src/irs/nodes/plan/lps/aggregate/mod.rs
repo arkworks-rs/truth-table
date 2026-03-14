@@ -7,7 +7,8 @@ use arithmetic::{
 use ark_ff::{One, Zero};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
-use datafusion_common::Column;
+use datafusion_common::tree_node::{Transformed, TreeNode};
+use datafusion_common::{Column, DFSchema};
 use datafusion_expr::{Aggregate, Expr, LogicalPlan};
 use either::Either;
 use indexmap::IndexMap;
@@ -115,6 +116,47 @@ fn single_group_oracle<B: SnarkBackend>(
     Some(TrackedTableOracle::new(schema, oracles, table.log_size()))
 }
 
+fn resolve_group_exprs(schema: &DFSchema, exprs: &[Expr]) -> Vec<Expr> {
+    exprs
+        .iter()
+        .cloned()
+        .map(|expr| resolve_group_expr(schema, expr))
+        .collect()
+}
+
+fn resolve_group_expr(schema: &DFSchema, expr: Expr) -> Expr {
+    expr.transform(|inner| {
+        if let Expr::Column(col) = &inner {
+            let name = col.name();
+            // Group expressions can arrive with stale qualifiers after verifier
+            // schema-only rewrites; remap them to the actual projected field.
+            if let Some(relation) = col.relation.as_ref() {
+                let has_exact = schema.iter().any(|(qualifier, field)| {
+                    field.name() == name && qualifier.as_ref() == Some(&relation)
+                });
+                if has_exact {
+                    return Ok(Transformed::no(inner));
+                }
+            }
+
+            if let Some((qualifier, _)) = schema.iter().find(|(_, field)| field.name() == name) {
+                return Ok(Transformed::yes(Expr::Column(Column::new(
+                    qualifier.cloned(),
+                    name,
+                ))));
+            }
+
+            return Ok(Transformed::yes(Expr::Column(Column::new_unqualified(
+                name,
+            ))));
+        }
+
+        Ok(Transformed::no(inner))
+    })
+    .unwrap()
+    .data
+}
+
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     fn name(&self) -> String {
         "Aggregate".to_string()
@@ -185,7 +227,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         let input_df = input_hint_df.data_frame().clone();
         let output_df = output_hint_df.data_frame().clone();
 
-        let mut input_projection_exprs = self.aggregate.group_expr.clone();
+        let mut input_projection_exprs =
+            resolve_group_exprs(input_df.schema(), &self.aggregate.group_expr);
         crate::irs::nodes::hints::append_activator_exprs_if_present(
             &input_df,
             &mut input_projection_exprs,
@@ -195,7 +238,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             &mut input_projection_exprs,
         );
 
-        let mut output_projection_exprs = self.aggregate.group_expr.clone();
+        let mut output_projection_exprs =
+            resolve_group_exprs(output_df.schema(), &self.aggregate.group_expr);
         crate::irs::nodes::hints::append_activator_exprs_if_present(
             &output_df,
             &mut output_projection_exprs,
@@ -446,11 +490,28 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Aggregate input cannot be a gadget node"),
         };
 
-        let output = hints::build_output_dataframe(input_hint_df.data_frame(), &self.aggregate);
+        // The verifier only needs the output shape here, but it has to match the
+        // prover's projected aggregate schema exactly to keep tracking aligned.
+        let mut output_fields: Vec<Field> = input_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| field.name() != ACTIVATOR_COL_NAME)
+            .map(|field| field.as_ref().clone())
+            .collect();
 
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
+        let aggregate_fields: Vec<Field> = schema_fields[aggr_start..]
+            .iter()
+            .map(|field| field.as_ref().clone())
+            .collect();
+        output_fields.extend(aggregate_fields.iter().cloned());
+        output_fields.push(ACTIVATOR_FIELD.as_ref().clone());
+        let output = crate::irs::nodes::hints::schema_only_df(output_fields);
+
         let aggregate_field_names: std::collections::BTreeSet<String> = schema_fields[aggr_start..]
             .iter()
             .map(|field| field.name().to_string())
@@ -568,32 +629,51 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         id: crate::irs::nodes::NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let (input_fields, output_fields) = {
-            let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
-                Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
-                _ => return Ok(()),
-            };
-            let output_hint_df = match planned_ir.payload_for_node(&id) {
-                Some(PayloadStructure::PlanPayload(hint_df)) => hint_df,
-                _ => return Ok(()),
-            };
-            (
-                aggregate_group_projection_fields(
-                    input_hint_df.data_frame().schema().as_arrow(),
-                    &self.aggregate.group_expr,
-                ),
-                aggregate_group_projection_fields(
-                    output_hint_df.data_frame().schema().as_arrow(),
-                    &self.aggregate.group_expr,
-                ),
-            )
+        let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
         };
-        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(
-            crate::irs::nodes::hints::schema_only_df(input_fields),
+        let output_hint_df = match planned_ir.payload_for_node(&id) {
+            Some(PayloadStructure::PlanPayload(hint_df)) => hint_df.clone(),
+            _ => return Ok(()),
+        };
+
+        let input_df = input_hint_df.data_frame().clone();
+        let output_df = output_hint_df.data_frame().clone();
+
+        let mut input_projection_exprs =
+            resolve_group_exprs(input_df.schema(), &self.aggregate.group_expr);
+        crate::irs::nodes::hints::append_activator_exprs_if_present(
+            &input_df,
+            &mut input_projection_exprs,
         );
-        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(
-            crate::irs::nodes::hints::schema_only_df(output_fields),
+        crate::irs::nodes::hints::append_row_id_expr_if_present(
+            &input_df,
+            &mut input_projection_exprs,
         );
+
+        let mut output_projection_exprs =
+            resolve_group_exprs(output_df.schema(), &self.aggregate.group_expr);
+        crate::irs::nodes::hints::append_activator_exprs_if_present(
+            &output_df,
+            &mut output_projection_exprs,
+        );
+        crate::irs::nodes::hints::append_row_id_expr_if_present(
+            &output_df,
+            &mut output_projection_exprs,
+        );
+
+        // Project group keys from the real hint schema on both sides so the
+        // aggregate gadget sees the same tracked columns in prover and verifier.
+        let input_projected = input_df
+            .select(input_projection_exprs)
+            .expect("verifier aggregate input group projection should succeed");
+        let output_projected = output_df
+            .select(output_projection_exprs)
+            .expect("verifier aggregate output group projection should succeed");
+
+        let input_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(input_projected);
+        let output_groups_hint = crate::irs::nodes::hints::HintDF::new_virtual(output_projected);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
