@@ -98,6 +98,11 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let Some(input_hint) = self_payload.get(INPUT_LABEL) else {
         panic!("No input hint found for NoDup gadget at node {:?}", id);
     };
+    let is_pk = nodup_input_is_pk(input_hint);
+    node.cache_is_pk(is_pk);
+    if is_pk {
+        return Ok(());
+    }
 
     // SortNoDup is the only mode that uses planner hints/virtual witnesses.
     let Gadgets::SortNoDup(_) = &node.gadgets else {
@@ -109,7 +114,11 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
-    let lex_sorted_hint = build_lex_sorted_hint(input_hint);
+    let lex_sorted_hint = if is_verifier {
+        build_lex_sorted_hint_for_verifier(input_hint)
+    } else {
+        build_lex_sorted_hint(input_hint)
+    };
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
 

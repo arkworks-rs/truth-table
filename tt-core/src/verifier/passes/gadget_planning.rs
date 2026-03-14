@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use crate::irs::{
     ir::LocalPass,
-    nodes::{Node, NodeId, VerifierNodeOps, gadget::lps::join},
+    nodes::{Node, NodeId, VerifierNodeOps, gadget::{lps::join, utils::match_pair_check}},
     payloads::{HintDFDFPayload, HintDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };
@@ -83,10 +83,12 @@ impl<B: SnarkBackend> LocalPass<B, HintDFDFPayload, HintDFDFPayload> for GadgetP
 
     fn begin_pass(&self, _ir: &crate::irs::ir::Ir<B, HintDFDFPayload>) {
         join::begin_join_planning_cache_scope();
+        match_pair_check::begin_match_pair_planning_cache_scope();
         self.visited_nodes.borrow_mut().clear();
     }
 
     fn end_pass(&self) {
+        match_pair_check::end_match_pair_planning_cache_scope();
         join::end_join_planning_cache_scope();
         self.visited_nodes.borrow_mut().clear();
     }

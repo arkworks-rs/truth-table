@@ -798,13 +798,13 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
         };
         let full_materialization = self.should_fully_materialize();
         let joined = if full_materialization {
-            hints::build_output_dataframe(
+            build_output_dataframe_verifier_light(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,
             )
         } else {
-            hints::build_partial_output_dataframe(
+            build_partial_output_dataframe_verifier_light(
                 left_hint_df.data_frame().clone(),
                 right_hint_df.data_frame().clone(),
                 &self.join,

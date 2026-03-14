@@ -222,6 +222,9 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             }
             Node::Gadget(_) => panic!("Projection input cannot be a gadget node"),
         };
+        if self.exprs.is_empty() {
+            return input_hint_df.as_virtual_view();
+        }
 
         let projected = hints::build_output_dataframe_for_verifier(
             input_hint_df.data_frame(),

@@ -476,7 +476,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
             })
             .collect();
 
-        crate::irs::nodes::hints::HintDF::new(output, should_materialize)
+        crate::irs::nodes::hints::HintDF::new_assume_normalized(output, should_materialize)
     }
 }
 

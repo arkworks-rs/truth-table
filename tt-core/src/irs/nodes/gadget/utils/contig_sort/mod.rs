@@ -201,7 +201,9 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         None => return Ok(()),
     };
     let sort_specs = sort_specs_for_hint(&node.sort_config, &input_hint);
-    let sorted_input_hint = {
+    let sorted_input_hint = if is_verifier {
+        build_schema_only_hint_from_existing(&input_hint)
+    } else {
         let sorted_df =
             crate::irs::nodes::gadget::utils::contig_sort::hints::sort_input_for_contig_sort(
                 &input_hint,
@@ -221,11 +223,31 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         }
         crate::irs::nodes::hints::HintDF::new(padded_df, should_materialize)
     };
-    populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
-    populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    if is_verifier {
+        let ordered_data_fields = ordered_data_fields_for_hint(&sorted_input_hint, &sort_specs);
+        gadget_payload.insert(
+            ROTATED_INPUT_LABEL.to_string(),
+            build_verifier_rotated_hint(&sorted_input_hint),
+        );
+        gadget_payload.insert(
+            TIE_INDICATOR_LABEL.to_string(),
+            build_verifier_tie_hint_from_ordered(&ordered_data_fields),
+        );
+        gadget_payload.insert(
+            DIFF_INPUT_LABEL.to_string(),
+            build_verifier_diff_hint_from_ordered(&ordered_data_fields),
+        );
+    } else {
+        populate_rotated(&mut gadget_payload, &sorted_input_hint, &sort_specs, false);
+        populate_tie_and_diff(&mut gadget_payload, &sorted_input_hint, &sort_specs);
+    }
     let input_hint = if node.strip_row_id {
         // Strip row-id before storing to avoid exposing it in gadget payloads.
-        crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
+        if is_verifier {
+            strip_row_id_schema_only_hint(&sorted_input_hint)
+        } else {
+            crate::irs::nodes::hints::strip_row_id_from_hint(&sorted_input_hint)
+        }
     } else {
         sorted_input_hint.clone()
     };
@@ -250,6 +272,29 @@ fn strip_row_id_schema_only_hint(
     }
 
     let df = crate::irs::nodes::hints::schema_only_df(fields.clone());
+    let mut should_materialize = IndexMap::new();
+    for field in df.schema().fields() {
+        let materialized = hint
+            .field_materialization_iter()
+            .find(|(orig_field, _)| orig_field.name() == field.name())
+            .map(|(_, materialized)| *materialized)
+            .unwrap_or(true);
+        should_materialize.insert(field.clone(), materialized);
+    }
+    crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
+}
+
+fn build_schema_only_hint_from_existing(
+    hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
+    let fields: Vec<Field> = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.as_ref().clone())
+        .collect();
+    let df = crate::irs::nodes::hints::schema_only_df(fields);
     let mut should_materialize = IndexMap::new();
     for field in df.schema().fields() {
         let materialized = hint

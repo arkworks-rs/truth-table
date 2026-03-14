@@ -3,8 +3,7 @@ use arithmetic::ROW_ID_COL_NAME;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
 use datafusion::arrow::{
-    datatypes::{DataType, Field, FieldRef, Schema},
-    record_batch::RecordBatch,
+    datatypes::{Field, FieldRef, Schema},
 };
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
@@ -262,7 +261,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     }
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
+        _id: NodeId,
         planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         let input_hint_df = match planned_ir.payload_for_node(&self.input.id()) {
@@ -270,36 +269,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             _ => return Ok(()),
         };
 
-        // Build the verifier sort-expression payload from the same resolved
-        // expressions as the prover; schema-only placeholders changed tracker order.
-        let input_df =
-            crate::irs::nodes::hints::sort_by_row_id_if_present(input_hint_df.data_frame().clone())
-                .expect("verifier sort input row-id sort should succeed");
-        let mut exprs: Vec<Expr> = self
-            .sort
-            .expr
-            .iter()
-            .map(|sort_expr| sort_expr.expr.clone())
-            .collect();
-        exprs = output::resolve_sort_exprs(input_df.schema(), &self.sort.expr)
-            .into_iter()
-            .map(|sort_expr| sort_expr.expr)
-            .collect();
-        if input_df
-            .schema()
-            .fields()
-            .iter()
-            .any(|field| field.name() == ACTIVATOR_COL_NAME)
-        {
-            exprs.push(col(ACTIVATOR_COL_NAME));
-        }
-        crate::irs::nodes::hints::append_row_id_expr_if_present(&input_df, &mut exprs);
-        let sort_exprs_df = input_df
-            .select(exprs)
-            .expect("verifier sort expr projection should succeed");
-        let sort_exprs_df = crate::irs::nodes::hints::sort_by_row_id_if_present(sort_exprs_df)
-            .expect("verifier sort expr output sort should succeed");
-        let sort_exprs_hint = HintDF::new_virtual(sort_exprs_df);
+        let sort_exprs_hint =
+            build_sort_exprs_hint_verifier(&self.sort_exprs, &input_hint_df, planned_ir);
 
         let mut gadget_payload = match planned_ir.payload_for_node(&self.gadget.id()) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -464,6 +435,48 @@ fn build_sort_exprs_table_verifier<B: SnarkBackend>(
     ))
 }
 
+fn build_sort_exprs_hint_verifier<B: SnarkBackend>(
+    sort_exprs: &[Arc<Node<B>>],
+    input_hint_df: &HintDF,
+    planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
+) -> HintDF {
+    let mut fields = Vec::new();
+
+    for expr_node in sort_exprs {
+        let Some(PayloadStructure::PlanPayload(expr_hint_df)) = planned_ir.payload_for_node(&expr_node.id())
+        else {
+            continue;
+        };
+
+        fields.extend(
+            expr_hint_df
+                .data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .filter(|field| {
+                    field.name() != ACTIVATOR_COL_NAME && field.name() != ROW_ID_COL_NAME
+                })
+                .map(|field| field.as_ref().clone()),
+        );
+    }
+
+    fields.extend(
+        input_hint_df
+            .data_frame()
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| {
+                field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME
+            })
+            .map(|field| field.as_ref().clone()),
+    );
+
+    let sort_exprs_df = crate::irs::nodes::hints::schema_only_df(fields);
+    HintDF::new_virtual(sort_exprs_df)
+}
+
 fn strip_row_id_tracked_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
     let Some(schema) = table.schema_ref() else {
         return table.clone();
@@ -565,27 +578,15 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             Node::Gadget(_) => panic!("Sort input cannot be a gadget node"),
         };
 
-        // Reuse the prover's output ordering logic here so verifier planning keeps
-        // the same column order and row-id handling through sort output shaping.
-        let output_df = output::sort_df(input_hint_df.data_frame(), &self.sort);
-        let output_df = if output_df
+        let output_fields = input_hint_df
+            .data_frame()
             .schema()
             .fields()
             .iter()
-            .any(|field| field.name() == ROW_ID_COL_NAME)
-        {
-            let projected = output_df
-                .schema()
-                .fields()
-                .iter()
-                .filter_map(|field| (field.name() != ROW_ID_COL_NAME).then_some(col(field.name())))
-                .collect();
-            output_df
-                .select(projected)
-                .expect("verifier sort output projection should succeed")
-        } else {
-            output_df
-        };
+            .filter(|field| field.name() != ROW_ID_COL_NAME)
+            .map(|field| field.as_ref().clone())
+            .collect();
+        let output_df = crate::irs::nodes::hints::schema_only_df(output_fields);
         HintDF::new_materialized(output_df)
     }
 }

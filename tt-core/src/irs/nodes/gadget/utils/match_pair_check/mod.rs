@@ -38,6 +38,12 @@ pub const OUT_LABEL: &str = "__out__";
 /// The union of left and right keys
 pub const UNION_LABEL: &str = "__union__";
 
+thread_local! {
+    static MATCH_PAIR_PLANNING_CACHE: std::cell::RefCell<Option<IndexMap<crate::irs::nodes::NodeId, MatchPairPlanningContext>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[derive(Clone)]
 struct MatchPairPlanningContext {
     left_hint: crate::irs::nodes::hints::HintDF,
     right_hint: crate::irs::nodes::hints::HintDF,
@@ -55,6 +61,38 @@ pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     left_lookup_gadget: Arc<Node<B>>,
     right_lookup_gadget: Arc<Node<B>>,
+}
+
+pub fn begin_match_pair_planning_cache_scope() {
+    MATCH_PAIR_PLANNING_CACHE.with(|cache| {
+        *cache.borrow_mut() = Some(IndexMap::new());
+    });
+}
+
+pub fn end_match_pair_planning_cache_scope() {
+    MATCH_PAIR_PLANNING_CACHE.with(|cache| {
+        *cache.borrow_mut() = None;
+    });
+}
+
+pub fn cache_match_pair_planning_context(
+    id: crate::irs::nodes::NodeId,
+    left_hint: crate::irs::nodes::hints::HintDF,
+    right_hint: crate::irs::nodes::hints::HintDF,
+    join: Join,
+) {
+    MATCH_PAIR_PLANNING_CACHE.with(|cache| {
+        if let Some(scope_cache) = cache.borrow_mut().as_mut() {
+            scope_cache.insert(
+                id,
+                MatchPairPlanningContext {
+                    left_hint,
+                    right_hint,
+                    join,
+                },
+            );
+        }
+    });
 }
 
 impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
@@ -231,27 +269,32 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
         let (left_cols, right_cols, key_names) =
             join_key_columns(&ctx.join).expect("match-pair join keys should be columns");
-        let left_keys_df =
-            build_lookup_keys_df(ctx.left_hint.data_frame(), &left_cols, &key_names, "left")
-                .expect("match-pair verifier left key projection should succeed");
-        let right_keys_df = build_lookup_keys_df(
+        let left_keys_df = build_lookup_keys_schema_only(
+            ctx.left_hint.data_frame(),
+            &left_cols,
+            &key_names,
+            "left",
+        )
+        .expect("match-pair verifier left key schema should succeed");
+        let right_keys_df = build_lookup_keys_schema_only(
             ctx.right_hint.data_frame(),
             &right_cols,
             &key_names,
             "right",
         )
-        .expect("match-pair verifier right key projection should succeed");
-        let key_union = build_union_hint_df(left_keys_df.clone(), right_keys_df.clone())
-            .expect("match-pair verifier union hint should succeed");
+        .expect("match-pair verifier right key schema should succeed");
+        let key_union = build_union_schema_only(&key_names, &left_keys_df)
+            .expect("match-pair verifier union schema should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
-        let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
-            .expect("match-pair verifier union sort should succeed");
-        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
-        let left_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df);
-        let left_lookup_hint = crate::irs::nodes::hints::strip_row_id_from_hint(&left_lookup_hint);
-        let right_lookup_hint = crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df);
+        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(key_hint.data_frame().clone());
+        let left_lookup_hint =
+            strip_row_id_keep_activator_schema_only(&crate::irs::nodes::hints::HintDF::new_virtual(
+                left_keys_df,
+            ));
         let right_lookup_hint =
-            crate::irs::nodes::hints::strip_row_id_from_hint(&right_lookup_hint);
+            strip_row_id_keep_activator_schema_only(&crate::irs::nodes::hints::HintDF::new_virtual(
+                right_keys_df,
+            ));
 
         apply_match_pair_planned_hints(
             self,
@@ -340,6 +383,22 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         );
         Ok(())
     }
+}
+
+fn strip_row_id_keep_activator_schema_only(
+    hint: &crate::irs::nodes::hints::HintDF,
+) -> crate::irs::nodes::hints::HintDF {
+    let fields = hint
+        .data_frame()
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| field.name() != arithmetic::ROW_ID_COL_NAME)
+        .map(|field| field.as_ref().clone())
+        .collect();
+    crate::irs::nodes::hints::HintDF::new_virtual(crate::irs::nodes::hints::schema_only_df(
+        fields,
+    ))
 }
 
 fn build_lookup_keys_schema_only(
@@ -800,6 +859,14 @@ fn load_match_pair_planning_context<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
     planned_ir: &crate::irs::shared_ir::OutputPlannedIr<B>,
 ) -> Option<MatchPairPlanningContext> {
+    if let Some(cached) = MATCH_PAIR_PLANNING_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .as_ref()
+            .and_then(|scope_cache| scope_cache.get(&id).cloned())
+    }) {
+        return Some(cached);
+    }
     let payload = match planned_ir.payload_for_node(&id) {
         Some(PayloadStructure::GadgetPayload(map)) => map,
         _ => return None,
