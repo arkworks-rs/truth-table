@@ -247,8 +247,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint: _output_left_hint,
-                output_right_hint: _output_right_hint,
+                output_left_hint,
+                output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -259,6 +259,11 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            // Preserve the exact output-side lookup bases derived from the replayed
+            // join so later prove/check stages do not need to re-slice the combined
+            // output payload heuristically.
+            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
+            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -388,8 +393,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint: _output_left_hint,
-                output_right_hint: _output_right_hint,
+                output_left_hint,
+                output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -397,6 +402,10 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            // The verifier tracks the same output-side lookup shape as the prover,
+            // but keeps the helper tables schema-driven to avoid replaying data.
+            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
+            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -759,6 +768,41 @@ fn count_output_payload_cols<B: SnarkBackend>(table: &TrackedTable<B>) -> usize 
         .count()
 }
 
+fn payload_fields_by_schema_match(
+    output_fields: &[FieldRef],
+    side_fields: &[FieldRef],
+) -> Option<Vec<FieldRef>> {
+    let side_payload = side_fields
+        .iter()
+        .filter(|field| {
+            field.name() != arithmetic::ROW_ID_COL_NAME
+                && field.name() != arithmetic::ACTIVATOR_COL_NAME
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let output_payload = output_fields
+        .iter()
+        .filter(|field| {
+            field.name() != arithmetic::ROW_ID_COL_NAME
+                && field.name() != arithmetic::ACTIVATOR_COL_NAME
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut used = vec![false; output_payload.len()];
+    let mut matched = Vec::with_capacity(side_payload.len());
+    for side_field in side_payload {
+        let Some((idx, field)) = output_payload.iter().enumerate().find(|(idx, candidate)| {
+            !used[*idx] && candidate.as_ref() == side_field.as_ref()
+        }) else {
+            return None;
+        };
+        used[idx] = true;
+        matched.push(field.clone());
+    }
+    Some(matched)
+}
+
 fn count_output_payload_cols_oracle<B: SnarkBackend>(table: &TrackedTableOracle<B>) -> usize {
     let cols = table.tracked_oracles();
     let fields: Vec<FieldRef> = match table.schema_ref() {
@@ -797,16 +841,40 @@ fn output_lookup_base_from_output<B: SnarkBackend>(
             .collect(),
         None => output_cols.keys().cloned().collect(),
     };
+    let side_fields = if use_left {
+        match left_table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect::<Vec<_>>(),
+            None => left_table.tracked_polys().keys().cloned().collect(),
+        }
+    } else {
+        match right_table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect::<Vec<_>>(),
+            None => right_table.tracked_polys().keys().cloned().collect(),
+        }
+    };
+    let selected_fields = payload_fields_by_schema_match(&ordered_fields, &side_fields)
+        .unwrap_or_else(|| {
+            ordered_fields
+                .iter()
+                .filter(|field| {
+                    field.name() != arithmetic::ACTIVATOR_COL_NAME
+                        && field.name() != arithmetic::ROW_ID_COL_NAME
+                })
+                .skip(start)
+                .take(len)
+                .cloned()
+                .collect::<Vec<_>>()
+        });
     let mut data_fields = IndexMap::new();
-    for field in ordered_fields
-        .into_iter()
-        .filter(|field| {
-            field.name() != arithmetic::ACTIVATOR_COL_NAME
-                && field.name() != arithmetic::ROW_ID_COL_NAME
-        })
-        .skip(start)
-        .take(len)
-    {
+    for field in selected_fields {
         let poly = output_cols
             .get(&field)
             .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));
@@ -851,16 +919,40 @@ fn output_lookup_base_from_output_oracle<B: SnarkBackend>(
             .collect(),
         None => output_cols.keys().cloned().collect(),
     };
+    let side_fields = if use_left {
+        match left_table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect::<Vec<_>>(),
+            None => left_table.tracked_oracles().keys().cloned().collect(),
+        }
+    } else {
+        match right_table.schema_ref() {
+            Some(schema) => schema
+                .fields()
+                .iter()
+                .map(|field| Arc::new(field.as_ref().clone()))
+                .collect::<Vec<_>>(),
+            None => right_table.tracked_oracles().keys().cloned().collect(),
+        }
+    };
+    let selected_fields = payload_fields_by_schema_match(&ordered_fields, &side_fields)
+        .unwrap_or_else(|| {
+            ordered_fields
+                .iter()
+                .filter(|field| {
+                    field.name() != arithmetic::ACTIVATOR_COL_NAME
+                        && field.name() != arithmetic::ROW_ID_COL_NAME
+                })
+                .skip(start)
+                .take(len)
+                .cloned()
+                .collect::<Vec<_>>()
+        });
     let mut data_fields = IndexMap::new();
-    for field in ordered_fields
-        .into_iter()
-        .filter(|field| {
-            field.name() != arithmetic::ACTIVATOR_COL_NAME
-                && field.name() != arithmetic::ROW_ID_COL_NAME
-        })
-        .skip(start)
-        .take(len)
-    {
+    for field in selected_fields {
         let oracle = output_cols
             .get(&field)
             .unwrap_or_else(|| panic!("Join output missing column {}", field.name()));

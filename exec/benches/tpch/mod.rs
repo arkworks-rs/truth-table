@@ -15,8 +15,10 @@ fn tpch_cases() -> &'static [BenchCase] {
     CASES.get_or_init(|| {
         let q1 = query_spec(1, false);
         let q1_poneglyph = query_spec(1, true);
+        let q2 = query_spec(2, false);
         let q3 = query_spec(3, false);
         let q3_poneglyph = query_spec(3, true);
+        let q4 = query_spec(4, false);
         let q5 = query_spec(5, false);
         let q5_poneglyph = query_spec(5, true);
         let q6 = query_spec(6, false);
@@ -28,10 +30,12 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q10 = query_spec(10, false);
         let q12 = query_spec(12, false);
         let q14 = query_spec(14, false);
+        let q15 = query_spec(15, false);
         let q17 = query_spec(17, false);
         let q18 = query_spec(18, false);
         let q18_poneglyph = query_spec(18, true);
         let q19 = query_spec(19, false);
+        let q20 = query_spec(20, false);
 
         let cases = vec![
             BenchCase {
@@ -45,6 +49,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 tables: q1_poneglyph.tables,
             },
             BenchCase {
+                name: "tpch_q2",
+                query: q2.sql,
+                tables: q2.tables,
+            },
+            BenchCase {
                 name: "tpch_q3_poneglyph",
                 query: q3_poneglyph.sql,
                 tables: q3_poneglyph.tables,
@@ -53,6 +62,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 name: "tpch_q3",
                 query: q3.sql,
                 tables: q3.tables,
+            },
+            BenchCase {
+                name: "tpch_q4",
+                query: q4.sql,
+                tables: q4.tables,
             },
             BenchCase {
                 name: "tpch_q5",
@@ -110,6 +124,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 tables: q14.tables,
             },
             BenchCase {
+                name: "tpch_q15",
+                query: q15.sql,
+                tables: q15.tables,
+            },
+            BenchCase {
                 name: "tpch_q17",
                 query: q17.sql,
                 tables: q17.tables,
@@ -129,6 +148,11 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q19.sql,
                 tables: q19.tables,
             },
+            // BenchCase {
+            //     name: "tpch_q20",
+            //     query: q20.sql,
+            //     tables: q20.tables,
+            // },
         ];
         Box::leak(cases.into_boxed_slice())
     })

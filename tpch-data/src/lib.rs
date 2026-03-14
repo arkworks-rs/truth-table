@@ -1192,6 +1192,66 @@ WHERE
     AND l_shipdate < CAST('1995-10-01' AS date);
 "#;
 
+const TPCH_Q4_SQL_REWRITTEN: &str = r#"
+SELECT
+    o_orderpriority,
+    count(*) AS order_count
+FROM
+    orders
+INNER JOIN (
+    SELECT
+        l_orderkey
+    FROM
+        lineitem
+    WHERE
+        l_receiptdate > l_commitdate
+    GROUP BY
+        l_orderkey
+) AS late_orders ON o_orderkey = l_orderkey
+WHERE
+    o_orderdate >= CAST('1993-07-01' AS date)
+    AND o_orderdate < CAST('1993-10-01' AS date)
+GROUP BY
+    o_orderpriority
+ORDER BY
+    o_orderpriority;
+"#;
+
+const TPCH_Q15_SQL_REWRITTEN: &str = r#"
+WITH revenue AS (
+    SELECT
+        l_suppkey AS supplier_no,
+        sum(l_extendedprice * (1 - l_discount)) AS total_revenue
+    FROM
+        lineitem
+    WHERE
+        l_shipdate >= CAST('1996-01-01' AS date)
+        AND l_shipdate < CAST('1996-04-01' AS date)
+    GROUP BY
+        supplier_no
+),
+max_revenue AS (
+    SELECT
+        max(total_revenue) AS highest_val
+    FROM
+        revenue
+)
+SELECT
+    s_suppkey,
+    s_name,
+    s_address,
+    s_phone,
+    total_revenue
+FROM
+    supplier
+INNER JOIN revenue
+    ON s_suppkey = supplier_no
+INNER JOIN max_revenue
+    ON total_revenue = highest_val
+ORDER BY
+    s_suppkey;
+"#;
+
 const TPCH_Q16_SQL_REWRITTEN: &str = r#"
 SELECT
     p_brand,
@@ -1574,7 +1634,7 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             },
         },
         4 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q4_SQL, 4),
+            sql: TPCH_Q4_SQL_REWRITTEN,
             tables: &["orders", "lineitem"],
         },
         5 => TpchQuerySpec {
@@ -1670,7 +1730,7 @@ pub fn query_spec(number: u8, poneglyph: bool) -> TpchQuerySpec {
             tables: &["lineitem", "part"],
         },
         15 => TpchQuerySpec {
-            sql: cached_tpch_sql(&TPCH_Q15_SQL, 15),
+            sql: TPCH_Q15_SQL_REWRITTEN,
             tables: &["lineitem", "supplier"],
         },
         16 => TpchQuerySpec {
