@@ -197,7 +197,7 @@ fn write_oracle(serializable: &ArithTableOracle<B>, output_path: &Path) -> Resul
         .with_context(|| format!("failed to create {}", output_path.display()))?;
     let mut writer = BufWriter::new(file);
     serializable
-        .serialize_uncompressed(&mut writer)
+        .serialize_compressed(&mut writer)
         .context("failed to serialize oracle")?;
     writer
         .flush()

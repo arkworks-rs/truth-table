@@ -55,8 +55,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<B>, PathB
 
         let query = format!("SELECT * FROM {table_name}");
 
-        let (mut prover, mut verifier) =
-            test_prelude::<B>().context("failed to prepare prover")?;
+        let (mut prover, mut verifier) = test_prelude::<B>().context("failed to prepare prover")?;
         let proof_tree = create_prover_proof_tree::<B>(&ctx, &query).await;
         let hint_tree = ProverHintTree::from_proof_tree(&ctx, proof_tree)
             .await
@@ -99,7 +98,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<B>, PathB
         })?;
         let mut writer = BufWriter::new(file);
         serializable
-            .serialize_uncompressed(&mut writer)
+            .serialize_compressed(&mut writer)
             .context("failed to serialize oracle")?;
         writer
             .flush()
@@ -110,9 +109,7 @@ pub fn commit_parquet(parquet_path: &Path) -> Result<(ArithTableOracle<B>, PathB
 }
 
 /// Load a previously committed parquet table from disk.
-pub fn load_parquet_commitment(
-    commitment_path: &Path,
-) -> Result<ArithTableOracle<B>> {
+pub fn load_parquet_commitment(commitment_path: &Path) -> Result<ArithTableOracle<B>> {
     let file = File::open(commitment_path).with_context(|| {
         format!(
             "failed to open serialized oracle file at {}",
@@ -120,7 +117,7 @@ pub fn load_parquet_commitment(
         )
     })?;
     let mut reader = BufReader::new(file);
-    ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
+    ArithTableOracle::<B>::deserialize_compressed(&mut reader)
         .context("failed to deserialize oracle")
 }
 
@@ -138,12 +135,12 @@ pub fn commit_parquet_serializes_oracle(parquet_path: &Path) -> Result<()> {
 
     let mut original_bytes = Vec::new();
     serializable
-        .serialize_uncompressed(&mut original_bytes)
+        .serialize_compressed(&mut original_bytes)
         .context("failed to serialize original oracle")?;
 
     let mut reloaded_bytes = Vec::new();
     reloaded
-        .serialize_uncompressed(&mut reloaded_bytes)
+        .serialize_compressed(&mut reloaded_bytes)
         .context("failed to serialize reloaded oracle")?;
 
     if original_bytes != reloaded_bytes {

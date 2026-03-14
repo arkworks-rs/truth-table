@@ -183,7 +183,7 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
     let file = File::open(path)
         .with_context(|| format!("failed to open oracle file {}", path.display()))?;
     let mut reader = BufReader::new(file);
-    ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
+    ArithTableOracle::<B>::deserialize_compressed(&mut reader)
         .context("failed to deserialize oracle")
 }
 

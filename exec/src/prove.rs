@@ -261,7 +261,7 @@ impl ProveRunner {
         let file = File::open(path)
             .with_context(|| format!("failed to open oracle file {}", path.display()))?;
         let mut reader = BufReader::new(file);
-        ArithTableOracle::<B>::deserialize_uncompressed_unchecked(&mut reader)
+        ArithTableOracle::<B>::deserialize_compressed_unchecked(&mut reader)
             .context("failed to deserialize oracle")
     }
 

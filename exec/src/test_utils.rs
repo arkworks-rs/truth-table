@@ -140,7 +140,7 @@ fn load_oracle_log_size(oracle_path: &Path) -> Result<usize> {
     let file = File::open(oracle_path)
         .with_context(|| format!("failed to open oracle file {}", oracle_path.display()))?;
     let mut reader = std::io::BufReader::new(file);
-    let oracle = ArithTableOracle::<B>::deserialize_uncompressed(&mut reader)
+    let oracle = ArithTableOracle::<B>::deserialize_compressed(&mut reader)
         .with_context(|| format!("failed to deserialize oracle {}", oracle_path.display()))?;
     Ok(oracle.log_size())
 }

@@ -105,7 +105,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     let serializable = ArithTableOracle::<B>::from_tracked_table_oracle(&tracked_oracle);
     let mut oracle_bytes = Vec::new();
     serializable
-        .serialize_uncompressed(&mut oracle_bytes)
+        .serialize_compressed(&mut oracle_bytes)
         .expect("serialize oracle content");
     oracle_bytes.len()
 }
