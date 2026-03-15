@@ -1,0 +1,97 @@
+     Running benches/sxt_proof_of_sql.rs (target/release/deps/sxt_proof_of_sql-09ce6120d6139a42)
+BLITZAR_BACKEND=cpu
+iterations: 1
+table_sizes: [16, 17, 18, 19]
+table_size: 65536
+parquet_dir: artifact/size_16
+parquet: artifact/size_16/Join/bench_table_16.parquet
+parquet: artifact/size_16/Join/bench_table_2_16.parquet
+HyperKZG,Join,65536,13383,18,17024,0
+prove_ms: 13383 verify_ms: 18 proof_bytes: 17024 iteration: 0
+Number of query results: 6
+----------------------------------------
+parquet: artifact/size_16/Limit_Offset/bench_table_16.parquet
+HyperKZG,Limit Offset,65536,6930,3,5504,0
+prove_ms: 6930 verify_ms: 3 proof_bytes: 5504 iteration: 0
+Number of query results: 10
+----------------------------------------
+parquet: artifact/size_16/filter/bench_table_16.parquet
+HyperKZG,filter,65536,9416,2,6040,0
+prove_ms: 9416 verify_ms: 2 proof_bytes: 6040 iteration: 0
+Number of query results: 0
+----------------------------------------
+parquet: artifact/size_16/aggregate_count/bench_table_16.parquet
+HyperKZG,aggregate_count,65536,5516,2,5176,0
+prove_ms: 5516 verify_ms: 2 proof_bytes: 5176 iteration: 0
+Number of query results: 1
+----------------------------------------
+table_size: 131072
+parquet_dir: artifact/size_17
+parquet: artifact/size_17/Join/bench_table_17.parquet
+parquet: artifact/size_17/Join/bench_table_2_17.parquet
+HyperKZG,Join,131072,27635,31,17408,0
+prove_ms: 27635 verify_ms: 31 proof_bytes: 17408 iteration: 0
+Number of query results: 5
+----------------------------------------
+parquet: artifact/size_17/Limit_Offset/bench_table_17.parquet
+HyperKZG,Limit Offset,131072,14210,2,5792,0
+prove_ms: 14210 verify_ms: 2 proof_bytes: 5792 iteration: 0
+Number of query results: 10
+----------------------------------------
+parquet: artifact/size_17/filter/bench_table_17.parquet
+HyperKZG,filter,131072,19473,2,6328,0
+prove_ms: 19473 verify_ms: 2 proof_bytes: 6328 iteration: 0
+Number of query results: 0
+----------------------------------------
+parquet: artifact/size_17/aggregate_count/bench_table_17.parquet
+HyperKZG,aggregate_count,131072,11378,2,5464,0
+prove_ms: 11378 verify_ms: 2 proof_bytes: 5464 iteration: 0
+Number of query results: 1
+----------------------------------------
+table_size: 262144
+parquet_dir: artifact/size_18
+parquet: artifact/size_18/Join/bench_table_18.parquet
+parquet: artifact/size_18/Join/bench_table_2_18.parquet
+HyperKZG,Join,262144,56666,52,17216,0
+prove_ms: 56666 verify_ms: 52 proof_bytes: 17216 iteration: 0
+Number of query results: 2
+----------------------------------------
+parquet: artifact/size_18/Limit_Offset/bench_table_18.parquet
+HyperKZG,Limit Offset,262144,29363,2,6080,0
+prove_ms: 29363 verify_ms: 2 proof_bytes: 6080 iteration: 0
+Number of query results: 10
+----------------------------------------
+parquet: artifact/size_18/filter/bench_table_18.parquet
+HyperKZG,filter,262144,40243,2,6616,0
+prove_ms: 40243 verify_ms: 2 proof_bytes: 6616 iteration: 0
+Number of query results: 0
+----------------------------------------
+parquet: artifact/size_18/aggregate_count/bench_table_18.parquet
+HyperKZG,aggregate_count,262144,23554,3,5752,0
+prove_ms: 23554 verify_ms: 3 proof_bytes: 5752 iteration: 0
+Number of query results: 1
+----------------------------------------
+table_size: 524288
+parquet_dir: artifact/size_19
+parquet: artifact/size_19/Join/bench_table_19.parquet
+parquet: artifact/size_19/Join/bench_table_2_19.parquet
+HyperKZG,Join,524288,118116,98,18656,0
+prove_ms: 118116 verify_ms: 98 proof_bytes: 18656 iteration: 0
+Number of query results: 6
+----------------------------------------
+parquet: artifact/size_19/Limit_Offset/bench_table_19.parquet
+HyperKZG,Limit Offset,524288,60617,2,6368,0
+prove_ms: 60617 verify_ms: 2 proof_bytes: 6368 iteration: 0
+Number of query results: 10
+----------------------------------------
+parquet: artifact/size_19/filter/bench_table_19.parquet
+HyperKZG,filter,524288,83203,2,6904,0
+prove_ms: 83203 verify_ms: 2 proof_bytes: 6904 iteration: 0
+Number of query results: 0
+----------------------------------------
+parquet: artifact/size_19/aggregate_count/bench_table_19.parquet
+HyperKZG,aggregate_count,524288,48513,2,6040,0
+prove_ms: 48513 verify_ms: 2 proof_bytes: 6040 iteration: 0
+Number of query results: 1
+----------------------------------------
+[alrshir@penndb-cpu-1 third-party-bench]$ 

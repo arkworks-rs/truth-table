@@ -1,0 +1,41 @@
+table_sizes: [16, 17, 18, 19]
+pow: 16 query: filter
+prove_ms: 2606
+verify_ms: 104
+proof_bytes: 3558
+----------------------------------------
+pow: 16 query: aggregate_count
+prove_ms: 2761
+verify_ms: 18
+proof_bytes: 492
+----------------------------------------
+pow: 17 query: filter
+prove_ms: 4786
+verify_ms: 199
+proof_bytes: 3558
+----------------------------------------
+pow: 17 query: aggregate_count
+prove_ms: 4967
+verify_ms: 33
+proof_bytes: 492
+----------------------------------------
+pow: 18 query: filter
+prove_ms: 9533
+verify_ms: 412
+proof_bytes: 3558
+----------------------------------------
+pow: 18 query: aggregate_count
+prove_ms: 9667
+verify_ms: 66
+proof_bytes: 492
+----------------------------------------
+pow: 19 query: filter
+prove_ms: 18533
+verify_ms: 908
+proof_bytes: 3558
+----------------------------------------
+pow: 19 query: aggregate_count
+prove_ms: 18972
+verify_ms: 146
+proof_bytes: 492
+----------------------------------------
