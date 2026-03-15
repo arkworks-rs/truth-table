@@ -1,8 +1,15 @@
 use std::{
+    fs::File,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Instant,
 };
 
+use arrow::{
+    array::{ArrayRef, Int64Array},
+    datatypes::{DataType, Field, Schema},
+    record_batch::RecordBatch,
+};
 use exec::{
     prove::ProveBuilder,
     setup::SetupBuilder,
@@ -10,6 +17,7 @@ use exec::{
     verify::VerifyBuilder,
 };
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::ArrowWriter;
 use tpch_data::preprocess_parquet;
 use tracing::Metadata;
 use tracing_subscriber::{filter::filter_fn, fmt::format::FmtSpan, prelude::*, EnvFilter};
@@ -57,6 +65,11 @@ const QUERIES: &[QuerySpec] = &[
         sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
     },
     QuerySpec {
+        name: "join_pk_fk",
+        dir: "Join_PK_FK",
+        sql: "SELECT {table1}.a, {table2}.a FROM {table1} JOIN {table2} ON {table1}.a = {table2}.a",
+    },
+    QuerySpec {
         name: "limit_offset",
         dir: "Limit_Offset",
         sql: "SELECT * FROM {table} LIMIT 10",
@@ -84,6 +97,108 @@ fn parquet_paths_for(
     (parquet, preprocessed)
 }
 
+fn is_join_query(query: &QuerySpec) -> bool {
+    matches!(query.name, "join" | "join_pk_fk")
+}
+
+fn parquet_row_count(path: &Path) -> usize {
+    let raw_file =
+        File::open(path).unwrap_or_else(|err| panic!("failed to open parquet {}: {err}", path.display()));
+    let builder = ParquetRecordBatchReaderBuilder::try_new(raw_file).expect("parquet reader");
+    builder.metadata().file_metadata().num_rows() as usize
+}
+
+fn write_bigint_parquet(path: &Path, values: Vec<i64>) {
+    ensure_dir(path);
+    let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int64, false)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(Int64Array::from(values)) as ArrayRef],
+    )
+    .expect("record batch");
+    let file =
+        File::create(path).unwrap_or_else(|err| panic!("failed to create parquet {}: {err}", path.display()));
+    let mut writer = ArrowWriter::try_new(file, schema, None).expect("arrow writer");
+    writer.write(&batch).expect("write parquet batch");
+    writer.close().expect("close parquet writer");
+}
+
+fn write_join_pk_fk_constraints(path: &Path, pow: u32) {
+    ensure_dir(path);
+    let left_table = format!("bench_table_{pow}_preprocessed");
+    let right_table = format!("bench_table_2_{pow}_preprocessed");
+    let payload = format!(
+        concat!(
+            "{{\n",
+            "  \"format_version\": 1,\n",
+            "  \"source\": \"third-party-bench-join-pk-fk\",\n",
+            "  \"tables\": [\n",
+            "    {{\n",
+            "      \"table\": \"{left_table}\",\n",
+            "      \"primary_key\": [\"a\"],\n",
+            "      \"unique_keys\": [],\n",
+            "      \"foreign_keys\": []\n",
+            "    }},\n",
+            "    {{\n",
+            "      \"table\": \"{right_table}\",\n",
+            "      \"primary_key\": [],\n",
+            "      \"unique_keys\": [],\n",
+            "      \"foreign_keys\": [{{\n",
+            "        \"columns\": [\"a\"],\n",
+            "        \"ref_table\": \"{left_table}\",\n",
+            "        \"ref_columns\": [\"a\"]\n",
+            "      }}]\n",
+            "    }}\n",
+            "  ]\n",
+            "}}\n"
+        ),
+        left_table = left_table,
+        right_table = right_table,
+    );
+    std::fs::write(path, payload)
+        .unwrap_or_else(|err| panic!("failed to write constraints {}: {err}", path.display()));
+}
+
+fn ensure_join_pk_fk_artifacts(bench_root: &Path, pow: u32) {
+    let (source_left, _) = parquet_paths_for(bench_root, pow, "Join", JOIN_TABLE_PREFIX_A);
+    let (source_right, _) = parquet_paths_for(bench_root, pow, "Join", JOIN_TABLE_PREFIX_B);
+    let (target_left, _) = parquet_paths_for(bench_root, pow, "Join_PK_FK", JOIN_TABLE_PREFIX_A);
+    let (target_right, _) = parquet_paths_for(bench_root, pow, "Join_PK_FK", JOIN_TABLE_PREFIX_B);
+    let constraints_path = bench_root
+        .join(PARQUET_DIR)
+        .join(format!("{PARQUET_SUBDIR_PREFIX}{pow}"))
+        .join("Join_PK_FK")
+        .join("constraints.json");
+
+    if target_left.exists() && target_right.exists() && constraints_path.exists() {
+        return;
+    }
+    if !source_left.exists() || !source_right.exists() {
+        panic!(
+            "missing source join parquet(s) at {} and/or {}. Generate Join artifacts first.",
+            source_left.display(),
+            source_right.display()
+        );
+    }
+
+    let left_rows = parquet_row_count(&source_left);
+    let right_rows = parquet_row_count(&source_right);
+    let pk_values = (0..left_rows).map(|idx| idx as i64).collect::<Vec<_>>();
+    let fk_values = (0..right_rows)
+        .map(|idx| (idx / 2).min(left_rows.saturating_sub(1)) as i64)
+        .collect::<Vec<_>>();
+
+    if !target_left.exists() {
+        write_bigint_parquet(&target_left, pk_values);
+    }
+    if !target_right.exists() {
+        write_bigint_parquet(&target_right, fk_values);
+    }
+    if !constraints_path.exists() {
+        write_join_pk_fk_constraints(&constraints_path, pow);
+    }
+}
+
 fn main() {
     init_bench_tracing();
     let bench_root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -92,8 +207,11 @@ fn main() {
 
     for &pow in TABLE_POWS {
         for query in QUERIES {
-            let is_join = query.name == "join";
-            let table_size = 1usize << pow;
+            let is_join = is_join_query(query);
+            let _table_size = 1usize << pow;
+            if query.name == "join_pk_fk" {
+                ensure_join_pk_fk_artifacts(bench_root, pow);
+            }
             let (parquet_path, preprocessed_path) =
                 parquet_paths_for(bench_root, pow, query.dir, JOIN_TABLE_PREFIX_A);
             let (parquet_path_b, preprocessed_path_b) = if is_join {

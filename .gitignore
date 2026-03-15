@@ -260,6 +260,7 @@ TSWLatexianTemp*
 
 # third-party bench generated cache artifacts
 /third-party-bench/artifact/**/*.bin
+/third-party-bench/artifact/**/constraints.json
 
 ## Editors:
 # WinEdt
