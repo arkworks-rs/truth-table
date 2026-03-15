@@ -408,8 +408,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
-            // The verifier tracks the same output-side lookup shape as the prover,
-            // but keeps the helper tables schema-driven to avoid replaying data.
+            // Keep the verifier's output-side lookup payloads aligned with the
+            // prover-planned shapes so later lookup verification reuses the same
+            // helper-table schema without rebuilding it from tracked output.
             gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
             gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);

@@ -9,7 +9,7 @@ const PARQUET_SUBDIR_PREFIX: &str = "size_";
 const PARQUET_FILE_PREFIX: &str = "bench_table_";
 
 // Table sizes as powers of two.
-const TABLE_POWS: &[u32] = &[10, 14, 18, 22];
+const TABLE_POWS: &[u32] = &[16, 17, 18, 19];
 
 struct QuerySpec {
     name: &'static str,

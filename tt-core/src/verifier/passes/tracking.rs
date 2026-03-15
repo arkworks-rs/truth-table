@@ -54,9 +54,12 @@ where
             // If the payload is a plan,
             HintDFPayload::PlanPayload(hint_df) => {
                 if node.name() == "TableScan" {
-                    let base_schema: Schema =
-                        <DFSchema as AsRef<Schema>>::as_ref(hint_df.data_frame().schema()).clone();
-                    if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&base_schema) {
+                    let df_schema = hint_df.data_frame().schema();
+                    let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
+                    let oracle = infer_table_name_from_df_schema(df_schema)
+                        .and_then(|name| self.ctx_oracles.table_oracle_by_name(&name))
+                        .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema));
+                    if let Some(oracle) = oracle {
                         // TableScan commitments are public input and must come from the oracle
                         // files, not from prover-selected proof commitments.
                         return track_hint_df_from_oracle(hint_df, oracle, &self.verifier)
@@ -227,4 +230,21 @@ fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {
         out.insert(field.clone(), Arc::new(updated));
     }
     out
+}
+
+fn infer_table_name_from_df_schema(schema: &DFSchema) -> Option<String> {
+    schema.iter().find_map(|(qualifier, field)| {
+        if field.name() == arithmetic::ACTIVATOR_COL_NAME || field.name() == arithmetic::ROW_ID_COL_NAME
+        {
+            return None;
+        }
+        qualifier.as_ref().map(|qualifier| {
+            let qualifier = qualifier.to_string();
+            qualifier
+                .rsplit('.')
+                .next()
+                .unwrap_or(&qualifier)
+                .to_string()
+        })
+    })
 }
