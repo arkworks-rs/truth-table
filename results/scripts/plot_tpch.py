@@ -3,7 +3,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import LogFormatterMathtext, LogLocator
 
 plt.style.use("seaborn-v0_8-whitegrid")
 plt.rcParams.update(
@@ -25,90 +24,118 @@ figures_dir.mkdir(parents=True, exist_ok=True)
 # Load CSV and normalize column names (handles UTF-8 BOM in header).
 df = pd.read_csv(data_path)
 df.columns = [c.strip().lstrip("\ufeff") for c in df.columns]
+df["Q"] = df["Q"].str.strip().str.lower()
+df["System"] = df["System"].str.strip().str.lower()
+df["scale-factor"] = pd.to_numeric(df["scale-factor"], errors="coerce")
+for col in [
+    "prover time 1thread (s)",
+    "total verifier time (ms)",
+    "core verifier time (ms)",
+    "total proof size (KB)",
+    "proof size core(KB)",
+]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Only plot scale factor 0.04
-df = df[df["scale-factor"] == 0.04]
+# Only plot scale factor 0.04.
+df = df[df["scale-factor"] == 0.04].copy()
 
 # Queries to show, in order.
-query_ids = [1, 3, 5, 8, 9, 18]
+query_ids = [1, 5, 8, 9, 18]
 query_labels = [f"Q{q}" for q in query_ids]
 
-def pick_time(q_id: int, q_suffix: str, system: str) -> float:
-    q_name = f"q{q_id}_{q_suffix}"
-    row = df[(df["Q"] == q_name) & (df["System"] == system)]
-    if row.empty:
-        raise ValueError(f"Missing row for Q={q_name}, System={system}, scale=0.04")
-    return float(row["prover time (s)"].values[0])
-
-# Build grouped bar data: [unabridged tt, abridged tt, abridged poneglyph]
-series_labels = ["TT full", "TT simplified", "Poneglyph simplified"]
-series = [
-    [pick_time(q, "unabridged", "tt") for q in query_ids],
-    [pick_time(q, "abridged", "tt") for q in query_ids],
-    [pick_time(q, "abridged", "poneglyph") for q in query_ids],
+series_specs = [
+    ("TT full", "tt", lambda q: f"q{q}"),
+    ("TT simplified", "tt", lambda q: f"q{q}_p"),
+    ("Poneglyph simplified", "poneglyph", lambda q: f"q{q}"),
 ]
 
-# Bar layout (6 groups, 3 bars each, tight spacing between groups).
-group_gap = 0.18
-bar_width = 0.16
-group_width = 3 * bar_width + group_gap
-x = np.arange(len(query_ids)) * group_width
 
-plt.figure(figsize=(10, 5.2))
-colors = plt.get_cmap("tab10").colors  # seaborn-like categorical palette
-light_colors = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
-hatches = ["/", "x", "\\"]
-legend_handles = []
-legend_labels = []
-for i, (label, heights) in enumerate(zip(series_labels, series)):
-    bars = plt.bar(
-        x + i * bar_width,
-        heights,
-        width=bar_width,
-        label=label,
-        alpha=1.0,
-        facecolor=light_colors[i],
-        edgecolor=colors[i],
-        hatch=hatches[i],
-        linewidth=0.8,
-    )
-    # Add a light tinted legend patch matching the series color.
-    legend_handles.append(
-        plt.Rectangle(
-            (0, 0),
-            1,
-            1,
+def metric_column(system: str, value_key: str) -> str:
+    if value_key == "prover":
+        return "prover time 1thread (s)"
+    if value_key == "verifier":
+        return "total verifier time (ms)" if system == "poneglyph" else "core verifier time (ms)"
+    if value_key == "proof_size":
+        return "total proof size (KB)" if system == "poneglyph" else "proof size core(KB)"
+    raise ValueError(f"Unknown metric key: {value_key}")
+
+
+def pick_value(q_name: str, system: str, value_key: str) -> float:
+    row = df[(df["Q"] == q_name) & (df["System"] == system)]
+    if row.empty:
+        return np.nan
+    return float(row[metric_column(system, value_key)].iloc[0])
+
+
+def build_series(value_key: str) -> list[list[float]]:
+    return [
+        [pick_value(q_name_fn(q), system, value_key) for q in query_ids]
+        for _, system, q_name_fn in series_specs
+    ]
+
+
+def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
+    series = build_series(value_key)
+
+    group_gap = 0.18
+    bar_width = 0.16
+    group_width = 3 * bar_width + group_gap
+    x = np.arange(len(query_ids)) * group_width
+
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    colors = plt.get_cmap("tab10").colors
+    light_colors = [tuple(0.85 + 0.15 * c for c in color[:3]) for color in colors]
+    hatches = ["/", "x", "\\"]
+    legend_handles = []
+    legend_labels = []
+
+    for i, ((label, _, _), heights) in enumerate(zip(series_specs, series)):
+        ax.bar(
+            x + i * bar_width,
+            heights,
+            width=bar_width,
+            alpha=1.0,
             facecolor=light_colors[i],
             edgecolor=colors[i],
             hatch=hatches[i],
             linewidth=0.8,
         )
+        legend_handles.append(
+            plt.Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor=light_colors[i],
+                edgecolor=colors[i],
+                hatch=hatches[i],
+                linewidth=0.8,
+            )
+        )
+        legend_labels.append(label)
+
+    ax.set_xticks(x + bar_width, query_labels)
+    ax.set_xlabel("TPC-H Query")
+    ax.set_ylabel(ylabel)
+    ax.tick_params(axis="x", pad=10)
+    ax.tick_params(axis="y", pad=10)
+    ax.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
+    ax.legend(
+        handles=legend_handles,
+        labels=legend_labels,
+        ncol=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.32),
+        handlelength=2.2,
+        handleheight=1.4,
+        borderpad=0.6,
+        columnspacing=1.6,
     )
-    legend_labels.append(label)
 
-# Axes and labels
-plt.xticks(x + bar_width, query_labels)
-plt.xlabel("TPC-H Query")
-plt.ylabel("Prover Time (s)")
-plt.gca().tick_params(axis="x", pad=10)
-plt.gca().tick_params(axis="y", pad=10)
-ax = plt.gca()
-yticks = np.unique(np.concatenate([ax.get_yticks(), [100, 300]]))
-ax.set_yticks(yticks)
-plt.grid(True, which="major", axis="y", linestyle="--", linewidth=0.8, alpha=0.7)
+    fig.tight_layout()
+    fig.savefig(figures_dir / output_name)
+    plt.close(fig)
 
-# Legend
-plt.legend(
-    handles=legend_handles,
-    labels=legend_labels,
-    ncol=3,
-    loc="upper center",
-    bbox_to_anchor=(0.5, 1.32),
-    handlelength=2.2,
-    handleheight=1.4,
-    borderpad=0.6,
-    columnspacing=1.6,
-)
 
-plt.tight_layout()
-plt.savefig(figures_dir / "tpch_prover.pdf")
+plot_metric("prover", "Prover Time (s)", "tpch_prover.pdf")
+plot_metric("verifier", "Verifier Time (ms)", "tpch_verifier.pdf")
+plot_metric("proof_size", "Proof Size (KB)", "tpch_proof_size.pdf")
