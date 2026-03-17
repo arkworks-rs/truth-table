@@ -40,11 +40,10 @@ for col in [
 df = df[df["scale-factor"] == 0.04].copy()
 
 # Queries to show, in order.
-query_ids = [1, 5, 8, 9, 18]
+query_ids = [1, 3, 5, 8, 9, 18]
 query_labels = [f"Q{q}" for q in query_ids]
 
 series_specs = [
-    ("TT full", "tt", lambda q: f"q{q}"),
     ("TT simplified", "tt", lambda q: f"q{q}_p"),
     ("Poneglyph simplified", "poneglyph", lambda q: f"q{q}"),
 ]
@@ -79,7 +78,7 @@ def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
 
     group_gap = 0.18
     bar_width = 0.16
-    group_width = 3 * bar_width + group_gap
+    group_width = len(series_specs) * bar_width + group_gap
     x = np.arange(len(query_ids)) * group_width
 
     fig, ax = plt.subplots(figsize=(10, 5.2))
@@ -122,7 +121,7 @@ def plot_metric(value_key: str, ylabel: str, output_name: str) -> None:
     ax.legend(
         handles=legend_handles,
         labels=legend_labels,
-        ncol=3,
+        ncol=2,
         loc="upper center",
         bbox_to_anchor=(0.5, 1.32),
         handlelength=2.2,
