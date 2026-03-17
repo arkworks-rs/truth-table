@@ -60,14 +60,14 @@ pub struct BenchAssets {
     pub vk_path: PathBuf,
 }
 
-#[derive(Debug)]
 pub struct BenchProof {
-    pub proof_path: PathBuf,
+    pub proof_path: Option<PathBuf>,
+    pub proof: TTProof<B>,
     // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
     // Serialized optimized IR component of TTProof.
     pub optimized_ir_bytes: usize,
-    _temp_dir: TempDir,
+    _temp_dir: Option<TempDir>,
 }
 
 pub struct VerifierBenchState {
@@ -300,6 +300,27 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
     bench_proof
 }
 
+pub fn cache_proof_in_memory_if_absent(case_name: &'static str, proof: &TTProof<B>) -> Arc<BenchProof> {
+    let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().expect("bench proof cache poisoned");
+
+    if let Some(existing) = guard.get(case_name).cloned() {
+        return existing;
+    }
+
+    let bench_proof = Arc::new(BenchProof {
+        proof_path: None,
+        proof: proof.clone(),
+        snark_proof_bytes: proof.snark_proof_serialized_size_bytes(),
+        optimized_ir_bytes: proof
+            .optimized_ir_serialized_size_bytes()
+            .expect("serialize optimized ir for bench size accounting"),
+        _temp_dir: None,
+    });
+    guard.insert(case_name, Arc::clone(&bench_proof));
+    bench_proof
+}
+
 pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     // Persist the proof bytes in a temp file for reuse in verifier benches.
     let temp_dir = TempDir::new().expect("create temp dir for bench proof");
@@ -319,16 +340,24 @@ pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
         .expect("serialize optimized ir for bench size accounting");
 
     Arc::new(BenchProof {
-        proof_path,
+        proof_path: Some(proof_path),
+        proof: proof.clone(),
         snark_proof_bytes,
         optimized_ir_bytes,
-        _temp_dir: temp_dir,
+        _temp_dir: Some(temp_dir),
     })
 }
 
 pub fn load_proof_bytes(bench_proof: &BenchProof) -> Vec<u8> {
     // Load proof bytes on demand instead of keeping all proofs resident in memory.
-    std::fs::read(&bench_proof.proof_path).expect("read proof bytes for bench")
+    if let Some(path) = &bench_proof.proof_path {
+        std::fs::read(path).expect("read proof bytes for bench")
+    } else {
+        bench_proof
+            .proof
+            .to_bytes()
+            .expect("serialize in-memory proof bytes for bench")
+    }
 }
 
 pub fn load_proof_bytes_cached(case_name: &'static str, bench_proof: &BenchProof) -> Arc<Vec<u8>> {
@@ -390,9 +419,26 @@ pub fn build_verifier_full_state(
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
     let proof = proof_from_bytes(proof_bytes.as_ref());
+    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof)
+}
+
+pub fn build_verifier_full_state_from_proof(
+    assets: &BenchAssets,
+    proof: &TTProof<B>,
+) -> VerifierFullBenchState {
+    // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
+    let verifier = build_verifier(assets);
+    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof.clone())
+}
+
+fn build_verifier_full_state_from_proof_impl(
+    verifier: TTVerifier<B>,
+    query: &str,
+    proof: TTProof<B>,
+) -> VerifierFullBenchState {
     VerifierFullBenchState {
         verifier,
-        query: assets.case.query.to_string(),
+        query: query.to_string(),
         proof,
         preprocessed_gadget_ir: Mutex::new(None),
     }

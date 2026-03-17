@@ -1,0 +1,259 @@
+    ├─ tpch_q1_poneglyph   proof size (tpch_q1_poneglyph) core=20.16 KiB plan=2.65 KiB full=22.81 KiB
+1.052 m       │ 1.052 m       │ 1.052 m       │ 1.052 m       │ 1       │ 1
+      ├─ tpch_q1_tt          proof size (tpch_q1_tt) core=24.00 KiB plan=3.08 KiB full=27.08 KiB
+1.486 m       │ 1.486 m       │ 1.486 m       │ 1.486 m       │ 1       │ 1
+      ├─ tpch_q2_tt          proof size (tpch_q2_tt) core=94.18 KiB plan=5.15 KiB full=99.33 KiB
+33.22 s       │ 33.22 s       │ 33.22 s       │ 33.22 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   proof size (tpch_q3_poneglyph) core=68.02 KiB plan=3.23 KiB full=71.25 KiB
+2.373 m       │ 2.373 m       │ 2.373 m       │ 2.373 m       │ 1       │ 1
+      ├─ tpch_q3_tt          proof size (tpch_q3_tt) core=69.10 KiB plan=3.08 KiB full=72.18 KiB
+2.398 m       │ 2.398 m       │ 2.398 m       │ 2.398 m       │ 1       │ 1
+      ├─ tpch_q4_tt          proof size (tpch_q4_tt) core=39.65 KiB plan=2.24 KiB full=41.89 KiB
+1.911 m       │ 1.911 m       │ 1.911 m       │ 1.911 m       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   proof size (tpch_q5_poneglyph) core=103.00 KiB plan=4.08 KiB full=107.07 KiB
+2.807 m       │ 2.807 m       │ 2.807 m       │ 2.807 m       │ 1       │ 1
+      ├─ tpch_q5_tt          proof size (tpch_q5_tt) core=104.07 KiB plan=3.88 KiB full=107.96 KiB
+2.896 m       │ 2.896 m       │ 2.896 m       │ 2.896 m       │ 1       │ 1
+      ├─ tpch_q6_tt          proof size (tpch_q6_tt) core=29.97 KiB plan=1.68 KiB full=31.66 KiB
+2.03 m        │ 2.03 m        │ 2.03 m        │ 2.03 m        │ 1       │ 1
+      ├─ tpch_q7_tt          proof size (tpch_q7_tt) core=110.48 KiB plan=4.59 KiB full=115.07 KiB
+4.213 m       │ 4.213 m       │ 4.213 m       │ 4.213 m       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   proof size (tpch_q8_poneglyph) core=187.69 KiB plan=5.31 KiB full=193.00 KiB
+3.782 m       │ 3.782 m       │ 3.782 m       │ 3.782 m       │ 1       │ 1
+      ├─ tpch_q8_tt          proof size (tpch_q8_tt) core=187.66 KiB plan=5.09 KiB full=192.74 KiB
+3.794 m       │ 3.794 m       │ 3.794 m       │ 3.794 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   proof size (tpch_q9_poneglyph) core=90.37 KiB plan=4.16 KiB full=94.53 KiB
+8.496 m       │ 8.496 m       │ 8.496 m       │ 8.496 m       │ 1       │ 1
+      ├─ tpch_q9_tt          proof size (tpch_q9_tt) core=90.37 KiB plan=3.94 KiB full=94.31 KiB
+8.403 m       │ 8.403 m       │ 8.403 m       │ 8.403 m       │ 1       │ 1
+ ├─ tpch_q10_tt         proof size (tpch_q10_tt) core=69.09 KiB plan=3.77 KiB full=72.86 KiB
+5.698 m       │ 5.698 m       │ 5.698 m       │ 5.698 m       │ 1       │ 1
+      ├─ tpch_q12_tt         proof size (tpch_q12_tt) core=29.09 KiB plan=3.35 KiB full=32.43 KiB
+1.988 m       │ 1.988 m       │ 1.988 m       │ 1.988 m       │ 1       │ 1
+      ├─ tpch_q14_tt         proof size (tpch_q14_tt) core=36.60 KiB plan=2.13 KiB full=38.73 KiB
+1.198 m       │ 1.198 m       │ 1.198 m       │ 1.198 m       │ 1       │ 1
+      ├─ tpch_q15_tt         proof size (tpch_q15_tt) core=58.33 KiB plan=4.08 KiB full=62.41 KiB
+3.022 m       │ 3.022 m       │ 3.022 m       │ 3.022 m       │ 1       │ 1
+      ├─ tpch_q17_tt         proof size (tpch_q17_tt) core=61.89 KiB plan=3.65 KiB full=65.53 KiB
+1.997 m       │ 1.997 m       │ 1.997 m       │ 1.997 m       │ 1       │ 1
+      ├─ tpch_q18            proof size (tpch_q18) core=71.68 KiB plan=5.11 KiB full=76.78 KiB
+3.689 m       │ 3.689 m       │ 3.689 m       │ 3.689 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  proof size (tpch_q18_poneglyph) core=28.80 KiB plan=3.09 KiB full=31.89 KiB
+2.252 m       │ 2.252 m       │ 2.252 m       │ 2.252 m       │ 1       │ 1
+      ├─ tpch_q19_tt         proof size (tpch_q19_tt) core=112.07 KiB plan=8.10 KiB full=120.18 KiB
+6.58 m        │ 6.58 m        │ 6.58 m        │ 6.58 m        │ 1       │ 1
+      ╰─ tpch_q20_tt         proof size (tpch_q20_tt) core=74.05 KiB plan=3.57 KiB full=77.62 KiB
+3.438 m       │ 3.438 m       │ 3.438 m       │ 3.438 m       │ 1       │ 1
+
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q1_tt                   8.601 ms      │ 10.34 ms      │ 9.062 ms      │ 9.141 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q1_tt                   13.82 ms      │ 16.02 ms      │ 15.01 ms      │ 14.97 ms      │ 67      │ 67
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q1_tt                   4.949 ms      │ 6.026 ms      │ 5.44 ms       │ 5.448 ms      │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q1_poneglyph            7.937 ms      │ 9.463 ms      │ 8.491 ms      │ 8.475 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q1_poneglyph            12.02 ms      │ 14.17 ms      │ 12.95 ms      │ 12.91 ms      │ 78      │ 78
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q1_poneglyph            3.757 ms      │ 4.241 ms      │ 4.152 ms      │ 4.152 ms      │ 100     │ 100
+
+      
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q2_tt                   18.75 ms      │ 22.15 ms      │ 20.94 ms      │ 20.74 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q2_tt                   34.86 ms      │ 38.34 ms      │ 37.76 ms      │ 37.63 ms      │ 27      │ 27
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q2_tt                   14.01 ms      │ 16.18 ms      │ 15.2 ms       │ 15.25 ms      │ 100     │ 100
+
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q3_tt                   14.4 ms       │ 17.12 ms      │ 15.1 ms       │ 15.25 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q3_tt                   22.38 ms      │ 25.01 ms      │ 23.33 ms      │ 23.35 ms      │ 43      │ 43
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q3_tt                   6.738 ms      │ 7.478 ms      │ 7.333 ms      │ 7.329 ms      │ 100     │ 100
+
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q3_poneglyph            14.28 ms      │ 17.14 ms      │ 15.22 ms      │ 15.29 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q3_poneglyph            22.07 ms      │ 24.07 ms      │ 22.98 ms      │ 23 ms         │ 44      │ 44
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q3_poneglyph            6.729 ms      │ 7.511 ms      │ 7.282 ms      │ 7.283 ms      │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q4_tt                   10.56 ms      │ 12.83 ms      │ 11.03 ms      │ 11.18 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q4_tt                   15.78 ms      │ 17.29 ms      │ 16.1 ms       │ 16.27 ms      │ 62      │ 62
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q4_tt                   4.512 ms      │ 5.201 ms      │ 5.002 ms      │ 5.003 ms      │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q5_tt                   18.21 ms      │ 20.59 ms      │ 19.1 ms       │ 19.1 ms       │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q5_tt                   29.77 ms      │ 33.21 ms      │ 32.17 ms      │ 32.27 ms      │ 32      │ 32
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q5_tt                   10.78 ms      │ 12.6 ms       │ 11.77 ms      │ 11.8 ms       │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q5_poneglyph            18.14 ms      │ 21.88 ms      │ 19.13 ms      │ 19.23 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q5_poneglyph            29.68 ms      │ 33 ms         │ 31.26 ms      │ 31.44 ms      │ 32      │ 32
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q5_poneglyph            10.69 ms      │ 12.35 ms      │ 11.69 ms      │ 11.72 ms      │ 100     │ 100
+
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q6_tt                   9.341 ms      │ 11.72 ms      │ 10.08 ms      │ 10.21 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q6_tt                   11.86 ms      │ 13.73 ms      │ 12.54 ms      │ 12.58 ms      │ 80      │ 80
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q6_tt                   2.343 ms      │ 2.558 ms      │ 2.514 ms      │ 2.513 ms      │ 100     │ 100
+
+
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q7_tt                   21.05 ms      │ 23.55 ms      │ 22.14 ms      │ 22.21 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q7_tt                   35.29 ms      │ 39.9 ms       │ 38.11 ms      │ 38.14 ms      │ 27      │ 27
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q7_tt                   13.53 ms      │ 15.32 ms      │ 14.9 ms       │ 14.91 ms      │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q8_tt                   30.41 ms      │ 33.36 ms      │ 32.09 ms      │ 31.93 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q8_tt                   52.15 ms      │ 61.47 ms      │ 55.73 ms      │ 57.31 ms      │ 18      │ 18
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q8_tt                   21.36 ms      │ 25.15 ms      │ 23.09 ms      │ 23.14 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q8_poneglyph            30.43 ms      │ 33.04 ms      │ 31.36 ms      │ 31.36 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q8_poneglyph            52.22 ms      │ 60.26 ms      │ 56.27 ms      │ 56.88 ms      │ 18      │ 18
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q8_poneglyph            21.17 ms      │ 25.08 ms      │ 23.2 ms       │ 23.24 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q9_tt                   16.53 ms      │ 18.65 ms      │ 17.46 ms      │ 17.5 ms       │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q9_tt                   27.61 ms      │ 30.3 ms       │ 29.53 ms      │ 29.43 ms      │ 34      │ 34
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q9_tt                   10.19 ms      │ 11.27 ms      │ 10.92 ms      │ 10.94 ms      │ 100     │ 100
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q10_tt                  24.44 ms      │ 27.38 ms      │ 25.78 ms      │ 25.76 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q10_tt                  32.17 ms      │ 35.47 ms      │ 33.99 ms      │ 33.93 ms      │ 30      │ 30
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q10_tt                  6.896 ms      │ 8.137 ms      │ 7.438 ms      │ 7.451 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q12_tt                  9.639 ms      │ 11.43 ms      │ 10.01 ms      │ 10.06 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q12_tt                  14.92 ms      │ 16.57 ms      │ 15.47 ms      │ 15.56 ms      │ 65      │ 65
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q12_tt                  4.883 ms      │ 5.452 ms      │ 5.391 ms      │ 5.388 ms      │ 100     │ 100
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q14_tt                  9.645 ms      │ 11.99 ms      │ 10.26 ms      │ 10.33 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q14_tt                  13.74 ms      │ 16.89 ms      │ 14.12 ms      │ 14.23 ms      │ 71      │ 71
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q14_tt                  3.639 ms      │ 4.017 ms      │ 3.969 ms      │ 3.968 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q15_tt                  13.59 ms      │ 16.04 ms      │ 14.54 ms      │ 14.56 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q15_tt                  23.67 ms      │ 26.8 ms       │ 24.99 ms      │ 25.04 ms      │ 40      │ 40
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q15_tt                  8.397 ms      │ 9.673 ms      │ 9.19 ms       │ 9.196 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_prover                             │               │               │               │         │
+   │  ╰─ tpch_q17_tt                  proof size (tpch_q17_tt) core=61.89 KiB plan=3.65 KiB full=65.53 KiB
+1.984 m       │ 1.984 m       │ 1.984 m       │ 1.984 m       │ 1       │ 1
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q17_tt                  13.01 ms      │ 15.11 ms      │ 13.77 ms      │ 13.79 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q17_tt                  21.27 ms      │ 24.6 ms       │ 22.67 ms      │ 22.6 ms       │ 45      │ 45
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q17_tt                  7.28 ms       │ 8.058 ms      │ 7.914 ms      │ 7.913 ms      │ 100     │ 100
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q18_tt                  16.31 ms      │ 18.86 ms      │ 17.12 ms      │ 17.19 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q18_tt                  24.87 ms      │ 28.6 ms       │ 25.88 ms      │ 26.01 ms      │ 39      │ 39
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q18_tt                  7.276 ms      │ 8.462 ms      │ 7.95 ms       │ 7.958 ms      │ 100     │ 100
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q18_poneglyph           9.875 ms      │ 11.6 ms       │ 10.43 ms      │ 10.5 ms       │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q18_poneglyph           13.65 ms      │ 15.56 ms      │ 14.27 ms      │ 14.32 ms      │ 70      │ 70
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q18_poneglyph           3.249 ms      │ 3.878 ms      │ 3.582 ms      │ 3.585 ms      │ 100     │ 100
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q19_tt                  31.43 ms      │ 35.21 ms      │ 32.59 ms      │ 32.67 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q19_tt                  50.91 ms      │ 55.1 ms       │ 53.48 ms      │ 53.41 ms      │ 19      │ 19
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q19_tt                  17.67 ms      │ 21.14 ms      │ 18.74 ms      │ 18.83 ms      │ 100     │ 100
+
+
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ╰─ tpch_q20_tt                  16.13 ms      │ 18.86 ms      │ 17.02 ms      │ 17.09 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ╰─ tpch_q20_tt                  25.55 ms      │ 29.67 ms      │ 28.08 ms      │ 28.06 ms      │ 36      │ 36
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ╰─ tpch_q20_tt                  8.981 ms      │ 10 ms         │ 9.846 ms      │ 9.839 ms      │ 100     │ 100

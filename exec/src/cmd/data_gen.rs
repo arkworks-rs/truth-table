@@ -47,7 +47,7 @@ impl Runnable for DataGen {
         let scale = if self.test {
             0.0005
         } else if self.bench {
-            0.06
+            0.04
         } else {
             self.scale.unwrap_or(0.01)
         };

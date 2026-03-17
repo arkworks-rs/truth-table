@@ -1,0 +1,46 @@
+     ├─ tpch_q1_poneglyph   proof size (tpch_q1_poneglyph) core=20.16 KiB plan=2.65 KiB full=22.81 KiB
+20.49 s       │ 20.49 s       │ 20.49 s       │ 20.49 s       │ 1       │ 1
+      ├─ tpch_q1_tt          proof size (tpch_q1_tt) core=24.00 KiB plan=3.08 KiB full=27.08 KiB
+28.65 s       │ 28.65 s       │ 28.65 s       │ 28.65 s       │ 1       │ 1
+      ├─ tpch_q2_tt          proof size (tpch_q2_tt) core=94.18 KiB plan=5.15 KiB full=99.33 KiB
+10.31 s       │ 10.31 s       │ 10.31 s       │ 10.31 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   proof size (tpch_q3_poneglyph) core=68.02 KiB plan=3.23 KiB full=71.25 KiB
+42.7 s        │ 42.7 s        │ 42.7 s        │ 42.7 s        │ 1       │ 1
+      ├─ tpch_q3_tt          proof size (tpch_q3_tt) core=69.10 KiB plan=3.08 KiB full=72.18 KiB
+43.89 s       │ 43.89 s       │ 43.89 s       │ 43.89 s       │ 1       │ 1
+      ├─ tpch_q4_tt          proof size (tpch_q4_tt) core=39.65 KiB plan=2.24 KiB full=41.89 KiB
+36.7 s        │ 36.7 s        │ 36.7 s        │ 36.7 s        │ 1       │ 1
+      ├─ tpch_q5_poneglyph   proof size (tpch_q5_poneglyph) core=103.00 KiB plan=4.08 KiB full=107.07 KiB
+52.71 s       │ 52.71 s       │ 52.71 s       │ 52.71 s       │ 1       │ 1
+      ├─ tpch_q5_tt          proof size (tpch_q5_tt) core=104.07 KiB plan=3.88 KiB full=107.96 KiB
+54.19 s       │ 54.19 s       │ 54.19 s       │ 54.19 s       │ 1       │ 1
+      ├─ tpch_q6_tt          proof size (tpch_q6_tt) core=29.97 KiB plan=1.68 KiB full=31.66 KiB
+39.41 s       │ 39.41 s       │ 39.41 s       │ 39.41 s       │ 1       │ 1
+      ├─ tpch_q7_tt          proof size (tpch_q7_tt) core=110.48 KiB plan=4.59 KiB full=115.07 KiB
+1.312 m       │ 1.312 m       │ 1.312 m       │ 1.312 m       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   proof size (tpch_q8_poneglyph) core=187.69 KiB plan=5.31 KiB full=193.00 KiB
+1.187 m       │ 1.187 m       │ 1.187 m       │ 1.187 m       │ 1       │ 1
+      ├─ tpch_q8_tt          proof size (tpch_q8_tt) core=187.66 KiB plan=5.09 KiB full=192.74 KiB
+1.198 m       │ 1.198 m       │ 1.198 m       │ 1.198 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   proof size (tpch_q9_poneglyph) core=90.37 KiB plan=4.16 KiB full=94.53 KiB
+2.446 m       │ 2.446 m       │ 2.446 m       │ 2.446 m       │ 1       │ 1
+      ├─ tpch_q9_tt          proof size (tpch_q9_tt) core=90.37 KiB plan=3.94 KiB full=94.31 KiB
+2.472 m       │ 2.472 m       │ 2.472 m       │ 2.472 m       │ 1       │ 1
+      ├─ tpch_q10_tt         proof size (tpch_q10_tt) core=69.09 KiB plan=3.77 KiB full=72.86 KiB
+1.69 m        │ 1.69 m        │ 1.69 m        │ 1.69 m        │ 1       │ 1
+      ├─ tpch_q12_tt         proof size (tpch_q12_tt) core=29.09 KiB plan=3.35 KiB full=32.43 KiB
+37.76 s       │ 37.76 s       │ 37.76 s       │ 37.76 s       │ 1       │ 1
+      ├─ tpch_q14_tt         proof size (tpch_q14_tt) core=36.61 KiB plan=2.13 KiB full=38.73 KiB
+22.47 s       │ 22.47 s       │ 22.47 s       │ 22.47 s       │ 1       │ 1
+      ├─ tpch_q15_tt         proof size (tpch_q15_tt) core=58.33 KiB plan=4.08 KiB full=62.41 KiB
+58.15 s       │ 58.15 s       │ 58.15 s       │ 58.15 s       │ 1       │ 1
+      ├─ tpch_q17_tt         proof size (tpch_q17_tt) core=61.89 KiB plan=3.65 KiB full=65.53 KiB
+37.47 s       │ 37.47 s       │ 37.47 s       │ 37.47 s       │ 1       │ 1
+      ├─ tpch_q18            proof size (tpch_q18) core=71.68 KiB plan=5.11 KiB full=76.78 KiB
+1.141 m       │ 1.141 m       │ 1.141 m       │ 1.141 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  proof size (tpch_q18_poneglyph) core=28.80 KiB plan=3.09 KiB full=31.89 KiB
+42.6 s        │ 42.6 s        │ 42.6 s        │ 42.6 s        │ 1       │ 1
+      ├─ tpch_q19_tt         proof size (tpch_q19_tt) core=112.07 KiB plan=8.10 KiB full=120.18 KiB
+2.068 m       │ 2.068 m       │ 2.068 m       │ 2.068 m       │ 1       │ 1
+      ╰─ tpch_q20_tt         proof size (tpch_q20_tt) core=74.05 KiB plan=3.57 KiB full=77.62 KiB
+1.105 m       │ 1.105 m       │ 1.105 m       │ 1.105 m       │ 1       │ 1

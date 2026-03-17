@@ -1,89 +1,89 @@
 ﻿Q,threads,System,table log size,prover time (s),verifier time (ms),proof size (KB)
-Join,4,PoSQL,65536,9.49,15,16.625
-Limit Offset,4,PoSQL,65536,4.166,2,5.375
-filter,4,PoSQL,65536,6.613,3,5.898
-aggregate_count,4,PoSQL,65536,2.812,2,5.055
-Join,4,PoSQL,131072,19.695,25,17.0
-Limit Offset,4,PoSQL,131072,8.605,3,5.656
-filter,4,PoSQL,131072,13.704,2,6.180
-aggregate_count,4,PoSQL,131072,5.792,2,5.336
-Join,4,PoSQL,262144,40.74,40,16.812
-Limit Offset,4,PoSQL,262144,17.819,2,5.938
-filter,4,PoSQL,262144,28.49,2,6.461
-aggregate_count,4,PoSQL,262144,12.117,2,5.617
-Join,4,PoSQL,524288,84.759,75,18.219
-Limit Offset,4,PoSQL,524288,36.88,2,6.219
-filter,4,PoSQL,524288,58.863,2,6.742
-aggregate_count,4,PoSQL,524288,25.149,2,5.898
-Join,1,PoSQL,65536,13.383,18,16.625
-Limit Offset,1,PoSQL,65536,6.93,3,5.375
-filter,1,PoSQL,65536,9.416,2,5.898
-aggregate_count,1,PoSQL,65536,5.516,2,5.055
-Join,1,PoSQL,131072,27.635,31,17.0
-Limit Offset,1,PoSQL,131072,14.21,2,5.656
-filter,1,PoSQL,131072,19.473,2,6.180
-aggregate_count,1,PoSQL,131072,11.378,2,5.336
-Join,1,PoSQL,262144,56.666,52,16.812
-Limit Offset,1,PoSQL,262144,29.363,2,5.938
-filter,1,PoSQL,262144,40.243,2,6.461
-aggregate_count,1,PoSQL,262144,23.554,3,5.617
-Join,1,PoSQL,524288,118.116,98,18.219
-Limit Offset,1,PoSQL,524288,60.617,2,6.219
-filter,1,PoSQL,524288,83.203,2,6.742
-aggregate_count,1,PoSQL,524288,48.513,2,5.898
-filter,4,qedb,65536,2.606,104,3.475
-aggregate_count,4,qedb,65536,2.761,18,0.480
-filter,4,qedb,131072,4.786,199,3.475
-aggregate_count,4,qedb,131072,4.967,33,0.480
-filter,4,qedb,262144,9.533,412,3.475
-aggregate_count,4,qedb,262144,9.667,66,0.480
-filter,4,qedb,524288,18.533,908,3.475
-aggregate_count,4,qedb,524288,18.972,146,0.480
-filter,1,qedb,65536,10.022,273,3.475
-aggregate_count,1,qedb,65536,9.95,52,0.480
-filter,1,qedb,131072,18.35,540,3.475
-aggregate_count,1,qedb,131072,18.273,98,0.480
-filter,1,qedb,262144,35.988,1118,3.475
-aggregate_count,1,qedb,262144,35.359,203,0.480
-filter,1,qedb,524288,66.784,2380,3.475
-aggregate_count,1,qedb,524288,65.999,426,0.480
-filter,4,tt,65536,0.775,5,7.979
-aggregate_count,4,tt,65536,0.159,1,0.583
-Join,4,tt,65536,2.278,7,18.808
-Join PK/FK,4,tt,65536,0.097,1,0.878
-Limit Offset,4,tt,65536,0.075,3,4.388
-filter,4,tt,131072,1.85,5,8.369
-aggregate_count,4,tt,131072,0.307,2,0.583
-Join,4,tt,131072,4.271,8,19.262
-Join PK/FK,4,tt,131072,0.184,2,0.878
-Limit Offset,4,tt,131072,0.141,3,4.614
-filter,4,tt,262144,3.64,6,8.760
-aggregate_count,4,tt,262144,0.63,1,0.583
-Join,4,tt,262144,8.736,8,19.714
-Join PK/FK,4,tt,262144,0.369,2,0.878
-Limit Offset,4,tt,262144,0.305,3,4.841
-filter,4,tt,524288,7.177,6,9.150
-aggregate_count,4,tt,524288,1.195,2,0.583
-Join,4,tt,524288,17.44,8,20.167
-Join PK/FK,4,tt,524288,0.738,1,0.878
-Limit Offset,4,tt,524288,0.584,3,5.067
-filter,1,tt,65536,1.13,8,7.979
-aggregate_count,1,tt,65536,0.093,1,0.583
-Join,1,tt,65536,7.345,10,18.809
-Join PK/FK,1,tt,65536,0.079,1,0.878
-Limit Offset,1,tt,65536,0.062,4,4.388
-filter,1,tt,131072,2.133,8,8.369
-aggregate_count,1,tt,131072,0.175,1,0.583
-Join,1,tt,131072,13.815,11,19.262
-Join PK/FK,1,tt,131072,0.148,2,0.878
-Limit Offset,1,tt,131072,0.12,4,4.614
-filter,1,tt,262144,4.13,8,8.760
-aggregate_count,1,tt,262144,0.372,2,0.583
-Join,1,tt,262144,26.933,11,19.714
-Join PK/FK,1,tt,262144,0.297,2,0.878
-Limit Offset,1,tt,262144,0.251,4,4.841
-filter,1,tt,524288,7.859,8,9.150
-aggregate_count,1,tt,524288,0.769,2,0.583
-Join,1,tt,524288,51.762,11,20.167
-Join PK/FK,1,tt,524288,0.627,2,0.878
-Limit Offset,1,tt,524288,0.503,4,5.067
+Join,4,PoSQL,16,9.49,15,16.625
+Limit Offset,4,PoSQL,16,4.166,2,5.375
+filter,4,PoSQL,16,6.613,3,5.898
+aggregate_count,4,PoSQL,16,2.812,2,5.055
+Join,4,PoSQL,17,19.695,25,17.0
+Limit Offset,4,PoSQL,17,8.605,3,5.656
+filter,4,PoSQL,17,13.704,2,6.180
+aggregate_count,4,PoSQL,17,5.792,2,5.336
+Join,4,PoSQL,18,40.74,40,16.812
+Limit Offset,4,PoSQL,18,17.819,2,5.938
+filter,4,PoSQL,18,28.49,2,6.461
+aggregate_count,4,PoSQL,18,12.117,2,5.617
+Join,4,PoSQL,19,84.759,75,18.219
+Limit Offset,4,PoSQL,19,36.88,2,6.219
+filter,4,PoSQL,19,58.863,2,6.742
+aggregate_count,4,PoSQL,19,25.149,2,5.898
+Join,1,PoSQL,16,13.383,18,16.625
+Limit Offset,1,PoSQL,16,6.93,3,5.375
+filter,1,PoSQL,16,9.416,2,5.898
+aggregate_count,1,PoSQL,16,5.516,2,5.055
+Join,1,PoSQL,17,27.635,31,17.0
+Limit Offset,1,PoSQL,17,14.21,2,5.656
+filter,1,PoSQL,17,19.473,2,6.180
+aggregate_count,1,PoSQL,17,11.378,2,5.336
+Join,1,PoSQL,18,56.666,52,16.812
+Limit Offset,1,PoSQL,18,29.363,2,5.938
+filter,1,PoSQL,18,40.243,2,6.461
+aggregate_count,1,PoSQL,18,23.554,3,5.617
+Join,1,PoSQL,19,118.116,98,18.219
+Limit Offset,1,PoSQL,19,60.617,2,6.219
+filter,1,PoSQL,19,83.203,2,6.742
+aggregate_count,1,PoSQL,19,48.513,2,5.898
+filter,4,qedb,16,2.606,104,3.475
+aggregate_count,4,qedb,16,2.761,18,0.480
+filter,4,qedb,17,4.786,199,3.475
+aggregate_count,4,qedb,17,4.967,33,0.480
+filter,4,qedb,18,9.533,412,3.475
+aggregate_count,4,qedb,18,9.667,66,0.480
+filter,4,qedb,19,18.533,908,3.475
+aggregate_count,4,qedb,19,18.972,146,0.480
+filter,1,qedb,16,10.022,273,3.475
+aggregate_count,1,qedb,16,9.95,52,0.480
+filter,1,qedb,17,18.35,540,3.475
+aggregate_count,1,qedb,17,18.273,98,0.480
+filter,1,qedb,18,35.988,1118,3.475
+aggregate_count,1,qedb,18,35.359,203,0.480
+filter,1,qedb,19,66.784,2380,3.475
+aggregate_count,1,qedb,19,65.999,426,0.480
+filter,4,tt,16,0.775,5,7.979
+aggregate_count,4,tt,16,0.159,1,0.583
+Join,4,tt,16,2.278,7,18.808
+Join PK/FK,4,tt,16,0.097,1,0.878
+Limit Offset,4,tt,16,0.075,3,4.388
+filter,4,tt,17,1.85,5,8.369
+aggregate_count,4,tt,17,0.307,2,0.583
+Join,4,tt,17,4.271,8,19.262
+Join PK/FK,4,tt,17,0.184,2,0.878
+Limit Offset,4,tt,17,0.141,3,4.614
+filter,4,tt,18,3.64,6,8.760
+aggregate_count,4,tt,18,0.63,1,0.583
+Join,4,tt,18,8.736,8,19.714
+Join PK/FK,4,tt,18,0.369,2,0.878
+Limit Offset,4,tt,18,0.305,3,4.841
+filter,4,tt,19,7.177,6,9.150
+aggregate_count,4,tt,19,1.195,2,0.583
+Join,4,tt,19,17.44,8,20.167
+Join PK/FK,4,tt,19,0.738,1,0.878
+Limit Offset,4,tt,19,0.584,3,5.067
+filter,1,tt,16,1.13,8,7.979
+aggregate_count,1,tt,16,0.093,1,0.583
+Join,1,tt,16,7.345,10,18.809
+Join PK/FK,1,tt,16,0.079,1,0.878
+Limit Offset,1,tt,16,0.062,4,4.388
+filter,1,tt,17,2.133,8,8.369
+aggregate_count,1,tt,17,0.175,1,0.583
+Join,1,tt,17,13.815,11,19.262
+Join PK/FK,1,tt,17,0.148,2,0.878
+Limit Offset,1,tt,17,0.12,4,4.614
+filter,1,tt,18,4.13,8,8.760
+aggregate_count,1,tt,18,0.372,2,0.583
+Join,1,tt,18,26.933,11,19.714
+Join PK/FK,1,tt,18,0.297,2,0.878
+Limit Offset,1,tt,18,0.251,4,4.841
+filter,1,tt,19,7.859,8,9.150
+aggregate_count,1,tt,19,0.769,2,0.583
+Join,1,tt,19,51.762,11,20.167
+Join PK/FK,1,tt,19,0.627,2,0.878
+Limit Offset,1,tt,19,0.503,4,5.067

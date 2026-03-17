@@ -1,0 +1,166 @@
+   ╰─ bench_tpch_prover                    │               │               │               │         │
+      ├─ tpch_q1_poneglyph   proof size (tpch_q1_poneglyph) core=19.71 KiB plan=2.65 KiB full=22.36 KiB
+35.98 s       │ 35.98 s       │ 35.98 s       │ 35.98 s       │ 1       │ 1
+      ├─ tpch_q1_tt          proof size (tpch_q1_tt) core=23.54 KiB plan=3.08 KiB full=26.63 KiB
+1.14 m        │ 1.14 m        │ 1.14 m        │ 1.14 m        │ 1       │ 1
+      ├─ tpch_q2_tt          proof size (tpch_q2_tt) core=94.18 KiB plan=5.15 KiB full=99.33 KiB
+31.96 s       │ 31.96 s       │ 31.96 s       │ 31.96 s       │ 1       │ 1
+      ├─ tpch_q3_poneglyph   proof size (tpch_q3_poneglyph) core=67.57 KiB plan=3.23 KiB full=70.80 KiB
+1.356 m       │ 1.356 m       │ 1.356 m       │ 1.356 m       │ 1       │ 1
+      ├─ tpch_q3_tt          proof size (tpch_q3_tt) core=68.64 KiB plan=3.08 KiB full=71.72 KiB
+1.369 m       │ 1.369 m       │ 1.369 m       │ 1.369 m       │ 1       │ 1
+      ├─ tpch_q4_tt          proof size (tpch_q4_tt) core=39.20 KiB plan=2.24 KiB full=41.44 KiB
+1.085 m       │ 1.085 m       │ 1.085 m       │ 1.085 m       │ 1       │ 1
+      ├─ tpch_q5_poneglyph   proof size (tpch_q5_poneglyph) core=102.54 KiB plan=4.08 KiB full=106.62 KiB
+1.738 m       │ 1.738 m       │ 1.738 m       │ 1.738 m       │ 1       │ 1
+      ├─ tpch_q5_tt          proof size (tpch_q5_tt) core=103.62 KiB plan=3.88 KiB full=107.50 KiB
+1.797 m       │ 1.797 m       │ 1.797 m       │ 1.797 m       │ 1       │ 1
+      ├─ tpch_q6_tt          proof size (tpch_q6_tt) core=29.52 KiB plan=1.68 KiB full=31.20 KiB
+1.111 m       │ 1.111 m       │ 1.111 m       │ 1.111 m       │ 1       │ 1
+      ├─ tpch_q7_tt          proof size (tpch_q7_tt) core=110.03 KiB plan=4.59 KiB full=114.62 KiB
+2.666 m       │ 2.666 m       │ 2.666 m       │ 2.666 m       │ 1       │ 1
+      ├─ tpch_q8_poneglyph   proof size (tpch_q8_poneglyph) core=187.24 KiB plan=5.31 KiB full=192.55 KiB
+2.221 m       │ 2.221 m       │ 2.221 m       │ 2.221 m       │ 1       │ 1
+      ├─ tpch_q8_tt          proof size (tpch_q8_tt) core=187.20 KiB plan=5.09 KiB full=192.29 KiB
+2.224 m       │ 2.224 m       │ 2.224 m       │ 2.224 m       │ 1       │ 1
+      ├─ tpch_q9_poneglyph   proof size (tpch_q9_poneglyph) core=89.91 KiB plan=4.16 KiB full=94.07 KiB
+4.936 m       │ 4.936 m       │ 4.936 m       │ 4.936 m       │ 1       │ 1
+      ├─ tpch_q9_tt          proof size (tpch_q9_tt) core=89.92 KiB plan=3.94 KiB full=93.86 KiB
+4.929 m       │ 4.929 m       │ 4.929 m       │ 4.929 m       │ 1       │ 1
+      ├─ tpch_q10_tt         proof size (tpch_q10_tt) core=68.64 KiB plan=3.77 KiB full=72.41 KiB
+3.138 m       │ 3.138 m       │ 3.138 m       │ 3.138 m       │ 1       │ 1
+      ├─ tpch_q12_tt         proof size (tpch_q12_tt) core=28.63 KiB plan=3.35 KiB full=31.98 KiB
+1.128 m       │ 1.128 m       │ 1.128 m       │ 1.128 m       │ 1       │ 1
+     ├─ tpch_q14_tt         proof size (tpch_q14_tt) core=36.15 KiB plan=2.13 KiB full=38.28 KiB
+41.32 s       │ 41.32 s       │ 41.32 s       │ 41.32 s       │ 1       │ 1
+      ├─ tpch_q15_tt         proof size (tpch_q15_tt) core=57.88 KiB plan=4.08 KiB full=61.96 KiB
+1.641 m       │ 1.641 m       │ 1.641 m       │ 1.641 m       │ 1       │ 1
+      ├─ tpch_q17_tt         proof size (tpch_q17_tt) core=61.43 KiB plan=3.65 KiB full=65.08 KiB
+1.134 m       │ 1.134 m       │ 1.134 m       │ 1.134 m       │ 1       │ 1
+      ├─ tpch_q18_poneglyph  proof size (tpch_q18_poneglyph) core=28.35 KiB plan=3.09 KiB full=31.44 KiB
+1.241 m       │ 1.241 m       │ 1.241 m       │ 1.241 m       │ 1       │ 1
+      ├─ tpch_q18_tt         proof size (tpch_q18_tt) core=71.22 KiB plan=5.11 KiB full=76.33 KiB
+2.042 m       │ 2.042 m       │ 2.042 m       │ 2.042 m       │ 1       │ 1
+      ├─ tpch_q19_tt         proof size (tpch_q19_tt) core=111.62 KiB plan=8.10 KiB full=119.72 KiB
+3.548 m       │ 3.548 m       │ 3.548 m       │ 3.548 m       │ 1       │ 1
+      ╰─ tpch_q20_tt         proof size (tpch_q20_tt) core=73.59 KiB plan=3.57 KiB full=77.17 KiB
+1.931 m       │ 1.931 m       │ 1.931 m       │ 1.931 m       │ 1       │ 1
+
+ 
+
+
+    ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ├─ tpch_q1_poneglyph            proof size (tpch_q1_poneglyph) core=19.71 KiB plan=2.65 KiB full=22.36 KiB
+7.736 ms      │ 9.317 ms      │ 8.32 ms       │ 8.342 ms      │ 100     │ 100
+   │  ├─ tpch_q1_tt                   proof size (tpch_q1_tt) core=23.54 KiB plan=3.08 KiB full=26.63 KiB
+8.414 ms      │ 9.408 ms      │ 8.496 ms      │ 8.668 ms      │ 100     │ 100
+   │  ├─ tpch_q2_tt                   proof size (tpch_q2_tt) core=94.18 KiB plan=5.15 KiB full=99.33 KiB
+18.49 ms      │ 21.19 ms      │ 19.61 ms      │ 19.62 ms      │ 100     │ 100
+   │  ├─ tpch_q3_poneglyph            proof size (tpch_q3_poneglyph) core=67.57 KiB plan=3.23 KiB full=70.80 KiB
+14.41 ms      │ 16.48 ms      │ 15.58 ms      │ 15.56 ms      │ 100     │ 100
+   │  ├─ tpch_q3_tt                   proof size (tpch_q3_tt) core=68.64 KiB plan=3.08 KiB full=71.72 KiB
+15.33 ms      │ 18.11 ms      │ 16.08 ms      │ 16.19 ms      │ 100     │ 100
+   │  ├─ tpch_q4_tt                   proof size (tpch_q4_tt) core=39.20 KiB plan=2.24 KiB full=41.44 KiB
+10.78 ms      │ 12.53 ms      │ 11.54 ms      │ 11.54 ms      │ 100     │ 100
+   │  ├─ tpch_q5_poneglyph            proof size (tpch_q5_poneglyph) core=102.54 KiB plan=4.08 KiB full=106.62 KiB
+19.01 ms      │ 20.9 ms       │ 20.09 ms      │ 20.1 ms       │ 100     │ 100
+   │  ├─ tpch_q5_tt                   proof size (tpch_q5_tt) core=103.62 KiB plan=3.88 KiB full=107.50 KiB
+19.49 ms      │ 23.05 ms      │ 20.86 ms      │ 20.88 ms      │ 100     │ 100
+   │  ├─ tpch_q6_tt                   proof size (tpch_q6_tt) core=29.52 KiB plan=1.68 KiB full=31.20 KiB
+9.548 ms      │ 11.68 ms      │ 10.28 ms      │ 10.39 ms      │ 100     │ 100
+   │  ╰─ tpch_q7_tt                   proof size (tpch_q7_tt) core=110.03 KiB plan=4.59 KiB full=114.62 KiB
+23.01 ms      │ 26 ms         │ 24.16 ms      │ 24.33 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ├─ tpch_q1_poneglyph            12.1 ms       │ 13.88 ms      │ 12.93 ms      │ 12.88 ms      │ 78      │ 78
+   │  ├─ tpch_q1_tt                   14.3 ms       │ 15.87 ms      │ 15.06 ms      │ 15.01 ms      │ 67      │ 67
+   │  ├─ tpch_q2_tt                   34.36 ms      │ 38.46 ms      │ 37.66 ms      │ 37.49 ms      │ 27      │ 27
+   │  ├─ tpch_q3_poneglyph            23.51 ms      │ 25.45 ms      │ 24.38 ms      │ 24.47 ms      │ 41      │ 41
+   │  ├─ tpch_q3_tt                   23.13 ms      │ 26.85 ms      │ 25.05 ms      │ 25.04 ms      │ 40      │ 40
+   │  ├─ tpch_q4_tt                   16.32 ms      │ 18.5 ms       │ 17.04 ms      │ 17.12 ms      │ 59      │ 59
+   │  ├─ tpch_q5_poneglyph            31.28 ms      │ 35.92 ms      │ 33.64 ms      │ 33.69 ms      │ 30      │ 30
+   │  ├─ tpch_q5_tt                   32.16 ms      │ 36.17 ms      │ 35.03 ms      │ 34.96 ms      │ 29      │ 29
+   │  ├─ tpch_q6_tt                   12.17 ms      │ 14.14 ms      │ 13 ms         │ 13.07 ms      │ 77      │ 77
+   │  ╰─ tpch_q7_tt                   38.04 ms      │ 42.28 ms      │ 40.22 ms      │ 40.16 ms      │ 25      │ 25
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ├─ tpch_q1_poneglyph            4.369 ms      │ 4.611 ms      │ 4.395 ms      │ 4.405 ms      │ 100     │ 100
+      ├─ tpch_q1_tt                   5.359 ms      │ 5.876 ms      │ 5.732 ms      │ 5.732 ms      │ 100     │ 100
+      ├─ tpch_q2_tt                   13.74 ms      │ 16.58 ms      │ 15.29 ms      │ 15.34 ms      │ 100     │ 100
+      ├─ tpch_q3_poneglyph            7.529 ms      │ 8.178 ms      │ 7.593 ms      │ 7.619 ms      │ 100     │ 100
+      ├─ tpch_q3_tt                   7.049 ms      │ 7.949 ms      │ 7.632 ms      │ 7.636 ms      │ 100     │ 100
+      ├─ tpch_q4_tt                   4.928 ms      │ 5.264 ms      │ 5.214 ms      │ 5.215 ms      │ 100     │ 100
+      ├─ tpch_q5_poneglyph            10.87 ms      │ 13.58 ms      │ 12.09 ms      │ 12.12 ms      │ 100     │ 100
+      ├─ tpch_q5_tt                   11.11 ms      │ 13.35 ms      │ 12.12 ms      │ 12.14 ms      │ 100     │ 100
+      ├─ tpch_q6_tt                   2.701 ms      │ 2.844 ms      │ 2.719 ms      │ 2.722 ms      │ 100     │ 100
+      ╰─ tpch_q7_tt                   13.84 ms      │ 17.99 ms      │ 15.43 ms      │ 15.54 ms      │ 100     │ 100
+
+
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ├─ tpch_q8_poneglyph            proof size (tpch_q8_poneglyph) core=187.24 KiB plan=5.31 KiB full=192.55 KiB
+30.54 ms      │ 37.35 ms      │ 35.2 ms       │ 34.28 ms      │ 100     │ 100
+   │  ├─ tpch_q8_tt                   proof size (tpch_q8_tt) core=187.20 KiB plan=5.09 KiB full=192.29 KiB
+34.49 ms      │ 38.19 ms      │ 35.96 ms      │ 35.98 ms      │ 100     │ 100
+   │  ╰─ tpch_q9_tt                   proof size (tpch_q9_tt) core=89.92 KiB plan=3.94 KiB full=93.86 KiB
+17.48 ms      │ 41.18 ms      │ 18.35 ms      │ 19.34 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ├─ tpch_q8_poneglyph            56.79 ms      │ 60.9 ms       │ 60.3 ms       │ 59.96 ms      │ 17      │ 17
+   │  ├─ tpch_q8_tt                   57.31 ms      │ 63.14 ms      │ 61.06 ms      │ 60.84 ms      │ 17      │ 17
+   │  ╰─ tpch_q9_tt                   30.89 ms      │ 39.2 ms       │ 32.57 ms      │ 33 ms         │ 31      │ 31
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ├─ tpch_q8_poneglyph            20.92 ms      │ 91.01 ms      │ 28.42 ms      │ 40.34 ms      │ 100     │ 100
+      ├─ tpch_q8_tt                   22.77 ms      │ 78.85 ms      │ 23.15 ms      │ 26.13 ms      │ 100     │ 100
+      ╰─ tpch_q9_tt                   11.51 ms      │ 12.85 ms      │ 11.79 ms      │ 11.92 ms      │ 100     │ 100
+
+      ─ tpch                                             │               │               │               │         │
+   ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ├─ tpch_q9_poneglyph            proof size (tpch_q9_poneglyph) core=89.91 KiB plan=4.16 KiB full=94.07 KiB
+16.3 ms       │ 20.31 ms      │ 17.63 ms      │ 17.76 ms      │ 100     │ 100
+   │  ├─ tpch_q10_tt                  proof size (tpch_q10_tt) core=68.64 KiB plan=3.77 KiB full=72.41 KiB
+25.56 ms      │ 28.2 ms       │ 26.62 ms      │ 26.69 ms      │ 100     │ 100
+   │  ╰─ tpch_q12_tt                  proof size (tpch_q12_tt) core=28.63 KiB plan=3.35 KiB full=31.98 KiB
+9.741 ms      │ 11.93 ms      │ 10.28 ms      │ 10.38 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ├─ tpch_q9_poneglyph            28.59 ms      │ 33.01 ms      │ 31.24 ms      │ 31.18 ms      │ 33      │ 33
+   │  ├─ tpch_q10_tt                  33.21 ms      │ 35.99 ms      │ 35.02 ms      │ 34.98 ms      │ 29      │ 29
+   │  ╰─ tpch_q12_tt                  15.32 ms      │ 17.07 ms      │ 16.12 ms      │ 16.17 ms      │ 62      │ 62
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ├─ tpch_q9_poneglyph            10.72 ms      │ 11.9 ms       │ 10.97 ms      │ 10.99 ms      │ 100     │ 100
+      ├─ tpch_q10_tt                  6.926 ms      │ 8.235 ms      │ 7.471 ms      │ 7.475 ms      │ 100     │ 100
+      ╰─ tpch_q12_tt                  5.025 ms      │ 5.516 ms      │ 5.457 ms      │ 5.456 ms      │ 100     │ 100
+
+
+ ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ├─ tpch_q14_tt                  proof size (tpch_q14_tt) core=36.15 KiB plan=2.13 KiB full=38.28 KiB
+9.522 ms      │ 11.42 ms      │ 9.943 ms      │ 9.997 ms      │ 100     │ 100
+   │  ├─ tpch_q15_tt                  proof size (tpch_q15_tt) core=57.88 KiB plan=4.08 KiB full=61.96 KiB
+13.52 ms      │ 16.61 ms      │ 14.27 ms      │ 14.62 ms      │ 100     │ 100
+   │  ╰─ tpch_q17_tt                  proof size (tpch_q17_tt) core=61.43 KiB plan=3.65 KiB full=65.08 KiB
+13.67 ms      │ 16.03 ms      │ 14.3 ms       │ 14.37 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ├─ tpch_q14_tt                  13.71 ms      │ 15.72 ms      │ 14.5 ms       │ 14.6 ms       │ 69      │ 69
+   │  ├─ tpch_q15_tt                  23.74 ms      │ 26.79 ms      │ 25.91 ms      │ 25.84 ms      │ 39      │ 39
+   │  ╰─ tpch_q17_tt                  21.23 ms      │ 24.45 ms      │ 23.41 ms      │ 23.38 ms      │ 43      │ 43
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ├─ tpch_q14_tt                  3.853 ms      │ 4.165 ms      │ 4.099 ms      │ 4.098 ms      │ 100     │ 100
+      ├─ tpch_q15_tt                  8.905 ms      │ 10.12 ms      │ 9.43 ms       │ 9.455 ms      │ 100     │ 100
+      ╰─ tpch_q17_tt                  7.508 ms      │ 8.245 ms      │ 8.098 ms      │ 8.1 ms        │ 100     │ 100
+
+
+         ├─ bench_tpch_verifier_core                      │               │               │               │         │
+   │  ├─ tpch_q18_poneglyph           proof size (tpch_q18_poneglyph) core=28.35 KiB plan=3.09 KiB full=31.44 KiB
+9.869 ms      │ 12.18 ms      │ 10.7 ms       │ 10.74 ms      │ 100     │ 100
+   │  ├─ tpch_q18_tt                  proof size (tpch_q18_tt) core=71.22 KiB plan=5.11 KiB full=76.33 KiB
+16.3 ms       │ 21.14 ms      │ 17.82 ms      │ 17.85 ms      │ 100     │ 100
+   │  ├─ tpch_q19_tt                  proof size (tpch_q19_tt) core=111.62 KiB plan=8.10 KiB full=119.72 KiB
+33.66 ms      │ 42.57 ms      │ 37.81 ms      │ 37.78 ms      │ 100     │ 100
+   │  ╰─ tpch_q20_tt                  proof size (tpch_q20_tt) core=73.59 KiB plan=3.57 KiB full=77.17 KiB
+17.32 ms      │ 24.23 ms      │ 18.42 ms      │ 18.66 ms      │ 100     │ 100
+   ├─ bench_tpch_verifier_full                      │               │               │               │         │
+   │  ├─ tpch_q18_poneglyph           13.89 ms      │ 17.71 ms      │ 14.38 ms      │ 14.54 ms      │ 69      │ 69
+   │  ├─ tpch_q18_tt                  25.58 ms      │ 33.65 ms      │ 27.19 ms      │ 27.73 ms      │ 37      │ 37
+   │  ├─ tpch_q19_tt                  56.57 ms      │ 67.83 ms      │ 58.88 ms      │ 59.85 ms      │ 17      │ 17
+   │  ╰─ tpch_q20_tt                  27.77 ms      │ 37.88 ms      │ 29.24 ms      │ 29.84 ms      │ 34      │ 34
+   ╰─ bench_tpch_verifier_preprocess                │               │               │               │         │
+      ├─ tpch_q18_poneglyph           3.697 ms      │ 9.127 ms      │ 3.81 ms       │ 3.915 ms      │ 100     │ 100
+      ├─ tpch_q18_tt                  7.678 ms      │ 16.4 ms       │ 8.258 ms      │ 8.623 ms      │ 100     │ 100
+      ├─ tpch_q19_tt                  19.24 ms      │ 29.79 ms      │ 19.75 ms      │ 20.87 ms      │ 100     │ 100
+      ╰─ tpch_q20_tt                  10.07 ms      │ 17.65 ms      │ 10.2 ms       │ 10.86 ms      │ 100     │ 100
