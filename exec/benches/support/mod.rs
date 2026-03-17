@@ -380,11 +380,14 @@ pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
     if guard.insert(case_name) {
         let full_bytes = proof.snark_proof_bytes + proof.optimized_ir_bytes;
         println!(
-            "proof size ({}) core={} plan={} full={}",
+            "proof size ({}) core={} ({} bytes) plan={} ({} bytes) full={} ({} bytes)",
             case_name,
             format_bytes(proof.snark_proof_bytes),
+            proof.snark_proof_bytes,
             format_bytes(proof.optimized_ir_bytes),
+            proof.optimized_ir_bytes,
             format_bytes(full_bytes),
+            full_bytes,
         );
     }
 }

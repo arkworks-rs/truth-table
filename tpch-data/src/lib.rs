@@ -29,6 +29,7 @@ use tpchgen_arrow::*;
 
 const ROW_ID_COL_NAME: &str = "__row_id__";
 const CONSTRAINTS_FILE_NAME: &str = "constraints.json";
+const FIXED_PONEGLYPH_SCALE: f64 = 0.01;
 
 #[derive(Clone, Debug, Serialize)]
 struct ConstraintManifest {
@@ -783,7 +784,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = NationGenerator::new(scale, 1, 1);
         let mut it_raw = NationArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = NationGenerator::new(scale, 1, 1);
+        let generator_poneglyph = NationGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             NationArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -805,7 +806,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = RegionGenerator::new(scale, 1, 1);
         let mut it_raw = RegionArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = RegionGenerator::new(scale, 1, 1);
+        let generator_poneglyph = RegionGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             RegionArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -827,7 +828,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = PartGenerator::new(scale, 1, 1);
         let mut it_raw = PartArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = PartGenerator::new(scale, 1, 1);
+        let generator_poneglyph = PartGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             PartArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -849,7 +850,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = SupplierGenerator::new(scale, 1, 1);
         let mut it_raw = SupplierArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = SupplierGenerator::new(scale, 1, 1);
+        let generator_poneglyph = SupplierGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             SupplierArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -871,7 +872,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = PartSuppGenerator::new(scale, 1, 1);
         let mut it_raw = PartSuppArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = PartSuppGenerator::new(scale, 1, 1);
+        let generator_poneglyph = PartSuppGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             PartSuppArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -893,7 +894,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = CustomerGenerator::new(scale, 1, 1);
         let mut it_raw = CustomerArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = CustomerGenerator::new(scale, 1, 1);
+        let generator_poneglyph = CustomerGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             CustomerArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(
@@ -915,7 +916,7 @@ pub fn generate_parquet_scale<P: AsRef<Path>>(scale: f64, out_dir: P) {
         let schema = Arc::clone(it.schema());
         let generator_raw = OrderGenerator::new(scale, 1, 1);
         let mut it_raw = OrderArrow::new(generator_raw).with_batch_size(DEFAULT_BATCH_SIZE);
-        let generator_poneglyph = OrderGenerator::new(scale, 1, 1);
+        let generator_poneglyph = OrderGenerator::new(FIXED_PONEGLYPH_SCALE, 1, 1);
         let mut it_poneglyph =
             OrderArrow::new(generator_poneglyph).with_batch_size(DEFAULT_BATCH_SIZE);
         let orig_out = out.with_file_name(format!(

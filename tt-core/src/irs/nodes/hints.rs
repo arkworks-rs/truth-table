@@ -438,19 +438,17 @@ fn merge_constraints_from_dir(dir: &Path, out: &mut BTreeMap<String, TableConstr
             if fk.columns.is_empty() {
                 continue;
             }
-            for (idx, src_col) in fk.columns.iter().enumerate() {
-                let ref_col = fk
-                    .ref_columns
-                    .get(idx)
-                    .cloned()
-                    .or_else(|| fk.ref_columns.first().cloned())
-                    .into_iter()
-                    .collect::<Vec<_>>();
+            let ref_cols = fk
+                .ref_columns
+                .iter()
+                .map(|col| col.to_lowercase())
+                .collect::<Vec<_>>();
+            for src_col in &fk.columns {
                 constraint.foreign_key_by_col.insert(
                     src_col.to_lowercase(),
                     ForeignKeyColConstraint {
                         ref_table: fk.ref_table.clone(),
-                        ref_columns: ref_col,
+                        ref_columns: ref_cols.clone(),
                     },
                 );
             }
