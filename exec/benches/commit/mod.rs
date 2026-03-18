@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::OnceLock};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
 
 use arithmetic::{
     ROW_ID_COL_NAME,
@@ -73,6 +77,18 @@ fn commit_pk_path() -> &'static PathBuf {
     })
 }
 
+fn log_commit_size_once(case_name: &'static str, bytes: usize) {
+    static LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let logged = LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = logged.lock().expect("commit size log poisoned");
+    if guard.insert(case_name) {
+        println!(
+            "tracked table oracle size ({}) = {} bytes",
+            case_name, bytes
+        );
+    }
+}
+
 fn commit_content_len(case: CommitCase) -> usize {
     let parquet_path = tpch_data::bench_data_path(format!("{}.parquet", case.table));
     configure_constraint_metadata_from_parquet_paths(std::slice::from_ref(&parquet_path));
@@ -96,9 +112,10 @@ fn commit_content_len(case: CommitCase) -> usize {
     let mut verifier = ArgVerifier::<DefaultSnarkBackend>::new_from_vk(snark_pk.vk.clone());
     let prover = ArgProver::<DefaultSnarkBackend>::new_from_pk(snark_pk);
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
-    let prover = TTProver::new(TTProverConfig::default(), shared_config, prover);
-    let (table_scan_table, _proof) =
+    let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, prover);
+    let (table_scan_table, proof) =
         block_on(prover.prove_with_table_scan(&query)).expect("prove with table-scan");
+    verifier.set_proof(proof.into_inner());
 
     let tracked_oracle = TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)
         .expect("convert tracked table to oracle");
@@ -107,6 +124,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     serializable
         .serialize_compressed(&mut oracle_bytes)
         .expect("serialize oracle content");
+    log_commit_size_once(case.name, oracle_bytes.len());
     oracle_bytes.len()
 }
 

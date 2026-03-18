@@ -1,0 +1,42 @@
+alpha=0.1
+
+
+            │         │
+      ├─ CommitCase { name: "commit_customer", table: "customer" }  tracked table oracle size (commit_customer) = 1803 bytes
+444.5 ms      │ 458.6 ms      │ 449.5 ms      │ 450.8 ms      │ 5       │ 5
+      ├─ CommitCase { name: "commit_lineitem", table: "lineitem" }  tracked table oracle size (commit_lineitem) = 5090 bytes
+2.878 s       │ 2.878 s       │ 2.878 s       │ 2.878 s       │ 1       │ 1
+      ├─ CommitCase { name: "commit_nation", table: "nation" }      tracked table oracle size (commit_nation) = 1115 bytes
+382.6 ms      │ 386 ms        │ 384.1 ms      │ 384.1 ms      │ 6       │ 6
+      ├─ CommitCase { name: "commit_orders", table: "orders" }      tracked table oracle size (commit_orders) = 2476 bytes
+803.6 ms      │ 831.6 ms      │ 825.8 ms      │ 820.4 ms      │ 3       │ 3
+      ├─ CommitCase { name: "commit_part", table: "part" }          tracked table oracle size (commit_part) = 1773 bytes
+467.4 ms      │ 487 ms        │ 469.3 ms      │ 475.5 ms      │ 5       │ 5
+      ├─ CommitCase { name: "commit_partsupp", table: "partsupp" }  tracked table oracle size (commit_partsupp) = 1481 bytes
+522.9 ms      │ 526.7 ms      │ 524.3 ms      │ 524.6 ms      │ 4       │ 4
+      ├─ CommitCase { name: "commit_region", table: "region" }      tracked table oracle size (commit_region) = 796 bytes
+382.6 ms      │ 387.5 ms      │ 383.8 ms      │ 384.4 ms      │ 6       │ 6
+      ╰─ CommitCase { name: "commit_supplier", table: "supplier" }  tracked table oracle size (commit_supplier) = 1632 bytes
+388.5 ms      │ 394 ms        │ 390.1 ms      │ 390.5 ms      │ 6       │ 6
+
+
+
+alpha=0.05
+
+   ╰─ bench_tpch_commit_content                                                   │               │               │               │         │
+      ├─ CommitCase { name: "commit_customer", table: "customer" }  tracked table oracle size (commit_customer) = 1803 bytes
+417.4 ms      │ 425.4 ms      │ 423.6 ms      │ 422.2 ms      │ 5       │ 5
+      ├─ CommitCase { name: "commit_lineitem", table: "lineitem" }  tracked table oracle size (commit_lineitem) = 5090 bytes
+1.661 s       │ 1.674 s       │ 1.667 s       │ 1.667 s       │ 2       │ 2
+      ├─ CommitCase { name: "commit_nation", table: "nation" }      tracked table oracle size (commit_nation) = 1115 bytes
+380.9 ms      │ 389.1 ms      │ 385.1 ms      │ 385.1 ms      │ 6       │ 6
+      ├─ CommitCase { name: "commit_orders", table: "orders" }      tracked table oracle size (commit_orders) = 2476 bytes
+587.1 ms      │ 612.4 ms      │ 600.8 ms      │ 600.3 ms      │ 4       │ 4
+      ├─ CommitCase { name: "commit_part", table: "part" }          tracked table oracle size (commit_part) = 1773 bytes
+433.5 ms      │ 448.6 ms      │ 436 ms        │ 438 ms        │ 5       │ 5
+      ├─ CommitCase { name: "commit_partsupp", table: "partsupp" }  tracked table oracle size (commit_partsupp) = 1481 bytes
+455.6 ms      │ 468.6 ms      │ 456.4 ms      │ 458.6 ms      │ 5       │ 5
+      ├─ CommitCase { name: "commit_region", table: "region" }      tracked table oracle size (commit_region) = 796 bytes
+383.2 ms      │ 384.6 ms      │ 384.1 ms      │ 384 ms        │ 6       │ 6
+      ╰─ CommitCase { name: "commit_supplier", table: "supplier" }  tracked table oracle size (commit_supplier) = 1632 bytes
+386 ms        │ 391.4 ms      │ 387.4 ms      │ 388.1 ms      │ 6       │ 6
