@@ -42,7 +42,10 @@ pub enum Gadgets<B: SnarkBackend> {
     SortNoDup(SortNoDupGadgets<B>),
 }
 
-pub struct SortNoDupGadgets<B: SnarkBackend>(Arc<Node<B>>);
+pub struct SortNoDupGadgets<B: SnarkBackend> {
+    sort_gadget: Arc<Node<B>>,
+    perm_gadget: Arc<Node<B>>,
+}
 
 pub struct GadgetNode<B: SnarkBackend> {
     is_pk: Mutex<bool>,
@@ -78,7 +81,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
         }
         match &self.gadgets {
             Gadgets::BezoutNoDup => vec![],
-            Gadgets::SortNoDup(g) => vec![g.0.clone()],
+            Gadgets::SortNoDup(g) => vec![g.perm_gadget.clone(), g.sort_gadget.clone()],
         }
     }
 }
@@ -95,10 +98,10 @@ fn initialize_gadget_plans<B: SnarkBackend>(
             panic!("No payload found for NoDup gadget at node {:?}", id);
         }
     };
-    let Some(input_hint) = self_payload.get(INPUT_LABEL) else {
+    let Some(input_hint) = self_payload.get(INPUT_LABEL).cloned() else {
         panic!("No input hint found for NoDup gadget at node {:?}", id);
     };
-    let is_pk = nodup_input_is_pk(input_hint);
+    let is_pk = nodup_input_is_pk(&input_hint);
     node.cache_is_pk(is_pk);
     if is_pk {
         return Ok(());
@@ -109,15 +112,15 @@ fn initialize_gadget_plans<B: SnarkBackend>(
         return Ok(());
     };
     if !is_verifier {
-        node.cache_sort_nodup_active_rows(active_row_count_from_hint(input_hint));
+        node.cache_sort_nodup_active_rows(active_row_count_from_hint(&input_hint));
     } else {
         // Verifier planning should avoid eager DataFrame collection here.
         node.cache_sort_nodup_active_rows(0);
     }
     let lex_sorted_hint = if is_verifier {
-        build_lex_sorted_hint_for_verifier(input_hint)
+        build_lex_sorted_hint_for_verifier(&input_hint)
     } else {
-        build_lex_sorted_hint(input_hint)
+        build_lex_sorted_hint(&input_hint)
     };
     self_payload.insert(LEX_SORTED_LABEL.to_string(), lex_sorted_hint.clone());
     planned_ir.set_payload_for_node(id, Some(PayloadStructure::GadgetPayload(self_payload)));
@@ -129,12 +132,22 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     let Gadgets::SortNoDup(gadgets) = &node.gadgets else {
         return Ok(());
     };
-    let sort_id = gadgets.0.id();
+    let sort_id = gadgets.sort_gadget.id();
     let sort_payload = with_sort_table_label(
         planned_ir.payload_for_node(&sort_id).cloned(),
         lex_sorted_virtual_hint,
     );
     planned_ir.set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
+
+    let perm_payload = with_perm_payload(
+        planned_ir.payload_for_node(&gadgets.perm_gadget.id()).cloned(),
+        input_hint.as_virtual_view(),
+        lex_sorted_hint.as_virtual_view(),
+    );
+    planned_ir.set_payload_for_node(
+        gadgets.perm_gadget.id(),
+        Some(PayloadStructure::GadgetPayload(perm_payload)),
+    );
     Ok(())
 }
 
@@ -214,13 +227,27 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         );
         let lex_sorted_hint =
             payload_value_or_panic(id, &payload, LEX_SORTED_LABEL, "No lex sorted hint found");
-        let sort_id = gadgets.0.id();
+        let sort_id = gadgets.sort_gadget.id();
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
-            lex_sorted_hint,
+            lex_sorted_hint.clone(),
         );
         virtualized_ir
             .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
+
+        let input_table =
+            payload_value_or_panic(id, &payload, INPUT_LABEL, "No input table found for NoDup");
+        let perm_payload = with_perm_payload(
+            virtualized_ir
+                .payload_for_node(&gadgets.perm_gadget.id())
+                .cloned(),
+            input_table,
+            lex_sorted_hint,
+        );
+        virtualized_ir.set_payload_for_node(
+            gadgets.perm_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(perm_payload)),
+        );
         Ok(())
     }
 }
@@ -298,16 +325,30 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(payload)) => payload,
             _ => return Ok(()),
         };
-        let Some(lex_sorted_hint) = payload.get(LEX_SORTED_LABEL) else {
+        let Some(lex_sorted_hint) = payload.get(LEX_SORTED_LABEL).cloned() else {
             return Ok(());
         };
-        let sort_id = gadgets.0.id();
+        let Some(input_table) = payload.get(INPUT_LABEL).cloned() else {
+            return Ok(());
+        };
+        let sort_id = gadgets.sort_gadget.id();
         let sort_payload = with_sort_table_label(
             virtualized_ir.payload_for_node(&sort_id).cloned(),
             lex_sorted_hint.clone(),
         );
         virtualized_ir
             .set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
+        let perm_payload = with_perm_payload(
+            virtualized_ir
+                .payload_for_node(&gadgets.perm_gadget.id())
+                .cloned(),
+            input_table,
+            lex_sorted_hint,
+        );
+        virtualized_ir.set_payload_for_node(
+            gadgets.perm_gadget.id(),
+            Some(PayloadStructure::GadgetPayload(perm_payload)),
+        );
         Ok(())
     }
 }
@@ -381,8 +422,8 @@ impl<B: SnarkBackend> GadgetNode<B> {
             },
             Mode::SortBased => Self {
                 is_pk: Mutex::new(false),
-                gadgets: Gadgets::SortNoDup(SortNoDupGadgets(Arc::new(Node::<B>::Gadget(
-                    Arc::new(
+                gadgets: Gadgets::SortNoDup(SortNoDupGadgets {
+                    sort_gadget: Arc::new(Node::<B>::Gadget(Arc::new(
                         crate::irs::nodes::gadget::utils::contig_sort::GadgetNode::new_preserve_row_id(
                             crate::irs::nodes::gadget::utils::contig_sort::SortConfig::Uniform(
                                 crate::irs::nodes::gadget::utils::contig_sort::UniformConfig {
@@ -391,8 +432,11 @@ impl<B: SnarkBackend> GadgetNode<B> {
                                 },
                             ),
                         ),
-                    ),
-                )))),
+                    ))),
+                    perm_gadget: Arc::new(Node::<B>::Gadget(Arc::new(
+                        crate::irs::nodes::gadget::utils::perm::GadgetNode::new(),
+                    ))),
+                }),
                 sort_nodup_active_input_rows: Mutex::new(None),
             },
         }
@@ -476,6 +520,19 @@ fn with_sort_table_label<T>(payload: Option<PayloadStructure<T>>, table: T) -> G
     payload.insert(
         crate::irs::nodes::gadget::utils::contig_sort::TABLE_LABEL.to_string(),
         table,
+    );
+    payload
+}
+
+fn with_perm_payload<T>(payload: Option<PayloadStructure<T>>, left: T, right: T) -> GadgetPayload<T> {
+    let mut payload = gadget_payload_or_empty(payload);
+    payload.insert(
+        crate::irs::nodes::gadget::utils::perm::LEFT_LABEL.to_string(),
+        left,
+    );
+    payload.insert(
+        crate::irs::nodes::gadget::utils::perm::RIGHT_LABEL.to_string(),
+        right,
     );
     payload
 }
