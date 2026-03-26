@@ -55,7 +55,8 @@ where
             HintDFPayload::PlanPayload(hint_df) => {
                 if node.name() == "TableScan" {
                     let df_schema = hint_df.data_frame().schema();
-                    let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
+                    let base_schema: Schema =
+                        <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
                     let oracle = infer_table_name_from_df_schema(df_schema)
                         .and_then(|name| self.ctx_oracles.table_oracle_by_name(&name))
                         .or_else(|| self.ctx_oracles.table_oracle_for_schema(&base_schema));
@@ -234,7 +235,8 @@ fn qualify_fields(df_schema: &DFSchema) -> IndexMap<FieldRef, FieldRef> {
 
 fn infer_table_name_from_df_schema(schema: &DFSchema) -> Option<String> {
     schema.iter().find_map(|(qualifier, field)| {
-        if field.name() == arithmetic::ACTIVATOR_COL_NAME || field.name() == arithmetic::ROW_ID_COL_NAME
+        if field.name() == arithmetic::ACTIVATOR_COL_NAME
+            || field.name() == arithmetic::ROW_ID_COL_NAME
         {
             return None;
         }

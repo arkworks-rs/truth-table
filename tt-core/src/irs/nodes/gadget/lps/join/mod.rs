@@ -816,9 +816,11 @@ fn payload_fields_by_schema_match(
     let mut used = vec![false; output_payload.len()];
     let mut matched = Vec::with_capacity(side_payload.len());
     for side_field in side_payload {
-        let Some((idx, field)) = output_payload.iter().enumerate().find(|(idx, candidate)| {
-            !used[*idx] && candidate.as_ref() == side_field.as_ref()
-        }) else {
+        let Some((idx, field)) = output_payload
+            .iter()
+            .enumerate()
+            .find(|(idx, candidate)| !used[*idx] && candidate.as_ref() == side_field.as_ref())
+        else {
             return None;
         };
         used[idx] = true;

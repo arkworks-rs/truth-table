@@ -1,6 +1,6 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
-use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::{compute::concat_batches, record_batch::RecordBatch};
 use datafusion::functions_window::expr_fn::row_number;
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
@@ -202,14 +202,18 @@ fn build_indexed_join_frames_impl(
     // payload equality. Keep a row-id fallback for rewritten subquery joins
     // where DataFusion may reshape the right-side payload enough to break that
     // direct lookup even though the replayed join still carries the source ids.
-    .or_else(|_| source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME))?;
+    .or_else(|_| {
+        source_ids_from_indexed_rows(&indexed, "__src_left_row_id__", SRC_LEFT_COL_NAME)
+    })?;
     let src_right = source_ids_from_payload_lookup(
         &output_right,
         &right,
         right_row_id.name.as_str(),
         SRC_RIGHT_COL_NAME,
     )
-    .or_else(|_| source_ids_from_indexed_rows(&indexed, "__src_right_row_id__", SRC_RIGHT_COL_NAME))?;
+    .or_else(|_| {
+        source_ids_from_indexed_rows(&indexed, "__src_right_row_id__", SRC_RIGHT_COL_NAME)
+    })?;
 
     let output_left = append_source_to_output_payload(&output_left, &src_left, SRC_LEFT_COL_NAME)?;
     let output_right =

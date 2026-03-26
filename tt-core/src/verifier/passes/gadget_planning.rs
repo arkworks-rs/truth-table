@@ -3,7 +3,10 @@ use std::collections::HashSet;
 
 use crate::irs::{
     ir::LocalPass,
-    nodes::{Node, NodeId, VerifierNodeOps, gadget::{lps::join, utils::match_pair_check}},
+    nodes::{
+        Node, NodeId, VerifierNodeOps,
+        gadget::{lps::join, utils::match_pair_check},
+    },
     payloads::{HintDFDFPayload, HintDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };

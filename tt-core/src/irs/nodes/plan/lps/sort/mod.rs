@@ -2,9 +2,7 @@ use arithmetic::ACTIVATOR_COL_NAME;
 use arithmetic::ROW_ID_COL_NAME;
 use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::{
-    datatypes::{Field, FieldRef, Schema},
-};
+use datafusion::arrow::datatypes::{Field, FieldRef, Schema};
 use datafusion_expr::{Expr, LogicalPlan, col};
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -443,7 +441,8 @@ fn build_sort_exprs_hint_verifier<B: SnarkBackend>(
     let mut fields = Vec::new();
 
     for expr_node in sort_exprs {
-        let Some(PayloadStructure::PlanPayload(expr_hint_df)) = planned_ir.payload_for_node(&expr_node.id())
+        let Some(PayloadStructure::PlanPayload(expr_hint_df)) =
+            planned_ir.payload_for_node(&expr_node.id())
         else {
             continue;
         };
@@ -467,9 +466,7 @@ fn build_sort_exprs_hint_verifier<B: SnarkBackend>(
             .schema()
             .fields()
             .iter()
-            .filter(|field| {
-                field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME
-            })
+            .filter(|field| field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME)
             .map(|field| field.as_ref().clone()),
     );
 

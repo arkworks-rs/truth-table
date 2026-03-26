@@ -140,7 +140,9 @@ fn initialize_gadget_plans<B: SnarkBackend>(
     planned_ir.set_payload_for_node(sort_id, Some(PayloadStructure::GadgetPayload(sort_payload)));
 
     let perm_payload = with_perm_payload(
-        planned_ir.payload_for_node(&gadgets.perm_gadget.id()).cloned(),
+        planned_ir
+            .payload_for_node(&gadgets.perm_gadget.id())
+            .cloned(),
         input_hint.as_virtual_view(),
         lex_sorted_hint.as_virtual_view(),
     );
@@ -524,7 +526,11 @@ fn with_sort_table_label<T>(payload: Option<PayloadStructure<T>>, table: T) -> G
     payload
 }
 
-fn with_perm_payload<T>(payload: Option<PayloadStructure<T>>, left: T, right: T) -> GadgetPayload<T> {
+fn with_perm_payload<T>(
+    payload: Option<PayloadStructure<T>>,
+    left: T,
+    right: T,
+) -> GadgetPayload<T> {
     let mut payload = gadget_payload_or_empty(payload);
     payload.insert(
         crate::irs::nodes::gadget::utils::perm::LEFT_LABEL.to_string(),

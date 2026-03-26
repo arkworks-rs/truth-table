@@ -2,7 +2,10 @@ use std::cell::RefCell;
 
 use crate::irs::{
     ir::LocalPass,
-    nodes::{Node, NodeId, ProverNodeOps, gadget::{lps::join, utils::match_pair_check}},
+    nodes::{
+        Node, NodeId, ProverNodeOps,
+        gadget::{lps::join, utils::match_pair_check},
+    },
     payloads::{HintDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };

@@ -163,7 +163,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
+        nodup_payload
+            .entry(nodup::INPUT_LABEL.to_string())
+            .or_insert(nodup_table);
         virtualized_ir.set_payload_for_node(
             gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -509,7 +511,9 @@ impl<B: SnarkBackend> GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), nodup_table);
+        nodup_payload
+            .entry(nodup::INPUT_LABEL.to_string())
+            .or_insert(nodup_table);
         virtualized_ir.set_payload_for_node(
             gadgets.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),

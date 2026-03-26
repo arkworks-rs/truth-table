@@ -209,7 +209,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
+        nodup_payload
+            .entry(nodup::INPUT_LABEL.to_string())
+            .or_insert_with(|| union.clone());
         virtualized_ir.set_payload_for_node(
             self.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -286,15 +288,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         let key_union = build_union_schema_only(&key_names, &left_keys_df)
             .expect("match-pair verifier union schema should succeed");
         let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
-        let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(key_hint.data_frame().clone());
-        let left_lookup_hint =
-            strip_row_id_keep_activator_schema_only(&crate::irs::nodes::hints::HintDF::new_virtual(
-                left_keys_df,
-            ));
-        let right_lookup_hint =
-            strip_row_id_keep_activator_schema_only(&crate::irs::nodes::hints::HintDF::new_virtual(
-                right_keys_df,
-            ));
+        let union_hint =
+            crate::irs::nodes::hints::HintDF::new_virtual(key_hint.data_frame().clone());
+        let left_lookup_hint = strip_row_id_keep_activator_schema_only(
+            &crate::irs::nodes::hints::HintDF::new_virtual(left_keys_df),
+        );
+        let right_lookup_hint = strip_row_id_keep_activator_schema_only(
+            &crate::irs::nodes::hints::HintDF::new_virtual(right_keys_df),
+        );
 
         apply_match_pair_planned_hints(
             self,
@@ -352,7 +353,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
             _ => IndexMap::new(),
         };
-        nodup_payload.insert(nodup::INPUT_LABEL.to_string(), union.clone());
+        nodup_payload
+            .entry(nodup::INPUT_LABEL.to_string())
+            .or_insert_with(|| union.clone());
         virtualized_ir.set_payload_for_node(
             self.nodup_gadget.id(),
             Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -396,9 +399,7 @@ fn strip_row_id_keep_activator_schema_only(
         .filter(|field| field.name() != arithmetic::ROW_ID_COL_NAME)
         .map(|field| field.as_ref().clone())
         .collect();
-    crate::irs::nodes::hints::HintDF::new_virtual(crate::irs::nodes::hints::schema_only_df(
-        fields,
-    ))
+    crate::irs::nodes::hints::HintDF::new_virtual(crate::irs::nodes::hints::schema_only_df(fields))
 }
 
 fn build_lookup_keys_schema_only(
@@ -899,7 +900,9 @@ fn apply_match_pair_planned_hints<B: SnarkBackend>(
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
-    nodup_payload.insert(nodup::INPUT_LABEL.to_string(), hints.union_hint.clone());
+    nodup_payload
+        .entry(nodup::INPUT_LABEL.to_string())
+        .or_insert_with(|| hints.union_hint.clone());
     planned_ir.set_payload_for_node(
         node.nodup_gadget.id(),
         Some(PayloadStructure::GadgetPayload(nodup_payload)),

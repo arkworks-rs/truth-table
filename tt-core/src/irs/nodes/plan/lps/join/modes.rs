@@ -573,7 +573,10 @@ fn all_columns_form_fk_to_column_set(
     metas: &[ColumnConstraintMetadata],
     other_col_names: &BTreeSet<String>,
 ) -> bool {
-    !metas.is_empty() && metas.iter().all(|meta| fk_ref_column_set(meta) == *other_col_names)
+    !metas.is_empty()
+        && metas
+            .iter()
+            .all(|meta| fk_ref_column_set(meta) == *other_col_names)
 }
 
 fn fk_ref_column_set(meta: &ColumnConstraintMetadata) -> BTreeSet<String> {

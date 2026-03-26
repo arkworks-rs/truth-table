@@ -300,7 +300,10 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
     bench_proof
 }
 
-pub fn cache_proof_in_memory_if_absent(case_name: &'static str, proof: &TTProof<B>) -> Arc<BenchProof> {
+pub fn cache_proof_in_memory_if_absent(
+    case_name: &'static str,
+    proof: &TTProof<B>,
+) -> Arc<BenchProof> {
     let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().expect("bench proof cache poisoned");
 
