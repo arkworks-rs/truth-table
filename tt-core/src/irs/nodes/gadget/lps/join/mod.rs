@@ -30,8 +30,6 @@ mod wiring;
 pub const LEFT_LABEL: &str = "__LEFT__";
 pub const RIGHT_LABEL: &str = "__RIGHT__";
 pub const OUTPUT_LABEL: &str = "__OUTPUT__";
-pub const OUTPUT_LEFT_LABEL: &str = "__OUTPUT_LEFT__";
-pub const OUTPUT_RIGHT_LABEL: &str = "__OUTPUT_RIGHT__";
 pub const SRC_LEFT_LABEL: &str = "__SRC_LEFT__";
 pub const SRC_RIGHT_LABEL: &str = "__SRC_RIGHT__";
 pub const SRC_LEFT_COL_NAME: &str = "src_left";
@@ -87,8 +85,10 @@ fn derive_many_to_many_hints(
         left_hint,
         right_hint,
         output_hint,
-        output_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_left_df),
-        output_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(output_right_df),
+        // These are helper projections of __OUTPUT__ used by the join lookup PIOP.
+        // Keep them virtual so only the full join output is committed.
+        output_left_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_left_df),
+        output_right_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_right_df),
         src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
         src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
         nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
@@ -247,8 +247,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint,
-                output_right_hint,
+                output_left_hint: _output_left_hint,
+                output_right_hint: _output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -259,11 +259,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
-            // Preserve the exact output-side lookup bases derived from the replayed
-            // join so later prove/check stages do not need to re-slice the combined
-            // output payload heuristically.
-            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
-            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -399,8 +394,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 left_hint,
                 right_hint,
                 output_hint,
-                output_left_hint,
-                output_right_hint,
+                output_left_hint: _output_left_hint,
+                output_right_hint: _output_right_hint,
                 src_left_hint,
                 src_right_hint,
                 nodup_input_hint,
@@ -408,11 +403,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
             gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
-            // Keep the verifier's output-side lookup payloads aligned with the
-            // prover-planned shapes so later lookup verification reuses the same
-            // helper-table schema without rebuilding it from tracked output.
-            gadget_payload.insert(OUTPUT_LEFT_LABEL.to_string(), output_left_hint);
-            gadget_payload.insert(OUTPUT_RIGHT_LABEL.to_string(), output_right_hint);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -568,7 +558,7 @@ fn build_verifier_output_side_hint(
         .clone()
         .select(exprs)
         .expect("verifier join output-side projection should succeed");
-    crate::irs::nodes::hints::HintDF::new_materialized(df)
+    crate::irs::nodes::hints::HintDF::new_virtual(df)
 }
 
 fn build_verifier_source_hint(src_col_name: &str) -> crate::irs::nodes::hints::HintDF {
@@ -1047,12 +1037,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let output_left_base = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
-                output_lookup_base_from_output(&output, &left_table, &right_table, true)
-            });
-            let output_right_base = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
-                output_lookup_base_from_output(&output, &left_table, &right_table, false)
-            });
+            let output_left_base =
+                output_lookup_base_from_output(&output, &left_table, &right_table, true);
+            let output_right_base =
+                output_lookup_base_from_output(&output, &left_table, &right_table, false);
             // Purpose: Every row in the output table must consist of columns that come from some row in the left table.
             // Method: We look up table output_left in input_left
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
@@ -1141,12 +1129,9 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let output_left = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
-            output_lookup_base_from_output(&output, &left_table, &right_table, true)
-        });
-        let output_right = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
-            output_lookup_base_from_output(&output, &left_table, &right_table, false)
-        });
+        let output_left = output_lookup_base_from_output(&output, &left_table, &right_table, true);
+        let output_right =
+            output_lookup_base_from_output(&output, &left_table, &right_table, false);
 
         let index_poly = index_tracked_poly(prover, &left_table);
         let input_left = append_tracked_col(
@@ -1221,12 +1206,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
-            let output_left_base = payload.get(OUTPUT_LEFT_LABEL).cloned().unwrap_or_else(|| {
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true)
-            });
-            let output_right_base = payload.get(OUTPUT_RIGHT_LABEL).cloned().unwrap_or_else(|| {
-                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false)
-            });
+            let output_left_base =
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
+            let output_right_base =
+                output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
             let output_left = output_left_base;
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
