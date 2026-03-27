@@ -82,10 +82,9 @@ pub(super) fn populate_nodup_payload_prover<B: SnarkBackend>(
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
-    nodup_payload.insert(
-        crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-        super_table,
-    );
+    nodup_payload
+        .entry(crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string())
+        .or_insert(super_table);
     virtualized_ir.set_payload_for_node(
         nodup_id,
         Some(PayloadStructure::GadgetPayload(nodup_payload)),
@@ -141,10 +140,9 @@ pub(super) fn populate_nodup_payload_verifier<B: SnarkBackend>(
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
-    nodup_payload.insert(
-        crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string(),
-        super_table,
-    );
+    nodup_payload
+        .entry(crate::irs::nodes::gadget::utils::nodup::INPUT_LABEL.to_string())
+        .or_insert(super_table);
     virtualized_ir.set_payload_for_node(
         nodup_id,
         Some(PayloadStructure::GadgetPayload(nodup_payload)),

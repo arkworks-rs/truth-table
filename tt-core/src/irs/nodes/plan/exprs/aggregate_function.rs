@@ -226,32 +226,21 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 .and_then(|weak_ref| weak_ref.upgrade())
                 .expect("AggregateFunction node must have a parent");
             if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node) {
-                let lookup_payload = virtualized_ir
-                    .payload_for_node(&lookup_node.id())
-                    .unwrap_or_else(|| {
-                        panic!("Lookup gadget payload missing for AggregateFunction")
-                    });
-                let lookup_payload = match lookup_payload {
-                    PayloadStructure::GadgetPayload(map) => map,
-                    _ => panic!("Lookup payload must be a GadgetPayload for AggregateFunction"),
-                };
-                let multiplicities_table = lookup_payload
-                    .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction"
-                        )
-                    });
-
-                let count_table = count_table_from_multiplicities(
-                    &multiplicities_table,
-                    &self.output_column_name_in_parent(),
-                );
-                // Emit a virtual table named after the COUNT output column, backed by
-                // the multiplicity polynomial (plus system columns).
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                return Ok(());
+                if let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
+                    virtualized_ir.payload_for_node(&lookup_node.id())
+                    && let Some(multiplicities_table) = lookup_payload
+                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+                {
+                    let count_table = count_table_from_multiplicities(
+                        &multiplicities_table,
+                        &self.output_column_name_in_parent(),
+                    );
+                    // Emit a virtual table named after the COUNT output column, backed by
+                    // the multiplicity polynomial (plus system columns).
+                    virtualized_ir
+                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                    return Ok(());
+                }
             }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one column aligned with the parent input activator.
@@ -529,32 +518,21 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 .and_then(|weak_ref| weak_ref.upgrade())
                 .expect("AggregateFunction node must have a parent");
             if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node) {
-                let lookup_payload = virtualized_ir
-                    .payload_for_node(&lookup_node.id())
-                    .unwrap_or_else(|| {
-                        panic!("Lookup gadget payload missing for AggregateFunction")
-                    });
-                let lookup_payload = match lookup_payload {
-                    PayloadStructure::GadgetPayload(map) => map,
-                    _ => panic!("Lookup payload must be a GadgetPayload for AggregateFunction"),
-                };
-                let multiplicities_table = lookup_payload
-                    .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Lookup payload missing SUPER_MULTIPLICITIES_LABEL for AggregateFunction"
-                        )
-                    });
-
-                let count_table = count_table_from_multiplicities_oracle(
-                    &multiplicities_table,
-                    &self.output_column_name_in_parent(),
-                );
-                // Emit a virtual table named after the COUNT output column, backed by
-                // the multiplicity oracle (plus system columns).
-                virtualized_ir
-                    .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
-                return Ok(());
+                if let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
+                    virtualized_ir.payload_for_node(&lookup_node.id())
+                    && let Some(multiplicities_table) = lookup_payload
+                        .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
+                {
+                    let count_table = count_table_from_multiplicities_oracle(
+                        &multiplicities_table,
+                        &self.output_column_name_in_parent(),
+                    );
+                    // Emit a virtual table named after the COUNT output column, backed by
+                    // the multiplicity oracle (plus system columns).
+                    virtualized_ir
+                        .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
+                    return Ok(());
+                }
             }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one oracle aligned with the parent input activator.

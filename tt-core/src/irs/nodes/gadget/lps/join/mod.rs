@@ -91,7 +91,7 @@ fn derive_many_to_many_hints(
         output_right_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_right_df),
         src_left_hint: build_prover_source_hint(left_src_df, SRC_LEFT_COL_NAME),
         src_right_hint: build_prover_source_hint(right_src_df, SRC_RIGHT_COL_NAME),
-        nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
+        nodup_input_hint: build_nodup_input_hint(nodup_input_df),
     }
 }
 
@@ -678,15 +678,23 @@ fn build_prover_source_hint(
     crate::irs::nodes::hints::HintDF::new(df, should_materialize)
 }
 
+fn build_nodup_input_hint(df: datafusion::prelude::DataFrame) -> crate::irs::nodes::hints::HintDF {
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), field.name() != arithmetic::ROW_ID_COL_NAME))
+        .collect();
+    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+}
+
 fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
-    crate::irs::nodes::hints::HintDF::new_materialized(crate::irs::nodes::hints::schema_only_df(
-        vec![
-            Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false),
-            Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, false),
-            arithmetic::ACTIVATOR_FIELD.as_ref().clone(),
-            arithmetic::ROW_ID_FIELD.as_ref().clone(),
-        ],
-    ))
+    build_nodup_input_hint(crate::irs::nodes::hints::schema_only_df(vec![
+        Field::new(SRC_LEFT_COL_NAME, DataType::Int64, false),
+        Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, false),
+        arithmetic::ACTIVATOR_FIELD.as_ref().clone(),
+        arithmetic::ROW_ID_FIELD.as_ref().clone(),
+    ]))
 }
 
 fn lookup_fold_challenges_prover<B: SnarkBackend>(
