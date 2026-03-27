@@ -57,6 +57,19 @@ struct MatchPairPlannedHints {
     right_lookup_hint: crate::irs::nodes::hints::HintDF,
 }
 
+fn union_runtime_hint(df: DataFrame) -> crate::irs::nodes::hints::HintDF {
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let materialize = field.name() != arithmetic::ROW_ID_COL_NAME;
+            (field.clone(), materialize)
+        })
+        .collect();
+    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
+}
+
 pub struct GadgetNode<B: SnarkBackend> {
     nodup_gadget: Arc<Node<B>>,
     left_lookup_gadget: Arc<Node<B>>,
@@ -148,7 +161,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         .expect("match-pair right key projection should succeed");
         let key_union = build_union_hint_df(left_keys_df.clone(), right_keys_df.clone())
             .expect("match-pair union hint should succeed");
-        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+        let key_hint = union_runtime_hint(key_union);
         let union_df = sort_by_row_id_if_present(key_hint.data_frame().clone())
             .expect("match-pair union sort should succeed");
         let union_hint = crate::irs::nodes::hints::HintDF::new_virtual(union_df);
@@ -287,7 +300,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         .expect("match-pair verifier right key schema should succeed");
         let key_union = build_union_schema_only(&key_names, &left_keys_df)
             .expect("match-pair verifier union schema should succeed");
-        let key_hint = crate::irs::nodes::hints::HintDF::new_materialized(key_union);
+        let key_hint = union_runtime_hint(key_union);
         let union_hint =
             crate::irs::nodes::hints::HintDF::new_virtual(key_hint.data_frame().clone());
         let left_lookup_hint = strip_row_id_keep_activator_schema_only(
