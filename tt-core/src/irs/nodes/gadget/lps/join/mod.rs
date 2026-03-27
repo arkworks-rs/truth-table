@@ -89,8 +89,8 @@ fn derive_many_to_many_hints(
         // Keep them virtual so only the full join output is committed.
         output_left_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_left_df),
         output_right_hint: crate::irs::nodes::hints::HintDF::new_virtual(output_right_df),
-        src_left_hint: crate::irs::nodes::hints::HintDF::new_materialized(left_src_df),
-        src_right_hint: crate::irs::nodes::hints::HintDF::new_materialized(right_src_df),
+        src_left_hint: build_prover_source_hint(left_src_df, SRC_LEFT_COL_NAME),
+        src_right_hint: build_prover_source_hint(right_src_df, SRC_RIGHT_COL_NAME),
         nodup_input_hint: crate::irs::nodes::hints::HintDF::new_materialized(nodup_input_df),
     }
 }
@@ -655,13 +655,27 @@ fn build_verifier_output_side_hint(
 }
 
 fn build_verifier_source_hint(src_col_name: &str) -> crate::irs::nodes::hints::HintDF {
-    crate::irs::nodes::hints::HintDF::new_materialized(crate::irs::nodes::hints::schema_only_df(
-        vec![
+    build_prover_source_hint(
+        crate::irs::nodes::hints::schema_only_df(vec![
             Field::new(src_col_name, DataType::Int64, false),
             arithmetic::ACTIVATOR_FIELD.as_ref().clone(),
             arithmetic::ROW_ID_FIELD.as_ref().clone(),
-        ],
-    ))
+        ]),
+        src_col_name,
+    )
+}
+
+fn build_prover_source_hint(
+    df: datafusion::prelude::DataFrame,
+    src_col_name: &str,
+) -> crate::irs::nodes::hints::HintDF {
+    let should_materialize = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| (field.clone(), field.name() == src_col_name))
+        .collect();
+    crate::irs::nodes::hints::HintDF::new(df, should_materialize)
 }
 
 fn build_verifier_nodup_input_hint() -> crate::irs::nodes::hints::HintDF {
