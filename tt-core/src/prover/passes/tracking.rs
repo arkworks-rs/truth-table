@@ -72,6 +72,7 @@ where
                         oracle,
                         &self.prover,
                         &self.total_committed,
+                        node.name() == "TableScan",
                     ),
                 ))
             }
@@ -94,6 +95,7 @@ where
                             oracle,
                             &self.prover,
                             &self.total_committed,
+                            false,
                         ),
                     );
                 }
@@ -124,6 +126,7 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
     oracle: &ArithTableOracle<B>,
     prover: &RefCell<ArgProver<B>>,
     total_committed: &Cell<usize>,
+    external_commitments: bool,
 ) -> TrackedTable<B> {
     debug!(
         poly_count = arith_table.polynomials().len(),
@@ -138,11 +141,22 @@ fn arith_to_tracked_with_commitment<B: SnarkBackend>(
             .get(field_ref)
             .expect("commitment oracle missing field")
             .clone();
-        let tracked_poly = prover
-            .track_mat_mv_poly_with_commitment(mle_arc, commitment)
-            .expect("failed to track polynomial with commitment");
+        // TableScan can reuse commitments from ctx_oracles; those commitments
+        // must remain trackable but should not be counted as proof-emitted PCS
+        // commitments.
+        let tracked_poly = if external_commitments {
+            prover
+                .track_mat_mv_poly_with_external_commitment(mle_arc, commitment)
+                .expect("failed to track polynomial with external commitment")
+        } else {
+            prover
+                .track_mat_mv_poly_with_commitment(mle_arc, commitment)
+                .expect("failed to track polynomial with commitment")
+        };
         tracked_polys.insert(field_ref.clone(), tracked_poly);
-        total_committed.set(total_committed.get() + 1);
+        if !external_commitments {
+            total_committed.set(total_committed.get() + 1);
+        }
     }
 
     debug_assert_eq!(

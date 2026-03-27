@@ -126,8 +126,10 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
                     .map(|(_, commitment)| commitment.clone())
             })
             .unwrap_or_else(|| panic!("ctx_oracle missing commitment for field {}", field.name()));
+        // Mirror prover-side external tracking for base-table commitments loaded
+        // from context instead of from the proof's serialized commitment map.
         let tracked_oracle = verifier
-            .track_mat_mv_com(commitment)
+            .track_external_mat_mv_com(commitment)
             .expect("verifier should track ctx_oracle commitment");
         if log_size == 0 {
             log_size = tracked_oracle.log_size();
