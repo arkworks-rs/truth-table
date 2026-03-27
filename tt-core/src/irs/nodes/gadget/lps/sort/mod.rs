@@ -193,7 +193,7 @@ impl<B: SnarkBackend> IsNode<B> for GadgetNode<B> {
     }
 
     fn children(&self) -> Vec<std::sync::Arc<Node<B>>> {
-        vec![self.sort_gadget.clone()]
+        vec![self.sort_gadget.clone(), self.remat_gadget.clone()]
     }
 }
 
