@@ -177,13 +177,9 @@ fn multiplicity_schema_only_hint() -> crate::irs::nodes::hints::HintDF {
         ACTIVATOR_FIELD.as_ref().clone(),
         Field::new("multiplicity", DataType::Int64, true),
     ]);
-    let should_materialize = df
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| (field.clone(), !is_system_column(field.name())))
-        .collect();
-    crate::irs::nodes::hints::HintDF::new_assume_normalized(df, should_materialize)
+    // This is only a planning-time schema placeholder. The real multiplicity
+    // polynomial is computed and committed later in initialize_gadgets().
+    crate::irs::nodes::hints::HintDF::new_virtual(df)
 }
 
 impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
