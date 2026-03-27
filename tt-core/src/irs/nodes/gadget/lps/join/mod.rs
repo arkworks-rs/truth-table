@@ -116,6 +116,60 @@ fn get_or_build_many_to_many_hints(
     })
 }
 
+fn find_parent_id<B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+) -> Option<crate::irs::nodes::NodeId> {
+    tree.arena().iter().find_map(|(node_id, node)| {
+        let is_parent = node.children().iter().any(|child| child.id() == id);
+        is_parent.then_some(*node_id)
+    })
+}
+
+fn parent_plan_output_table<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::prover::irs::VirtualizedIr<B>,
+) -> Option<&'a TrackedTable<B>> {
+    let parent_id = find_parent_id(id, ir.tree())?;
+    match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
+fn parent_plan_output_table_gadget_ready<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a GadgetReadyIr<B>,
+) -> Option<&'a TrackedTable<B>> {
+    let parent_id = find_parent_id(id, ir.tree())?;
+    match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
+fn parent_plan_output_oracle<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::verifier::irs::VirtualizedIr<B>,
+) -> Option<&'a TrackedTableOracle<B>> {
+    let parent_id = find_parent_id(id, ir.tree())?;
+    match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
+fn parent_plan_output_oracle_gadget_ready<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::verifier::irs::GadgetReadyIr<B>,
+) -> Option<&'a TrackedTableOracle<B>> {
+    let parent_id = find_parent_id(id, ir.tree())?;
+    match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
 fn force_materialize_row_id(
     hint: &crate::irs::nodes::hints::HintDF,
 ) -> crate::irs::nodes::hints::HintDF {
@@ -246,7 +300,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             let JoinPlanningDerivedHints {
                 left_hint,
                 right_hint,
-                output_hint,
+                output_hint: _output_hint,
                 output_left_hint: _output_left_hint,
                 output_right_hint: _output_right_hint,
                 src_left_hint,
@@ -258,7 +312,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             // source-row hints.
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
-            gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.swap_remove(OUTPUT_LABEL);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -282,16 +336,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                     Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                     _ => IndexMap::new(),
                 };
-            // Parent gadget-planning runs pre-order, so seed the child with the
-            // concretized join-side hints before Match-Pair plans its own children.
-            match_pair_payload.insert(
-                crate::irs::nodes::gadget::utils::match_pair_check::LEFT_LABEL.to_string(),
-                left_hint.clone(),
-            );
-            match_pair_payload.insert(
-                crate::irs::nodes::gadget::utils::match_pair_check::RIGHT_LABEL.to_string(),
-                right_hint.clone(),
-            );
             crate::irs::nodes::gadget::utils::match_pair_check::cache_match_pair_planning_context(
                 gadgets.match_pair_gadget.id(),
                 left_hint.clone(),
@@ -329,9 +373,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 panic!("Expected gadget payload for Join gadget node")
             };
             // Among the payload, we expect left, right, and output tables
-            let current_output = payload
-                .get(OUTPUT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"));
+            let current_output = parent_plan_output_table(id, virtualized_ir)
+                .cloned()
+                .unwrap_or_else(|| panic!("Join parent plan payload missing output table"));
             let current_left = payload
                 .get(LEFT_LABEL)
                 .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
@@ -344,17 +388,17 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             let current_right_src = payload
                 .get(SRC_RIGHT_LABEL)
                 .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_RIGHT_LABEL}"));
-            self.wire_prover_bool_payload(current_output, virtualized_ir);
+            self.wire_prover_bool_payload(&current_output, virtualized_ir);
 
             self.wire_prover_nodup_payload(
-                current_output,
+                &current_output,
                 current_left_src,
                 current_right_src,
                 virtualized_ir,
             );
 
             self.wire_prover_match_pair_payload(
-                current_output,
+                &current_output,
                 current_left,
                 current_right,
                 virtualized_ir,
@@ -393,7 +437,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             let JoinPlanningDerivedHints {
                 left_hint,
                 right_hint,
-                output_hint,
+                output_hint: _output_hint,
                 output_left_hint: _output_left_hint,
                 output_right_hint: _output_right_hint,
                 src_left_hint,
@@ -402,7 +446,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             } = derived;
             gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
             gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
-            gadget_payload.insert(OUTPUT_LABEL.to_string(), output_hint);
+            gadget_payload.swap_remove(OUTPUT_LABEL);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
             planned_ir
@@ -426,16 +470,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                     Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                     _ => IndexMap::new(),
                 };
-            // Mirror prover-side planning so the Match-Pair child never needs to
-            // reconstruct its left/right inputs by reaching back into the parent.
-            match_pair_payload.insert(
-                crate::irs::nodes::gadget::utils::match_pair_check::LEFT_LABEL.to_string(),
-                left_hint.clone(),
-            );
-            match_pair_payload.insert(
-                crate::irs::nodes::gadget::utils::match_pair_check::RIGHT_LABEL.to_string(),
-                right_hint.clone(),
-            );
             crate::irs::nodes::gadget::utils::match_pair_check::cache_match_pair_planning_context(
                 gadgets.match_pair_gadget.id(),
                 left_hint.clone(),
@@ -472,9 +506,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                     panic!("expected gadget payload for Join gadget node")
                 };
                 (
-                    payload
-                        .get(OUTPUT_LABEL)
-                        .unwrap_or_else(|| panic!("Join gadget payload missing {OUTPUT_LABEL}"))
+                    parent_plan_output_oracle(id, virtualized_ir)
+                        .unwrap_or_else(|| panic!("Join parent plan payload missing output oracle"))
                         .clone(),
                     payload
                         .get(LEFT_LABEL)
@@ -670,6 +703,19 @@ fn append_tracked_col<B: SnarkBackend>(
     TrackedTable::new(schema, tracked_polys, table.log_size())
 }
 
+fn single_data_poly_from_table<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    label: &str,
+) -> TrackedPoly<B> {
+    let data_indices = table.data_tracked_polys_indices();
+    if data_indices.len() != 1 {
+        panic!("Join {label} table must have exactly one data column");
+    }
+    table
+        .tracked_col_by_ind(data_indices[0])
+        .data_tracked_poly()
+}
+
 fn append_tracked_oracle<B: SnarkBackend>(
     table: &TrackedTableOracle<B>,
     field: FieldRef,
@@ -695,6 +741,19 @@ fn append_tracked_oracle<B: SnarkBackend>(
         ))
     });
     TrackedTableOracle::new(schema, tracked_oracles, table.log_size())
+}
+
+fn single_data_oracle_from_table<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    label: &str,
+) -> TrackedOracle<B> {
+    let data_indices = table.data_tracked_oracles_indices();
+    if data_indices.len() != 1 {
+        panic!("Join {label} table must have exactly one data column");
+    }
+    table
+        .tracked_col_oracle_by_ind(data_indices[0])
+        .data_tracked_oracle()
 }
 
 fn input_lookup_base_from_table<B: SnarkBackend>(table: &TrackedTable<B>) -> TrackedTable<B> {
@@ -1028,14 +1087,20 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 panic!("Expected gadget payload for Join gadget node");
             };
 
-            let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
-                panic!("Expected output table for Join gadget");
-            };
+            let output = parent_plan_output_table_gadget_ready(id, gadget_ready_ir)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan output table for Join gadget"));
             let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
                 panic!("Expected left table for Join gadget");
             };
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
+            };
+            let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
+                panic!("Expected src-left table for Join gadget");
+            };
+            let Some(right_src_table) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+                panic!("Expected src-right table for Join gadget");
             };
             let output_left_base =
                 output_lookup_base_from_output(&output, &left_table, &right_table, true);
@@ -1045,7 +1110,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             // Method: We look up table output_left in input_left
             // output left = [output activator | output keys + Output data coming from the left table + their source row number from the left table]
             // input left = [left activator | left keys + left data + normal index]
-            let output_left = output_left_base;
+            let output_left = append_tracked_col(
+                &output_left_base,
+                Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+                single_data_poly_from_table(&left_src_table, "src-left"),
+            );
 
             let index_poly = index_tracked_poly(prover, &left_table);
             let input_left_base = input_lookup_base_from_table(&left_table);
@@ -1073,7 +1142,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             // output right = [output activator | output keys + Output data coming from the right table + their source row number from the right table]
             // input right = [right activator | right keys + right data + normal index]
 
-            let output_right = output_right_base;
+            let output_right = append_tracked_col(
+                &output_right_base,
+                Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+                single_data_poly_from_table(&right_src_table, "src-right"),
+            );
 
             let right_index_poly = index_tracked_poly(prover, &right_table);
             let input_right_base = input_lookup_base_from_table(&right_table);
@@ -1119,7 +1192,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
 
-        let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
+        let Some(output) = parent_plan_output_table_gadget_ready(id, gadget_ready_ir).cloned()
+        else {
             return Ok(());
         };
         let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
@@ -1128,10 +1202,23 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
             return Ok(());
         };
+        let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
+            return Ok(());
+        };
+        let Some(right_src_table) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+            return Ok(());
+        };
 
-        let output_left = output_lookup_base_from_output(&output, &left_table, &right_table, true);
-        let output_right =
-            output_lookup_base_from_output(&output, &left_table, &right_table, false);
+        let output_left = append_tracked_col(
+            &output_lookup_base_from_output(&output, &left_table, &right_table, true),
+            Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+            single_data_poly_from_table(&left_src_table, "src-left"),
+        );
+        let output_right = append_tracked_col(
+            &output_lookup_base_from_output(&output, &left_table, &right_table, false),
+            Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+            single_data_poly_from_table(&right_src_table, "src-right"),
+        );
 
         let index_poly = index_tracked_poly(prover, &left_table);
         let input_left = append_tracked_col(
@@ -1197,20 +1284,30 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 panic!("Expected gadget payload for Join gadget node");
             };
 
-            let Some(output) = payload.get(OUTPUT_LABEL).cloned() else {
-                panic!("Expected output table for Join gadget");
-            };
+            let output = parent_plan_output_oracle_gadget_ready(id, gadget_ready_ir)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan output oracle for Join gadget"));
             let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
                 panic!("Expected left table for Join gadget");
             };
             let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
                 panic!("Expected right table for Join gadget");
             };
+            let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
+                panic!("Expected src-left table for Join gadget");
+            };
+            let Some(right_src_table) = payload.get(SRC_RIGHT_LABEL).cloned() else {
+                panic!("Expected src-right table for Join gadget");
+            };
             let output_left_base =
                 output_lookup_base_from_output_oracle(&output, &left_table, &right_table, true);
             let output_right_base =
                 output_lookup_base_from_output_oracle(&output, &left_table, &right_table, false);
-            let output_left = output_left_base;
+            let output_left = append_tracked_oracle(
+                &output_left_base,
+                Arc::new(Field::new(SRC_LEFT_COL_NAME, DataType::Int64, true)),
+                single_data_oracle_from_table(&left_src_table, "src-left"),
+            );
 
             let index_oracle = index_tracked_oracle(verifier, &left_table);
             let input_left_base = input_lookup_base_from_table_oracle(&left_table);
@@ -1236,7 +1333,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 },
             )?;
 
-            let output_right = output_right_base;
+            let output_right = append_tracked_oracle(
+                &output_right_base,
+                Arc::new(Field::new(SRC_RIGHT_COL_NAME, DataType::Int64, true)),
+                single_data_oracle_from_table(&right_src_table, "src-right"),
+            );
 
             let right_index_oracle = index_tracked_oracle(verifier, &right_table);
             let input_right_base = input_lookup_base_from_table_oracle(&right_table);
