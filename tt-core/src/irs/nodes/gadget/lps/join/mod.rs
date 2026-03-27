@@ -126,12 +126,34 @@ fn find_parent_id<B: SnarkBackend>(
     })
 }
 
+fn parent_child_id<B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    tree: &crate::irs::tree::Tree<B>,
+    child_idx: usize,
+) -> Option<crate::irs::nodes::NodeId> {
+    let parent_id = find_parent_id(id, tree)?;
+    let parent = tree.arena().get(&parent_id)?;
+    parent.children().get(child_idx).map(|child| child.id())
+}
+
 fn parent_plan_output_table<'a, B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
     ir: &'a crate::prover::irs::VirtualizedIr<B>,
 ) -> Option<&'a TrackedTable<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
+fn parent_plan_side_table<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::prover::irs::VirtualizedIr<B>,
+    child_idx: usize,
+) -> Option<&'a TrackedTable<B>> {
+    let child_id = parent_child_id(id, ir.tree(), child_idx)?;
+    match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
         _ => None,
     }
@@ -148,6 +170,18 @@ fn parent_plan_output_table_gadget_ready<'a, B: SnarkBackend>(
     }
 }
 
+fn parent_plan_side_table_gadget_ready<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a GadgetReadyIr<B>,
+    child_idx: usize,
+) -> Option<&'a TrackedTable<B>> {
+    let child_id = parent_child_id(id, ir.tree(), child_idx)?;
+    match ir.payload_for_node(&child_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
 fn parent_plan_output_oracle<'a, B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
     ir: &'a crate::verifier::irs::VirtualizedIr<B>,
@@ -159,12 +193,36 @@ fn parent_plan_output_oracle<'a, B: SnarkBackend>(
     }
 }
 
+fn parent_plan_side_oracle<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::verifier::irs::VirtualizedIr<B>,
+    child_idx: usize,
+) -> Option<&'a TrackedTableOracle<B>> {
+    let child_id = parent_child_id(id, ir.tree(), child_idx)?;
+    match ir.payload_for_node(&child_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
 fn parent_plan_output_oracle_gadget_ready<'a, B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
     ir: &'a crate::verifier::irs::GadgetReadyIr<B>,
 ) -> Option<&'a TrackedTableOracle<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
+        Some(PayloadStructure::PlanPayload(table)) => Some(table),
+        _ => None,
+    }
+}
+
+fn parent_plan_side_oracle_gadget_ready<'a, B: SnarkBackend>(
+    id: crate::irs::nodes::NodeId,
+    ir: &'a crate::verifier::irs::GadgetReadyIr<B>,
+    child_idx: usize,
+) -> Option<&'a TrackedTableOracle<B>> {
+    let child_id = parent_child_id(id, ir.tree(), child_idx)?;
+    match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
         _ => None,
     }
@@ -310,8 +368,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             // Overwrite with the concretized hints so later join-subgadgets (and
             // provenance checks) see the same materialized inputs used to derive
             // source-row hints.
-            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
-            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
+            gadget_payload.swap_remove(LEFT_LABEL);
+            gadget_payload.swap_remove(RIGHT_LABEL);
             gadget_payload.swap_remove(OUTPUT_LABEL);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
@@ -376,12 +434,12 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             let current_output = parent_plan_output_table(id, virtualized_ir)
                 .cloned()
                 .unwrap_or_else(|| panic!("Join parent plan payload missing output table"));
-            let current_left = payload
-                .get(LEFT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"));
-            let current_right = payload
-                .get(RIGHT_LABEL)
-                .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"));
+            let current_left = parent_plan_side_table(id, virtualized_ir, 0)
+                .cloned()
+                .unwrap_or_else(|| panic!("Join parent plan payload missing left input table"));
+            let current_right = parent_plan_side_table(id, virtualized_ir, 1)
+                .cloned()
+                .unwrap_or_else(|| panic!("Join parent plan payload missing right input table"));
             let current_left_src = payload
                 .get(SRC_LEFT_LABEL)
                 .unwrap_or_else(|| panic!("Join gadget payload missing {SRC_LEFT_LABEL}"));
@@ -399,8 +457,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
             self.wire_prover_match_pair_payload(
                 &current_output,
-                current_left,
-                current_right,
+                &current_left,
+                &current_right,
                 virtualized_ir,
             );
             Ok(())
@@ -444,8 +502,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 src_right_hint,
                 nodup_input_hint,
             } = derived;
-            gadget_payload.insert(LEFT_LABEL.to_string(), left_hint.clone());
-            gadget_payload.insert(RIGHT_LABEL.to_string(), right_hint.clone());
+            gadget_payload.swap_remove(LEFT_LABEL);
+            gadget_payload.swap_remove(RIGHT_LABEL);
             gadget_payload.swap_remove(OUTPUT_LABEL);
             gadget_payload.insert(SRC_LEFT_LABEL.to_string(), src_left_hint);
             gadget_payload.insert(SRC_RIGHT_LABEL.to_string(), src_right_hint);
@@ -509,13 +567,15 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                     parent_plan_output_oracle(id, virtualized_ir)
                         .unwrap_or_else(|| panic!("Join parent plan payload missing output oracle"))
                         .clone(),
-                    payload
-                        .get(LEFT_LABEL)
-                        .unwrap_or_else(|| panic!("Join gadget payload missing {LEFT_LABEL}"))
+                    parent_plan_side_oracle(id, virtualized_ir, 0)
+                        .unwrap_or_else(|| {
+                            panic!("Join parent plan payload missing left input oracle")
+                        })
                         .clone(),
-                    payload
-                        .get(RIGHT_LABEL)
-                        .unwrap_or_else(|| panic!("Join gadget payload missing {RIGHT_LABEL}"))
+                    parent_plan_side_oracle(id, virtualized_ir, 1)
+                        .unwrap_or_else(|| {
+                            panic!("Join parent plan payload missing right input oracle")
+                        })
                         .clone(),
                     payload
                         .get(SRC_LEFT_LABEL)
@@ -1090,12 +1150,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let output = parent_plan_output_table_gadget_ready(id, gadget_ready_ir)
                 .cloned()
                 .unwrap_or_else(|| panic!("Expected parent-plan output table for Join gadget"));
-            let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
-                panic!("Expected left table for Join gadget");
-            };
-            let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
-                panic!("Expected right table for Join gadget");
-            };
+            let left_table = parent_plan_side_table_gadget_ready(id, gadget_ready_ir, 0)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan left table for Join gadget"));
+            let right_table = parent_plan_side_table_gadget_ready(id, gadget_ready_ir, 1)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan right table for Join gadget"));
             let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
                 panic!("Expected src-left table for Join gadget");
             };
@@ -1196,10 +1256,13 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         else {
             return Ok(());
         };
-        let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
+        let Some(left_table) = parent_plan_side_table_gadget_ready(id, gadget_ready_ir, 0).cloned()
+        else {
             return Ok(());
         };
-        let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
+        let Some(right_table) =
+            parent_plan_side_table_gadget_ready(id, gadget_ready_ir, 1).cloned()
+        else {
             return Ok(());
         };
         let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
@@ -1287,12 +1350,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             let output = parent_plan_output_oracle_gadget_ready(id, gadget_ready_ir)
                 .cloned()
                 .unwrap_or_else(|| panic!("Expected parent-plan output oracle for Join gadget"));
-            let Some(left_table) = payload.get(LEFT_LABEL).cloned() else {
-                panic!("Expected left table for Join gadget");
-            };
-            let Some(right_table) = payload.get(RIGHT_LABEL).cloned() else {
-                panic!("Expected right table for Join gadget");
-            };
+            let left_table = parent_plan_side_oracle_gadget_ready(id, gadget_ready_ir, 0)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan left oracle for Join gadget"));
+            let right_table = parent_plan_side_oracle_gadget_ready(id, gadget_ready_ir, 1)
+                .cloned()
+                .unwrap_or_else(|| panic!("Expected parent-plan right oracle for Join gadget"));
             let Some(left_src_table) = payload.get(SRC_LEFT_LABEL).cloned() else {
                 panic!("Expected src-left table for Join gadget");
             };
