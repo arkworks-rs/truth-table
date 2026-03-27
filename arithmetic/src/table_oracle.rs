@@ -19,6 +19,7 @@ use std::fmt::Display;
 use std::{convert::TryFrom, sync::Arc};
 
 pub const CONSTRAINTS_SUMMARY_METADATA_KEY: &str = "tt.constraints.summary";
+pub const EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY: &str = "tt.external_commitment_source";
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""), PartialEq(bound = ""))]
 /// An abstraction of a tracked oracle to an arithmetized table in dbSNARK
@@ -516,6 +517,29 @@ impl<B: SnarkBackend> ArithTableOracle<B> {
             .as_ref()
             .and_then(|schema| schema.metadata().get(CONSTRAINTS_SUMMARY_METADATA_KEY))
             .map(String::as_str)
+    }
+
+    pub fn is_external_commitment_source(&self) -> bool {
+        self.schema
+            .as_ref()
+            .and_then(|schema| {
+                schema
+                    .metadata()
+                    .get(EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY)
+            })
+            .is_some_and(|value| value == "true")
+    }
+
+    pub fn with_external_commitment_source(mut self, is_external: bool) -> Self {
+        if let Some(schema) = self.schema.take() {
+            let mut metadata = schema.metadata().clone();
+            metadata.insert(
+                EXTERNAL_COMMITMENT_SOURCE_METADATA_KEY.to_string(),
+                if is_external { "true" } else { "false" }.to_string(),
+            );
+            self.schema = Some(Schema::new_with_metadata(schema.fields().clone(), metadata));
+        }
+        self
     }
     /// Constructs an `ArithTableOracle` from a `TrackedTableOracle` by
     /// extracting

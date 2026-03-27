@@ -72,7 +72,7 @@ where
                         oracle,
                         &self.prover,
                         &self.total_committed,
-                        node.name() == "TableScan",
+                        oracle.is_external_commitment_source(),
                     ),
                 ))
             }

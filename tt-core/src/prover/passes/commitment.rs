@@ -88,7 +88,9 @@ where
                                 );
                                 self.total_ctx_loaded
                                     .fetch_add(oracle.comitments().len(), Ordering::Relaxed);
-                                return Some(CommittedPayload::PlanPayload(oracle.clone()));
+                                return Some(CommittedPayload::PlanPayload(
+                                    oracle.clone().with_external_commitment_source(true),
+                                ));
                             }
                             panic!(
                                 "TableScan oracle log_size mismatch for schema {:?}: oracle={}, arith={}",
