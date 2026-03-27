@@ -5,6 +5,7 @@ use ark_piop::SnarkBackend;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion_common::Statistics;
 use datafusion_expr::{Case, Expr};
+use indexmap::IndexMap;
 
 use crate::irs::nodes::{
     IsExprNode, IsNode, IsPlanNode, Node, NodeId, ProverNodeOps, VerifierNodeOps,
@@ -130,8 +131,19 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for ExprNode<B> {
 
         let projected = crate::irs::nodes::hints::sort_by_row_id_if_present(projected)
             .expect("case output sort should succeed");
-        // Materialize CASE output so aggregate multiplicities can reference it.
-        crate::irs::nodes::hints::HintDF::new_materialized(projected)
+        // Materialize only the CASE value; keep helper system columns virtual.
+        let should_materialize = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    field.name() != ROW_ID_COL_NAME && field.name() != ACTIVATOR_COL_NAME,
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 
@@ -160,7 +172,18 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .select(exprs)
             .expect("case projection should succeed");
 
-        crate::irs::nodes::hints::HintDF::new_materialized(projected)
+        let should_materialize = projected
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    field.name() != ROW_ID_COL_NAME && field.name() != ACTIVATOR_COL_NAME,
+                )
+            })
+            .collect::<IndexMap<_, _>>();
+        crate::irs::nodes::hints::HintDF::new(projected, should_materialize)
     }
 }
 

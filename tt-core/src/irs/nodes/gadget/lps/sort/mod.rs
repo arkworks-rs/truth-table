@@ -140,17 +140,14 @@ fn populate_output_expr(
 
         crate::irs::nodes::hints::HintDF::new_materialized(sorted_df)
     };
-    // Keep row-id for deterministic tie-breaking, but do not materialize it.
-    let output_sort_exprs = if skip_collection {
-        output_hint.clone()
-    } else {
-        let mut should_materialize = IndexMap::new();
-        for field in output_hint.data_frame().schema().fields() {
-            let mat = field.name() != ROW_ID_COL_NAME;
-            should_materialize.insert(field.clone(), mat);
-        }
-        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize)
-    };
+    // This helper payload is only used to seed downstream virtual tables.
+    // Keep all of its columns virtual so it does not introduce dead commitments.
+    let mut should_materialize = IndexMap::new();
+    for field in output_hint.data_frame().schema().fields() {
+        should_materialize.insert(field.clone(), false);
+    }
+    let output_sort_exprs =
+        crate::irs::nodes::hints::HintDF::new(output_hint.data_frame().clone(), should_materialize);
     gadget_payload.insert(OUTPUT_SORT_EXPRS.to_string(), output_sort_exprs);
     output_hint
 }

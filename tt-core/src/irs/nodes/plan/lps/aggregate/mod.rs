@@ -470,7 +470,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode<B> {
                 (
                     field.clone(),
                     field.name() == ACTIVATOR_COL_NAME
-                        || field.name() == ROW_ID_COL_NAME
                         || aggregate_field_names.contains(field.name()),
                 )
             })
@@ -525,7 +524,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
                 (
                     field.clone(),
                     field.name() == ACTIVATOR_COL_NAME
-                        || field.name() == ROW_ID_COL_NAME
                         || aggregate_field_names.contains(field.name()),
                 )
             })
