@@ -111,15 +111,6 @@ fn optimize_projections(
     config: &dyn OptimizerConfig,
     indices: RequiredIndices,
 ) -> Result<Transformed<LogicalPlan>> {
-    // Conservative safety gate for truth-table system columns.
-    // This customized rule can over-prune/reorder when __row_id__/__activator__
-    // are in play, which later breaks gadget assumptions. We therefore skip
-    // this optimization for plan nodes whose output schema already contains
-    // system columns, and let the rest of the optimizer pipeline handle them.
-    if has_system_columns(plan.schema()) {
-        return Ok(Transformed::no(plan));
-    }
-
     let indices = indices.with_system_columns(plan.schema());
     // Recursively rewrite any nodes that may be able to avoid computation given
     // their parents' required indices.
@@ -411,13 +402,6 @@ fn optimize_projections(
     } else {
         Ok(transformed_plan)
     }
-}
-
-fn has_system_columns(schema: &datafusion_common::DFSchemaRef) -> bool {
-    schema.fields().iter().any(|f| {
-        let name = f.name();
-        name == "__activator__" || name == "__row_id__"
-    })
 }
 
 /// Merges consecutive projections.
