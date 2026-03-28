@@ -16,11 +16,12 @@ use tracing::{
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 const BENCH_STATS_TARGET: &str = "bench_stats";
-const CSV_HEADER: &str = "timestamp_utc,query,nonzerocheck_claims,nonzerocheck_degree_distribution,zerocheck_claims,zerocheck_degree_distribution,sumcheck_claims,sumcheck_degree_distribution,lookup_claims,reduce_degree::max degree,reduce_degree::num commited,sumcheck::degree,sumcheck::number of terms,sumcheck::prove time s\n";
+const CSV_HEADER: &str = "timestamp_utc,query,nonzerocheck_claims,nonzerocheck_degree_distribution,zerocheck_claims,zerocheck_degree_distribution,sumcheck_claims,sumcheck_degree_distribution,lookup_claims,reduce_degree::max degree,reduce_degree::num commited,sumcheck::degree,sumcheck::number of terms,sumcheck::prove time s,proof_mv_commitments,proof_uv_commitments\n";
 pub const BENCH_STATS_CSV_PATH: &str = "target/bench_stats.csv";
 
 pub struct BenchStatsCsvLayer {
     sink: Arc<Mutex<CsvSink>>,
+    pending_rows: Arc<Mutex<BTreeMap<String, CsvRow>>>,
 }
 
 #[derive(Clone)]
@@ -61,6 +62,7 @@ impl BenchStatsCsvLayer {
 
         Ok(Self {
             sink: Arc::new(Mutex::new(CsvSink { writer, path })),
+            pending_rows: Arc::new(Mutex::new(BTreeMap::new())),
         })
     }
 }
@@ -128,12 +130,16 @@ where
         let sumcheck_degree = fields.remove("sumcheck_degree").unwrap_or_default();
         let sumcheck_num_terms = fields.remove("sumcheck_num_terms").unwrap_or_default();
         let sumcheck_prove_time_s = fields.remove("sumcheck_prove_time_s").unwrap_or_default();
+        let proof_mv_commitments = fields.remove("proof_mv_commitments").unwrap_or_default();
+        let proof_uv_commitments = fields.remove("proof_uv_commitments").unwrap_or_default();
 
-        // Only persist rows for claim-count events.
+        // Persist rows for either claim-count events or proof commitment summaries.
         if nonzerocheck_claims.is_empty()
             && zerocheck_claims.is_empty()
             && sumcheck_claims.is_empty()
             && lookup_claims.is_empty()
+            && proof_mv_commitments.is_empty()
+            && proof_uv_commitments.is_empty()
         {
             return;
         }
@@ -144,24 +150,53 @@ where
             .or_else(|| query_from_scope(&ctx, event))
             .unwrap_or_default();
 
-        let row = CsvRow {
-            timestamp_utc: now_utc_rfc3339_ms(),
-            query,
-            nonzerocheck_claims,
-            nonzerocheck_degree_distribution,
-            zerocheck_claims,
-            zerocheck_degree_distribution,
-            sumcheck_claims,
-            sumcheck_degree_distribution,
-            lookup_claims,
-            reduce_degree_max_degree,
-            reduce_degree_num_commited,
-            sumcheck_degree,
-            sumcheck_num_terms,
-            sumcheck_prove_time_s,
+        if query.is_empty() {
+            return;
+        }
+
+        if let Ok(mut pending_rows) = self.pending_rows.lock() {
+            let row = pending_rows
+                .entry(query.clone())
+                .or_insert_with(|| CsvRow::new(query));
+
+            row.merge_field("nonzerocheck_claims", nonzerocheck_claims);
+            row.merge_field(
+                "nonzerocheck_degree_distribution",
+                nonzerocheck_degree_distribution,
+            );
+            row.merge_field("zerocheck_claims", zerocheck_claims);
+            row.merge_field("zerocheck_degree_distribution", zerocheck_degree_distribution);
+            row.merge_field("sumcheck_claims", sumcheck_claims);
+            row.merge_field("sumcheck_degree_distribution", sumcheck_degree_distribution);
+            row.merge_field("lookup_claims", lookup_claims);
+            row.merge_field("reduce_degree_max_degree", reduce_degree_max_degree);
+            row.merge_field("reduce_degree_num_commited", reduce_degree_num_commited);
+            row.merge_field("sumcheck_degree", sumcheck_degree);
+            row.merge_field("sumcheck_num_terms", sumcheck_num_terms);
+            row.merge_field("sumcheck_prove_time_s", sumcheck_prove_time_s);
+            row.merge_field("proof_mv_commitments", proof_mv_commitments);
+            row.merge_field("proof_uv_commitments", proof_uv_commitments);
+        }
+    }
+
+    fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(&id) else {
+            return;
+        };
+        let extensions = span.extensions();
+        let Some(label) = extensions.get::<QueryLabel>() else {
+            return;
         };
 
-        if let Ok(mut sink) = self.sink.lock()
+        let query = label.0.clone();
+        let row = self
+            .pending_rows
+            .lock()
+            .ok()
+            .and_then(|mut pending_rows| pending_rows.remove(&query));
+
+        if let Some(row) = row
+            && let Ok(mut sink) = self.sink.lock()
             && let Err(err) = sink.write_row(&row)
         {
             eprintln!(
@@ -209,6 +244,8 @@ impl CsvSink {
             &row.sumcheck_degree,
             &row.sumcheck_num_terms,
             &row.sumcheck_prove_time_s,
+            &row.proof_mv_commitments,
+            &row.proof_uv_commitments,
         ];
 
         for (idx, value) in values.iter().enumerate() {
@@ -238,6 +275,55 @@ struct CsvRow {
     sumcheck_degree: String,
     sumcheck_num_terms: String,
     sumcheck_prove_time_s: String,
+    proof_mv_commitments: String,
+    proof_uv_commitments: String,
+}
+
+impl CsvRow {
+    fn new(query: String) -> Self {
+        Self {
+            timestamp_utc: now_utc_rfc3339_ms(),
+            query,
+            nonzerocheck_claims: String::new(),
+            nonzerocheck_degree_distribution: String::new(),
+            zerocheck_claims: String::new(),
+            zerocheck_degree_distribution: String::new(),
+            sumcheck_claims: String::new(),
+            sumcheck_degree_distribution: String::new(),
+            lookup_claims: String::new(),
+            reduce_degree_max_degree: String::new(),
+            reduce_degree_num_commited: String::new(),
+            sumcheck_degree: String::new(),
+            sumcheck_num_terms: String::new(),
+            sumcheck_prove_time_s: String::new(),
+            proof_mv_commitments: String::new(),
+            proof_uv_commitments: String::new(),
+        }
+    }
+
+    fn merge_field(&mut self, field: &str, value: String) {
+        if value.is_empty() {
+            return;
+        }
+
+        match field {
+            "nonzerocheck_claims" => self.nonzerocheck_claims = value,
+            "nonzerocheck_degree_distribution" => self.nonzerocheck_degree_distribution = value,
+            "zerocheck_claims" => self.zerocheck_claims = value,
+            "zerocheck_degree_distribution" => self.zerocheck_degree_distribution = value,
+            "sumcheck_claims" => self.sumcheck_claims = value,
+            "sumcheck_degree_distribution" => self.sumcheck_degree_distribution = value,
+            "lookup_claims" => self.lookup_claims = value,
+            "reduce_degree_max_degree" => self.reduce_degree_max_degree = value,
+            "reduce_degree_num_commited" => self.reduce_degree_num_commited = value,
+            "sumcheck_degree" => self.sumcheck_degree = value,
+            "sumcheck_num_terms" => self.sumcheck_num_terms = value,
+            "sumcheck_prove_time_s" => self.sumcheck_prove_time_s = value,
+            "proof_mv_commitments" => self.proof_mv_commitments = value,
+            "proof_uv_commitments" => self.proof_uv_commitments = value,
+            _ => {}
+        }
+    }
 }
 
 fn now_utc_rfc3339_ms() -> String {
@@ -318,4 +404,13 @@ pub fn emit_benchmark_stats_row(_benchmark: &'static str, _case: &str) {}
 
 pub fn default_csv_path() -> &'static Path {
     Path::new(BENCH_STATS_CSV_PATH)
+}
+
+pub fn emit_proof_commitment_counts(mv_commitments: usize, uv_commitments: usize) {
+    tracing::info!(
+        target: BENCH_STATS_TARGET,
+        proof_mv_commitments = mv_commitments,
+        proof_uv_commitments = uv_commitments,
+        "proof_commitments"
+    );
 }

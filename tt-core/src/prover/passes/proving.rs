@@ -80,6 +80,10 @@ where
                     parent = %parent_name,
                     "starting to prove gadget"
                 );
+                let (mv_commitments_before, uv_commitments_before) = {
+                    let arg_prover = self.arg_prover.borrow();
+                    arg_prover.commitment_counts()
+                };
                 let result = {
                     let mut arg_prover = self.arg_prover.borrow_mut();
                     let mut gadget_ready_ir = self.gadget_ready_ir.borrow_mut();
@@ -89,10 +93,20 @@ where
                     *self.error.borrow_mut() = Some(err);
                     None
                 } else {
+                    let (mv_commitments_after, uv_commitments_after) = {
+                        let arg_prover = self.arg_prover.borrow();
+                        arg_prover.commitment_counts()
+                    };
+                    let mv_commitments_added = mv_commitments_after
+                        .saturating_sub(mv_commitments_before);
+                    let uv_commitments_added = uv_commitments_after
+                        .saturating_sub(uv_commitments_before);
                     tracing::info!(
                         gadget = %gadget_node.name(),
 
                         parent = %parent_name,
+                        mv_commitments_added,
+                        uv_commitments_added,
                         "gadget was proved"
                     );
                     Some(EmptyPayload)

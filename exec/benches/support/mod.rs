@@ -258,6 +258,10 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
             .entered();
     let (_table, snark_proof) =
         block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
+    stats_layer::emit_proof_commitment_counts(
+        snark_proof.as_inner().mv_pcs_subproof.comitments.len(),
+        snark_proof.as_inner().uv_pcs_subproof.comitments.len(),
+    );
     snark_proof
 }
 
