@@ -44,7 +44,7 @@ datafusion-proto = { version = "46.0.1" }
 datafusion-functions-aggregate = "46.0.1"
 datafusion-functions-window = "46.0.1"
 derivative = { version = "2", features = ["use_core"] }
-divan = "0.1.17"
+divan = { git = "https://github.com/alireza-shirzad/divan", rev = "78acec0f1c17eb6520d05e2a6b052bdde2da937c" }
 duckdb = { version = "1.3.2", default-features = false, features = ["bundled"] }
 either = "1.8.0"
 once_cell = "1.19"
