@@ -263,12 +263,13 @@ fn populate_perm_payloads_prover<B: SnarkBackend>(
     output: &TrackedTable<B>,
     virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
+    let aligned_output = align_table_to_reference_order(output, input);
     let mut perm_payload = match virtualized_ir.payload_for_node(&perm_gadget.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
     perm_payload.insert(perm::LEFT_LABEL.to_string(), input.clone());
-    perm_payload.insert(perm::RIGHT_LABEL.to_string(), output.clone());
+    perm_payload.insert(perm::RIGHT_LABEL.to_string(), aligned_output);
     virtualized_ir.set_payload_for_node(
         perm_gadget.id(),
         Some(PayloadStructure::GadgetPayload(perm_payload)),
@@ -282,15 +283,93 @@ fn populate_perm_payloads_verifier<B: SnarkBackend>(
     output: &TrackedTableOracle<B>,
     virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
+    let aligned_output = align_table_oracle_to_reference_order(output, input);
     let mut perm_payload = match virtualized_ir.payload_for_node(&perm_gadget.id()) {
         Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
         _ => IndexMap::new(),
     };
     perm_payload.insert(perm::LEFT_LABEL.to_string(), input.clone());
-    perm_payload.insert(perm::RIGHT_LABEL.to_string(), output.clone());
+    perm_payload.insert(perm::RIGHT_LABEL.to_string(), aligned_output);
     virtualized_ir.set_payload_for_node(
         perm_gadget.id(),
         Some(PayloadStructure::GadgetPayload(perm_payload)),
     );
     Ok(())
+}
+
+fn align_table_to_reference_order<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    reference: &TrackedTable<B>,
+) -> TrackedTable<B> {
+    let indices = alignment_indices(
+        table.schema_ref(),
+        reference.schema_ref(),
+        table.data_tracked_polys_indices(),
+    );
+    table.tracked_subtable_by_indices(&indices)
+}
+
+fn align_table_oracle_to_reference_order<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    reference: &TrackedTableOracle<B>,
+) -> TrackedTableOracle<B> {
+    let indices = alignment_indices(
+        table.schema_ref(),
+        reference.schema_ref(),
+        table.data_tracked_oracles_indices(),
+    );
+    table.tracked_subtable_by_indices(&indices)
+}
+
+fn alignment_indices(
+    table_schema: Option<&Schema>,
+    reference_schema: Option<&Schema>,
+    fallback_indices: Vec<usize>,
+) -> Vec<usize> {
+    let (Some(table_schema), Some(reference_schema)) = (table_schema, reference_schema) else {
+        return fallback_indices;
+    };
+
+    let table_fields: Vec<_> = table_schema.fields().iter().cloned().collect();
+    let reference_data_fields: Vec<_> = reference_schema
+        .fields()
+        .iter()
+        .filter(|field| !arithmetic::is_system_column(field.name()))
+        .cloned()
+        .collect();
+
+    if reference_data_fields.len() > fallback_indices.len() {
+        return fallback_indices;
+    }
+
+    let mut aligned = Vec::with_capacity(reference_data_fields.len());
+    for ref_field in &reference_data_fields {
+        let exact_matches: Vec<_> = table_fields
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| !arithmetic::is_system_column(field.name()) && *field == ref_field)
+            .map(|(idx, _)| idx)
+            .collect();
+        if exact_matches.len() == 1 {
+            aligned.push(exact_matches[0]);
+            continue;
+        }
+
+        let name_matches: Vec<_> = table_fields
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| {
+                !arithmetic::is_system_column(field.name()) && field.name() == ref_field.name()
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+        if name_matches.len() == 1 {
+            aligned.push(name_matches[0]);
+            continue;
+        }
+
+        return fallback_indices;
+    }
+
+    aligned
 }
