@@ -269,14 +269,18 @@ fn source_ids_from_payload_lookup(
                 ScalarValue::try_from_array(batch.column(row_id_idx).as_ref(), row)?,
                 input_row_id_name,
             )?;
-            payload_to_source
-                .entry(payload)
-                .and_modify(|existing| {
-                    if row_id < *existing {
-                        *existing = row_id;
+            match payload_to_source.entry(payload) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(row_id);
+                }
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    if *entry.get() != row_id {
+                        return Err(DataFusionError::Execution(format!(
+                            "Join source mapping payload is ambiguous for {src_col_name}; falling back to indexed row ids"
+                        )));
                     }
-                })
-                .or_insert(row_id);
+                }
+            }
         }
     }
 
@@ -1027,6 +1031,21 @@ mod tests {
         assert_source_mapping(
             &[(1, 1, 10, true), (3, 1, 11, true)],
             &[(2, 1, 20, true), (4, 1, 21, true)],
+            &[(1, true, 0), (1, true, 1), (3, true, 2), (3, true, 3)],
+            &[(2, true, 0), (4, true, 1), (2, true, 2), (4, true, 3)],
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn source_mapping_duplicate_payload_rows_falls_back_to_indexed_row_ids() {
+        // Scenario: projection pushdown can leave only payload columns that are
+        // identical across multiple immediate-input rows. Payload equality alone
+        // is then ambiguous, so source reconstruction must fall back to the row
+        // ids captured from the replayed join output.
+        assert_source_mapping(
+            &[(1, 1, 10, true), (3, 1, 10, true)],
+            &[(2, 1, 20, true), (4, 1, 20, true)],
             &[(1, true, 0), (1, true, 1), (3, true, 2), (3, true, 3)],
             &[(2, true, 0), (4, true, 1), (2, true, 2), (4, true, 3)],
         )
