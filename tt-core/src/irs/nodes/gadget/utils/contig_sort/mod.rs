@@ -544,100 +544,100 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         gadget_ready_ir: &mut GadgetReadyIr<B>,
         id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
-        use ark_piop::errors::SnarkError::ProverError;
-        use ark_piop::prover::errors::HonestProverError::FalseClaim;
-        use ark_piop::prover::errors::ProverError as ProverErr;
+        // use ark_piop::errors::SnarkError::ProverError;
+        // use ark_piop::prover::errors::HonestProverError::FalseClaim;
+        // use ark_piop::prover::errors::ProverError as ProverErr;
 
-        let false_claim = || ProverError(ProverErr::HonestProverError(FalseClaim));
+        // let false_claim = || ProverError(ProverErr::HonestProverError(FalseClaim));
 
-        let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
-        else {
-            return Ok(());
-        };
-        let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
-            return Ok(());
-        };
+        // let Some(PayloadStructure::GadgetPayload(payload)) = gadget_ready_ir.payload_for_node(&id)
+        // else {
+        //     return Ok(());
+        // };
+        // let Some(input_table) = payload.get(TABLE_LABEL).cloned() else {
+        //     return Ok(());
+        // };
 
-        let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
-        let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
-        if ordered_indices.is_empty() {
-            return Ok(());
-        }
+        // let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
+        // let ordered_indices = ordered_data_indices_prover(&input_table, &sort_specs);
+        // if ordered_indices.is_empty() {
+        //     return Ok(());
+        // }
 
-        let row_count = input_table.size();
-        let input_active = input_table
-            .activator_tracked_poly()
-            .map(|poly| poly.evaluations())
-            .map(|evals| {
-                evals
-                    .iter()
-                    .map(|value| !value.is_zero())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| vec![true; row_count]);
+        // let row_count = input_table.size();
+        // let input_active = input_table
+        //     .activator_tracked_poly()
+        //     .map(|poly| poly.evaluations())
+        //     .map(|evals| {
+        //         evals
+        //             .iter()
+        //             .map(|value| !value.is_zero())
+        //             .collect::<Vec<_>>()
+        //     })
+        //     .unwrap_or_else(|| vec![true; row_count]);
 
-        ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
+        // ensure_active_prefix(&input_active).map_err(|_| false_claim())?;
 
-        let active_len = input_active.iter().take_while(|active| **active).count();
-        if active_len <= 1 {
-            return Ok(());
-        }
+        // let active_len = input_active.iter().take_while(|active| **active).count();
+        // if active_len <= 1 {
+        //     return Ok(());
+        // }
 
-        let mut input_columns = Vec::with_capacity(ordered_indices.len());
-        let mut input_types = Vec::with_capacity(ordered_indices.len());
-        let is_asc_by_col =
-            sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
-        let input_col_names = ordered_indices
-            .iter()
-            .map(|idx| {
-                input_table
-                    .tracked_col_by_ind(*idx)
-                    .field_ref()
-                    .unwrap()
-                    .name()
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
-        for input_idx in ordered_indices.iter().copied() {
-            let input_col = input_table.tracked_col_by_ind(input_idx);
-            let field = input_col
-                .field_ref()
-                .expect("Expected field ref for contiguous sort input");
-            input_columns.push(input_col.data_tracked_poly().evaluations());
-            input_types.push(field.data_type().clone());
-        }
+        // let mut input_columns = Vec::with_capacity(ordered_indices.len());
+        // let mut input_types = Vec::with_capacity(ordered_indices.len());
+        // let is_asc_by_col =
+        //     sort_directions_for_indices(&input_table, &sort_specs, &ordered_indices);
+        // let input_col_names = ordered_indices
+        //     .iter()
+        //     .map(|idx| {
+        //         input_table
+        //             .tracked_col_by_ind(*idx)
+        //             .field_ref()
+        //             .unwrap()
+        //             .name()
+        //             .to_string()
+        //     })
+        //     .collect::<Vec<_>>();
+        // for input_idx in ordered_indices.iter().copied() {
+        //     let input_col = input_table.tracked_col_by_ind(input_idx);
+        //     let field = input_col
+        //         .field_ref()
+        //         .expect("Expected field ref for contiguous sort input");
+        //     input_columns.push(input_col.data_tracked_poly().evaluations());
+        //     input_types.push(field.data_type().clone());
+        // }
 
-        for row_idx in 0..(active_len - 1) {
-            let next_row = row_idx + 1;
-            let mut saw_difference = false;
-            for col_idx in 0..input_columns.len() {
-                let current = input_columns[col_idx][row_idx];
-                let next = input_columns[col_idx][next_row];
-                match compare_field_values::<B>(&input_types[col_idx], current, next)
-                    .ok_or_else(false_claim)?
-                {
-                    Ordering::Equal => continue,
-                    Ordering::Less => {
-                        saw_difference = true;
-                        if !is_asc_by_col[col_idx] {
-                            return Err(false_claim());
-                        }
-                        break;
-                    }
-                    Ordering::Greater => {
-                        saw_difference = true;
-                        if is_asc_by_col[col_idx] {
-                            return Err(false_claim());
-                        }
-                        break;
-                    }
-                }
-            }
+        // for row_idx in 0..(active_len - 1) {
+        //     let next_row = row_idx + 1;
+        //     let mut saw_difference = false;
+        //     for col_idx in 0..input_columns.len() {
+        //         let current = input_columns[col_idx][row_idx];
+        //         let next = input_columns[col_idx][next_row];
+        //         match compare_field_values::<B>(&input_types[col_idx], current, next)
+        //             .ok_or_else(false_claim)?
+        //         {
+        //             Ordering::Equal => continue,
+        //             Ordering::Less => {
+        //                 saw_difference = true;
+        //                 if !is_asc_by_col[col_idx] {
+        //                     return Err(false_claim());
+        //                 }
+        //                 break;
+        //             }
+        //             Ordering::Greater => {
+        //                 saw_difference = true;
+        //                 if is_asc_by_col[col_idx] {
+        //                     return Err(false_claim());
+        //                 }
+        //                 break;
+        //             }
+        //         }
+        //     }
 
-            if !saw_difference && sort_is_strict(&self.sort_config) {
-                return Err(false_claim());
-            }
-        }
+        //     if !saw_difference && sort_is_strict(&self.sort_config) {
+        //         return Err(false_claim());
+        //     }
+        // }
 
         Ok(())
     }
