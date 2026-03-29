@@ -1,3 +1,4 @@
+mod add_result_check;
 mod add_avg_support;
 mod align_agg_input_to_output;
 mod align_binary_operands;
@@ -5,6 +6,7 @@ mod common;
 
 use std::sync::Arc;
 
+use add_result_check::AddResultCheck;
 use add_avg_support::AddAvgSupport;
 use align_agg_input_to_output::AlignAggInputToOutput;
 use align_binary_operands::AlignBinaryOperands;
@@ -32,6 +34,7 @@ pub fn rules() -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
         Arc::new(AlignBinaryOperands::new()),
         Arc::new(AddAvgSupport::new()),
         Arc::new(AlignAggInputToOutput::new()),
+        Arc::new(AddResultCheck::new()),
     ]
 }
 #[allow(unused)]
