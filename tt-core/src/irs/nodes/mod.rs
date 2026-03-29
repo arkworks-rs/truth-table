@@ -19,7 +19,7 @@ use crate::{
                 lps::{
                     aggregate, filter, join, limit, projection, sort, subquery_alias, table_scan,
                 },
-                rematerialize,
+                rematerialize, result_check,
             },
         },
         tree::Tree,
@@ -293,6 +293,17 @@ impl<B: SnarkBackend> Node<B> {
                     Arc::new_cyclic(|_weak_self| {
                         let input = Tree::<B>::from_logical_plan(remat.input()).root().clone();
                         let node = rematerialize::LpNode::new(input);
+                        Node::Plan(PlanNode::LpBased(Arc::new(node)))
+                    })
+                } else if extension
+                    .node
+                    .as_any()
+                    .downcast_ref::<result_check::ResultCheckLogicalNode>()
+                    .is_some()
+                {
+                    Arc::new_cyclic(|weak_self| {
+                        let node =
+                            result_check::LpNode::from_lp(plan.clone(), weak_self.clone());
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })
                 } else {

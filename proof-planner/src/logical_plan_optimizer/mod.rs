@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use add_result_check::AddResultCheck;
+
 use datafusion::{
     optimizer::{
         common_subexpr_eliminate::CommonSubexprEliminate,
@@ -18,6 +20,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 
+mod add_result_check;
 mod customized_optimize_projections;
 mod lift_join_filter;
 mod merge_filters;
@@ -66,5 +69,6 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
         Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
+        Arc::new(AddResultCheck::new()),
     ]
 }

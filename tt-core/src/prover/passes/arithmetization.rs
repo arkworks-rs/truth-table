@@ -69,7 +69,7 @@ where
     }
 }
 
-fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> ArithTable<F> {
+pub fn arithmetize_materialized_table<F: PrimeField>(mat: &MaterializedTable) -> ArithTable<F> {
     let batches = mat
         .batches()
         .expect("failed to read batches from materialized table");

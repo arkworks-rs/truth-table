@@ -24,7 +24,7 @@ use tracing::debug;
 
 use crate::errors::{TTError, TTResult};
 use crate::irs::nodes::gadget::lps::join as gadget_join;
-use crate::irs::nodes::plan::rematerialize;
+use crate::irs::nodes::plan::{rematerialize, result_check};
 use crate::irs::nodes::{IsNode, Node, PlanNode};
 use crate::irs::shared_ir::EmptyIr;
 use crate::irs::tree::Tree;
@@ -76,6 +76,9 @@ enum LogicalPlanRepr {
         fetch: Option<ExprRepr>,
     },
     ExtensionRematerialize {
+        input: Box<LogicalPlanRepr>,
+    },
+    ExtensionResultCheck {
         input: Box<LogicalPlanRepr>,
     },
 }
@@ -639,6 +642,14 @@ impl LogicalPlanRepr {
                     LogicalPlanRepr::ExtensionRematerialize {
                         input: Box::new(LogicalPlanRepr::from_plan(remat.input())?),
                     }
+                } else if let Some(result_check) = extension
+                    .node
+                    .as_any()
+                    .downcast_ref::<result_check::ResultCheckLogicalNode>()
+                {
+                    LogicalPlanRepr::ExtensionResultCheck {
+                        input: Box::new(LogicalPlanRepr::from_plan(result_check.input())?),
+                    }
                 } else {
                     debug!(?plan, "TTProof serialize: unsupported Extension node");
                     return serialization_error();
@@ -789,6 +800,10 @@ impl LogicalPlanRepr {
             LogicalPlanRepr::ExtensionRematerialize { input } => {
                 let input_plan = input.to_plan(ctx)?;
                 Ok(rematerialize::wrap_logical_plan(input_plan))
+            }
+            LogicalPlanRepr::ExtensionResultCheck { input } => {
+                let input_plan = input.to_plan(ctx)?;
+                Ok(result_check::wrap_logical_plan(input_plan))
             }
         }
     }
