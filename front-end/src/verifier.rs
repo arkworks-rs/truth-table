@@ -1,8 +1,6 @@
 use arithmetic::table::ArithTable;
 use ark_ff::{Field, PrimeField};
-use ark_ff::Zero;
 use ark_piop::{verifier::ArgVerifier, SnarkBackend};
-use ark_piop::structs::TrackerID;
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray},
@@ -44,8 +42,6 @@ use arithmetic::table_oracle::TrackedTableOracle;
 use ark_piop::verifier::structs::oracle::Oracle;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
-
-const RESULT_CHECK_SRC_POLY_ID_PREFIX: &str = "result_check_src_poly_id";
 
 pub struct VerifierIrStages<B: SnarkBackend> {
     pub initial: EmptyIr<B>,
@@ -139,10 +135,13 @@ impl<B: SnarkBackend> TTVerifier<B> {
         gadget_planned_ir: &GadgetPlannedIr<B>,
         output_memtable: Option<Arc<MemTable>>,
     ) -> TTResult<()> {
+
+        // Step 1: Parse and prepare the initial IR from the proof
         let snark_proof = proof.as_inner();
         let mut arg_verifier = self.arg_verifier().fork();
         arg_verifier.set_proof_ref(snark_proof);
 
+        // Step 2: Apply the tracking pass
         let verifier_tracking_pass = self.verifier_config().tracking_pass(
             arg_verifier.clone(),
             self.shared_config().ctx_oracles().clone(),
@@ -150,6 +149,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         self.track_query_output(&mut tracked_ir, output_memtable, arg_verifier.clone())
             .await?;
+
+        // Step 3: Apply the virtualization pass
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
 
@@ -157,6 +158,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
             virtualized_ir.tree().clone(),
             virtualized_ir.payloads().clone(),
         );
+
+        // Step 4: Apply the gadget initialization pass
         let gadget_initialization_pass =
             VerifierGadgetInitializationPass::<B>::new(gadget_ir_view, arg_verifier.clone());
         let gadget_ready_ir =
@@ -166,10 +169,13 @@ impl<B: SnarkBackend> TTVerifier<B> {
             gadget_ready_ir.tree().clone(),
             gadget_ready_ir.payloads().clone(),
         );
+
+        // Step 5: Apply the verification pass
         let verify_pass = VerifyPass::<B>::new(arg_verifier.clone(), verify_ir_view);
         let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
-        verify_pass.take_result()?;
 
+        // Step 6: Verify the SNARK verification
+        verify_pass.take_result()?;
         arg_verifier.verify()?;
         Ok(())
     }
@@ -319,19 +325,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
                 "ResultCheck verification requires the compact query output".to_string(),
             )
         })?;
-        let input_table = Self::result_check_input_table(tracked_ir)?;
-        let target_num_rows = 1usize << input_table.log_size();
-        let target_schema = input_table.schema().ok_or_else(|| {
-            DataFusionError::Internal("ResultCheck input table schema is missing".to_string())
-        })?;
-        let src_positions = Self::result_check_src_positions(root.id(), &arg_verifier, target_num_rows)?;
-        let materialized = Self::materialized_result_table_from_output(
-            output_memtable,
-            &target_schema,
-            target_num_rows,
-            &src_positions,
-        )
-        .await?;
+        let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
         let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
         let tracked_table = Self::track_output_table_oracle(&arith_table, &arg_verifier);
         tracked_ir.set_payload_for_node(
@@ -364,27 +358,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let rebuilt = MemTable::try_new(mem_table.schema(), vec![batches.clone()])
             .expect("memtable rebuild from collected batches should succeed");
         Ok(MaterializedTable::new_with_batches(rebuilt, row_count, batches))
-    }
-
-    fn result_check_input_table(
-        tracked_ir: &VerifierTrackedIr<B>,
-    ) -> TTResult<TrackedTableOracle<B>> {
-        let root = tracked_ir.tree().root();
-        let input_id = root
-            .children()
-            .first()
-            .map(|node| node.id())
-            .ok_or_else(|| DataFusionError::Internal("ResultCheck input not found".to_string()))?;
-        let input_table = tracked_ir
-            .payload_for_node(&input_id)
-            .and_then(|payload| match payload {
-                PayloadStructure::PlanPayload(table) => Some(table.clone()),
-                _ => None,
-            })
-            .ok_or_else(|| {
-                DataFusionError::Internal("ResultCheck input payload not found".to_string())
-            })?;
-        Ok(input_table)
     }
 
     fn pad_memtable_batches_to_num_rows(
@@ -553,137 +526,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
         )
     }
 
-    fn count_active_rows(batch: &RecordBatch) -> usize {
-        batch
-            .schema()
-            .column_with_name(arithmetic::ACTIVATOR_COL_NAME)
-            .and_then(|(idx, _)| batch.column(idx).as_any().downcast_ref::<BooleanArray>())
-            .map(|activator| (0..activator.len()).filter(|&idx| activator.value(idx)).count())
-            .unwrap_or_else(|| batch.num_rows())
-    }
-
-    fn scatter_compact_output_to_support(
-        schema: &Schema,
-        compact_batch: Option<&RecordBatch>,
-        target_num_rows: usize,
-        support_positions: &[usize],
-    ) -> TTResult<RecordBatch> {
-        let schema_ref = Arc::new(schema.clone());
-        let mut output_arrays = Vec::with_capacity(schema.fields().len());
-
-        for (col_idx, field) in schema.fields().iter().enumerate() {
-            if field.name() == arithmetic::ACTIVATOR_COL_NAME {
-                let mut activator = vec![false; target_num_rows];
-                for &position in support_positions {
-                    activator[position] = true;
-                }
-                output_arrays.push(Arc::new(BooleanArray::from(activator)) as ArrayRef);
-                continue;
-            }
-
-            let inactive = Self::inactive_padding_scalar(field.data_type())?;
-            let mut values = vec![inactive; target_num_rows];
-            if let Some(batch) = compact_batch {
-                let (source_idx, _) = batch
-                    .schema()
-                    .column_with_name(field.name())
-                    .ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "ResultCheck output column {} not found",
-                            field.name()
-                        ))
-                    })?;
-                for (row_idx, &position) in support_positions.iter().enumerate() {
-                    values[position] = ScalarValue::try_from_array(
-                        batch.column(source_idx).as_ref(),
-                        row_idx,
-                    )?
-                    .cast_to(field.data_type())?;
-                }
-            }
-            output_arrays.push(ScalarValue::iter_to_array(values)?);
-        }
-
-        RecordBatch::try_new(schema_ref, output_arrays)
-            .map_err(|e| DataFusionError::Execution(e.to_string()).into())
-    }
-
-    fn active_support_positions(evals: Vec<B::F>) -> Vec<usize> {
-        evals.into_iter()
-            .enumerate()
-            .filter_map(|(idx, value)| (!value.is_zero()).then_some(idx))
-            .collect()
-    }
-
-    fn result_check_src_positions(
-        id: tt_core::irs::nodes::NodeId,
-        arg_verifier: &ArgVerifier<B>,
-        target_num_rows: usize,
-    ) -> TTResult<Vec<usize>> {
-        let src_poly_id_field = arg_verifier.miscellaneous_field_element(&Self::result_check_src_poly_key(id))?;
-        let src_poly_id = TrackerID::from_usize(src_poly_id_field.into_bigint().as_ref()[0] as usize);
-        let src_poly = arg_verifier.sent_mv_poly_by_id(src_poly_id)?;
-        let evals = src_poly.evaluations();
-        if evals.len() != target_num_rows {
-            return Err(DataFusionError::Internal(format!(
-                "ResultCheck source polynomial has {} rows but expected {target_num_rows}",
-                evals.len()
-            ))
-            .into());
-        }
-        Ok(Self::active_support_positions(evals))
-    }
-
-    fn result_check_src_poly_key(id: tt_core::irs::nodes::NodeId) -> String {
-        format!("{RESULT_CHECK_SRC_POLY_ID_PREFIX}_{id}")
-    }
-
-    async fn materialized_result_table_from_output(
-        output_memtable: Arc<MemTable>,
-        target_schema: &Schema,
-        target_num_rows: usize,
-        support_positions: &[usize],
-    ) -> TTResult<MaterializedTable> {
-        let ctx = SessionContext::new();
-        let df = ctx.read_table(output_memtable.clone())?;
-        let compact_batches = df.collect().await?;
-        let compact_schema = output_memtable.schema();
-        let compact_row_count = compact_batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
-
-        let compact = if compact_row_count == 0 {
-            None
-        } else {
-            let batch_refs: Vec<&RecordBatch> = compact_batches.iter().collect();
-            Some(
-                concat_batches(&compact_schema, batch_refs)
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?,
-            )
-        };
-
-        let compact_active_rows = compact
-            .as_ref()
-            .map_or(0, |batch| Self::count_active_rows(batch));
-        if compact_active_rows != support_positions.len() {
-            return Err(DataFusionError::Internal(format!(
-                "ResultCheck output has {compact_active_rows} active rows but source support has {}",
-                support_positions.len()
-            ))
-            .into());
-        }
-
-        let sparse_batch = Self::scatter_compact_output_to_support(
-            target_schema,
-            compact.as_ref(),
-            target_num_rows,
-            support_positions,
-        )?;
-        let rebuilt = MemTable::try_new(Arc::new(target_schema.clone()), vec![vec![sparse_batch.clone()]])?;
-        Ok(MaterializedTable::new_with_batches(
-            rebuilt,
-            target_num_rows,
-            vec![sparse_batch],
-        ))
-    }
 }
 
 fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {

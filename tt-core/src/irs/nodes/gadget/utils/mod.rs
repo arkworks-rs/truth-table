@@ -12,5 +12,6 @@ pub mod nodup;
 pub mod perm;
 pub mod prescr_perm;
 pub mod remat;
+pub mod result_check;
 pub mod sign;
 pub mod supp;

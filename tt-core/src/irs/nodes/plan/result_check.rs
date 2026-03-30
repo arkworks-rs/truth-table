@@ -1,11 +1,13 @@
 use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps};
-use ark_ff::Zero;
+use crate::irs::payloads::PayloadStructure;
+use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
 use ark_piop::SnarkBackend;
 use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
     Expr, LogicalPlan,
     logical_plan::{Extension, UserDefinedLogicalNode},
 };
+use indexmap::IndexMap;
 use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
@@ -17,6 +19,7 @@ where
     B: SnarkBackend,
 {
     input: Arc<Node<B>>,
+    gadget: Arc<Node<B>>,
 }
 
 impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
@@ -37,7 +40,7 @@ impl<B: SnarkBackend> IsNode<B> for LpNode<B> {
     }
 
     fn children(&self) -> Vec<Arc<Node<B>>> {
-        vec![self.input.clone()]
+        vec![self.input.clone(), self.gadget.clone()]
     }
 }
 
@@ -53,21 +56,37 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        prover: &mut ark_piop::prover::ArgProver<B>,
+        _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(crate::irs::payloads::PayloadStructure::PlanPayload(r_table)) =
+        let Some(PayloadStructure::PlanPayload(r_table)) =
             virtualized_ir.payload_for_node(&id)
         else {
             return Ok(());
         };
-        let Some(crate::irs::payloads::PayloadStructure::PlanPayload(t_table)) =
+        let Some(PayloadStructure::PlanPayload(t_table)) =
             virtualized_ir.payload_for_node(&self.input.id())
         else {
             return Ok(());
         };
 
-        prove_result_check(prover, t_table, r_table)?;
+        let aligned_t = project_prover_table_for_result_check(t_table, r_table)?;
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::INPUT_LABEL.to_string(),
+            aligned_t,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
+            r_table.clone(),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -82,7 +101,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> IsPlanNode<B> for LpNode<B> {
     fn gadget(&self) -> Option<Node<B>> {
-        None
+        Some((*self.gadget).clone())
     }
 }
 
@@ -153,21 +172,37 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
     fn initialize_gadgets(
         &self,
         id: crate::irs::nodes::NodeId,
-        verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+        _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let Some(crate::irs::payloads::PayloadStructure::PlanPayload(r_table)) =
+        let Some(PayloadStructure::PlanPayload(r_table)) =
             virtualized_ir.payload_for_node(&id)
         else {
             return Ok(());
         };
-        let Some(crate::irs::payloads::PayloadStructure::PlanPayload(t_table)) =
+        let Some(PayloadStructure::PlanPayload(t_table)) =
             virtualized_ir.payload_for_node(&self.input.id())
         else {
             return Ok(());
         };
 
-        verify_result_check(verifier, t_table, r_table)?;
+        let aligned_t = project_verifier_table_for_result_check(t_table, r_table)?;
+        let mut gadget_payload = match virtualized_ir.payload_for_node(&self.gadget.id()) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::INPUT_LABEL.to_string(),
+            aligned_t,
+        );
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
+            r_table.clone(),
+        );
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -182,127 +217,67 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
 impl<B: SnarkBackend> LpNode<B> {
     pub fn new(input: Arc<Node<B>>) -> Self {
-        Self { input }
+        let gadget = Arc::new(Node::Gadget(Arc::new(
+            crate::irs::nodes::gadget::utils::result_check::GadgetNode::<B>::new(),
+        )));
+        Self { input, gadget }
     }
 }
 
-fn prove_result_check<B: SnarkBackend>(
-    prover: &mut ark_piop::prover::ArgProver<B>,
-    t_table: &arithmetic::table::TrackedTable<B>,
-    r_table: &arithmetic::table::TrackedTable<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let t_activator = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects T to have an activator");
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects R to have an activator");
-
-    #[cfg(feature = "honest-prover")]
-    {
-        let t_act = t_activator.evaluations();
-        let r_act = r_activator.evaluations();
-        if t_act != r_act {
-            let mismatches = t_act
-                .iter()
-                .zip(r_act.iter())
-                .enumerate()
-                .filter_map(|(idx, (t, r))| (t != r).then_some(idx))
-                .take(8)
-                .collect::<Vec<_>>();
-            tracing::error!(
-                t_rows = t_act.len(),
-                r_rows = r_act.len(),
-                ?mismatches,
-                "ResultCheck activator mismatch"
-            );
-        }
+fn project_prover_table_for_result_check<B: SnarkBackend>(
+    input_t: &TrackedTable<B>,
+    compact_r: &TrackedTable<B>,
+) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
+    let compact_schema = compact_r
+        .schema_ref()
+        .expect("ResultCheck compact schema missing");
+    let mut projected = IndexMap::new();
+    for field in compact_schema.fields() {
+        let poly = if field.name() == ACTIVATOR_COL_NAME {
+            input_t
+                .activator_tracked_poly()
+                .expect("ResultCheck T activator missing")
+        } else {
+            input_t
+                .tracked_polys_iter()
+                .find_map(|(candidate, poly)| (candidate.name() == field.name()).then_some(poly.clone()))
+                .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
+        };
+        projected.insert(field.clone(), poly);
     }
-
-    prover.add_mv_zerocheck_claim((&t_activator - &r_activator).id())?;
-
-    let num_data_cols = t_table.num_data_tracked_cols();
-    debug_assert_eq!(
-        num_data_cols,
-        r_table.num_data_tracked_cols(),
-        "ResultCheck expects T and R to have the same number of data columns",
-    );
-
-    if num_data_cols == 0 {
-        return Ok(());
-    }
-
-    let mut challenges = Vec::with_capacity(num_data_cols);
-    for _ in 0..num_data_cols {
-        challenges.push(prover.get_and_append_challenge(b"result_check_fold")?);
-    }
-    let t_fold = t_table.fold_all_data_columns(&challenges);
-    let r_fold = r_table.fold_all_data_columns(&challenges);
-
-    #[cfg(feature = "honest-prover")]
-    {
-        let t_fold_evals = t_fold.data_tracked_poly().evaluations();
-        let r_fold_evals = r_fold.data_tracked_poly().evaluations();
-        let t_act = t_activator.evaluations();
-        let mismatches = t_fold_evals
-            .iter()
-            .zip(r_fold_evals.iter())
-            .zip(t_act.iter())
-            .enumerate()
-            .filter_map(|(idx, ((t, r), a))| ((*a != B::F::zero()) && (t != r)).then_some(idx))
-            .take(8)
-            .collect::<Vec<_>>();
-        if !mismatches.is_empty() {
-            tracing::error!(
-                ?mismatches,
-                t_schema = ?t_table.schema(),
-                r_schema = ?r_table.schema(),
-                "ResultCheck folded-data mismatch on active rows"
-            );
-        }
-    }
-
-    let zero_poly =
-        &(&t_fold.data_tracked_poly() - &r_fold.data_tracked_poly()) * &t_activator;
-    prover.add_mv_zerocheck_claim(zero_poly.id())?;
-    Ok(())
+    Ok(TrackedTable::new(
+        Some(compact_schema.clone()),
+        projected,
+        input_t.log_size(),
+    ))
 }
 
-fn verify_result_check<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    t_table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-    r_table: &arithmetic::table_oracle::TrackedTableOracle<B>,
-) -> ark_piop::errors::SnarkResult<()> {
-    let t_activator = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects T to have an activator");
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects R to have an activator");
-
-    verifier.add_zerocheck_claim((&t_activator - &r_activator).id());
-
-    let num_data_cols = t_table.num_data_tracked_col_oracles();
-    debug_assert_eq!(
-        num_data_cols,
-        r_table.num_data_tracked_col_oracles(),
-        "ResultCheck expects T and R to have the same number of data columns",
-    );
-
-    if num_data_cols == 0 {
-        return Ok(());
+fn project_verifier_table_for_result_check<B: SnarkBackend>(
+    input_t: &TrackedTableOracle<B>,
+    compact_r: &TrackedTableOracle<B>,
+) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
+    let compact_schema = compact_r
+        .schema_ref()
+        .expect("ResultCheck compact schema missing");
+    let mut projected = IndexMap::new();
+    for field in compact_schema.fields() {
+        let oracle = if field.name() == ACTIVATOR_COL_NAME {
+            input_t
+                .activator_tracked_poly()
+                .expect("ResultCheck T activator missing")
+        } else {
+            input_t
+                .tracked_oracles_iter()
+                .find_map(|(candidate, oracle)| (candidate.name() == field.name()).then_some(oracle.clone()))
+                .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
+        };
+        projected.insert(field.clone(), oracle);
     }
-
-    let mut challenges = Vec::with_capacity(num_data_cols);
-    for _ in 0..num_data_cols {
-        challenges.push(verifier.get_and_append_challenge(b"result_check_fold")?);
-    }
-    let t_fold = t_table.fold_all_data_oracles(&challenges);
-    let r_fold = r_table.fold_all_data_oracles(&challenges);
-    let zero_oracle =
-        &(&t_fold.data_tracked_oracle() - &r_fold.data_tracked_oracle()) * &t_activator;
-    verifier.add_zerocheck_claim(zero_oracle.id());
-    Ok(())
+    Ok(TrackedTableOracle::new(
+        Some(compact_schema.clone()),
+        projected,
+        input_t.log_size(),
+    ))
 }
 
 #[derive(Debug, Clone)]
