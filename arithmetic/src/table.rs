@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use ark_ff::PrimeField;
+use ark_ff::{PrimeField, Zero};
 
 use crate::{
     col::TrackedCol, table_oracle::CONSTRAINTS_SUMMARY_METADATA_KEY, ACTIVATOR_COL_NAME,
@@ -79,9 +79,10 @@ impl<B: SnarkBackend> fmt::Display for TrackedTable<B> {
                 .collect();
             write!(
                 f,
-                "TrackedTable cols=({}), log_size={}, degrees={:?}, constraints={}",
+                "TrackedTable cols=({}), log_size={}, active={}, degrees={:?}, constraints={}",
                 cols.join(","),
                 self.log_size,
+                self.active_row_count(),
                 self.degrees(),
                 constraints_summary_label(self.schema_ref()).unwrap_or_else(|| "none".to_string())
             )
@@ -440,6 +441,12 @@ impl<B: SnarkBackend> TrackedTable<B> {
         out.push_str(&border_line(&widths));
         out
     }
+
+    pub fn active_row_count(&self) -> usize {
+        self.activator_tracked_poly()
+            .map(|poly| poly.evaluations().iter().filter(|v| !v.is_zero()).count())
+            .unwrap_or_else(|| self.size())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -463,9 +470,10 @@ impl<F: PrimeField> std::fmt::Display for ArithTable<F> {
                 .collect();
             write!(
                 f,
-                "ArithTable cols=({}), log_size={}, constraints={}",
+                "ArithTable cols=({}), log_size={}, active={}, constraints={}",
                 cols.join(","),
                 self.log_size,
+                self.active_row_count(),
                 constraints_summary_label(self.schema.as_ref())
                     .unwrap_or_else(|| "none".to_string())
             )
@@ -623,6 +631,16 @@ impl<F: PrimeField> ArithTable<F> {
     /// Returns the size of the table
     pub fn size(&self) -> usize {
         1 << self.log_size()
+    }
+
+    pub fn active_row_count(&self) -> usize {
+        self.polynomials
+            .iter()
+            .find_map(|(field, poly)| {
+                (field.name() == ACTIVATOR_COL_NAME)
+                    .then(|| poly.evaluations().iter().filter(|v| !v.is_zero()).count())
+            })
+            .unwrap_or_else(|| self.size())
     }
 
     /// Number of columns in the table including activator (if any)
