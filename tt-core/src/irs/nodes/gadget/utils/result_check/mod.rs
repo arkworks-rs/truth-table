@@ -213,7 +213,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let r_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
-        let src_mle = sent_src_mle(id, r_table)?;
+        let src_mle = sent_src_mle(verifier, id, r_table)?;
         let r_on_t_support = scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle)?;
         verify_result_check(verifier, t_table, &r_on_t_support)
     }
@@ -494,6 +494,7 @@ fn build_r_table_from_res_table<B: SnarkBackend>(
 }
 
 fn sent_src_mle<B: SnarkBackend>(
+    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
     id: crate::irs::nodes::NodeId,
     r_table: &TrackedTableOracle<B>,
 ) -> ark_piop::errors::SnarkResult<MLE<B::F>> {
@@ -506,7 +507,8 @@ fn sent_src_mle<B: SnarkBackend>(
         .borrow()
         .miscellaneous_field_element(&result_check_src_poly_key(id))?;
     let src_poly_id = TrackerID::from_usize(src_poly_id_field.into_bigint().as_ref()[0] as usize);
-    tracker_rc.borrow().sent_mv_poly_by_id(src_poly_id)
+    verifier.track_mv_poly_by_id(src_poly_id)?;
+    verifier.sent_mv_poly_by_id(src_poly_id)
 }
 
 fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
