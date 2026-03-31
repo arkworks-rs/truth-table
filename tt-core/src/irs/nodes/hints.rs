@@ -233,6 +233,14 @@ pub fn append_row_id_expr_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
 }
 
 pub fn append_activator_exprs_if_present(df: &DataFrame, exprs: &mut Vec<Expr>) {
+    let activator_already_present = exprs.iter().any(|expr| match expr {
+        Expr::Column(col) => col.name == arithmetic::ACTIVATOR_COL_NAME,
+        _ => false,
+    });
+    if activator_already_present {
+        return;
+    }
+
     let activator_exprs: Vec<Expr> = df
         .schema()
         .iter()

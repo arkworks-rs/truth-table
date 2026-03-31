@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use arithmetic::{
+    ACTIVATOR_COL_NAME,
     ROW_ID_COL_NAME,
     table_oracle::{ArithTableOracle, TrackedTableOracle},
 };

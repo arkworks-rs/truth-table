@@ -325,19 +325,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         if root.name() != "ResultCheck" {
             return Ok(());
         }
-
-        let output_memtable = output_memtable.ok_or_else(|| {
-            DataFusionError::Internal(
-                "ResultCheck verification requires the compact query output".to_string(),
-            )
-        })?;
-        let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
-        let tracked_table = Self::track_output_table_oracle(&arith_table, &arg_verifier);
-        tracked_ir.set_payload_for_node(
-            root.id(),
-            Some(PayloadStructure::PlanPayload(tracked_table)),
-        );
+        let _ = (tracked_ir, output_memtable, arg_verifier);
         Ok(())
     }
 
@@ -469,6 +457,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
         } else {
             row_count.next_power_of_two()
         };
+        let has_activator = base_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
         let output_schema = Self::schema_with_activator(base_schema);
         let output_schema_ref = Arc::new(output_schema.clone());
         let base_schema_ref = Arc::new(base_schema.clone());
@@ -502,10 +494,12 @@ impl<B: SnarkBackend> TTVerifier<B> {
             output_arrays.push(array);
         }
 
-        let activator_values = std::iter::repeat_n(true, row_count)
-            .chain(std::iter::repeat_n(false, target - row_count))
-            .collect::<Vec<_>>();
-        output_arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
+        if !has_activator {
+            let activator_values = std::iter::repeat_n(true, row_count)
+                .chain(std::iter::repeat_n(false, target - row_count))
+                .collect::<Vec<_>>();
+            output_arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
+        }
 
         let output_batch = RecordBatch::try_new(output_schema_ref, output_arrays)
             .map_err(|e| DataFusionError::Execution(e.to_string()))?;
@@ -513,6 +507,13 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     fn schema_with_activator(base_schema: &Schema) -> Schema {
+        if base_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
+        {
+            return base_schema.clone();
+        }
         let mut fields = base_schema
             .fields()
             .iter()

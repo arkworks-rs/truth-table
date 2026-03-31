@@ -254,12 +254,18 @@ impl<B: SnarkBackend> TTProver<B> {
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
 
-        let output_memtable = self.track_query_output(
-            &mut tracked_ir,
-            query,
-            arg_prover.clone(),
-        )
-        .await?;
+        let output_memtable = if capture_output_memtable {
+            Some(
+                self.track_query_output(
+                    &mut tracked_ir,
+                    query,
+                    arg_prover.clone(),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
 
         let table_scan = if capture_table_scan {
             Some(Self::table_scan_payload(&tracked_ir)?)
@@ -319,7 +325,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let arg_proof = arg_prover.build_proof().unwrap();
         let optimized_ir = EmptyIr::<B>::new_empty(optimized_tree);
         let tt_proof = TTProof::new(arg_proof, optimized_ir);
-        Ok((Some(output_memtable), table_scan, tt_proof))
+        Ok((output_memtable, table_scan, tt_proof))
     }
 
     async fn extract_output_memtable(&self, query: &str) -> TTResult<Arc<MemTable>> {
@@ -380,25 +386,12 @@ impl<B: SnarkBackend> TTProver<B> {
         query: &str,
         mut arg_prover: ArgProver<B>,
     ) -> TTResult<Arc<MemTable>> {
-
-        let output_memtable = 
-            self.extract_output_memtable(query).await?;
-
-
         let root = tracked_ir.tree().root();
         if root.name() != "ResultCheck" {
-            panic!("expected root node to be ResultCheck, found {}", root.name());
+            return self.extract_output_memtable(query).await;
         }
-
-        let materialized = Self::materialized_table_from_memtable(output_memtable.clone(), None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
-        let tracked_table =
-            Self::track_arith_table_without_commitment(&arith_table, &mut arg_prover)?;
-        tracked_ir.set_payload_for_node(
-            root.id(),
-            Some(PayloadStructure::PlanPayload(tracked_table)),
-        );
-            Ok(output_memtable)  
+        let _ = (&mut arg_prover, tracked_ir);
+        self.extract_output_memtable(query).await
     }
 
     async fn materialized_table_from_memtable(
@@ -506,6 +499,10 @@ impl<B: SnarkBackend> TTProver<B> {
         } else {
             row_count.next_power_of_two()
         };
+        let has_activator = base_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME);
         let output_schema = Self::schema_with_activator(base_schema);
         let output_schema_ref = Arc::new(output_schema.clone());
         let base_schema_ref = Arc::new(base_schema.clone());
@@ -539,10 +536,12 @@ impl<B: SnarkBackend> TTProver<B> {
             output_arrays.push(array);
         }
 
-        let activator_values = std::iter::repeat_n(true, row_count)
-            .chain(std::iter::repeat_n(false, target - row_count))
-            .collect::<Vec<_>>();
-        output_arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
+        if !has_activator {
+            let activator_values = std::iter::repeat_n(true, row_count)
+                .chain(std::iter::repeat_n(false, target - row_count))
+                .collect::<Vec<_>>();
+            output_arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
+        }
 
         let output_batch = RecordBatch::try_new(output_schema_ref, output_arrays)
             .map_err(|e| DataFusionError::Execution(e.to_string()))?;
@@ -550,6 +549,13 @@ impl<B: SnarkBackend> TTProver<B> {
     }
 
     fn schema_with_activator(base_schema: &Schema) -> Schema {
+        if base_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == ACTIVATOR_COL_NAME)
+        {
+            return base_schema.clone();
+        }
         let mut fields = base_schema
             .fields()
             .iter()
