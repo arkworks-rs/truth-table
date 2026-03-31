@@ -126,16 +126,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let t_table = payload
             .get(INPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", INPUT_LABEL));
-            println!("{}",t_table.pretty_string());
         let res_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
-
-            println!("{}",res_table.pretty_string());
         let src = match_r_rows_to_t_positions(t_table, res_table)?;
-        let src_poly =
-            build_result_check_src_poly::<B::F>(1usize << t_table.log_size(), &src);
-            println!("ResultCheck source polynomial evaluations: {:?}", src_poly.evaluations());
+        let src_poly = build_result_check_src_poly::<B::F>(1usize << res_table.log_size(), &src);
         let tracked_src = prover.track_and_send_mat_mv_poly(&src_poly)?;
         let tracker_rc = t_table
             .activator_tracked_poly()
@@ -148,7 +143,6 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         );
 
         let r_table = build_r_table_from_res_table(res_table, t_table, &src)?;
-        println!("{}",r_table.pretty_string());
         prove_result_check(prover, t_table, &r_table)
     }
 
@@ -355,7 +349,7 @@ fn verify_result_check<B: SnarkBackend>(
 fn build_result_check_src_poly<F: PrimeField>(target_num_rows: usize, src: &[usize]) -> MLE<F> {
     let mut evals = vec![F::zero(); target_num_rows];
     for (rank, &position) in src.iter().enumerate() {
-        evals[position] = F::from(rank as u64);
+        evals[rank] = F::from(position as u64);
     }
     MLE::from_evaluations_vec(target_num_rows.trailing_zeros() as usize, evals)
 }
@@ -531,26 +525,31 @@ fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
         .clone();
     let target_log_size = t_table.log_size();
     let r_log_size = r_table.log_size();
-    let src_evals = src_mle.evaluations();
-    let t_activator = t_table
+    let src_evals = src_mle.evaluations().to_vec();
+    let r_activator = r_table
         .activator_tracked_poly()
-        .expect("ResultCheck T activator missing")
+        .expect("ResultCheck result activator missing")
         .clone();
-    let t_activator_evals = (0..(1usize << target_log_size))
+    let r_activator_evals = (0..(1usize << r_log_size))
         .map(|idx| {
-            let point = boolean_point_from_index::<B::F>(target_log_size, idx);
+            let point = boolean_point_from_index::<B::F>(r_log_size, idx);
             tracker_rc
                 .borrow()
-                .query_mv(t_activator.id(), point)
-                .expect("ResultCheck T activator oracle evaluation should exist")
+                .query_mv(r_activator.id(), point)
+                .expect("ResultCheck result activator oracle evaluation should exist")
         })
         .collect::<Vec<_>>();
+    let r_active_positions = active_positions(&r_activator_evals);
 
     let mut tracked_oracles = IndexMap::new();
     for field in schema.fields() {
-        if field.name() == ACTIVATOR_COL_NAME {
-            tracked_oracles.insert(field.clone(), t_activator.clone());
-            continue;
+        let scattered_evals = if field.name() == ACTIVATOR_COL_NAME {
+            let mut evals = vec![B::F::zero(); 1usize << target_log_size];
+            for &rank in &r_active_positions {
+                let target_idx = field_to_usize::<B::F>(src_evals[rank])?;
+                evals[target_idx] = B::F::from(1u64);
+            }
+            evals
         } else {
             let r_oracle = r_table
                 .tracked_oracles_iter()
@@ -565,23 +564,22 @@ fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
                         .expect("ResultCheck R oracle evaluation should exist")
                 })
                 .collect::<Vec<_>>();
-            let src_evals = src_evals.clone();
-            let t_activator_evals = t_activator_evals.clone();
-            let oracle = Oracle::new_multivariate(target_log_size, move |point| {
-                let is_active = eval_mle_at_point(&t_activator_evals, target_log_size, &point);
-                if is_active.is_zero() {
-                    return Ok(B::F::zero());
-                }
-                let rank = eval_mle_at_point(&src_evals, target_log_size, &point);
-                let source_idx = field_to_usize::<B::F>(rank)?;
-                Ok(r_evals[source_idx])
-            });
-            let oracle_id = tracker_rc.borrow_mut().track_oracle(oracle);
-            tracked_oracles.insert(
-                field.clone(),
-                TrackedOracle::new(Either::Left(oracle_id), tracker_rc.clone(), target_log_size),
-            );
-        }
+            let mut evals = vec![B::F::zero(); 1usize << target_log_size];
+            for &rank in &r_active_positions {
+                let target_idx = field_to_usize::<B::F>(src_evals[rank])?;
+                evals[target_idx] = r_evals[rank];
+            }
+            evals
+        };
+        let oracle_evals = scattered_evals.clone();
+        let oracle = Oracle::new_multivariate(target_log_size, move |point| {
+            Ok(eval_mle_at_point(&oracle_evals, target_log_size, &point))
+        });
+        let oracle_id = tracker_rc.borrow_mut().track_oracle(oracle);
+        tracked_oracles.insert(
+            field.clone(),
+            TrackedOracle::new(Either::Left(oracle_id), tracker_rc.clone(), target_log_size),
+        );
     }
     Ok(TrackedTableOracle::new(
         Some(schema),

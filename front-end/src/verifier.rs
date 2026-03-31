@@ -1,6 +1,6 @@
 use arithmetic::table::ArithTable;
 use ark_ff::{Field, PrimeField};
-use ark_piop::{verifier::ArgVerifier, SnarkBackend};
+use ark_piop::{verifier::ArgVerifier, verifier::structs::oracle::Oracle, SnarkBackend};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray},
@@ -40,7 +40,6 @@ use tt_core::{
 };
 use tt_core::prover::passes::arithmetization::arithmetize_materialized_table;
 use arithmetic::table_oracle::TrackedTableOracle;
-use ark_piop::verifier::structs::oracle::Oracle;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
@@ -182,9 +181,9 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
-        // Fast path used by production verification and verifier benches.
+        let output_memtable = self.extract_output_memtable(query).await?;
         let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
-        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, None)
+        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
             .await
     }
 
@@ -205,6 +204,17 @@ impl<B: SnarkBackend> TTVerifier<B> {
         gadget_planned_ir: &GadgetPlannedIr<B>,
     ) -> TTResult<()> {
         self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, None)
+            .await
+    }
+
+    pub async fn verify_with_preprocessed_query(
+        &self,
+        query: &str,
+        proof: &TTProof<B>,
+        gadget_planned_ir: &GadgetPlannedIr<B>,
+    ) -> TTResult<()> {
+        let output_memtable = self.extract_output_memtable(query).await?;
+        self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, Some(output_memtable))
             .await
     }
 
@@ -231,7 +241,9 @@ impl<B: SnarkBackend> TTVerifier<B> {
         query: &str,
         proof: &TTProof<B>,
     ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        self.build_ir_stages_with_output(query, proof, None).await
+        let output_memtable = self.extract_output_memtable(query).await?;
+        self.build_ir_stages_with_output(query, proof, Some(output_memtable))
+            .await
     }
 
     pub async fn build_ir_stages_with_output(
@@ -263,13 +275,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
             self.shared_config().ctx_oracles().clone(),
         );
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
-        let output_memtable = if output_memtable.is_some()
-            || tracked_ir.tree().root().name() != "ResultCheck"
-        {
-            output_memtable
-        } else {
-            Some(self.extract_output_memtable(query).await?)
-        };
         self.track_query_output(&mut tracked_ir, output_memtable, arg_verifier.clone())
             .await?;
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);

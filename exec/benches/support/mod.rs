@@ -465,7 +465,11 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
         block_on_verifier(
             state
                 .verifier
-                .verify_with_preprocessed(&state.proof, gadget_planned_ir.as_ref()),
+                .verify_with_preprocessed_query(
+                    &state.query,
+                    &state.proof,
+                    gadget_planned_ir.as_ref(),
+                ),
         )
         .expect("verify for bench");
     } else {
