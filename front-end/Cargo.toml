@@ -24,6 +24,7 @@ datafusion-proto = { workspace = true }
 prost = { workspace = true }
 
 # other dependencies
+async-trait = { workspace = true }
 tokio = { workspace = true }
 indexmap = { workspace = true }
 tracing = { workspace = true }

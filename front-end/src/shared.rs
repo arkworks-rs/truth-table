@@ -1,10 +1,21 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use ark_piop::SnarkBackend;
 use datafusion::{
     config::ConfigOptions,
+    execution::{SessionStateBuilder, context::QueryPlanner, session_state::SessionState},
     optimizer::{Analyzer, Optimizer, OptimizerContext, OptimizerRule},
+    physical_plan::ExecutionPlan,
+    physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
     prelude::SessionContext,
 };
-use datafusion_expr::LogicalPlan;
+use datafusion_common::{DataFusionError, Result as DataFusionResult};
+use datafusion_expr::{LogicalPlan, logical_plan::UserDefinedLogicalNode};
+use tt_core::irs::nodes::plan::{
+    rematerialize::RematerializeLogicalNode,
+    result_check::ResultCheckLogicalNode,
+};
 use tt_core::ctx_oracles::CtxOracles;
 
 pub struct TTSharedConfig<B: SnarkBackend> {
@@ -32,7 +43,7 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
             analyzer,
             optimizer,
             ctx_oracles,
-            session_ctx,
+            session_ctx: with_noop_extension_support(session_ctx),
             config_options,
             optimizer_ctx,
             observer,
@@ -87,5 +98,64 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         self.optimizer()
             .optimize(analyzed_lp.clone(), self.optimizer_ctx(), self.observer())
             .unwrap()
+    }
+}
+
+fn with_noop_extension_support(session_ctx: SessionContext) -> SessionContext {
+    let state = session_ctx
+        .into_state_builder()
+        .with_query_planner(Arc::new(TTQueryPlanner))
+        .build();
+    SessionContext::new_with_state(state)
+}
+
+#[derive(Debug)]
+struct TTQueryPlanner;
+
+#[async_trait]
+impl QueryPlanner for TTQueryPlanner {
+    async fn create_physical_plan(
+        &self,
+        logical_plan: &LogicalPlan,
+        session_state: &SessionState,
+    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        let planner =
+            DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(TTNoOpExtensionPlanner)]);
+        planner.create_physical_plan(logical_plan, session_state).await
+    }
+}
+
+#[derive(Debug)]
+struct TTNoOpExtensionPlanner;
+
+#[async_trait]
+impl ExtensionPlanner for TTNoOpExtensionPlanner {
+    async fn plan_extension(
+        &self,
+        _planner: &dyn PhysicalPlanner,
+        node: &dyn UserDefinedLogicalNode,
+        _logical_inputs: &[&LogicalPlan],
+        physical_inputs: &[Arc<dyn ExecutionPlan>],
+        _session_state: &SessionState,
+    ) -> DataFusionResult<Option<Arc<dyn ExecutionPlan>>> {
+        let is_supported_noop = node.as_any().is::<RematerializeLogicalNode>()
+            || node.as_any().is::<ResultCheckLogicalNode>();
+        if !is_supported_noop {
+            return Ok(None);
+        }
+        let input = physical_inputs.first().ok_or_else(|| {
+            DataFusionError::Plan(format!(
+                "{} extension node expected exactly one physical input",
+                node.name()
+            ))
+        })?;
+        if physical_inputs.len() != 1 {
+            return Err(DataFusionError::Plan(format!(
+                "{} extension node expected exactly one physical input, got {}",
+                node.name(),
+                physical_inputs.len()
+            )));
+        }
+        Ok(Some(Arc::clone(input)))
     }
 }

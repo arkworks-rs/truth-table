@@ -170,13 +170,29 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             t_table.size(),
             t_active
         );
-        // println!("ResultCheck honest_prover_check T:\n{}", t_table.pretty_string());
+        println!("ResultCheck honest_prover_check T:\n{}", t_table.pretty_string());
+        if let Some(activator) = t_table.activator_tracked_poly() {
+            for row_idx in active_positions(&activator.evaluations()) {
+                println!(
+                    "ResultCheck honest_prover_check T active_row[{row_idx}] = {}",
+                    tracked_row_key(t_table, row_idx)?
+                );
+            }
+        }
         println!(
             "ResultCheck honest_prover_check R: size={}, active={}",
             compact_r.size(),
             r_active
         );
-        // println!("ResultCheck honest_prover_check R:\n{}", compact_r.pretty_string());
+        println!("ResultCheck honest_prover_check R:\n{}", compact_r.pretty_string());
+        if let Some(activator) = compact_r.activator_tracked_poly() {
+            for row_idx in active_positions(&activator.evaluations()) {
+                println!(
+                    "ResultCheck honest_prover_check R active_row[{row_idx}] = {}",
+                    tracked_row_key(compact_r, row_idx)?
+                );
+            }
+        }
         if active_row_multiset(t_table)? == active_row_multiset(compact_r)? {
             Ok(())
         } else {

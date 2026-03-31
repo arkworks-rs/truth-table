@@ -14,6 +14,7 @@ use datafusion::{
 use datafusion_common::DataFusionError;
 use datafusion_common::ScalarValue;
 use std::sync::Arc;
+use tracing::debug;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
@@ -336,9 +337,26 @@ impl<B: SnarkBackend> TTVerifier<B> {
     }
 
     async fn extract_output_memtable(&self, query: &str) -> TTResult<Arc<MemTable>> {
-        let df = self.shared_config().session_ctx().sql(query).await?;
-        let base_schema = df.schema().as_arrow().clone();
+        let lp = self.shared_config().query_to_lp(query).await;
+        let optimized_lp = self.shared_config().analyze_and_optimize_lp(lp).await;
+        let df = datafusion::dataframe::DataFrame::new(
+            self.shared_config().session_ctx().state(),
+            optimized_lp,
+        );
+        let logical_schema = df.schema().as_arrow().clone();
         let batches = df.collect().await?;
+        let base_schema = batches
+            .first()
+            .map(|batch| batch.schema().as_ref().clone())
+            .unwrap_or_else(|| logical_schema.clone());
+        if query.contains("avg(") {
+            let batch_schema = batches.first().map(|batch| batch.schema());
+            debug!(
+                "extract_output_memtable verifier: logical_schema={:?}, first_batch_schema={:?}",
+                logical_schema,
+                batch_schema
+            );
+        }
         let (output_schema, output_batches) =
             Self::append_activator_and_pad_batches(&base_schema, batches)?;
         let mem_table = MemTable::try_new(Arc::new(output_schema), vec![output_batches])?;
