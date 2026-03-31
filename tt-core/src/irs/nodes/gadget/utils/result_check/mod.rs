@@ -126,26 +126,30 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let t_table = payload
             .get(INPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", INPUT_LABEL));
-        let compact_r = payload
+            println!("{}",t_table.pretty_string());
+        let res_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
 
-        let support_positions = match_compact_rows_to_sparse_positions(t_table, compact_r)?;
+            println!("{}",res_table.pretty_string());
+        let src = match_r_rows_to_t_positions(t_table, res_table)?;
         let src_poly =
-            build_result_check_src_poly::<B::F>(1usize << t_table.log_size(), &support_positions);
+            build_result_check_src_poly::<B::F>(1usize << t_table.log_size(), &src);
+            println!("ResultCheck source polynomial evaluations: {:?}", src_poly.evaluations());
         let tracked_src = prover.track_and_send_mat_mv_poly(&src_poly)?;
         let tracker_rc = t_table
             .activator_tracked_poly()
             .map(|poly| poly.tracker())
             .or_else(|| t_table.tracked_polys_iter().next().map(|(_, poly)| poly.tracker()))
-            .expect("ResultCheck aligned tracker missing");
+            .expect("ResultCheck T tracker missing");
         tracker_rc.borrow_mut().insert_miscellaneous_field(
             result_check_src_poly_key(id),
             B::F::from(tracked_src.id().to_int() as u64),
         );
 
-        let sparse_r = scatter_compact_prover_table_to_support(compact_r, t_table, &support_positions)?;
-        prove_result_check(prover, t_table, &sparse_r)
+        let r_table = build_r_table_from_res_table(res_table, t_table, &src)?;
+        println!("{}",r_table.pretty_string());
+        prove_result_check(prover, t_table, &r_table)
     }
 
     fn honest_prover_check(
@@ -160,11 +164,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let t_table = payload
             .get(INPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", INPUT_LABEL));
-        let compact_r = payload
+        let r_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
         let t_active = active_count(t_table);
-        let r_active = active_count(compact_r);
+        let r_active = active_count(r_table);
         println!(
             "ResultCheck honest_prover_check T: size={}, active={}",
             t_table.size(),
@@ -181,19 +185,19 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         }
         println!(
             "ResultCheck honest_prover_check R: size={}, active={}",
-            compact_r.size(),
+            r_table.size(),
             r_active
         );
-        println!("ResultCheck honest_prover_check R:\n{}", compact_r.pretty_string());
-        if let Some(activator) = compact_r.activator_tracked_poly() {
+        println!("ResultCheck honest_prover_check R:\n{}", r_table.pretty_string());
+        if let Some(activator) = r_table.activator_tracked_poly() {
             for row_idx in active_positions(&activator.evaluations()) {
                 println!(
                     "ResultCheck honest_prover_check R active_row[{row_idx}] = {}",
-                    tracked_row_key(compact_r, row_idx)?
+                    tracked_row_key(r_table, row_idx)?
                 );
             }
         }
-        if active_row_multiset(t_table)? == active_row_multiset(compact_r)? {
+        if active_row_multiset(t_table)? == active_row_multiset(r_table)? {
             Ok(())
         } else {
             Err(false_claim())
@@ -212,12 +216,12 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let t_table = payload
             .get(INPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", INPUT_LABEL));
-        let compact_r = payload
+        let r_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
-        let src_mle = sent_src_mle(id, compact_r)?;
-        let sparse_r = scatter_compact_verifier_table_to_support(compact_r, t_table, &src_mle)?;
-        verify_result_check(verifier, t_table, &sparse_r)
+        let src_mle = sent_src_mle(id, r_table)?;
+        let r_on_t_support = scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle)?;
+        verify_result_check(verifier, t_table, &r_on_t_support)
     }
 
     fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -348,10 +352,10 @@ fn verify_result_check<B: SnarkBackend>(
     Ok(())
 }
 
-fn build_result_check_src_poly<F: PrimeField>(target_num_rows: usize, support_positions: &[usize]) -> MLE<F> {
+fn build_result_check_src_poly<F: PrimeField>(target_num_rows: usize, src: &[usize]) -> MLE<F> {
     let mut evals = vec![F::zero(); target_num_rows];
-    for (rank, &position) in support_positions.iter().enumerate() {
-        evals[position] = F::from((rank + 1) as u64);
+    for (rank, &position) in src.iter().enumerate() {
+        evals[position] = F::from(rank as u64);
     }
     MLE::from_evaluations_vec(target_num_rows.trailing_zeros() as usize, evals)
 }
@@ -363,32 +367,32 @@ fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {
         .collect()
 }
 
-fn match_compact_rows_to_sparse_positions<B: SnarkBackend>(
-    sparse_t: &TrackedTable<B>,
-    compact_r: &TrackedTable<B>,
+fn match_r_rows_to_t_positions<B: SnarkBackend>(
+    t_table: &TrackedTable<B>,
+    r_table: &TrackedTable<B>,
 ) -> ark_piop::errors::SnarkResult<Vec<usize>> {
-    let sparse_activator = sparse_t
+    let t_activator = t_table
         .activator_tracked_poly()
-        .expect("ResultCheck sparse activator missing")
+        .expect("ResultCheck T activator missing")
         .evaluations();
-    let compact_activator = compact_r
+    let r_activator = r_table
         .activator_tracked_poly()
-        .expect("ResultCheck compact activator missing")
+        .expect("ResultCheck R activator missing")
         .evaluations();
 
     let mut positions_by_key: HashMap<String, VecDeque<usize>> = HashMap::new();
-    for row_idx in active_positions(&sparse_activator) {
-        let key = tracked_row_key(sparse_t, row_idx)?;
+    for row_idx in active_positions(&t_activator) {
+        let key = tracked_row_key(t_table, row_idx)?;
         positions_by_key.entry(key).or_default().push_back(row_idx);
     }
 
     let mut positions = Vec::new();
-    for row_idx in active_positions(&compact_activator) {
-        let key = tracked_row_key(compact_r, row_idx)?;
+    for row_idx in active_positions(&r_activator) {
+        let key = tracked_row_key(r_table, row_idx)?;
         let position = positions_by_key
             .get_mut(&key)
             .and_then(VecDeque::pop_front)
-            .unwrap_or_else(|| panic!("ResultCheck could not map compact row {} back to sparse input", row_idx));
+            .unwrap_or_else(|| panic!("ResultCheck could not map R row {} back to T", row_idx));
         positions.push(position);
     }
     Ok(positions)
@@ -437,73 +441,73 @@ fn active_count<B: SnarkBackend>(table: &TrackedTable<B>) -> usize {
     )
 }
 
-fn scatter_compact_prover_table_to_support<B: SnarkBackend>(
-    compact_r: &TrackedTable<B>,
-    aligned_t: &TrackedTable<B>,
-    support_positions: &[usize],
+fn build_r_table_from_res_table<B: SnarkBackend>(
+    res_table: &TrackedTable<B>,
+    t_table: &TrackedTable<B>,
+    src: &[usize],
 ) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
-    let tracker_rc = compact_r
+    let tracker_rc = res_table
         .activator_tracked_poly()
         .map(|poly| poly.tracker())
-        .or_else(|| compact_r.tracked_polys_iter().next().map(|(_, poly)| poly.tracker()))
-        .expect("ResultCheck compact tracker missing");
-    let compact_active_positions = active_positions(
-        &compact_r
+        .or_else(|| res_table.tracked_polys_iter().next().map(|(_, poly)| poly.tracker()))
+        .expect("ResultCheck result tracker missing");
+    let res_active_positions = active_positions(
+        &res_table
             .activator_tracked_poly()
-            .expect("ResultCheck compact activator missing")
+            .expect("ResultCheck result activator missing")
             .evaluations(),
     );
-    if compact_active_positions.len() != support_positions.len() {
-        panic!("ResultCheck compact/support size mismatch");
+    if res_active_positions.len() != src.len() {
+        panic!("ResultCheck result/T src size mismatch");
     }
 
-    let schema = aligned_t
+    let schema = t_table
         .schema_ref()
-        .expect("ResultCheck aligned schema missing")
+        .expect("ResultCheck T schema missing")
         .clone();
-    let target_size = 1usize << aligned_t.log_size();
+    let target_size = 1usize << t_table.log_size();
     let mut tracked_polys = IndexMap::new();
     for field in schema.fields() {
         let evals = if field.name() == ACTIVATOR_COL_NAME {
             let mut evals = vec![B::F::zero(); target_size];
-            for &position in support_positions {
+            for &position in src {
                 evals[position] = B::F::from(1u64);
             }
             evals
         } else {
-            let compact_evals = compact_r
+            let res_evals = res_table
                 .tracked_polys_iter()
                 .find_map(|(candidate, poly)| (candidate.name() == field.name()).then_some(poly.evaluations()))
-                .unwrap_or_else(|| panic!("ResultCheck compact column {} missing", field.name()));
+                .unwrap_or_else(|| panic!("ResultCheck result column {} missing", field.name()));
             let mut evals = vec![B::F::zero(); target_size];
-            for (rank, &position) in support_positions.iter().enumerate() {
-                evals[position] = compact_evals[compact_active_positions[rank]];
+            for (rank, &position) in src.iter().enumerate() {
+                evals[position] = res_evals[res_active_positions[rank]];
             }
             evals
         };
-        let mle = MLE::from_evaluations_vec(aligned_t.log_size(), evals);
+        let mle = MLE::from_evaluations_vec(t_table.log_size(), evals);
         let poly_id = tracker_rc.borrow_mut().track_mat_mv_poly(mle);
         tracked_polys.insert(
             field.clone(),
             ark_piop::prover::structs::polynomial::TrackedPoly::new(
                 Either::Left(poly_id),
-                aligned_t.log_size(),
+                t_table.log_size(),
                 tracker_rc.clone(),
             ),
         );
     }
-    Ok(TrackedTable::new(Some(schema), tracked_polys, aligned_t.log_size()))
+    Ok(TrackedTable::new(Some(schema), tracked_polys, t_table.log_size()))
 }
 
 fn sent_src_mle<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    compact_r: &TrackedTableOracle<B>,
+    r_table: &TrackedTableOracle<B>,
 ) -> ark_piop::errors::SnarkResult<MLE<B::F>> {
-    let tracker_rc = compact_r
+    let tracker_rc = r_table
         .activator_tracked_poly()
         .map(|oracle| oracle.tracker())
-        .or_else(|| compact_r.tracked_oracles_iter().next().map(|(_, oracle)| oracle.tracker()))
-        .expect("ResultCheck compact tracker missing");
+        .or_else(|| r_table.tracked_oracles_iter().next().map(|(_, oracle)| oracle.tracker()))
+        .expect("ResultCheck R tracker missing");
     let src_poly_id_field = tracker_rc
         .borrow()
         .miscellaneous_field_element(&result_check_src_poly_key(id))?;
@@ -511,61 +515,73 @@ fn sent_src_mle<B: SnarkBackend>(
     tracker_rc.borrow().sent_mv_poly_by_id(src_poly_id)
 }
 
-fn scatter_compact_verifier_table_to_support<B: SnarkBackend>(
-    compact_r: &TrackedTableOracle<B>,
-    aligned_t: &TrackedTableOracle<B>,
+fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
+    r_table: &TrackedTableOracle<B>,
+    t_table: &TrackedTableOracle<B>,
     src_mle: &MLE<B::F>,
 ) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
-    let tracker_rc = compact_r
+    let tracker_rc = r_table
         .activator_tracked_poly()
         .map(|oracle| oracle.tracker())
-        .or_else(|| compact_r.tracked_oracles_iter().next().map(|(_, oracle)| oracle.tracker()))
-        .expect("ResultCheck compact tracker missing");
-    let schema = aligned_t
+        .or_else(|| r_table.tracked_oracles_iter().next().map(|(_, oracle)| oracle.tracker()))
+        .expect("ResultCheck R tracker missing");
+    let schema = t_table
         .schema_ref()
-        .expect("ResultCheck aligned schema missing")
+        .expect("ResultCheck T schema missing")
         .clone();
-    let target_log_size = aligned_t.log_size();
-    let compact_log_size = compact_r.log_size();
+    let target_log_size = t_table.log_size();
+    let r_log_size = r_table.log_size();
     let src_evals = src_mle.evaluations();
+    let t_activator = t_table
+        .activator_tracked_poly()
+        .expect("ResultCheck T activator missing")
+        .clone();
+    let t_activator_evals = (0..(1usize << target_log_size))
+        .map(|idx| {
+            let point = boolean_point_from_index::<B::F>(target_log_size, idx);
+            tracker_rc
+                .borrow()
+                .query_mv(t_activator.id(), point)
+                .expect("ResultCheck T activator oracle evaluation should exist")
+        })
+        .collect::<Vec<_>>();
 
     let mut tracked_oracles = IndexMap::new();
     for field in schema.fields() {
-        let oracle = if field.name() == ACTIVATOR_COL_NAME {
-            let src_evals = src_evals.clone();
-            Oracle::new_multivariate(target_log_size, move |point| {
-                let rank = eval_mle_at_point(&src_evals, target_log_size, &point);
-                Ok(if rank.is_zero() { B::F::zero() } else { B::F::from(1u64) })
-            })
+        if field.name() == ACTIVATOR_COL_NAME {
+            tracked_oracles.insert(field.clone(), t_activator.clone());
+            continue;
         } else {
-            let compact_oracle = compact_r
+            let r_oracle = r_table
                 .tracked_oracles_iter()
                 .find_map(|(candidate, oracle)| (candidate.name() == field.name()).then_some(oracle.clone()))
-                .unwrap_or_else(|| panic!("ResultCheck compact column {} missing", field.name()));
-            let compact_evals = (0..(1usize << compact_log_size))
+                .unwrap_or_else(|| panic!("ResultCheck R column {} missing", field.name()));
+            let r_evals = (0..(1usize << r_log_size))
                 .map(|idx| {
-                    let source_point = boolean_point_from_index::<B::F>(compact_log_size, idx);
+                    let source_point = boolean_point_from_index::<B::F>(r_log_size, idx);
                     tracker_rc
                         .borrow()
-                        .query_mv(compact_oracle.id(), source_point)
-                        .expect("ResultCheck compact oracle evaluation should exist")
+                        .query_mv(r_oracle.id(), source_point)
+                        .expect("ResultCheck R oracle evaluation should exist")
                 })
                 .collect::<Vec<_>>();
             let src_evals = src_evals.clone();
-            Oracle::new_multivariate(target_log_size, move |point| {
-                let rank = eval_mle_at_point(&src_evals, target_log_size, &point);
-                if rank.is_zero() {
+            let t_activator_evals = t_activator_evals.clone();
+            let oracle = Oracle::new_multivariate(target_log_size, move |point| {
+                let is_active = eval_mle_at_point(&t_activator_evals, target_log_size, &point);
+                if is_active.is_zero() {
                     return Ok(B::F::zero());
                 }
-                let source_idx = field_to_usize::<B::F>(rank)?.saturating_sub(1);
-                Ok(compact_evals[source_idx])
-            })
-        };
-        let oracle_id = tracker_rc.borrow_mut().track_oracle(oracle);
-        tracked_oracles.insert(
-            field.clone(),
-            TrackedOracle::new(Either::Left(oracle_id), tracker_rc.clone(), target_log_size),
-        );
+                let rank = eval_mle_at_point(&src_evals, target_log_size, &point);
+                let source_idx = field_to_usize::<B::F>(rank)?;
+                Ok(r_evals[source_idx])
+            });
+            let oracle_id = tracker_rc.borrow_mut().track_oracle(oracle);
+            tracked_oracles.insert(
+                field.clone(),
+                TrackedOracle::new(Either::Left(oracle_id), tracker_rc.clone(), target_log_size),
+            );
+        }
     }
     Ok(TrackedTableOracle::new(
         Some(schema),
