@@ -3,13 +3,13 @@
       "tpch": {
          "bench_tpch_verifier_full": {
             "tpch_q1_tt": {
-               "sample_count": 3,
-               "iter_count": 3,
+               "sample_count": 2,
+               "iter_count": 2,
                "time": {
-                  "fastest": "253 ms",
-                  "slowest": "643 ms",
-                  "median": "528.2 ms",
-                  "mean": "474.7 ms"
+                  "fastest": "724.6 ms",
+                  "slowest": "787.5 ms",
+                  "median": "756 ms",
+                  "mean": "756 ms"
                }
             },
             "tpch_q2_tt": {

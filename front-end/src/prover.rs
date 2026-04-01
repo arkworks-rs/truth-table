@@ -386,12 +386,40 @@ impl<B: SnarkBackend> TTProver<B> {
         query: &str,
         mut arg_prover: ArgProver<B>,
     ) -> TTResult<Arc<MemTable>> {
+        let output_memtable = self.extract_output_memtable(query).await?;
         let root = tracked_ir.tree().root();
         if root.name() != "ResultCheck" {
-            return self.extract_output_memtable(query).await;
+            return Ok(output_memtable);
         }
-        let _ = (&mut arg_prover, tracked_ir);
-        self.extract_output_memtable(query).await
+
+        let materialized =
+            Self::materialized_table_from_memtable(output_memtable.clone(), None).await?;
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        let tracked_table =
+            Self::track_arith_table_without_commitment(&arith_table, &mut arg_prover)?;
+        let gadget_id = root
+            .children()
+            .into_iter()
+            .find(|child| child.name() == "ResultCheck")
+            .map(|child| child.id())
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "ResultCheck root missing gadget child".to_string(),
+                )
+            })?;
+        let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            tt_core::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
+            tracked_table,
+        );
+        tracked_ir.set_payload_for_node(
+            gadget_id,
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        Ok(output_memtable)
     }
 
     async fn materialized_table_from_memtable(
@@ -476,10 +504,7 @@ impl<B: SnarkBackend> TTProver<B> {
             .polynomials()
             .iter()
             .map(|(field_ref, mle)| {
-                Ok((
-                    field_ref.clone(),
-                    arg_prover.track_and_send_mat_mv_poly(&mle)?,
-                ))
+                Ok((field_ref.clone(), arg_prover.track_mat_mv_poly(mle.as_ref().clone())))
             })
             .collect::<ark_piop::errors::SnarkResult<_>>()?;
         Ok(TrackedTable::new(

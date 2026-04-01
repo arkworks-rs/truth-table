@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use ark_piop::SnarkBackend;
 use datafusion::{
     config::ConfigOptions,
-    execution::{SessionStateBuilder, context::QueryPlanner, session_state::SessionState},
+    execution::{context::QueryPlanner, session_state::SessionState},
     optimizer::{Analyzer, Optimizer, OptimizerContext, OptimizerRule},
     physical_plan::ExecutionPlan,
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},

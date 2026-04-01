@@ -1,5 +1,5 @@
 use arithmetic::table::ArithTable;
-use ark_ff::{Field, PrimeField};
+use ark_ff::Field;
 use ark_piop::{verifier::ArgVerifier, verifier::structs::oracle::Oracle, SnarkBackend};
 use datafusion::{
     arrow::{
@@ -13,6 +13,7 @@ use datafusion::{
 };
 use datafusion_common::DataFusionError;
 use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
 use std::sync::Arc;
 use tracing::debug;
 use tt_core::{
@@ -325,7 +326,37 @@ impl<B: SnarkBackend> TTVerifier<B> {
         if root.name() != "ResultCheck" {
             return Ok(());
         }
-        let _ = (tracked_ir, output_memtable, arg_verifier);
+
+        let output_memtable = output_memtable.ok_or_else(|| {
+            DataFusionError::Internal(
+                "ResultCheck verification requires the compact query output".to_string(),
+            )
+        })?;
+        let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        let tracked_table = Self::track_output_table_oracle(&arith_table, &arg_verifier);
+        let gadget_id = root
+            .children()
+            .into_iter()
+            .find(|child| child.name() == "ResultCheck")
+            .map(|child| child.id())
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "ResultCheck root missing gadget child".to_string(),
+                )
+            })?;
+        let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            tt_core::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
+            tracked_table,
+        );
+        tracked_ir.set_payload_for_node(
+            gadget_id,
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -540,7 +571,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
                 let oracle = Oracle::new_multivariate(arith_table.log_size(), move |point| {
                     Ok(eval_mle_at_point(&poly_evals, num_vars, &point))
                 });
-                (field_ref.clone(), arg_verifier.track_oracle(oracle))
+                let tracked_oracle = arg_verifier.track_oracle(oracle);
+                (field_ref.clone(), tracked_oracle)
             })
             .collect();
         TrackedTableOracle::new(

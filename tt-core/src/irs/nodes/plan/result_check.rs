@@ -55,11 +55,36 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
+        _id: crate::irs::nodes::NodeId,
         _prover: &mut ark_piop::prover::ArgProver<B>,
         virtualized_ir: &mut crate::prover::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let _ = (id, virtualized_ir);
+        let Some(PayloadStructure::GadgetPayload(existing_payload)) =
+            virtualized_ir.payload_for_node(&self.gadget.id())
+        else {
+            return Ok(());
+        };
+        let Some(r_table) = existing_payload.get(
+            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL,
+        ) else {
+            return Ok(());
+        };
+        let Some(PayloadStructure::PlanPayload(t_table)) =
+            virtualized_ir.payload_for_node(&self.input.id())
+        else {
+            return Ok(());
+        };
+
+        let aligned_t = project_prover_table_for_result_check(t_table, r_table)?;
+        let mut gadget_payload = existing_payload.clone();
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::INPUT_LABEL.to_string(),
+            aligned_t,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
@@ -144,11 +169,36 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
     fn initialize_gadgets(
         &self,
-        id: crate::irs::nodes::NodeId,
+        _id: crate::irs::nodes::NodeId,
         _verifier: &mut ark_piop::verifier::ArgVerifier<B>,
         virtualized_ir: &mut crate::verifier::irs::VirtualizedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
-        let _ = (id, virtualized_ir);
+        let Some(PayloadStructure::GadgetPayload(existing_payload)) =
+            virtualized_ir.payload_for_node(&self.gadget.id())
+        else {
+            return Ok(());
+        };
+        let Some(r_table) = existing_payload.get(
+            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL,
+        ) else {
+            return Ok(());
+        };
+        let Some(PayloadStructure::PlanPayload(t_table)) =
+            virtualized_ir.payload_for_node(&self.input.id())
+        else {
+            return Ok(());
+        };
+
+        let aligned_t = project_verifier_table_for_result_check(t_table, r_table)?;
+        let mut gadget_payload = existing_payload.clone();
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::INPUT_LABEL.to_string(),
+            aligned_t,
+        );
+        virtualized_ir.set_payload_for_node(
+            self.gadget.id(),
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
         Ok(())
     }
 
