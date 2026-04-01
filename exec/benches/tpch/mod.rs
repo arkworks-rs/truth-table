@@ -128,11 +128,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q15.sql,
             //     tables: q15.tables,
             // },
-            // BenchCase {
-            //     name: "tpch_q17_tt",
-            //     query: q17.sql,
-            //     tables: q17.tables,
-            // },
+            BenchCase {
+                name: "tpch_q17_tt",
+                query: q17.sql,
+                tables: q17.tables,
+            },
             // BenchCase {
             //     name: "tpch_q18_poneglyph",
             //     query: q18_poneglyph.sql,
@@ -148,11 +148,11 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q19.sql,
             //     tables: q19.tables,
             // },
-            BenchCase {
-                name: "tpch_q20_tt",
-                query: q20.sql,
-                tables: q20.tables,
-            },
+            // BenchCase {
+            //     name: "tpch_q20_tt",
+            //     query: q20.sql,
+            //     tables: q20.tables,
+            // },
         ];
         let selected_names = selected_tpch_case_names(&cases);
         let filtered = if selected_names.is_empty() {

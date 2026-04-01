@@ -25,12 +25,16 @@ pub struct GadgetNode<B: SnarkBackend> {
     sort_gadget: Arc<Node<B>>,
     remat_gadget: Arc<Node<B>>,
     sort_specs: Vec<(String, bool, bool)>,
+    // Carry the logical `fetch` through gadget planning so helper sort hints
+    // mirror the top-k semantics of the enclosing Order By node.
+    fetch: Option<usize>,
 }
 
 fn populate_output_expr(
     gadget_payload: &mut IndexMap<String, crate::irs::nodes::hints::HintDF>,
     input_hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
+    fetch: Option<usize>,
     skip_collection: bool,
 ) -> crate::irs::nodes::hints::HintDF {
     let input_df = input_hint.data_frame().clone();
@@ -118,7 +122,7 @@ fn populate_output_expr(
         let sort = Sort {
             expr: sort_exprs,
             input: Arc::new(sort_input_df.logical_plan().clone()),
-            fetch: None,
+            fetch,
         };
 
         let sorted_df = crate::irs::nodes::plan::lps::sort::output::sort_df(&sort_input_df, &sort);
@@ -210,7 +214,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
         };
 
         let output_hint =
-            populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs, false);
+            populate_output_expr(
+                &mut gadget_payload,
+                &input_hint,
+                &self.sort_specs,
+                self.fetch,
+                false,
+            );
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
@@ -274,7 +284,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         };
 
         let output_hint =
-            populate_output_expr(&mut gadget_payload, &input_hint, &self.sort_specs, true);
+            populate_output_expr(
+                &mut gadget_payload,
+                &input_hint,
+                &self.sort_specs,
+                self.fetch,
+                true,
+            );
         // INPUT_SORT_EXPRS is not consumed during gadget wiring for OrderBy.
         // Avoid extra verifier-side projection work here.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);
@@ -390,6 +406,7 @@ impl<B: SnarkBackend> GadgetNode<B> {
             sort_gadget,
             remat_gadget,
             sort_specs,
+            fetch: sort.fetch,
         }
     }
 }

@@ -28,10 +28,19 @@ pub(crate) fn sort_df(input: &DataFrame, sort: &Sort) -> DataFrame {
         sort_exprs.extend(row_id_sort_exprs);
     }
 
-    input
+    let sorted = input
         .clone()
         .sort(sort_exprs)
-        .expect("sorting activated rows should succeed")
+        .expect("sorting activated rows should succeed");
+
+    match sort.fetch {
+        Some(fetch) => sorted
+            // DataFusion encodes top-k as `Sort(fetch = k)`. Respect that here
+            // so the proof-side plan output matches the compact query result.
+            .limit(0, Some(fetch))
+            .expect("top-k after sorting should succeed"),
+        None => sorted,
+    }
 }
 
 pub(crate) fn resolve_sort_exprs(schema: &DFSchema, exprs: &[SortExpr]) -> Vec<SortExpr> {
@@ -297,5 +306,49 @@ mod tests {
             ],
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn sort_respects_fetch() {
+        let ctx = SessionContext::new();
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("val", DataType::Int32, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]));
+        let input_batch = RecordBatch::try_new(
+            Arc::clone(&input_schema),
+            vec![
+                Arc::new(Int32Array::from(vec![5, 1, 4, 2, 3])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, true, true, true])) as ArrayRef,
+            ],
+        )
+        .expect("input batch");
+        let input_df = ctx
+            .read_batch(input_batch)
+            .expect("failed to read batch into DataFrame");
+
+        let sort = Sort {
+            expr: vec![col("val").sort(true, true)],
+            input: Arc::new(input_df.logical_plan().clone()),
+            fetch: Some(3),
+        };
+
+        let sorted_df = sort_df(&input_df, &sort);
+        let batches = sorted_df.collect().await.unwrap();
+
+        let expected_schema = Arc::new(Schema::new(vec![
+            Field::new("val", DataType::Int32, false),
+            Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+        ]));
+        let expected_batch = RecordBatch::try_new(
+            expected_schema,
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef,
+                Arc::new(BooleanArray::from(vec![true, true, true])) as ArrayRef,
+            ],
+        )
+        .expect("expected batch");
+
+        assert_eq!(batches, vec![expected_batch]);
     }
 }

@@ -24,6 +24,7 @@ mod add_result_check;
 mod customized_optimize_projections;
 mod lift_join_filter;
 mod merge_filters;
+mod normalize_sort_fetch;
 mod normalize_table_scan;
 mod rematerialize;
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
@@ -65,6 +66,7 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         // Arc::new(CommonSubexprEliminate::new()),
         Arc::new(EliminateGroupByConstant::new()),
         Arc::new(normalize_table_scan::NormalizeTableScanPushdown::new()),
+        Arc::new(normalize_sort_fetch::NormalizeSortFetch::new()),
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
