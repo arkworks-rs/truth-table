@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use crate::prove::ProveBuilder;
 use arithmetic::table_oracle::ArithTableOracle;
 use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
@@ -169,8 +170,16 @@ impl VerifyRunner {
         let shared_config = build_shared_config(ctx, ctx_oracles);
 
         let verifier = TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier);
+        let prover = ProveBuilder::new()
+            .with_query(self.query.clone())
+            .with_parquet_paths(self.parquet_paths.clone())
+            .with_oracle_paths(self.oracle_paths.clone())
+            .build()?
+            .build_tt_prover()
+            .await?;
+        let output_memtable = prover.output_memtable(&self.query).await?;
         verifier
-            .verify(&self.query, &tt_proof)
+            .verify(&self.query, &tt_proof, output_memtable)
             .await
             .map_err(|err| anyhow!(err))?;
 

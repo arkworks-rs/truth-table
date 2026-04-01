@@ -15,6 +15,7 @@ use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
     optimizer::{Analyzer, Optimizer, OptimizerContext},
+    datasource::MemTable,
     prelude::{ParquetReadOptions, SessionConfig, SessionContext},
 };
 use exec::{
@@ -70,14 +71,11 @@ pub struct BenchProof {
     _temp_dir: Option<TempDir>,
 }
 
-pub struct VerifierBenchState {
-    pub arg_verifier: ArgVerifier<B>,
-}
-
 pub struct VerifierFullBenchState {
     pub verifier: TTVerifier<B>,
     pub query: String,
     pub proof: TTProof<B>,
+    pub output_memtable: Arc<MemTable>,
     pub preprocessed_gadget_ir: Mutex<Option<Arc<GadgetPlannedIr<B>>>>,
 }
 
@@ -262,6 +260,16 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
         snark_proof.as_inner().mv_pcs_subproof.comitments.len(),
         snark_proof.as_inner().uv_pcs_subproof.comitments.len(),
     );
+    let cryptographic_proof_size_bytes = snark_proof.snark_proof_serialized_size_bytes();
+    let non_cryptographic_proof_size_bytes = snark_proof
+        .optimized_ir_serialized_size_bytes()
+        .expect("serialize optimized ir for bench size accounting");
+    stats_layer::emit_proof_size_bytes(
+        &iteration.query,
+        cryptographic_proof_size_bytes,
+        non_cryptographic_proof_size_bytes,
+        cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes,
+    );
     snark_proof
 }
 
@@ -380,7 +388,7 @@ pub fn load_proof_bytes_cached(case_name: &'static str, bench_proof: &BenchProof
     bytes
 }
 
-pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
+pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof: &BenchProof) {
     // Print proof size once per case to avoid noisy benchmark output.
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
@@ -399,37 +407,17 @@ pub fn log_proof_size_once(case_name: &'static str, proof: &BenchProof) {
     }
 }
 
-pub fn build_verifier_state(
-    assets: &BenchAssets,
-    proof_bytes: impl AsRef<[u8]>,
-) -> VerifierBenchState {
-    // Build and plan once; bench timing captures only cryptographic verifier checks.
-    let verifier = build_verifier(assets);
-    let proof = proof_from_bytes(proof_bytes.as_ref());
-    let (_stages, arg_verifier) =
-        block_on_verifier(verifier.build_ir_stages(assets.case.query, &proof))
-            .expect("build verifier stages for bench");
-    VerifierBenchState { arg_verifier }
-}
-
-pub fn fork_arg_verifier(state: &VerifierBenchState) -> ArgVerifier<B> {
-    // Create an isolated verifier instance for one timed iteration.
-    state.arg_verifier.fork()
-}
-
-pub fn run_arg_verifier_once(verifier: ArgVerifier<B>) {
-    // Time only cryptographic verification on a pre-forked verifier.
-    verifier.verify().expect("verify for bench");
-}
-
 pub fn build_verifier_full_state(
     assets: &BenchAssets,
     proof_bytes: impl AsRef<[u8]>,
 ) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
+    let prover_iteration = prepare_prover_iteration(assets);
+    let output_memtable = block_on(prover_iteration.prover.output_memtable(&prover_iteration.query))
+        .expect("extract output memtable from prover for bench");
     let proof = proof_from_bytes(proof_bytes.as_ref());
-    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof)
+    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof, output_memtable)
 }
 
 pub fn build_verifier_full_state_from_proof(
@@ -438,18 +426,28 @@ pub fn build_verifier_full_state_from_proof(
 ) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
-    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof.clone())
+    let prover_iteration = prepare_prover_iteration(assets);
+    let output_memtable = block_on(prover_iteration.prover.output_memtable(&prover_iteration.query))
+        .expect("extract output memtable from prover for bench");
+    build_verifier_full_state_from_proof_impl(
+        verifier,
+        assets.case.query,
+        proof.clone(),
+        output_memtable,
+    )
 }
 
 fn build_verifier_full_state_from_proof_impl(
     verifier: TTVerifier<B>,
     query: &str,
     proof: TTProof<B>,
+    output_memtable: Arc<MemTable>,
 ) -> VerifierFullBenchState {
     VerifierFullBenchState {
         verifier,
         query: query.to_string(),
         proof,
+        output_memtable,
         preprocessed_gadget_ir: Mutex::new(None),
     }
 }
@@ -465,15 +463,19 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
         block_on_verifier(
             state
                 .verifier
-                .verify_with_preprocessed_query(
-                    &state.query,
+                .verify_with_preprocessed_and_output(
                     &state.proof,
                     gadget_planned_ir.as_ref(),
+                    Arc::clone(&state.output_memtable),
                 ),
         )
         .expect("verify for bench");
     } else {
-        block_on_verifier(state.verifier.verify(&state.query, &state.proof))
+        block_on_verifier(state.verifier.verify(
+            &state.query,
+            &state.proof,
+            Arc::clone(&state.output_memtable),
+        ))
             .expect("verify for bench");
     }
 }

@@ -193,7 +193,7 @@ fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchS
     warm_selected_tpch_proofs_once();
     let assets = prepare_assets_cached(case);
     let bench_proof = warmup_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
+    log_proof_size_once(case.name, case.query, &bench_proof);
     build_verifier_full_state_from_proof(&assets, &bench_proof.proof)
 }
 
@@ -206,7 +206,7 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
         .bench_local_values(|iteration| {
             let proof = run_prover_iteration(iteration);
             let bench_proof = cache_proof_in_memory_if_absent(case.name, &proof);
-            log_proof_size_once(case.name, &bench_proof);
+            log_proof_size_once(case.name, case.query, &bench_proof);
         });
     emit_benchmark_stats_row("bench_tpch_prover", case.name);
 }

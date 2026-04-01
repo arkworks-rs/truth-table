@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use divan::Bencher;
 
 use crate::support::{
-    BenchCase, build_verifier_state, emit_benchmark_stats_row, ensure_proof, fork_arg_verifier,
-    load_proof_bytes_cached, log_proof_size_once, prepare_assets_cached, prepare_prover_iteration,
-    run_arg_verifier_once, run_prover_iteration, warmup_proof,
+    BenchCase, build_verifier_full_state_from_proof, emit_benchmark_stats_row, ensure_proof,
+    log_proof_size_once, prepare_assets_cached, prepare_prover_iteration, run_full_verifier_once,
+    run_preprocess_once, run_prover_iteration, warmup_proof,
 };
 
 fn order_by_cases() -> &'static [BenchCase] {
@@ -42,15 +42,15 @@ fn bench_order_by_prover(bencher: Bencher, case: BenchCase) {
 
 #[divan::bench(args = order_by_cases(), sample_size = 10)]
 fn bench_order_by_verifier(bencher: Bencher, case: BenchCase) {
-    // Verifier benchmark: build state once, then time only run_verifier_once.
+    // Verifier benchmark: preprocess once, then time from tracking onward.
     let assets = prepare_assets_cached(case);
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
-    log_proof_size_once(case.name, &bench_proof);
-    let proof_bytes = load_proof_bytes_cached(case.name, &bench_proof);
-    let state = build_verifier_state(&assets, proof_bytes.as_slice());
-    bencher
-        .with_inputs(|| fork_arg_verifier(&state))
-        .bench_local_values(run_arg_verifier_once);
+    log_proof_size_once(case.name, case.query, &bench_proof);
+    let state = build_verifier_full_state_from_proof(&assets, &bench_proof.proof);
+    run_preprocess_once(&state);
+    bencher.bench_local(|| {
+        run_full_verifier_once(&state);
+    });
     emit_benchmark_stats_row("bench_order_by_verifier", case.name);
 }

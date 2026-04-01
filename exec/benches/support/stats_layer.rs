@@ -16,7 +16,7 @@ use tracing::{
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 const BENCH_STATS_TARGET: &str = "bench_stats";
-const CSV_HEADER: &str = "timestamp_utc,query,nonzerocheck_claims,nonzerocheck_degree_distribution,zerocheck_claims,zerocheck_degree_distribution,sumcheck_claims,sumcheck_degree_distribution,lookup_claims,reduce_degree::max degree,reduce_degree::num commited,sumcheck::degree,sumcheck::number of terms,sumcheck::prove time s,proof_mv_commitments,proof_uv_commitments\n";
+const CSV_HEADER: &str = "timestamp_utc,query,nonzerocheck_claims,nonzerocheck_degree_distribution,zerocheck_claims,zerocheck_degree_distribution,sumcheck_claims,sumcheck_degree_distribution,lookup_claims,reduce_degree::max degree,reduce_degree::num commited,sumcheck::degree,sumcheck::number of terms,sumcheck::prove time s,proof_mv_commitments,proof_uv_commitments,cryptographic_proof_size_bytes,non_cryptographic_proof_size_bytes,full_proof_size_bytes\n";
 pub const BENCH_STATS_CSV_PATH: &str = "target/bench_stats.csv";
 
 pub struct BenchStatsCsvLayer {
@@ -132,6 +132,13 @@ where
         let sumcheck_prove_time_s = fields.remove("sumcheck_prove_time_s").unwrap_or_default();
         let proof_mv_commitments = fields.remove("proof_mv_commitments").unwrap_or_default();
         let proof_uv_commitments = fields.remove("proof_uv_commitments").unwrap_or_default();
+        let cryptographic_proof_size_bytes = fields
+            .remove("cryptographic_proof_size_bytes")
+            .unwrap_or_default();
+        let non_cryptographic_proof_size_bytes = fields
+            .remove("non_cryptographic_proof_size_bytes")
+            .unwrap_or_default();
+        let full_proof_size_bytes = fields.remove("full_proof_size_bytes").unwrap_or_default();
 
         // Persist rows for either claim-count events or proof commitment summaries.
         if nonzerocheck_claims.is_empty()
@@ -140,6 +147,9 @@ where
             && lookup_claims.is_empty()
             && proof_mv_commitments.is_empty()
             && proof_uv_commitments.is_empty()
+            && cryptographic_proof_size_bytes.is_empty()
+            && non_cryptographic_proof_size_bytes.is_empty()
+            && full_proof_size_bytes.is_empty()
         {
             return;
         }
@@ -176,6 +186,15 @@ where
             row.merge_field("sumcheck_prove_time_s", sumcheck_prove_time_s);
             row.merge_field("proof_mv_commitments", proof_mv_commitments);
             row.merge_field("proof_uv_commitments", proof_uv_commitments);
+            row.merge_field(
+                "cryptographic_proof_size_bytes",
+                cryptographic_proof_size_bytes,
+            );
+            row.merge_field(
+                "non_cryptographic_proof_size_bytes",
+                non_cryptographic_proof_size_bytes,
+            );
+            row.merge_field("full_proof_size_bytes", full_proof_size_bytes);
         }
     }
 
@@ -246,6 +265,9 @@ impl CsvSink {
             &row.sumcheck_prove_time_s,
             &row.proof_mv_commitments,
             &row.proof_uv_commitments,
+            &row.cryptographic_proof_size_bytes,
+            &row.non_cryptographic_proof_size_bytes,
+            &row.full_proof_size_bytes,
         ];
 
         for (idx, value) in values.iter().enumerate() {
@@ -277,6 +299,9 @@ struct CsvRow {
     sumcheck_prove_time_s: String,
     proof_mv_commitments: String,
     proof_uv_commitments: String,
+    cryptographic_proof_size_bytes: String,
+    non_cryptographic_proof_size_bytes: String,
+    full_proof_size_bytes: String,
 }
 
 impl CsvRow {
@@ -298,6 +323,9 @@ impl CsvRow {
             sumcheck_prove_time_s: String::new(),
             proof_mv_commitments: String::new(),
             proof_uv_commitments: String::new(),
+            cryptographic_proof_size_bytes: String::new(),
+            non_cryptographic_proof_size_bytes: String::new(),
+            full_proof_size_bytes: String::new(),
         }
     }
 
@@ -321,6 +349,11 @@ impl CsvRow {
             "sumcheck_prove_time_s" => self.sumcheck_prove_time_s = value,
             "proof_mv_commitments" => self.proof_mv_commitments = value,
             "proof_uv_commitments" => self.proof_uv_commitments = value,
+            "cryptographic_proof_size_bytes" => self.cryptographic_proof_size_bytes = value,
+            "non_cryptographic_proof_size_bytes" => {
+                self.non_cryptographic_proof_size_bytes = value
+            }
+            "full_proof_size_bytes" => self.full_proof_size_bytes = value,
             _ => {}
         }
     }
@@ -412,5 +445,21 @@ pub fn emit_proof_commitment_counts(mv_commitments: usize, uv_commitments: usize
         proof_mv_commitments = mv_commitments,
         proof_uv_commitments = uv_commitments,
         "proof_commitments"
+    );
+}
+
+pub fn emit_proof_size_bytes(
+    query: &str,
+    cryptographic_proof_size_bytes: usize,
+    non_cryptographic_proof_size_bytes: usize,
+    full_proof_size_bytes: usize,
+) {
+    tracing::info!(
+        target: BENCH_STATS_TARGET,
+        query,
+        cryptographic_proof_size_bytes,
+        non_cryptographic_proof_size_bytes,
+        full_proof_size_bytes,
+        "proof_sizes"
     );
 }

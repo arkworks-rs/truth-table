@@ -158,6 +158,10 @@ impl<B: SnarkBackend> TTProver<B> {
         ))
     }
 
+    pub async fn output_memtable(&self, query: &str) -> TTResult<Arc<MemTable>> {
+        self.extract_output_memtable(query).await
+    }
+
     async fn prove_internal(
         &self,
         query: &str,

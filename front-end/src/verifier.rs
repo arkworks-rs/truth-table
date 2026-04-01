@@ -15,7 +15,6 @@ use datafusion_common::DataFusionError;
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 use std::sync::Arc;
-use tracing::debug;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::TTResult,
@@ -118,18 +117,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self.arg_verifier
     }
 
-    fn gadget_planned_ir_for_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
-        let initial_ir = proof.optimized_ir().clone();
-        let output_planned_ir =
-            initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());
-        let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
-            &self
-                .verifier_config()
-                .gadget_planning_pass(&output_planned_ir),
-        );
-        gadget_planned_ir
-    }
-
     async fn verify_with_gadget_planned_ir(
         &self,
         proof: &TTProof<B>,
@@ -181,41 +168,15 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(())
     }
 
-    pub async fn verify(&self, query: &str, proof: &TTProof<B>) -> TTResult<()> {
-        let output_memtable = self.extract_output_memtable(query).await?;
-        let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
-        self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
-            .await
-    }
-
-    pub async fn verify_with_output(
+    pub async fn verify(
         &self,
         query: &str,
         proof: &TTProof<B>,
-        output_memtable: Arc<MemTable>,
+        result: Arc<MemTable>,
     ) -> TTResult<()> {
-        let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
+        let (gadget_planned_ir, output_memtable) =
+            self.preprocess_query_with_output(query, proof, result).await?;
         self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
-            .await
-    }
-
-    pub async fn verify_with_preprocessed(
-        &self,
-        proof: &TTProof<B>,
-        gadget_planned_ir: &GadgetPlannedIr<B>,
-    ) -> TTResult<()> {
-        self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, None)
-            .await
-    }
-
-    pub async fn verify_with_preprocessed_query(
-        &self,
-        query: &str,
-        proof: &TTProof<B>,
-        gadget_planned_ir: &GadgetPlannedIr<B>,
-    ) -> TTResult<()> {
-        let output_memtable = self.extract_output_memtable(query).await?;
-        self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, Some(output_memtable))
             .await
     }
 
@@ -225,6 +186,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         gadget_planned_ir: &GadgetPlannedIr<B>,
         output_memtable: Arc<MemTable>,
     ) -> TTResult<()> {
+        let output_memtable = self.preprocess_output_memtable(output_memtable).await?;
         self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, Some(output_memtable))
             .await
     }
@@ -233,87 +195,33 @@ impl<B: SnarkBackend> TTVerifier<B> {
     ///
     /// This intentionally excludes tracking/virtualization/gadget-init/verify passes
     /// and excludes cryptographic verification.
-    pub fn preprocess_query(&self, query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
-        self.gadget_planned_ir_for_query(query, proof)
-    }
-
-    pub async fn build_ir_stages(
-        &self,
-        query: &str,
-        proof: &TTProof<B>,
-    ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        let output_memtable = self.extract_output_memtable(query).await?;
-        self.build_ir_stages_with_output(query, proof, Some(output_memtable))
-            .await
-    }
-
-    pub async fn build_ir_stages_with_output(
-        &self,
-        query: &str,
-        proof: &TTProof<B>,
-        output_memtable: Option<Arc<MemTable>>,
-    ) -> TTResult<(VerifierIrStages<B>, ArgVerifier<B>)> {
-        let snark_proof = proof.as_inner();
+    pub fn preprocess_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
         let initial_ir = proof.optimized_ir().clone();
-        // debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
         let output_planned_ir =
             initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());
-        // debug!(
-        //     "output planned ir:\n{}",
-        //     output_planned_ir.display_graphviz(true)
-        // );
-        let gadget_planned_ir = self.gadget_planned_ir_for_query(query, proof);
-        // debug!(
-        //     "gadget planned ir:\n{}",
-        //     gadget_planned_ir.display_graphviz(true)
-        // );
+        output_planned_ir.apply_local_pass_sequential(
+            &self
+                .verifier_config()
+                .gadget_planning_pass(&output_planned_ir),
+        )
+    }
 
-        let mut arg_verifier = self.arg_verifier().fork();
-        arg_verifier.set_proof_ref(snark_proof);
+    async fn preprocess_query_with_output(
+        &self,
+        query: &str,
+        proof: &TTProof<B>,
+        output_memtable: Arc<MemTable>,
+    ) -> TTResult<(GadgetPlannedIr<B>, Arc<MemTable>)> {
+        let gadget_planned_ir = self.preprocess_query(query, proof);
+        let output_memtable = self.preprocess_output_memtable(output_memtable).await?;
+        Ok((gadget_planned_ir, output_memtable))
+    }
 
-        let verifier_tracking_pass = self.verifier_config().tracking_pass(
-            arg_verifier.clone(),
-            self.shared_config().ctx_oracles().clone(),
-        );
-        let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
-        self.track_query_output(&mut tracked_ir, output_memtable, arg_verifier.clone())
-            .await?;
-        let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
-        let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
-        // debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
-        // debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
-        let gadget_ir_view = VerifierVirtualizedIr::new(
-            virtualized_ir.tree().clone(),
-            virtualized_ir.payloads().clone(),
-        );
-        let gadget_initialization_pass =
-            VerifierGadgetInitializationPass::<B>::new(gadget_ir_view, arg_verifier.clone());
-        let gadget_ready_ir =
-            virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        // debug!(
-        //     "gadget ready ir:\n{}",
-        //     gadget_ready_ir.display_graphviz(true)
-        // );
-
-        let verify_ir_view = VerifierGadgetReadyIr::new(
-            gadget_ready_ir.tree().clone(),
-            gadget_ready_ir.payloads().clone(),
-        );
-        let verify_pass = VerifyPass::<B>::new(arg_verifier.clone(), verify_ir_view);
-        let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
-        verify_pass.take_result()?;
-
-        Ok((
-            VerifierIrStages {
-                initial: initial_ir,
-                output_planned: output_planned_ir,
-                gadget_planned: gadget_planned_ir,
-                tracked: tracked_ir,
-                virtualized: virtualized_ir,
-                gadget_ready: gadget_ready_ir,
-            },
-            arg_verifier,
-        ))
+    async fn preprocess_output_memtable(
+        &self,
+        output_memtable: Arc<MemTable>,
+    ) -> TTResult<Arc<MemTable>> {
+        self.normalize_output_memtable(output_memtable).await
     }
 
     async fn track_query_output(
@@ -360,27 +268,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
         Ok(())
     }
 
-    async fn extract_output_memtable(&self, query: &str) -> TTResult<Arc<MemTable>> {
-        let lp = self.shared_config().query_to_lp(query).await;
-        let optimized_lp = self.shared_config().analyze_and_optimize_lp(lp).await;
-        let df = datafusion::dataframe::DataFrame::new(
-            self.shared_config().session_ctx().state(),
-            optimized_lp,
-        );
-        let logical_schema = df.schema().as_arrow().clone();
+    async fn normalize_output_memtable(&self, result: Arc<MemTable>) -> TTResult<Arc<MemTable>> {
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(result.clone())?;
         let batches = df.collect().await?;
         let base_schema = batches
             .first()
             .map(|batch| batch.schema().as_ref().clone())
-            .unwrap_or_else(|| logical_schema.clone());
-        if query.contains("avg(") {
-            let batch_schema = batches.first().map(|batch| batch.schema());
-            debug!(
-                "extract_output_memtable verifier: logical_schema={:?}, first_batch_schema={:?}",
-                logical_schema,
-                batch_schema
-            );
-        }
+            .unwrap_or_else(|| result.schema().as_ref().clone());
         let (output_schema, output_batches) =
             Self::append_activator_and_pad_batches(&base_schema, batches)?;
         let mem_table = MemTable::try_new(Arc::new(output_schema), vec![output_batches])?;

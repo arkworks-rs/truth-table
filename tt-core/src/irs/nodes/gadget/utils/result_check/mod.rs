@@ -150,9 +150,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(t_table) = payload.get(INPUT_LABEL) else {
             return Ok(());
         };
+        println!("{}",t_table);
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
+        println!("{}",r_table);
         if active_row_multiset(t_table)? == active_row_multiset(r_table)? {
             Ok(())
         } else {

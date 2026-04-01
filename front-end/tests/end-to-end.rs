@@ -57,10 +57,10 @@ async fn run_query(query: &str) {
     let verifier_config = TTVerifierConfig::default();
     let verifier = TTVerifier::new(verifier_config, verifier_shared_config, arg_verifier);
 
-    let (_output_table, proof) = prover.prove(query).await.expect("prove should succeed");
+    let (output_table, proof) = prover.prove(query).await.expect("prove should succeed");
 
     verifier
-        .verify(query, &proof)
+        .verify(query, &proof, output_table)
         .await
         .expect("verifier should verify proof");
 }
