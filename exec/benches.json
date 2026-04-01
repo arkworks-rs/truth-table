@@ -13,23 +13,23 @@
                }
             },
             "tpch_q2_tt": {
-               "sample_count": 28,
-               "iter_count": 28,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "32.6 ms",
-                  "slowest": "43.96 ms",
-                  "median": "36.37 ms",
-                  "mean": "37.03 ms"
+                  "fastest": "1.728 s",
+                  "slowest": "1.728 s",
+                  "median": "1.728 s",
+                  "mean": "1.728 s"
                }
             },
             "tpch_q7_tt": {
-               "sample_count": 30,
-               "iter_count": 30,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "29.47 ms",
-                  "slowest": "40.17 ms",
-                  "median": "32.67 ms",
-                  "mean": "33.6 ms"
+                  "fastest": "1.269 s",
+                  "slowest": "1.269 s",
+                  "median": "1.269 s",
+                  "mean": "1.269 s"
                }
             },
             "tpch_q1_poneglyph": {
@@ -63,13 +63,13 @@
                }
             },
             "tpch_q4_tt": {
-               "sample_count": 71,
-               "iter_count": 71,
+               "sample_count": 2,
+               "iter_count": 2,
                "time": {
-                  "fastest": "12.65 ms",
-                  "slowest": "18.63 ms",
-                  "median": "13.84 ms",
-                  "mean": "14.06 ms"
+                  "fastest": "574.5 ms",
+                  "slowest": "615.2 ms",
+                  "median": "594.8 ms",
+                  "mean": "594.8 ms"
                }
             },
             "tpch_q5_poneglyph": {
@@ -83,23 +83,23 @@
                }
             },
             "tpch_q5_tt": {
-               "sample_count": 40,
-               "iter_count": 40,
+               "sample_count": 2,
+               "iter_count": 2,
                "time": {
-                  "fastest": "22.79 ms",
-                  "slowest": "32.51 ms",
-                  "median": "24.76 ms",
-                  "mean": "25.5 ms"
+                  "fastest": "968.6 ms",
+                  "slowest": "1.011 s",
+                  "median": "990 ms",
+                  "mean": "990 ms"
                }
             },
             "tpch_q6_tt": {
-               "sample_count": 100,
-               "iter_count": 100,
+               "sample_count": 2,
+               "iter_count": 2,
                "time": {
-                  "fastest": "8.971 ms",
-                  "slowest": "12.69 ms",
-                  "median": "9.412 ms",
-                  "mean": "9.687 ms"
+                  "fastest": "531.2 ms",
+                  "slowest": "617.5 ms",
+                  "median": "574.4 ms",
+                  "mean": "574.4 ms"
                }
             },
             "tpch_q8_poneglyph": {
@@ -113,13 +113,13 @@
                }
             },
             "tpch_q8_tt": {
-               "sample_count": 26,
-               "iter_count": 26,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "36.46 ms",
-                  "slowest": "42.03 ms",
-                  "median": "39.28 ms",
-                  "mean": "39.39 ms"
+                  "fastest": "2.278 s",
+                  "slowest": "2.278 s",
+                  "median": "2.278 s",
+                  "mean": "2.278 s"
                }
             },
             "tpch_q10_tt": {
@@ -143,43 +143,43 @@
                }
             },
             "tpch_q9_tt": {
-               "sample_count": 54,
-               "iter_count": 54,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "17.66 ms",
-                  "slowest": "19.69 ms",
-                  "median": "18.8 ms",
-                  "mean": "18.81 ms"
+                  "fastest": "1.144 s",
+                  "slowest": "1.144 s",
+                  "median": "1.144 s",
+                  "mean": "1.144 s"
                }
             },
             "tpch_q12_tt": {
-               "sample_count": 81,
-               "iter_count": 81,
+               "sample_count": 2,
+               "iter_count": 2,
                "time": {
-                  "fastest": "12 ms",
-                  "slowest": "12.88 ms",
-                  "median": "12.34 ms",
-                  "mean": "12.35 ms"
+                  "fastest": "708.5 ms",
+                  "slowest": "713.4 ms",
+                  "median": "710.9 ms",
+                  "mean": "710.9 ms"
                }
             },
             "tpch_q14_tt": {
-               "sample_count": 100,
-               "iter_count": 100,
+               "sample_count": 3,
+               "iter_count": 3,
                "time": {
-                  "fastest": "8.955 ms",
-                  "slowest": "10.25 ms",
-                  "median": "9.66 ms",
-                  "mean": "9.668 ms"
+                  "fastest": "233 ms",
+                  "slowest": "726 ms",
+                  "median": "605.7 ms",
+                  "mean": "521.5 ms"
                }
             },
             "tpch_q15_tt": {
-               "sample_count": 46,
-               "iter_count": 46,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "20.31 ms",
-                  "slowest": "22.57 ms",
-                  "median": "22.01 ms",
-                  "mean": "21.84 ms"
+                  "fastest": "1.488 s",
+                  "slowest": "1.488 s",
+                  "median": "1.488 s",
+                  "mean": "1.488 s"
                }
             },
             "tpch_q17_tt": {
@@ -203,33 +203,33 @@
                }
             },
             "tpch_q18_tt": {
-               "sample_count": 46,
-               "iter_count": 46,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "20.38 ms",
-                  "slowest": "22.68 ms",
-                  "median": "21.84 ms",
-                  "mean": "21.84 ms"
+                  "fastest": "1.401 s",
+                  "slowest": "1.401 s",
+                  "median": "1.401 s",
+                  "mean": "1.401 s"
                }
             },
             "tpch_q19_tt": {
-               "sample_count": 21,
-               "iter_count": 21,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "44.43 ms",
-                  "slowest": "50.39 ms",
-                  "median": "49.17 ms",
-                  "mean": "49.03 ms"
+                  "fastest": "2.058 s",
+                  "slowest": "2.058 s",
+                  "median": "2.058 s",
+                  "mean": "2.058 s"
                }
             },
             "tpch_q20_tt": {
-               "sample_count": 40,
-               "iter_count": 40,
+               "sample_count": 1,
+               "iter_count": 1,
                "time": {
-                  "fastest": "23.65 ms",
-                  "slowest": "25.63 ms",
-                  "median": "25.1 ms",
-                  "mean": "25.1 ms"
+                  "fastest": "1.78 s",
+                  "slowest": "1.78 s",
+                  "median": "1.78 s",
+                  "mean": "1.78 s"
                }
             }
          },
