@@ -16,7 +16,6 @@ use datafusion_expr::{
 use indexmap::IndexMap;
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::sync::Arc;
 
@@ -96,7 +95,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
             Some(crate::irs::payloads::PayloadStructure::PlanPayload(updated)),
         );
 
-        let key = format!("{REMAT_CONTIG_S_PREFIX}_{}", remat_key(&self.input));
+        let key = remat_contig_key(virtualized_ir.tree(), id);
         tracker_rc
             .borrow_mut()
             .insert_miscellaneous_field(key, B::F::from(s as u64));
@@ -229,7 +228,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
             return Ok(());
         };
         let tracker_rc = input_act.tracker();
-        let key = format!("{REMAT_CONTIG_S_PREFIX}_{}", remat_key(&self.input));
+        let key = remat_contig_key(virtualized_ir.tree(), id);
         let s_field = tracker_rc.borrow().miscellaneous_field_element(&key)?;
         let s = field_to_usize::<B::F>(s_field)?;
 
@@ -401,10 +400,48 @@ fn build_output_dataframe(input: DataFrame) -> DataFrame {
         .expect("rematerialize output sort should succeed")
 }
 
-fn remat_key<B: SnarkBackend>(input: &Node<B>) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    hasher.write(input.display().as_bytes());
-    hasher.finish()
+fn remat_contig_key<B: SnarkBackend>(
+    tree: &crate::irs::tree::Tree<B>,
+    id: crate::irs::nodes::NodeId,
+) -> String {
+    let path = structural_path_to_node(tree, id)
+        .unwrap_or_else(|| panic!("Rematerialize could not derive structural path for node {id}"));
+    let path = path
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    format!("{REMAT_CONTIG_S_PREFIX}_{path}")
+}
+
+fn structural_path_to_node<B: SnarkBackend>(
+    tree: &crate::irs::tree::Tree<B>,
+    target: crate::irs::nodes::NodeId,
+) -> Option<Vec<usize>> {
+    fn visit<B: SnarkBackend>(
+        node: &Arc<Node<B>>,
+        target: crate::irs::nodes::NodeId,
+        path: &mut Vec<usize>,
+    ) -> bool {
+        if node.id() == target {
+            return true;
+        }
+        for (index, child) in node.children().iter().enumerate() {
+            path.push(index);
+            if visit(child, target, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+
+    let mut path = Vec::new();
+    if visit(tree.root(), target, &mut path) {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn field_to_usize<F: ark_ff::PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {

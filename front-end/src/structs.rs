@@ -8,27 +8,31 @@ use ark_piop::{
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid,
 };
+use proof_planner::logical_plan_optimizer::OptimizationHints;
 use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
-use tt_core::irs::{
-    codec::{deserialize_empty_ir, serialize_empty_ir},
-    shared_ir::EmptyIr,
-};
+use tt_core::irs::codec::{deserialize_empty_ir, serialize_empty_ir};
+use tt_core::irs::shared_ir::EmptyIr;
+
+// Keep the length-prefixed proof framing stable while distinguishing the new
+// hint payload from older proofs that stored a serialized optimized IR here.
+const OPTIMIZATION_HINTS_MAGIC: &[u8; 4] = b"TTH1";
 
 pub struct TTProof<B: SnarkBackend> {
     snark_proof: SNARKProof<B>,
-    optimized_ir: EmptyIr<B>,
+    optimization_hints: OptimizationHints,
+    optimized_ir_bytes: Option<Vec<u8>>,
 }
 
 impl<B: SnarkBackend> Clone for TTProof<B>
 where
     SNARKProof<B>: Clone,
-    EmptyIr<B>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             snark_proof: self.snark_proof.clone(),
-            optimized_ir: self.optimized_ir.clone(),
+            optimization_hints: self.optimization_hints.clone(),
+            optimized_ir_bytes: self.optimized_ir_bytes.clone(),
         }
     }
 }
@@ -53,31 +57,62 @@ pub struct SnarkProofSizeBreakdown {
 }
 
 impl<B: SnarkBackend> TTProof<B> {
-    pub fn new(snark_proof: SNARKProof<B>, optimized_ir: EmptyIr<B>) -> Self {
-        Self {
+    pub fn new(
+        snark_proof: SNARKProof<B>,
+        optimization_hints: OptimizationHints,
+        optimized_ir: Option<&EmptyIr<B>>,
+    ) -> TTResult<Self> {
+        Ok(Self {
             snark_proof,
-            optimized_ir,
-        }
+            optimization_hints,
+            optimized_ir_bytes: optimized_ir.map(serialize_empty_ir).transpose()?,
+        })
     }
 
     pub fn into_inner(self) -> SNARKProof<B> {
         self.snark_proof
     }
 
-    pub fn into_parts(self) -> (SNARKProof<B>, EmptyIr<B>) {
-        (self.snark_proof, self.optimized_ir)
+    pub fn into_parts(self) -> (SNARKProof<B>, OptimizationHints, Option<Vec<u8>>) {
+        (
+            self.snark_proof,
+            self.optimization_hints,
+            self.optimized_ir_bytes,
+        )
     }
 
     pub fn as_inner(&self) -> &SNARKProof<B> {
         &self.snark_proof
     }
 
-    pub fn optimized_ir(&self) -> &EmptyIr<B> {
-        &self.optimized_ir
+    pub fn optimization_hints(&self) -> &OptimizationHints {
+        &self.optimization_hints
+    }
+
+    pub fn optimized_ir(&self) -> TTResult<Option<EmptyIr<B>>> {
+        self.optimized_ir_bytes
+            .as_deref()
+            .map(deserialize_empty_ir::<B>)
+            .transpose()
+    }
+
+    pub fn optimization_hints_serialized_size_bytes(&self) -> TTResult<usize> {
+        if self.optimization_hints.is_empty() {
+            return Ok(0);
+        }
+        let payload = bincode::serialize(&self.optimization_hints).map_err(|err| {
+            debug!(?err, "TTProof size: failed to serialize optimization hints");
+            SerializationError::InvalidData
+        })?;
+        Ok(OPTIMIZATION_HINTS_MAGIC.len() + payload.len())
     }
 
     pub fn optimized_ir_serialized_size_bytes(&self) -> TTResult<usize> {
-        Ok(serialize_empty_ir(&self.optimized_ir)?.len())
+        Ok(self
+            .optimized_ir_bytes
+            .as_ref()
+            .map(|bytes| bytes.len())
+            .unwrap_or(0))
     }
 
     pub fn snark_proof_serialized_size_bytes(&self) -> usize
@@ -304,12 +339,22 @@ where
         mut writer: W,
         compress: Compress,
     ) -> Result<(), SerializationError> {
-        let ir_bytes = serialize_empty_ir(&self.optimized_ir).map_err(|err| {
-            debug!(?err, "TTProof serialize: failed to serialize IR");
-            SerializationError::InvalidData
-        })?;
+        let ir_bytes = if let Some(bytes) = &self.optimized_ir_bytes {
+            bytes.clone()
+        } else if self.optimization_hints.is_empty() {
+            Vec::new()
+        } else {
+            let payload = bincode::serialize(&self.optimization_hints).map_err(|err| {
+                debug!(?err, "TTProof serialize: failed to serialize optimization hints");
+                SerializationError::InvalidData
+            })?;
+            let mut bytes = Vec::with_capacity(OPTIMIZATION_HINTS_MAGIC.len() + payload.len());
+            bytes.extend_from_slice(OPTIMIZATION_HINTS_MAGIC);
+            bytes.extend_from_slice(&payload);
+            bytes
+        };
         let ir_len = ir_bytes.len() as u64;
-        debug!(ir_len, "TTProof serialize: IR byte length");
+        debug!(ir_len, "TTProof serialize: plan artifact byte length");
         writer.write_all(&ir_len.to_le_bytes())?;
         writer.write_all(&ir_bytes)?;
         self.snark_proof
@@ -318,9 +363,11 @@ where
     }
 
     fn serialized_size(&self, compress: Compress) -> usize {
-        let ir_len = serialize_empty_ir(&self.optimized_ir)
+        let ir_len = self
+            .optimized_ir_bytes
+            .as_ref()
             .map(|bytes| bytes.len())
-            .unwrap_or(0);
+            .unwrap_or_else(|| self.optimization_hints_serialized_size_bytes().unwrap_or(0));
         8 + ir_len + self.snark_proof.serialized_size(compress)
     }
 }
@@ -342,12 +389,22 @@ where
         if ir_len > 0 {
             reader.read_exact(&mut ir_bytes)?;
         }
-        let optimized_ir =
-            deserialize_empty_ir::<B>(&ir_bytes).map_err(|_| SerializationError::InvalidData)?;
+        let (optimization_hints, optimized_ir_bytes) = if ir_len == 0 {
+            (OptimizationHints::default(), None)
+        } else if ir_bytes.starts_with(OPTIMIZATION_HINTS_MAGIC) {
+            (
+                bincode::deserialize::<OptimizationHints>(&ir_bytes[OPTIMIZATION_HINTS_MAGIC.len()..])
+                    .map_err(|_| SerializationError::InvalidData)?,
+                None,
+            )
+        } else {
+            (OptimizationHints::default(), Some(ir_bytes))
+        };
         let snark_proof = SNARKProof::<B>::deserialize_with_mode(reader, compress, _validate)?;
         Ok(Self {
             snark_proof,
-            optimized_ir,
+            optimization_hints,
+            optimized_ir_bytes,
         })
     }
 }

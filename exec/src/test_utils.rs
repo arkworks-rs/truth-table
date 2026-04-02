@@ -41,7 +41,7 @@ pub async fn prove_and_verify_query(
         oracle_paths.push(oracle);
     }
 
-    let proof_path = ProveBuilder::new()
+    let outputs = ProveBuilder::new()
         .with_query(query.to_owned())
         .with_parquet_paths(parquet_paths.clone())
         .with_oracle_paths(oracle_paths.clone())
@@ -53,9 +53,9 @@ pub async fn prove_and_verify_query(
 
     VerifyBuilder::new()
         .with_query(query.to_owned())
-        .with_parquet_paths(parquet_paths)
         .with_oracle_paths(oracle_paths)
-        .with_proof_path(proof_path)
+        .with_proof_path(outputs.proof_path)
+        .with_result_path(outputs.result_path)
         .with_vk_path(vk_path)
         .build()?
         .run()

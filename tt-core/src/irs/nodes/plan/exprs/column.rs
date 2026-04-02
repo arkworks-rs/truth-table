@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use arithmetic::ACTIVATOR_COL_NAME;
 use ark_piop::SnarkBackend;
@@ -211,6 +211,21 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
             .iter()
             .filter_map(|scope_weak| scope_weak.upgrade())
             .collect();
+        let output_schema_for_plan_node =
+            |plan_node: &crate::irs::nodes::PlanNode<B>| -> Option<datafusion::arrow::datatypes::SchemaRef> {
+                if !plan_node_may_contain_column(plan_node, &self.column) {
+                    return None;
+                }
+                let hint_df =
+                    <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
+                        B,
+                    >>::output(plan_node);
+                if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
+                    Some(Arc::new(hint_df.data_frame().schema().as_arrow().clone()))
+                } else {
+                    None
+                }
+            };
 
         let schema_ref = parent_node
             .as_ref()
@@ -218,7 +233,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 Node::Plan(crate::irs::nodes::PlanNode::LpBased(lp_node))
                     if schema_contains_column(lp_node.lp().schema(), &self.column) =>
                 {
-                    Some(lp_node.lp().schema().as_arrow().clone())
+                    Some(Arc::new(lp_node.lp().schema().as_arrow().clone()))
                 }
                 _ => None,
             })
@@ -227,43 +242,20 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                     Node::Plan(crate::irs::nodes::PlanNode::LpBased(lp_node))
                         if schema_contains_column(lp_node.lp().schema(), &self.column) =>
                     {
-                        Some(lp_node.lp().schema().as_arrow().clone())
+                        Some(Arc::new(lp_node.lp().schema().as_arrow().clone()))
                     }
                     _ => None,
                 })
             })
             .or_else(|| {
                 parent_node.as_ref().and_then(|parent| match parent.as_ref() {
-                    Node::Plan(plan_node) if plan_node_may_contain_column(plan_node, &self.column) => {
-                        let hint_df =
-                            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                                B,
-                            >>::output(plan_node);
-                        if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
-                            Some(hint_df.data_frame().schema().as_arrow().clone())
-                        } else {
-                            None
-                        }
-                    }
+                    Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
                     _ => None,
                 })
             })
             .or_else(|| {
                 scope_nodes.iter().find_map(|scope| match scope.as_ref() {
-                    Node::Plan(plan_node) => {
-                        if !plan_node_may_contain_column(plan_node, &self.column) {
-                            return None;
-                        }
-                        let hint_df =
-                            <crate::irs::nodes::PlanNode<B> as crate::irs::nodes::IsVerifierPlanNode<
-                                B,
-                            >>::output(plan_node);
-                        if schema_contains_column(hint_df.data_frame().schema(), &self.column) {
-                            Some(hint_df.data_frame().schema().as_arrow().clone())
-                        } else {
-                            None
-                        }
-                    }
+                    Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
                     Node::Gadget(_) => None,
                 })
             })
@@ -273,6 +265,23 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                     self.column
                 )
             });
+
+        // LP schemas do not carry verifier-only synthetic columns like __row_id__
+        // and __activator__. Pull those from the richer verifier plan payload
+        // schemas when available so prover/verifier column payloads stay aligned.
+        let system_schema_ref = parent_node
+            .as_ref()
+            .and_then(|parent| match parent.as_ref() {
+                Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
+                Node::Gadget(_) => None,
+            })
+            .or_else(|| {
+                scope_nodes.iter().find_map(|scope| match scope.as_ref() {
+                    Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
+                    Node::Gadget(_) => None,
+                })
+            })
+            .unwrap_or_else(|| schema_ref.clone());
 
         // Verifier planning needs only schema shape, not DataFusion projection execution.
         let selected_field =
@@ -285,7 +294,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
 
         let mut row_id_candidates = Vec::new();
         let mut activator_fields = Vec::new();
-        for field in schema_ref.fields() {
+        for field in system_schema_ref.fields() {
             if field.name() == arithmetic::ROW_ID_COL_NAME {
                 row_id_candidates.push(field.clone());
             } else if field.name() == ACTIVATOR_COL_NAME {

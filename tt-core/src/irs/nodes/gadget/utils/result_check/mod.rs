@@ -9,6 +9,7 @@ use arithmetic::{
 use ark_ff::{PrimeField, Zero};
 use ark_piop::{
     arithmetic::mat_poly::mle::MLE,
+    errors::SnarkError,
     verifier::structs::oracle::{Oracle, TrackedOracle},
     SnarkBackend,
 };
@@ -17,8 +18,9 @@ use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
+        nodes::{IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
         payloads::PayloadStructure,
+        tree::Tree,
     },
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
@@ -131,7 +133,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
         let src = match_r_rows_to_t_positions(t_table, res_table)?;
         let src_poly = build_result_check_src_poly::<B::F>(1usize << res_table.log_size(), &src);
-        prover.send_auxiliary_mv_poly(result_check_src_poly_key(id), src_poly)?;
+        prover.send_auxiliary_mv_poly(result_check_src_poly_key(gadget_ready_ir.tree(), id), src_poly)?;
         let r_table = build_r_table_from_res_table(res_table, t_table, &src)?;
 
         prove_result_check(prover, t_table, &r_table)
@@ -178,9 +180,24 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
-        let src_mle = sent_src_mle(verifier, id)?;
-        let r_on_t_support = scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle)?;
-        verify_result_check(verifier, t_table, &r_on_t_support)
+        let src_mle = sent_src_mle(verifier, gadget_ready_ir.tree(), id).map_err(|err| {
+            SnarkError::VerifierError(ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                format!("ResultCheck failed while loading src polynomial: {err:?}"),
+            ))
+        })?;
+        let r_on_t_support =
+            scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle).map_err(|err| {
+                SnarkError::VerifierError(
+                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+                        "ResultCheck failed while scattering verifier table onto T support: {err:?}"
+                    )),
+                )
+            })?;
+        verify_result_check(verifier, t_table, &r_on_t_support).map_err(|err| {
+            SnarkError::VerifierError(ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
+                format!("ResultCheck failed during final verifier checks: {err:?}"),
+            ))
+        })
     }
 
     fn prover_hints(&self) -> IndexMap<String, crate::irs::nodes::hints::HintDF> {
@@ -453,9 +470,10 @@ fn build_r_table_from_res_table<B: SnarkBackend>(
 
 fn sent_src_mle<B: SnarkBackend>(
     verifier: &mut ark_piop::verifier::ArgVerifier<B>,
+    tree: &Tree<B>,
     id: crate::irs::nodes::NodeId,
 ) -> ark_piop::errors::SnarkResult<MLE<B::F>> {
-    verifier.auxiliary_mv_poly(&result_check_src_poly_key(id))
+    verifier.auxiliary_mv_poly(&result_check_src_poly_key(tree, id))
 }
 
 fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
@@ -537,8 +555,38 @@ fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
     ))
 }
 
-fn result_check_src_poly_key(id: crate::irs::nodes::NodeId) -> String {
-    format!("{RESULT_CHECK_SRC_POLY_ID_PREFIX}_{id}")
+fn result_check_src_poly_key<B: SnarkBackend>(tree: &Tree<B>, id: NodeId) -> String {
+    let path = structural_path_to_node(tree, id)
+        .unwrap_or_else(|| panic!("ResultCheck could not derive structural path for node {id}"));
+    let path = path
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    format!("{RESULT_CHECK_SRC_POLY_ID_PREFIX}_{path}")
+}
+
+fn structural_path_to_node<B: SnarkBackend>(tree: &Tree<B>, target: NodeId) -> Option<Vec<usize>> {
+    fn visit<B: SnarkBackend>(node: &Arc<Node<B>>, target: NodeId, path: &mut Vec<usize>) -> bool {
+        if node.id() == target {
+            return true;
+        }
+        for (index, child) in node.children().iter().enumerate() {
+            path.push(index);
+            if visit(child, target, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+
+    let mut path = Vec::new();
+    if visit(tree.root(), target, &mut path) {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {

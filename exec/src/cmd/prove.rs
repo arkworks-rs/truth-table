@@ -49,7 +49,8 @@ impl Runnable for Prove {
 
         let runner = builder.build()?;
         let output = runner.run().await?;
-        println!("proof written to {}", output.display());
+        println!("proof written to {}", output.proof_path.display());
+        println!("result written to {}", output.result_path.display());
         Ok(())
     }
 
@@ -69,7 +70,8 @@ impl Runnable for Prove {
 
         match runner.run_with_build_timing().await {
             Ok((output, elapsed)) => {
-                println!("proof written to {}", output.display());
+                println!("proof written to {}", output.proof_path.display());
+                println!("result written to {}", output.result_path.display());
                 println!("build proof completed in {:.2?}", elapsed);
                 Ok(())
             }

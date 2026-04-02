@@ -1,4 +1,5 @@
 use arithmetic::table::ArithTable;
+use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::Field;
 use ark_piop::{verifier::ArgVerifier, verifier::structs::oracle::Oracle, SnarkBackend};
 use datafusion::{
@@ -14,13 +15,19 @@ use datafusion::{
 use datafusion_common::DataFusionError;
 use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
+use proof_planner::{
+    logical_plan_optimizer::apply_optimization_hints,
+    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
+};
 use std::sync::Arc;
+use tracing::debug;
 use tt_core::{
     ctx_oracles::CtxOracles,
-    errors::TTResult,
+    errors::{TTError, TTResult},
     irs::nodes::IsNode,
     irs::payloads::PayloadStructure,
     irs::shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
+    irs::tree::Tree,
     prover::payloads::MaterializedTable,
     verifier::{
         irs::{
@@ -39,9 +46,16 @@ use tt_core::{
     },
 };
 use tt_core::prover::passes::arithmetization::arithmetize_materialized_table;
-use arithmetic::table_oracle::TrackedTableOracle;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
+
+fn maybe_dump_ir_stage(label: &str, graphviz: &str) {
+    if let Ok(dir) = std::env::var("TT_DUMP_IR_DIR") {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = format!("{dir}/verifier_{label}.dot");
+        let _ = std::fs::write(path, graphviz);
+    }
+}
 
 pub struct VerifierIrStages<B: SnarkBackend> {
     pub initial: EmptyIr<B>,
@@ -137,10 +151,12 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
         self.track_query_output(&mut tracked_ir, output_memtable, arg_verifier.clone())
             .await?;
+        maybe_dump_ir_stage("tracked", &tracked_ir.display_graphviz(true));
 
         // Step 3: Apply the virtualization pass
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
+        maybe_dump_ir_stage("virtualized", &virtualized_ir.display_graphviz(true));
 
         let gadget_ir_view = VerifierVirtualizedIr::new(
             virtualized_ir.tree().clone(),
@@ -152,6 +168,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
             VerifierGadgetInitializationPass::<B>::new(gadget_ir_view, arg_verifier.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
+        maybe_dump_ir_stage("gadget_ready", &gadget_ready_ir.display_graphviz(true));
 
         let verify_ir_view = VerifierGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
@@ -163,8 +180,16 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let _final_ir = gadget_ready_ir.apply_local_pass_sequential(&verify_pass);
 
         // Step 6: Verify the SNARK verification
-        verify_pass.take_result()?;
-        arg_verifier.verify()?;
+        verify_pass.take_result().map_err(|err| {
+            TTError::DataFusion(DataFusionError::Internal(format!(
+                "verifier verify_pass failed before cryptographic verification: {err:?}"
+            )))
+        })?;
+        arg_verifier.verify().map_err(|err| {
+            TTError::DataFusion(DataFusionError::Internal(format!(
+                "verifier cryptographic verification failed: {err:?}"
+            )))
+        })?;
         Ok(())
     }
 
@@ -195,15 +220,47 @@ impl<B: SnarkBackend> TTVerifier<B> {
     ///
     /// This intentionally excludes tracking/virtualization/gadget-init/verify passes
     /// and excludes cryptographic verification.
-    pub fn preprocess_query(&self, _query: &str, proof: &TTProof<B>) -> GadgetPlannedIr<B> {
-        let initial_ir = proof.optimized_ir().clone();
-        let output_planned_ir =
-            initial_ir.apply_local_pass_sequential(&self.verifier_config().planning_pass());
-        output_planned_ir.apply_local_pass_sequential(
+    pub async fn preprocess_query(
+        &self,
+        query: &str,
+        proof: &TTProof<B>,
+    ) -> TTResult<GadgetPlannedIr<B>> {
+        let initial_lp = self.shared_config().query_to_lp(query).await;
+        debug!("verifier initial logical plan:\n{}", initial_lp.display_graphviz());
+        let analyzed_and_optimized_lp = self
+            .shared_config()
+            .analyze_and_optimize_lp(initial_lp)
+            .await;
+        let analyzed_and_optimized_lp = apply_optimization_hints(
+            analyzed_and_optimized_lp,
+            proof.optimization_hints(),
+        )
+        .map_err(tt_core::errors::TTError::from)?;
+        debug!(
+            "verifier optimized and analyzed logical plan:\n{}",
+            analyzed_and_optimized_lp.display_graphviz()
+        );
+        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
+        let initial_ir = EmptyIr::<B>::new_empty(tree);
+        debug!("verifier initial ir:\n{}", initial_ir.display_graphviz(true));
+        let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
+        let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
+        debug!(
+            "verifier optimized initial ir:\n{}",
+            optimized_initial_ir.display_graphviz(true)
+        );
+        let output_planned_ir = optimized_initial_ir
+            .apply_local_pass_sequential(&self.verifier_config().planning_pass());
+        let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
             &self
                 .verifier_config()
                 .gadget_planning_pass(&output_planned_ir),
-        )
+        );
+        debug!(
+            "verifier gadget planned ir:\n{}",
+            gadget_planned_ir.display_graphviz(true)
+        );
+        Ok(gadget_planned_ir)
     }
 
     async fn preprocess_query_with_output(
@@ -212,7 +269,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         proof: &TTProof<B>,
         output_memtable: Arc<MemTable>,
     ) -> TTResult<(GadgetPlannedIr<B>, Arc<MemTable>)> {
-        let gadget_planned_ir = self.preprocess_query(query, proof);
+        let gadget_planned_ir = self.preprocess_query(query, proof).await?;
         let output_memtable = self.preprocess_output_memtable(output_memtable).await?;
         Ok((gadget_planned_ir, output_memtable))
     }

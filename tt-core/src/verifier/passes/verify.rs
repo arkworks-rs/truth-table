@@ -9,7 +9,7 @@ use crate::{
 use ark_piop::{
     SnarkBackend,
     errors::{SnarkError, SnarkResult},
-    verifier::ArgVerifier,
+    verifier::{ArgVerifier, errors::VerifierError},
 };
 use std::cell::RefCell;
 
@@ -91,7 +91,14 @@ where
                     gadget_node.verify(&mut arg_verifier, &mut gadget_ready_ir, id)
                 };
                 if let Err(err) = result {
-                    *self.error.borrow_mut() = Some(err);
+                    *self.error.borrow_mut() = Some(SnarkError::VerifierError(
+                        VerifierError::VerifierCheckFailed(format!(
+                            "verify pass failed in gadget {} under parent {}: {:?}",
+                            gadget_node.name(),
+                            parent_name,
+                            err
+                        )),
+                    ));
                     None
                 } else {
                     if tracing::level_enabled!(tracing::Level::INFO) {

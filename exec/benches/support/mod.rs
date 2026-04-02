@@ -423,7 +423,10 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    let gadget_planned_ir = state.verifier.preprocess_query(&state.query, &state.proof);
+    let gadget_planned_ir = block_on_verifier(
+        state.verifier.preprocess_query(&state.query, &state.proof),
+    )
+    .expect("preprocess verifier query for bench");
     *state
         .preprocessed_gadget_ir
         .lock()

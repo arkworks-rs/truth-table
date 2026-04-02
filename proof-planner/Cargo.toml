@@ -25,6 +25,7 @@ datafusion-functions-aggregate = { workspace = true }
 tokio = { workspace = true }
 indexmap = { workspace = true }
 tracing = { workspace = true }
+serde = { workspace = true }
 [dev-dependencies]
 ark-test-curves = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }

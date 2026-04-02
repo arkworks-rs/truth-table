@@ -27,6 +27,9 @@ mod merge_filters;
 mod normalize_sort_fetch;
 mod normalize_table_scan;
 mod rematerialize;
+pub use rematerialize::{
+    OptimizationHint, OptimizationHints, apply_optimization_hints, collect_data_dependent_hints,
+};
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
 //     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
 //         Arc::new(ExtractEquijoinPredicate),
@@ -41,7 +44,7 @@ mod rematerialize;
 // }
 // fn observer(_plan: &LogicalPlan, _rule: &dyn OptimizerRule) {}
 
-pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send + Sync>> {
+pub fn rules(_session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send + Sync>> {
     vec![
         Arc::new(EliminateNestedUnion::new()),
         Arc::new(SimplifyExpressions::new()),
@@ -63,14 +66,13 @@ pub fn rules(session_ctx: &SessionContext) -> Vec<Arc<dyn OptimizerRule + Send +
         // The previous optimizations added expressions and projections,
         // that might benefit from the following rules
         Arc::new(SimplifyExpressions::new()),
-        // Arc::new(CommonSubexprEliminate::new()),
         Arc::new(EliminateGroupByConstant::new()),
         Arc::new(normalize_table_scan::NormalizeTableScanPushdown::new()),
         Arc::new(normalize_sort_fetch::NormalizeSortFetch::new()),
         Arc::new(merge_filters::MergeConsecutiveFilters::new()),
         Arc::new(lift_join_filter::LiftJoinFilter::new()),
         Arc::new(customized_optimize_projections::OptimizeProjections::new()),
-        Arc::new(rematerialize::RematerializeRule::new(session_ctx.state())),
+        // Rematerialize is data-dependent, so prover emits hints and verifier replays them.
         Arc::new(AddResultCheck::new()),
     ]
 }

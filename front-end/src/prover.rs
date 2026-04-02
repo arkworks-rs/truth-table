@@ -18,7 +18,10 @@ use datafusion::{
 };
 use datafusion_common::{DataFusionError, ScalarValue};
 use indexmap::IndexMap;
-use proof_planner::proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer};
+use proof_planner::{
+    logical_plan_optimizer::{apply_optimization_hints, collect_data_dependent_hints},
+    proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer},
+};
 use tracing::debug;
 #[cfg(feature = "honest-prover")]
 use tt_core::prover::passes::honest_prover::HonestProverPass;
@@ -48,6 +51,14 @@ use tt_core::{
 };
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
+
+fn maybe_dump_ir_stage(label: &str, graphviz: &str) {
+    if let Ok(dir) = std::env::var("TT_DUMP_IR_DIR") {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = format!("{dir}/prover_{label}.dot");
+        let _ = std::fs::write(path, graphviz);
+    }
+}
 
 pub struct TTProverConfig<B: SnarkBackend> {
     allow_table_scan_commit_without_ctx: bool,
@@ -177,6 +188,12 @@ impl<B: SnarkBackend> TTProver<B> {
             .shared_config()
             .analyze_and_optimize_lp(initial_lp)
             .await;
+        let optimization_hints = collect_data_dependent_hints(
+            self.shared_config().session_ctx(),
+            &analyzed_and_optimized_lp,
+        )?;
+        let analyzed_and_optimized_lp =
+            apply_optimization_hints(analyzed_and_optimized_lp, &optimization_hints)?;
 
         debug!(
             "optimized and analyzed logical plan:\n{}",
@@ -199,7 +216,6 @@ impl<B: SnarkBackend> TTProver<B> {
         );
 
         // Step 5: Apply the output planning pass
-        let optimized_tree = optimized_initial_ir.tree().clone();
         let output_planned_ir = optimized_initial_ir
             .apply_local_pass_parallel(&self.prover_config().output_planning_pass());
         debug!(
@@ -257,6 +273,7 @@ impl<B: SnarkBackend> TTProver<B> {
         drop(arithmetized_ir);
         drop(committed_ir);
         debug!("tracked ir:\n{}", tracked_ir.display_graphviz(true));
+        maybe_dump_ir_stage("tracked", &tracked_ir.display_graphviz(true));
 
         let output_memtable = if capture_output_memtable {
             Some(
@@ -282,6 +299,7 @@ impl<B: SnarkBackend> TTProver<B> {
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&virtualization_pass);
         drop(tracked_ir);
         debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
+        maybe_dump_ir_stage("virtualized", &virtualized_ir.display_graphviz(true));
 
 
         // Step 12: Apply the gadget initialization pass
@@ -299,6 +317,7 @@ impl<B: SnarkBackend> TTProver<B> {
             "gadget ready ir:\n{}",
             gadget_ready_ir.display_graphviz(true)
         );
+        maybe_dump_ir_stage("gadget_ready", &gadget_ready_ir.display_graphviz(true));
 
         // Step 13: Apply the honest prover pass (conditionally)
         let proving_ir_view = ProverGadgetReadyIr::new(
@@ -327,8 +346,7 @@ impl<B: SnarkBackend> TTProver<B> {
         proving_pass.take_result()?;
         let mut arg_prover = arg_prover;
         let arg_proof = arg_prover.build_proof().unwrap();
-        let optimized_ir = EmptyIr::<B>::new_empty(optimized_tree);
-        let tt_proof = TTProof::new(arg_proof, optimized_ir);
+        let tt_proof = TTProof::new(arg_proof, optimization_hints, None)?;
         Ok((output_memtable, table_scan, tt_proof))
     }
 

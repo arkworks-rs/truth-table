@@ -5,7 +5,7 @@ use clap::Args;
 
 use super::{
     Runnable,
-    common::{OracleArg, ParquetArg, QueryArg},
+    common::{OracleArg, QueryArg},
 };
 use crate::verify::VerifyBuilder;
 
@@ -15,14 +15,15 @@ pub struct Verify {
     pub query: QueryArg,
 
     #[command(flatten)]
-    pub parquet: ParquetArg,
-
-    #[command(flatten)]
     pub oracle: OracleArg,
 
     /// Path to the proof artifact
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     pub proof: PathBuf,
+
+    /// Path to the prover-produced result parquet
+    #[arg(long = "result-path", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+    pub result_path: PathBuf,
 
     /// Path to serialized verifying key (TTVerifyingKey)
     #[arg(long = "vk-path", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
@@ -39,9 +40,9 @@ impl Runnable for Verify {
         let sql = self.query.resolve_sql()?;
         let runner = VerifyBuilder::new()
             .with_query(sql)
-            .with_parquet_paths(self.parquet.parquet)
             .with_oracle_paths(self.oracle.oracle)
             .with_proof_path(self.proof)
+            .with_result_path(self.result_path)
             .with_vk_path(self.vk_path)
             .build()?;
 

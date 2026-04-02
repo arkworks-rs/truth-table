@@ -5,6 +5,7 @@ use ark_piop::{DefaultSnarkBackend, prover::ArgProver};
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
+    datasource::TableProvider,
     optimizer::{Analyzer, Optimizer, OptimizerContext},
     prelude::{ParquetReadOptions, SessionContext},
 };
@@ -19,6 +20,7 @@ use std::{
     fs::{self, File},
     io::{BufReader, BufWriter, Write},
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tracing::instrument;
@@ -28,6 +30,11 @@ use tt_core::{
 };
 
 type B = DefaultSnarkBackend;
+
+pub struct ProveOutputs {
+    pub proof_path: PathBuf,
+    pub result_path: PathBuf,
+}
 
 /// Builder ProveRunner instances.
 pub struct ProveBuilder {
@@ -114,6 +121,7 @@ impl ProveBuilder {
         }
 
         let output_path = resolve_output_path(self.output_path)?;
+        let result_output_path = resolve_result_output_path(&output_path);
         let pk_path = match self.pk_path {
             Some(path) => path,
             None => {
@@ -129,6 +137,7 @@ impl ProveBuilder {
             oracle_paths,
             pk_path,
             output_path,
+            result_output_path,
         })
     }
 }
@@ -145,25 +154,38 @@ pub struct ProveRunner {
     pk_path: PathBuf,
     /// Output path for the generated proof.
     output_path: PathBuf,
+    /// Output path for the prover-produced result parquet.
+    result_output_path: PathBuf,
 }
 
 impl ProveRunner {
     #[instrument(level = "debug", skip_all)]
-    pub async fn run(&self) -> Result<PathBuf> {
+    pub async fn run(&self) -> Result<ProveOutputs> {
         let prover: TTProver<B> = self.build_tt_prover().await?;
-        let (_, proof) = prover.prove(&self.query).await?;
+        let (output_memtable, proof) = prover.prove(&self.query).await?;
         self.write_proof(&proof)?;
-        Ok(self.output_path.clone())
+        self.write_result_parquet(output_memtable).await?;
+        Ok(ProveOutputs {
+            proof_path: self.output_path.clone(),
+            result_path: self.result_output_path.clone(),
+        })
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn run_with_build_timing(&self) -> Result<(PathBuf, Duration)> {
+    pub async fn run_with_build_timing(&self) -> Result<(ProveOutputs, Duration)> {
         let prover: TTProver<B> = self.build_tt_prover().await?;
         let start = Instant::now();
-        let (_, proof) = prover.prove(&self.query).await?;
+        let (output_memtable, proof) = prover.prove(&self.query).await?;
         let elapsed = start.elapsed();
         self.write_proof(&proof)?;
-        Ok((self.output_path.clone(), elapsed))
+        self.write_result_parquet(output_memtable).await?;
+        Ok((
+            ProveOutputs {
+                proof_path: self.output_path.clone(),
+                result_path: self.result_output_path.clone(),
+            },
+            elapsed,
+        ))
     }
     #[instrument(level = "debug", skip_all)]
     pub async fn build_tt_prover(&self) -> Result<TTProver<B>> {
@@ -287,6 +309,46 @@ impl ProveRunner {
             .with_context(|| format!("failed to flush {}", self.output_path.display()))?;
         Ok(())
     }
+
+    #[instrument(level = "debug", skip_all)]
+    async fn write_result_parquet(&self, mem_table: Arc<datafusion::datasource::MemTable>) -> Result<()> {
+        use datafusion::parquet::arrow::ArrowWriter;
+
+        if let Some(parent) = self.result_output_path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory {}", parent.display()))?;
+        }
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_table(mem_table.clone())
+            .context("failed to read prover output memtable")?;
+        let batches = df.collect().await.context("failed to collect prover output memtable")?;
+        let schema = batches
+            .first()
+            .map(|batch| batch.schema())
+            .unwrap_or_else(|| mem_table.schema());
+
+        let file = File::create(&self.result_output_path).with_context(|| {
+            format!(
+                "failed to create result parquet {}",
+                self.result_output_path.display()
+            )
+        })?;
+        let mut writer = ArrowWriter::try_new(file, schema, None)
+            .context("failed to create parquet writer for prover result")?;
+        for batch in &batches {
+            writer
+                .write(batch)
+                .context("failed to write prover result batch to parquet")?;
+        }
+        writer
+            .close()
+            .context("failed to finalize prover result parquet")?;
+        Ok(())
+    }
 }
 
 #[instrument(level = "debug", skip_all)]
@@ -336,4 +398,16 @@ fn resolve_output_path(requested: Option<PathBuf>) -> Result<PathBuf> {
             .context("failed to resolve current working directory")?
             .join(DEFAULT_PROOF_FILE)),
     }
+}
+
+fn resolve_result_output_path(proof_path: &Path) -> PathBuf {
+    let stem = proof_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("proof");
+    let file_name = format!("{stem}.result.parquet");
+    proof_path
+        .parent()
+        .map(|parent| parent.join(&file_name))
+        .unwrap_or_else(|| PathBuf::from(file_name))
 }

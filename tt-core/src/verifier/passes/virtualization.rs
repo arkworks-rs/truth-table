@@ -8,11 +8,23 @@ use crate::irs::payloads::PayloadStructure;
 use crate::irs::{
     ir::LocalPass,
     ir::PassOrder,
-    nodes::{Node, NodeId},
+    nodes::{IsNode, Node, NodeId},
 };
 use crate::verifier::irs::{TrackedIr, VirtualizedIr};
 use crate::verifier::payloads::{TrackedPayload, VirtualizedPayload};
 use arithmetic::table_oracle::TrackedTableOracle;
+
+fn parent_name_for<B: SnarkBackend>(
+    tree: &crate::irs::tree::Tree<B>,
+    id: NodeId,
+) -> Option<String> {
+    for (_parent_id, node) in tree.arena().iter() {
+        if node.children().iter().any(|child| child.id() == id) {
+            return Some(node.name());
+        }
+    }
+    None
+}
 
 /// A virtualization pass that allows nodes to inject virtual witnesses into the IR
 ///
@@ -58,8 +70,15 @@ where
         // Let each node inject its virtual witness into the shared IR view.
         let updated = {
             let mut ir = self.virtualized_ir.borrow_mut();
-            node.add_virtual_witness(id, &mut ir)
-                .expect("virtual witness insertion should succeed");
+            if let Err(err) = node.add_virtual_witness(id, &mut ir) {
+                let parent = parent_name_for(ir.tree(), id).unwrap_or_else(|| "<none>".to_string());
+                panic!(
+                    "virtual witness insertion should succeed for node {} under parent {}: {:?}",
+                    node.name(),
+                    parent,
+                    err
+                );
+            }
             ir.payloads().get(&id).cloned().flatten()
         };
 
