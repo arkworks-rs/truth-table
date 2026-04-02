@@ -645,8 +645,8 @@ impl LogicalPlanRepr {
                 } else if let Some(result_check) = extension
                     .node
                     .as_any()
-                    .downcast_ref::<result_check::ResultCheckLogicalNode>()
-                {
+                    .downcast_ref::<result_check::ResultCheckLogicalNode>(
+                ) {
                     LogicalPlanRepr::ExtensionResultCheck {
                         input: Box::new(LogicalPlanRepr::from_plan(result_check.input())?),
                     }
@@ -1397,8 +1397,8 @@ pub fn deserialize_empty_ir<B: SnarkBackend>(bytes: &[u8]) -> TTResult<EmptyIr<B
 }
 
 fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinModeRepr>) {
-    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() {
-        if matches!(lp_node.lp(), LogicalPlan::Join(_)) {
+    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref()
+        && matches!(lp_node.lp(), LogicalPlan::Join(_)) {
             let mode = node
                 .children()
                 .iter()
@@ -1413,7 +1413,6 @@ fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinMo
                 .unwrap_or(gadget_join::JoinMode::MANY_TO_MANY);
             out.push(JoinModeRepr::from_join_mode(mode));
         }
-    }
 
     for child in node.children() {
         collect_join_modes(&child, out);
@@ -1421,8 +1420,8 @@ fn collect_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, out: &mut Vec<JoinMo
 }
 
 fn apply_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, modes: &[JoinModeRepr], idx: &mut usize) {
-    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref() {
-        if matches!(lp_node.lp(), LogicalPlan::Join(_)) {
+    if let Node::Plan(PlanNode::LpBased(lp_node)) = node.as_ref()
+        && matches!(lp_node.lp(), LogicalPlan::Join(_)) {
             if let Some(mode) = modes.get(*idx) {
                 for child in node.children() {
                     let Node::Gadget(gadget) = child.as_ref() else {
@@ -1436,7 +1435,6 @@ fn apply_join_modes<B: SnarkBackend>(node: &Arc<Node<B>>, modes: &[JoinModeRepr]
             }
             *idx += 1;
         }
-    }
 
     for child in node.children() {
         apply_join_modes(&child, modes, idx);

@@ -311,7 +311,10 @@ impl ProveRunner {
     }
 
     #[instrument(level = "debug", skip_all)]
-    async fn write_result_parquet(&self, mem_table: Arc<datafusion::datasource::MemTable>) -> Result<()> {
+    async fn write_result_parquet(
+        &self,
+        mem_table: Arc<datafusion::datasource::MemTable>,
+    ) -> Result<()> {
         use datafusion::parquet::arrow::ArrowWriter;
 
         if let Some(parent) = self.result_output_path.parent()
@@ -325,7 +328,10 @@ impl ProveRunner {
         let df = ctx
             .read_table(mem_table.clone())
             .context("failed to read prover output memtable")?;
-        let batches = df.collect().await.context("failed to collect prover output memtable")?;
+        let batches = df
+            .collect()
+            .await
+            .context("failed to collect prover output memtable")?;
         let schema = batches
             .first()
             .map(|batch| batch.schema())

@@ -4,7 +4,6 @@
 
 use crate::{
     irs::ir::Ir,
-    irs::payloads::HintDFPayload,
     prover::payloads::{
         ArithPayload, CommittedPayload, GadgetReadyPayload, MaterializedPayload, TrackedPayload,
         VirtualizedPayload,

@@ -1,18 +1,11 @@
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
-use datafusion::arrow::{
-    array::{ArrayRef, BooleanArray},
-    compute::{concat, concat_batches},
-    record_batch::RecordBatch,
-};
 use datafusion::functions_window::expr_fn::row_number;
-use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::{Column, DataFusionError, Result as DataFusionResult, ScalarValue};
+use datafusion::prelude::DataFrame;
+use datafusion_common::Column;
 use datafusion_expr::{
     Expr, ExprFunctionExt, FetchType, Limit, SkipType, col, expr::Sort as SortExpr, expr_fn::when,
     lit,
 };
-use std::sync::Arc;
-use tokio::runtime::RuntimeFlavor;
 
 pub(super) fn build_output_dataframe(input: &DataFrame, limit: &Limit) -> DataFrame {
     let input_df = crate::irs::nodes::hints::sort_by_row_id_if_present(input.clone())

@@ -213,14 +213,13 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint =
-            populate_output_expr(
-                &mut gadget_payload,
-                &input_hint,
-                &self.sort_specs,
-                self.fetch,
-                false,
-            );
+        let output_hint = populate_output_expr(
+            &mut gadget_payload,
+            &input_hint,
+            &self.sort_specs,
+            self.fetch,
+            false,
+        );
         // Drop row-id from the input sort-exprs payload after it's been used for ordering.
         let sanitized_input = crate::irs::nodes::hints::strip_row_id_from_hint(&input_hint);
         gadget_payload.insert(INPUT_SORT_EXPRS.to_string(), sanitized_input);
@@ -283,14 +282,13 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             None => return Ok(()),
         };
 
-        let output_hint =
-            populate_output_expr(
-                &mut gadget_payload,
-                &input_hint,
-                &self.sort_specs,
-                self.fetch,
-                true,
-            );
+        let output_hint = populate_output_expr(
+            &mut gadget_payload,
+            &input_hint,
+            &self.sort_specs,
+            self.fetch,
+            true,
+        );
         // INPUT_SORT_EXPRS is not consumed during gadget wiring for OrderBy.
         // Avoid extra verifier-side projection work here.
         populate_sort_gadget_table(planned_ir, self.sort_gadget.id(), &output_hint);

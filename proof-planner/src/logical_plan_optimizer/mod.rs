@@ -5,14 +5,12 @@ use add_result_check::AddResultCheck;
 use datafusion::{
     optimizer::{
         common_subexpr_eliminate::CommonSubexprEliminate,
-        decorrelate_predicate_subquery::DecorrelatePredicateSubquery,
         eliminate_cross_join::EliminateCrossJoin,
         eliminate_duplicated_expr::EliminateDuplicatedExpr, eliminate_filter::EliminateFilter,
         eliminate_group_by_constant::EliminateGroupByConstant, eliminate_join::EliminateJoin,
         eliminate_limit::EliminateLimit, eliminate_nested_union::EliminateNestedUnion,
         eliminate_one_union::EliminateOneUnion,
         extract_equijoin_predicate::ExtractEquijoinPredicate,
-        optimize_projections::OptimizeProjections,
         propagate_empty_relation::PropagateEmptyRelation, push_down_filter::PushDownFilter,
         push_down_limit::PushDownLimit, scalar_subquery_to_join::ScalarSubqueryToJoin,
         simplify_expressions::SimplifyExpressions, OptimizerRule,
@@ -28,7 +26,7 @@ mod normalize_sort_fetch;
 mod normalize_table_scan;
 mod rematerialize;
 pub use rematerialize::{
-    OptimizationHint, OptimizationHints, apply_optimization_hints, collect_data_dependent_hints,
+    apply_optimization_hints, collect_data_dependent_hints, OptimizationHint, OptimizationHints,
 };
 // pub(crate) fn optimize_logical_plan(plan: LogicalPlan) -> LogicalPlan {
 //     let rules: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![

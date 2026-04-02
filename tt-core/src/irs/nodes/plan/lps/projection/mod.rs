@@ -1,9 +1,9 @@
 use std::sync::{Arc, Weak};
 
 use arithmetic::table_oracle::TrackedTableOracle;
-use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME, is_system_column};
+use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::Schema;
 use datafusion_expr::{LogicalPlan, Projection};
 use indexmap::IndexMap;
 
@@ -178,8 +178,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -352,8 +352,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

@@ -79,8 +79,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        let fxs = fold_table_to_single_col::<B>(&left, keyed_sumcheck::FXS_LABEL);
-        let gxs = fold_table_to_single_col::<B>(&right, keyed_sumcheck::GXS_LABEL);
+        let fxs = fold_table_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL);
+        let gxs = fold_table_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL);
         let mfxs = constant_one_table::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
         let mgxs = constant_one_table::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
 
@@ -101,8 +101,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -134,8 +134,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
             .get(RIGHT_LABEL)
             .unwrap_or_else(|| panic!("Permutation gadget missing {}", RIGHT_LABEL));
 
-        let fxs = fold_table_oracle_to_single_col::<B>(&left, keyed_sumcheck::FXS_LABEL);
-        let gxs = fold_table_oracle_to_single_col::<B>(&right, keyed_sumcheck::GXS_LABEL);
+        let fxs = fold_table_oracle_to_single_col::<B>(left, keyed_sumcheck::FXS_LABEL);
+        let gxs = fold_table_oracle_to_single_col::<B>(right, keyed_sumcheck::GXS_LABEL);
         let mfxs = constant_one_table_oracle::<B>(&fxs, keyed_sumcheck::MFXS_LABEL);
         let mgxs = constant_one_table_oracle::<B>(&gxs, keyed_sumcheck::MGXS_LABEL);
 
@@ -156,8 +156,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

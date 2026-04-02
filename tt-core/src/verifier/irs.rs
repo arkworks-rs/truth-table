@@ -3,10 +3,7 @@
 //! This module defines type aliases for the various IRs the verifier's pipeline, ranging from simple plans for computing the witnesses to fully arithmetized and tracked polynomials ready for a SNARK verifier.
 
 use crate::{
-    irs::{
-        ir::Ir,
-        payloads::{HintDFDFPayload, HintDFPayload},
-    },
+    irs::ir::Ir,
     verifier::payloads::{GadgetReadyPayload, TrackedPayload, VirtualizedPayload},
 };
 

@@ -7,7 +7,7 @@ use crate::irs::{
         Node, NodeId, VerifierNodeOps,
         gadget::{lps::join, utils::match_pair_check},
     },
-    payloads::{HintDFDFPayload, HintDFPayload, PayloadStructure},
+    payloads::{HintDFDFPayload, PayloadStructure},
     shared_ir::OutputPlannedIr,
 };
 use ark_piop::SnarkBackend;

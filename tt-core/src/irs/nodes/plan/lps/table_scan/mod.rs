@@ -57,8 +57,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -98,8 +98,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsProverPlanNode<B> for LpNode {
 impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
-        use datafusion_expr::{LogicalPlan, logical_plan::EmptyRelation};
         use datafusion_expr::lit;
+        use datafusion_expr::{LogicalPlan, logical_plan::EmptyRelation};
         use indexmap::IndexMap;
         use std::sync::OnceLock;
 
@@ -178,8 +178,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

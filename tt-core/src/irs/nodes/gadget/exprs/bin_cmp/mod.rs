@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, is_system_column, table::TrackedTable};
-use ark_ff::{One, PrimeField};
+use ark_ff::One;
 use ark_piop::SnarkBackend;
 use ark_piop::prover::structs::polynomial::TrackedPoly;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Schema};
@@ -397,8 +397,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for BinCmpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -552,8 +552,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for BinCmpNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

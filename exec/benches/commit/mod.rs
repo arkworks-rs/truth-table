@@ -115,7 +115,7 @@ fn commit_content_len(case: CommitCase) -> usize {
     let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, prover);
     let (table_scan_table, proof) =
         block_on(prover.prove_with_table_scan(&query)).expect("prove with table-scan");
-    verifier.set_proof(proof.into_inner());
+    verifier.set_proof(proof.snark_proof());
 
     let tracked_oracle = TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)
         .expect("convert tracked table to oracle");

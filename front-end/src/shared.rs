@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use ark_piop::SnarkBackend;
+use async_trait::async_trait;
 use datafusion::{
     config::ConfigOptions,
     execution::{context::QueryPlanner, session_state::SessionState},
@@ -11,12 +11,11 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
-use datafusion_expr::{LogicalPlan, logical_plan::UserDefinedLogicalNode};
-use tt_core::irs::nodes::plan::{
-    rematerialize::RematerializeLogicalNode,
-    result_check::ResultCheckLogicalNode,
-};
+use datafusion_expr::{logical_plan::UserDefinedLogicalNode, LogicalPlan};
 use tt_core::ctx_oracles::CtxOracles;
+use tt_core::irs::nodes::plan::{
+    rematerialize::RematerializeLogicalNode, result_check::ResultCheckLogicalNode,
+};
 
 pub struct TTSharedConfig<B: SnarkBackend> {
     analyzer: Analyzer,
@@ -121,7 +120,9 @@ impl QueryPlanner for TTQueryPlanner {
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
         let planner =
             DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(TTNoOpExtensionPlanner)]);
-        planner.create_physical_plan(logical_plan, session_state).await
+        planner
+            .create_physical_plan(logical_plan, session_state)
+            .await
     }
 }
 

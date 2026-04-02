@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_COL_NAME, ROW_ID_COL_NAME};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion_common::Statistics;
-use datafusion_expr::{Case, Expr};
+use datafusion_expr::Case;
 use indexmap::IndexMap;
 
 use crate::irs::nodes::{
@@ -90,8 +89,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -206,8 +205,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

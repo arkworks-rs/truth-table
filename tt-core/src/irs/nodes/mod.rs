@@ -302,8 +302,7 @@ impl<B: SnarkBackend> Node<B> {
                     .is_some()
                 {
                     Arc::new_cyclic(|weak_self| {
-                        let node =
-                            result_check::LpNode::from_lp(plan.clone(), weak_self.clone());
+                        let node = result_check::LpNode::from_lp(plan.clone(), weak_self.clone());
                         Node::Plan(PlanNode::LpBased(Arc::new(node)))
                     })
                 } else {

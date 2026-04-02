@@ -139,8 +139,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -248,10 +248,12 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
                 })
             })
             .or_else(|| {
-                parent_node.as_ref().and_then(|parent| match parent.as_ref() {
-                    Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
-                    _ => None,
-                })
+                parent_node
+                    .as_ref()
+                    .and_then(|parent| match parent.as_ref() {
+                        Node::Plan(plan_node) => output_schema_for_plan_node(plan_node),
+                        _ => None,
+                    })
             })
             .or_else(|| {
                 scope_nodes.iter().find_map(|scope| match scope.as_ref() {
@@ -382,14 +384,13 @@ fn plan_node_may_contain_column<B: SnarkBackend>(
 
 fn resolve_column_expr(schema: &DFSchema, column: &Column) -> datafusion_expr::Expr {
     let name = column.name();
-    if let Some(relation) = column.relation.as_ref() {
-        if schema
+    if let Some(relation) = column.relation.as_ref()
+        && schema
             .iter()
             .any(|(qualifier, field)| field.name() == name && qualifier.as_ref() == Some(&relation))
         {
             return datafusion_expr::Expr::Column(column.clone());
         }
-    }
 
     if let Some((qualifier, _)) = schema.iter().find(|(_, field)| field.name() == name) {
         return datafusion_expr::Expr::Column(Column::new(qualifier.cloned(), name));
@@ -616,8 +617,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

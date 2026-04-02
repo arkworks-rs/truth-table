@@ -98,11 +98,11 @@ fn track_hint_df_from_oracle<B: SnarkBackend>(
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
-    let qualified_fields = qualify_fields(&df_schema_ref);
+    let qualified_fields = qualify_fields(df_schema_ref);
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;
 
-    let mut verifier = verifier.borrow_mut();
+    let verifier = verifier.borrow_mut();
     for (field, should_mat) in hint_df.field_materialization_iter() {
         if !*should_mat {
             continue;
@@ -154,7 +154,7 @@ fn track_hint_df<B: SnarkBackend>(
 ) -> Option<TrackedTableOracle<B>> {
     let df_schema_ref = hint_df.data_frame().schema();
     let base_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema_ref).clone();
-    let qualified_fields = qualify_fields(&df_schema_ref);
+    let qualified_fields = qualify_fields(df_schema_ref);
     // Initialize some variables
     let mut tracked_oracles: IndexMap<_, _> = IndexMap::new();
     let mut log_size = 0usize;

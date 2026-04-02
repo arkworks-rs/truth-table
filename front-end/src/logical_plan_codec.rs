@@ -63,13 +63,13 @@ impl LogicalExtensionCodec for TTLogicalExtensionCodec {
 }
 
 pub fn serialize_logical_plan(plan: &LogicalPlan) -> TTResult<Vec<u8>> {
-    let codec = TTLogicalExtensionCodec::default();
+    let codec = TTLogicalExtensionCodec;
     let bytes = logical_plan_to_bytes_with_extension_codec(plan, &codec)?;
     Ok(bytes.to_vec())
 }
 
 pub fn deserialize_logical_plan(bytes: &[u8]) -> TTResult<LogicalPlan> {
-    let codec = TTLogicalExtensionCodec::default();
+    let codec = TTLogicalExtensionCodec;
     let ctx = SessionContext::new();
     Ok(logical_plan_from_bytes_with_extension_codec(
         bytes, &ctx, &codec,

@@ -17,7 +17,7 @@
 
 //! [`OptimizeProjections`] identifies and eliminates unused columns
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};

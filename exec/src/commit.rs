@@ -164,7 +164,7 @@ async fn commit_parquet_with_pk(
     // is allowed to commit a TableScan directly when no ctx_oracle exists yet.
     let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, arg_prover);
     let (table_scan_table, tt_proof) = prover.prove_with_table_scan(&query).await?;
-    verifier.set_proof(tt_proof.into_inner());
+    verifier.set_proof(tt_proof.snark_proof());
 
     let tracked_table_oracle =
         TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)?;

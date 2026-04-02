@@ -323,8 +323,7 @@ fn zero_array(data_type: &DataType, len: usize) -> DataFusionResult<ArrayRef> {
     };
 
     if let Some(scalar) = scalar {
-        scalar.to_array_of_size(len).map_err(Into::into)
-    } else {
+        scalar.to_array_of_size(len)} else {
         Ok(new_null_array(data_type, len))
     }
 }

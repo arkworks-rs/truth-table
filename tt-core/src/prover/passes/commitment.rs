@@ -74,8 +74,8 @@ where
     ) -> Option<CommittedPayload<B>> {
         match payload? {
             ArithPayload::PlanPayload(arith_table) => {
-                if node.name() == "TableScan" {
-                    if let Some(schema) = arith_table.schema() {
+                if node.name() == "TableScan"
+                    && let Some(schema) = arith_table.schema() {
                         if let Some(oracle) = self.ctx_oracles.table_oracle_for_schema(&schema) {
                             // A cached table-scan commitment is only safe to reuse when it lives
                             // on the same multilinear domain as the current arithmetized table.
@@ -109,7 +109,6 @@ where
                         }
                         panic!("Missing ctx_oracle for TableScan schema {:?}", schema);
                     }
-                }
                 let commited_payloadd = arith_to_oracle::<B>(arith_table, &self.mv_pcs_param);
                 debug!( node = %node.name(), num=commited_payloadd.comitments().len(), "committed");
                 self.total_committed

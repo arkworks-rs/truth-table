@@ -6,20 +6,20 @@
                "sample_count": 64,
                "iter_count": 64,
                "time": {
-                  "fastest": "15.34 ms",
-                  "slowest": "18.34 ms",
-                  "median": "15.66 ms",
-                  "mean": "15.77 ms"
+                  "fastest": "15.21 ms",
+                  "slowest": "15.94 ms",
+                  "median": "15.55 ms",
+                  "mean": "15.55 ms"
                }
             },
             "tpch_q2_tt": {
                "sample_count": 24,
                "iter_count": 24,
                "time": {
-                  "fastest": "37.93 ms",
-                  "slowest": "44.05 ms",
-                  "median": "43.18 ms",
-                  "mean": "42.62 ms"
+                  "fastest": "38.42 ms",
+                  "slowest": "43.93 ms",
+                  "median": "41.77 ms",
+                  "mean": "41.74 ms"
                }
             },
             "tpch_q7_tt": {
@@ -33,23 +33,23 @@
                }
             },
             "tpch_q1_poneglyph": {
-               "sample_count": 82,
-               "iter_count": 82,
+               "sample_count": 81,
+               "iter_count": 81,
                "time": {
-                  "fastest": "11.96 ms",
-                  "slowest": "13.13 ms",
-                  "median": "12.23 ms",
-                  "mean": "12.26 ms"
+                  "fastest": "11.93 ms",
+                  "slowest": "13.56 ms",
+                  "median": "12.24 ms",
+                  "mean": "12.27 ms"
                }
             },
             "tpch_q3_poneglyph": {
                "sample_count": 34,
                "iter_count": 34,
                "time": {
-                  "fastest": "29.1 ms",
-                  "slowest": "31.88 ms",
-                  "median": "29.49 ms",
-                  "mean": "29.68 ms"
+                  "fastest": "29.09 ms",
+                  "slowest": "30.2 ms",
+                  "median": "29.46 ms",
+                  "mean": "29.51 ms"
                }
             },
             "tpch_q3_tt": {
@@ -196,40 +196,40 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "40.18 s",
-                  "slowest": "40.18 s",
-                  "median": "40.18 s",
-                  "mean": "40.18 s"
+                  "fastest": "40.17 s",
+                  "slowest": "40.17 s",
+                  "median": "40.17 s",
+                  "mean": "40.17 s"
                }
             },
             "tpch_q18_tt": {
-               "sample_count": 40,
-               "iter_count": 40,
+               "sample_count": 39,
+               "iter_count": 39,
                "time": {
-                  "fastest": "24.13 ms",
-                  "slowest": "26.08 ms",
-                  "median": "25.11 ms",
-                  "mean": "25.1 ms"
+                  "fastest": "24.96 ms",
+                  "slowest": "27.99 ms",
+                  "median": "26.28 ms",
+                  "mean": "26.3 ms"
                }
             },
             "tpch_q19_tt": {
                "sample_count": 16,
                "iter_count": 16,
                "time": {
-                  "fastest": "57.94 ms",
-                  "slowest": "64.96 ms",
-                  "median": "64.08 ms",
-                  "mean": "63.64 ms"
+                  "fastest": "63.46 ms",
+                  "slowest": "64.88 ms",
+                  "median": "64.03 ms",
+                  "mean": "64.01 ms"
                }
             },
             "tpch_q20_tt": {
-               "sample_count": 33,
-               "iter_count": 33,
+               "sample_count": 34,
+               "iter_count": 34,
                "time": {
-                  "fastest": "29.56 ms",
-                  "slowest": "31.81 ms",
-                  "median": "30.27 ms",
-                  "mean": "30.36 ms"
+                  "fastest": "29.53 ms",
+                  "slowest": "30.62 ms",
+                  "median": "30.13 ms",
+                  "mean": "30.13 ms"
                }
             }
          },

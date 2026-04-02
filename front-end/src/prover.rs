@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use arithmetic::{table::{ArithTable, TrackedTable}, ACTIVATOR_COL_NAME};
-use ark_piop::{
-    pcs::PCS,
-    prover::ArgProver,
-    SnarkBackend,
+use arithmetic::{
+    table::{ArithTable, TrackedTable},
+    ACTIVATOR_COL_NAME,
 };
+use ark_piop::{pcs::PCS, prover::ArgProver, SnarkBackend};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray},
@@ -35,16 +34,17 @@ use tt_core::{
         tree::Tree,
     },
     prover::{
-        irs::{
-            GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr,
-        },
+        irs::{GadgetReadyIr as ProverGadgetReadyIr, VirtualizedIr as ProverVirtualizedIr},
         passes::{
-            arithmetization::{arithmetize_materialized_table, ArithmetizationPass}, commitment::CommitmentPass,
+            arithmetization::{arithmetize_materialized_table, ArithmetizationPass},
+            commitment::CommitmentPass,
             gadget_initialization::GadgetInitializationPass,
             gadget_planning::GadgetPlanningPass as ProverGadgetPlanningPass,
             materialization::MaterializationPass,
-            output_planning::OutputPlanningPass as ProverOutputPlanningPass, proving::ProvingPass,
-            tracking::TrackingPass, virtualization::VirtualizationPass,
+            output_planning::OutputPlanningPass as ProverOutputPlanningPass,
+            proving::ProvingPass,
+            tracking::TrackingPass,
+            virtualization::VirtualizationPass,
         },
         payloads::{ArithPayload, MaterializedTable},
     },
@@ -200,12 +200,10 @@ impl<B: SnarkBackend> TTProver<B> {
             analyzed_and_optimized_lp.display_graphviz()
         );
 
-
         // Step 3: Convert the optimized logical plan into the initial IR (Sometimes referred to as Proof Plan).
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         debug!("initial ir:\n{}", initial_ir.display_graphviz(true));
-
 
         // Step 4: Optimize the initial IR using proof plan optimization rules.
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
@@ -222,7 +220,6 @@ impl<B: SnarkBackend> TTProver<B> {
             "output planned ir:\n{}",
             output_planned_ir.display_graphviz(true)
         );
-
 
         // Step 6: Apply the gadget planning pass
         let gadget_planned_ir = output_planned_ir.apply_local_pass_sequential(
@@ -244,7 +241,6 @@ impl<B: SnarkBackend> TTProver<B> {
             "materialized ir:\n{}",
             materialized_ir.display_graphviz(true)
         );
-
 
         // Step 8: Apply the arithmetization pass
         let arithmetized_ir =
@@ -277,12 +273,8 @@ impl<B: SnarkBackend> TTProver<B> {
 
         let output_memtable = if capture_output_memtable {
             Some(
-                self.track_query_output(
-                    &mut tracked_ir,
-                    query,
-                    arg_prover.clone(),
-                )
-                .await?,
+                self.track_query_output(&mut tracked_ir, query, arg_prover.clone())
+                    .await?,
             )
         } else {
             None
@@ -300,7 +292,6 @@ impl<B: SnarkBackend> TTProver<B> {
         drop(tracked_ir);
         debug!("virtualized ir:\n{}", virtualized_ir.display_graphviz(true));
         maybe_dump_ir_stage("virtualized", &virtualized_ir.display_graphviz(true));
-
 
         // Step 12: Apply the gadget initialization pass
         let gadget_ir_view = ProverVirtualizedIr::new(
@@ -346,7 +337,7 @@ impl<B: SnarkBackend> TTProver<B> {
         proving_pass.take_result()?;
         let mut arg_prover = arg_prover;
         let arg_proof = arg_prover.build_proof().unwrap();
-        let tt_proof = TTProof::new(arg_proof, optimization_hints, None)?;
+        let tt_proof = TTProof::new(arg_proof, optimization_hints)?;
         Ok((output_memtable, table_scan, tt_proof))
     }
 
@@ -367,8 +358,7 @@ impl<B: SnarkBackend> TTProver<B> {
             let batch_schema = batches.first().map(|batch| batch.schema());
             debug!(
                 "extract_output_memtable prover: logical_schema={:?}, first_batch_schema={:?}",
-                logical_schema,
-                batch_schema
+                logical_schema, batch_schema
             );
         }
         let (output_schema, output_batches) =
@@ -425,9 +415,7 @@ impl<B: SnarkBackend> TTProver<B> {
             .find(|child| child.name() == "ResultCheck")
             .map(|child| child.id())
             .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "ResultCheck root missing gadget child".to_string(),
-                )
+                DataFusionError::Internal("ResultCheck root missing gadget child".to_string())
             })?;
         let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -452,11 +440,14 @@ impl<B: SnarkBackend> TTProver<B> {
         let df = ctx.read_table(mem_table.clone())?;
         let mut batches = df.collect().await?;
         let schema = mem_table.schema();
-        batches = Self::pad_memtable_batches_to_num_rows(schema.as_ref(), batches, target_num_rows)?;
+        batches =
+            Self::pad_memtable_batches_to_num_rows(schema.as_ref(), batches, target_num_rows)?;
         let row_count = batches.iter().map(|batch| batch.num_rows()).sum();
         let rebuilt = MemTable::try_new(mem_table.schema(), vec![batches.clone()])
             .expect("memtable rebuild from collected batches should succeed");
-        Ok(MaterializedTable::new_with_batches(rebuilt, row_count, batches))
+        Ok(MaterializedTable::new_with_batches(
+            rebuilt, row_count, batches,
+        ))
     }
 
     fn pad_memtable_batches_to_num_rows(
@@ -526,7 +517,10 @@ impl<B: SnarkBackend> TTProver<B> {
             .polynomials()
             .iter()
             .map(|(field_ref, mle)| {
-                Ok((field_ref.clone(), arg_prover.track_mat_mv_poly(mle.as_ref().clone())))
+                Ok((
+                    field_ref.clone(),
+                    arg_prover.track_mat_mv_poly(mle.as_ref().clone()),
+                ))
             })
             .collect::<ark_piop::errors::SnarkResult<_>>()?;
         Ok(TrackedTable::new(
@@ -618,9 +612,10 @@ impl<B: SnarkBackend> TTProver<B> {
             Err(_) => match data_type {
                 DataType::Utf8View => Ok(ScalarValue::Utf8View(Some(String::new()))),
                 DataType::BinaryView => Ok(ScalarValue::BinaryView(Some(Vec::new()))),
-                DataType::FixedSizeBinary(size) => {
-                    Ok(ScalarValue::FixedSizeBinary(*size, Some(vec![0; *size as usize])))
-                }
+                DataType::FixedSizeBinary(size) => Ok(ScalarValue::FixedSizeBinary(
+                    *size,
+                    Some(vec![0; *size as usize]),
+                )),
                 _ => Err(DataFusionError::NotImplemented(format!(
                     "Can't create an inactive padding scalar from data_type \"{data_type}\""
                 ))

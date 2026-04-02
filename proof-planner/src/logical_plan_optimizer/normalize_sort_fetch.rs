@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
-use datafusion_common::{
-    DataFusionError, Result as DataFusionResult,
-    tree_node::Transformed,
-};
+use datafusion_common::{tree_node::Transformed, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{
-    Expr,
     logical_plan::{Limit, LogicalPlan},
+    Expr,
 };
 
 #[derive(Debug, Default)]

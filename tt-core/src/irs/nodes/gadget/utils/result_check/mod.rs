@@ -3,15 +3,13 @@ use std::{
     sync::Arc,
 };
 
-use arithmetic::{
-    table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME,
-};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_ff::{PrimeField, Zero};
 use ark_piop::{
+    SnarkBackend,
     arithmetic::mat_poly::mle::MLE,
     errors::SnarkError,
     verifier::structs::oracle::{Oracle, TrackedOracle},
-    SnarkBackend,
 };
 use either::Either;
 use indexmap::IndexMap;
@@ -31,6 +29,12 @@ pub const OUTPUT_LABEL: &str = "__output__";
 const RESULT_CHECK_SRC_POLY_ID_PREFIX: &str = "result_check_src_poly_id";
 
 pub struct GadgetNode<B: SnarkBackend>(std::marker::PhantomData<B>);
+
+impl<B: SnarkBackend> Default for GadgetNode<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<B: SnarkBackend> GadgetNode<B> {
     pub fn new() -> Self {
@@ -133,7 +137,10 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
         let src = match_r_rows_to_t_positions(t_table, res_table)?;
         let src_poly = build_result_check_src_poly::<B::F>(1usize << res_table.log_size(), &src);
-        prover.send_auxiliary_mv_poly(result_check_src_poly_key(gadget_ready_ir.tree(), id), src_poly)?;
+        prover.send_auxiliary_mv_poly(
+            result_check_src_poly_key(gadget_ready_ir.tree(), id),
+            src_poly,
+        )?;
         let r_table = build_r_table_from_res_table(res_table, t_table, &src)?;
 
         prove_result_check(prover, t_table, &r_table)
@@ -152,11 +159,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(t_table) = payload.get(INPUT_LABEL) else {
             return Ok(());
         };
-        println!("{}",t_table);
+        println!("{}", t_table);
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
-        println!("{}",r_table);
+        println!("{}", r_table);
         if active_row_multiset(t_table)? == active_row_multiset(r_table)? {
             Ok(())
         } else {
@@ -181,12 +188,14 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             return Ok(());
         };
         let src_mle = sent_src_mle(verifier, gadget_ready_ir.tree(), id).map_err(|err| {
-            SnarkError::VerifierError(ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                format!("ResultCheck failed while loading src polynomial: {err:?}"),
-            ))
+            SnarkError::VerifierError(
+                ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+                    "ResultCheck failed while loading src polynomial: {err:?}"
+                )),
+            )
         })?;
-        let r_on_t_support =
-            scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle).map_err(|err| {
+        let r_on_t_support = scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle)
+            .map_err(|err| {
                 SnarkError::VerifierError(
                     ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
                         "ResultCheck failed while scattering verifier table onto T support: {err:?}"
@@ -194,9 +203,11 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 )
             })?;
         verify_result_check(verifier, t_table, &r_on_t_support).map_err(|err| {
-            SnarkError::VerifierError(ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(
-                format!("ResultCheck failed during final verifier checks: {err:?}"),
-            ))
+            SnarkError::VerifierError(
+                ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
+                    "ResultCheck failed during final verifier checks: {err:?}"
+                )),
+            )
         })
     }
 
@@ -285,8 +296,7 @@ fn prove_result_check<B: SnarkBackend>(
         }
     }
 
-    let zero_poly =
-        &(&t_fold.data_tracked_poly() - &r_fold.data_tracked_poly()) * &t_activator;
+    let zero_poly = &(&t_fold.data_tracked_poly() - &r_fold.data_tracked_poly()) * &t_activator;
     prover.add_mv_zerocheck_claim(zero_poly.id())?;
     Ok(())
 }
@@ -337,7 +347,8 @@ fn build_result_check_src_poly<F: PrimeField>(target_num_rows: usize, src: &[usi
 }
 
 fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {
-    evals.iter()
+    evals
+        .iter()
         .enumerate()
         .filter_map(|(idx, value)| (!value.is_zero()).then_some(idx))
         .collect()
@@ -388,7 +399,9 @@ fn tracked_row_key<B: SnarkBackend>(
         }
         let value = table
             .tracked_polys_iter()
-            .find_map(|(candidate, poly)| (candidate.name() == field.name()).then_some(poly.evaluations()))
+            .find_map(|(candidate, poly)| {
+                (candidate.name() == field.name()).then_some(poly.evaluations())
+            })
             .expect("ResultCheck row field missing");
         parts.push(format!("{:?}", value[row_idx]));
     }
@@ -418,7 +431,12 @@ fn build_r_table_from_res_table<B: SnarkBackend>(
     let tracker_rc = res_table
         .activator_tracked_poly()
         .map(|poly| poly.tracker())
-        .or_else(|| res_table.tracked_polys_iter().next().map(|(_, poly)| poly.tracker()))
+        .or_else(|| {
+            res_table
+                .tracked_polys_iter()
+                .next()
+                .map(|(_, poly)| poly.tracker())
+        })
         .expect("ResultCheck result tracker missing");
     let res_active_positions = active_positions(
         &res_table
@@ -446,7 +464,9 @@ fn build_r_table_from_res_table<B: SnarkBackend>(
         } else {
             let res_evals = res_table
                 .tracked_polys_iter()
-                .find_map(|(candidate, poly)| (candidate.name() == field.name()).then_some(poly.evaluations()))
+                .find_map(|(candidate, poly)| {
+                    (candidate.name() == field.name()).then_some(poly.evaluations())
+                })
                 .unwrap_or_else(|| panic!("ResultCheck result column {} missing", field.name()));
             let mut evals = vec![B::F::zero(); target_size];
             for (rank, &position) in src.iter().enumerate() {
@@ -465,7 +485,11 @@ fn build_r_table_from_res_table<B: SnarkBackend>(
             ),
         );
     }
-    Ok(TrackedTable::new(Some(schema), tracked_polys, t_table.log_size()))
+    Ok(TrackedTable::new(
+        Some(schema),
+        tracked_polys,
+        t_table.log_size(),
+    ))
 }
 
 fn sent_src_mle<B: SnarkBackend>(
@@ -484,7 +508,12 @@ fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
     let tracker_rc = r_table
         .activator_tracked_poly()
         .map(|oracle| oracle.tracker())
-        .or_else(|| r_table.tracked_oracles_iter().next().map(|(_, oracle)| oracle.tracker()))
+        .or_else(|| {
+            r_table
+                .tracked_oracles_iter()
+                .next()
+                .map(|(_, oracle)| oracle.tracker())
+        })
         .expect("ResultCheck R tracker missing");
     let schema = t_table
         .schema_ref()
@@ -520,7 +549,9 @@ fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
         } else {
             let r_oracle = r_table
                 .tracked_oracles_iter()
-                .find_map(|(candidate, oracle)| (candidate.name() == field.name()).then_some(oracle.clone()))
+                .find_map(|(candidate, oracle)| {
+                    (candidate.name() == field.name()).then_some(oracle.clone())
+                })
                 .unwrap_or_else(|| panic!("ResultCheck R column {} missing", field.name()));
             let r_evals = (0..(1usize << r_log_size))
                 .map(|idx| {
@@ -600,7 +631,13 @@ fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usiz
 
 fn boolean_point_from_index<F: PrimeField>(log_size: usize, idx: usize) -> Vec<F> {
     (0..log_size)
-        .map(|bit| if ((idx >> bit) & 1) == 1 { F::from(1u64) } else { F::zero() })
+        .map(|bit| {
+            if ((idx >> bit) & 1) == 1 {
+                F::from(1u64)
+            } else {
+                F::zero()
+            }
+        })
         .collect()
 }
 

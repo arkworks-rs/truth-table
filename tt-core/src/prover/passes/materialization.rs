@@ -188,7 +188,7 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     let batches = collect_blocking(df.clone()).expect("dataframe collection should succeed");
 
     let df_schema_ref = df.schema();
-    let arrow_schema = arrow_schema_with_qualifiers(&df_schema_ref);
+    let arrow_schema = arrow_schema_with_qualifiers(df_schema_ref);
     let (batches, row_count) =
         pad_batches_to_power_of_two(&arrow_schema, batches).expect("padding should succeed");
 
@@ -465,14 +465,13 @@ fn rewrap_batches_with_schema(
 
 fn projection_expr_for_field(schema: &DFSchema, field: &FieldRef) -> Expr {
     let name = field.name();
-    if let Some(qualifier_meta) = field.metadata().get(QUALIFIER_METADATA_KEY) {
-        if let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
+    if let Some(qualifier_meta) = field.metadata().get(QUALIFIER_METADATA_KEY)
+        && let Some((qualifier, _)) = schema.iter().find(|(q, f)| {
             f.name() == name
                 && q.as_ref().map(|q| q.to_string()) == Some(qualifier_meta.to_string())
         }) {
             return Expr::Column(Column::new(qualifier.cloned(), name));
         }
-    }
     if let Some((qualifier, _)) = schema.iter().find(|(_, f)| f.name() == name) {
         return Expr::Column(Column::new(qualifier.cloned(), name));
     }

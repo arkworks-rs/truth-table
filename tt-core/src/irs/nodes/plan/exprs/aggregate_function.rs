@@ -43,8 +43,8 @@ impl<B: SnarkBackend> ExprNode<B> {
     // (handles aliases like `sum(...) AS volume`).
     fn output_column_name_in_parent(&self) -> String {
         let parent_plan = self.parent();
-        if let crate::irs::nodes::PlanNode::LpBased(lp_node) = parent_plan {
-            if let LogicalPlan::Aggregate(aggregate) = lp_node.lp() {
+        if let crate::irs::nodes::PlanNode::LpBased(lp_node) = parent_plan
+            && let LogicalPlan::Aggregate(aggregate) = lp_node.lp() {
                 let target = Expr::AggregateFunction(self.aggregate_function.clone());
                 for expr in &aggregate.aggr_expr {
                     match expr {
@@ -60,7 +60,6 @@ impl<B: SnarkBackend> ExprNode<B> {
                     }
                 }
             }
-        }
         self.output_column_name()
     }
     fn dispatch_gadget(aggregate_function: &AggregateFunction) -> Option<Arc<Node<B>>> {
@@ -225,14 +224,14 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                 .as_ref()
                 .and_then(|weak_ref| weak_ref.upgrade())
                 .expect("AggregateFunction node must have a parent");
-            if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node) {
-                if let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
+            if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node)
+                && let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
                     virtualized_ir.payload_for_node(&lookup_node.id())
                     && let Some(multiplicities_table) = lookup_payload
                         .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
                 {
                     let count_table = count_table_from_multiplicities(
-                        &multiplicities_table,
+                        multiplicities_table,
                         &self.output_column_name_in_parent(),
                     );
                     // Emit a virtual table named after the COUNT output column, backed by
@@ -241,7 +240,6 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
                         .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                     return Ok(());
                 }
-            }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one column aligned with the parent input activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
@@ -497,8 +495,8 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for ExprNode<B> {
 impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -517,14 +515,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                 .as_ref()
                 .and_then(|weak_ref| weak_ref.upgrade())
                 .expect("AggregateFunction node must have a parent");
-            if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node) {
-                if let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
+            if let Some(lookup_node) = lookup_child_from_aggregate_parent(&parent_node)
+                && let Some(PayloadStructure::GadgetPayload(lookup_payload)) =
                     virtualized_ir.payload_for_node(&lookup_node.id())
                     && let Some(multiplicities_table) = lookup_payload
                         .get(crate::irs::nodes::gadget::utils::lookup::SUPER_MULTIPLICITIES_LABEL)
                 {
                     let count_table = count_table_from_multiplicities_oracle(
-                        &multiplicities_table,
+                        multiplicities_table,
                         &self.output_column_name_in_parent(),
                     );
                     // Emit a virtual table named after the COUNT output column, backed by
@@ -533,7 +531,6 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
                         .set_payload_for_node(id, Some(PayloadStructure::PlanPayload(count_table)));
                     return Ok(());
                 }
-            }
             // If there is no lookup (e.g., COUNT(*) over a base table), fall back to
             // a constant-one oracle aligned with the parent input activator.
             let parent_payload = virtualized_ir.payload_for_node(&parent_node.id()).and_then(
@@ -544,7 +541,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
             );
             if let Some(parent_table) = parent_payload {
                 let count_table = constant_one_table_oracle::<B>(
-                    &parent_table,
+                    parent_table,
                     &self.output_column_name_in_parent(),
                 );
                 virtualized_ir

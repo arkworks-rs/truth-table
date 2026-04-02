@@ -13,8 +13,8 @@ use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
-    optimizer::{Analyzer, Optimizer, OptimizerContext},
     datasource::MemTable,
+    optimizer::{Analyzer, Optimizer, OptimizerContext},
     prelude::{ParquetReadOptions, SessionConfig, SessionContext},
 };
 use exec::{
@@ -63,8 +63,8 @@ pub struct BenchProof {
     pub proof: TTProof<B>,
     // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
-    // Serialized optimized IR component of TTProof.
-    pub optimized_ir_bytes: usize,
+    // Serialized optimization-hint component of TTProof.
+    pub optimization_hint_bytes: usize,
 }
 
 pub struct VerifierFullBenchState {
@@ -252,13 +252,27 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
     let (_table, snark_proof) =
         block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
     stats_layer::emit_proof_commitment_counts(
-        snark_proof.as_inner().mv_pcs_subproof.comitments.len(),
-        snark_proof.as_inner().uv_pcs_subproof.comitments.len(),
+        snark_proof
+            .as_snark_proof()
+            .mv_pcs_subproof
+            .comitments
+            .len(),
+        snark_proof
+            .as_snark_proof()
+            .uv_pcs_subproof
+            .comitments
+            .len(),
     );
-    let cryptographic_proof_size_bytes = snark_proof.snark_proof_serialized_size_bytes();
+    let cryptographic_proof_size_bytes = snark_proof
+        .as_snark_proof()
+        .to_bytes()
+        .expect("serialize snark proof for bench size accounting")
+        .len();
     let non_cryptographic_proof_size_bytes = snark_proof
-        .optimized_ir_serialized_size_bytes()
-        .expect("serialize optimized ir for bench size accounting");
+        .optimization_hints()
+        .to_bytes()
+        .expect("serialize optimization hints for bench size accounting")
+        .len();
     stats_layer::emit_proof_size_bytes(
         &iteration.query,
         cryptographic_proof_size_bytes,
@@ -320,25 +334,37 @@ pub fn cache_proof_in_memory_if_absent(
 
     let bench_proof = Arc::new(BenchProof {
         proof: proof.clone(),
-        snark_proof_bytes: proof.snark_proof_serialized_size_bytes(),
-        optimized_ir_bytes: proof
-            .optimized_ir_serialized_size_bytes()
-            .expect("serialize optimized ir for bench size accounting"),
+        snark_proof_bytes: proof
+            .as_snark_proof()
+            .to_bytes()
+            .expect("serialize snark proof for bench size accounting")
+            .len(),
+        optimization_hint_bytes: proof
+            .optimization_hints()
+            .to_bytes()
+            .expect("serialize optimization hints for bench size accounting")
+            .len(),
     });
     guard.insert(case_name, Arc::clone(&bench_proof));
     bench_proof
 }
 
 pub fn save_proof(_case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
-    let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
-    let optimized_ir_bytes = proof
-        .optimized_ir_serialized_size_bytes()
-        .expect("serialize optimized ir for bench size accounting");
+    let snark_proof_bytes = proof
+        .as_snark_proof()
+        .to_bytes()
+        .expect("serialize snark proof for bench size accounting")
+        .len();
+    let optimization_hint_bytes = proof
+        .optimization_hints()
+        .to_bytes()
+        .expect("serialize optimization hints for bench size accounting")
+        .len();
 
     Arc::new(BenchProof {
         proof: proof.clone(),
         snark_proof_bytes,
-        optimized_ir_bytes,
+        optimization_hint_bytes,
     })
 }
 
@@ -347,14 +373,14 @@ pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof:
     let logged = PROOF_SIZE_LOGGED.get_or_init(|| Mutex::new(HashSet::new()));
     let mut guard = logged.lock().expect("bench proof size log poisoned");
     if guard.insert(case_name) {
-        let full_bytes = proof.snark_proof_bytes + proof.optimized_ir_bytes;
+        let full_bytes = proof.snark_proof_bytes + proof.optimization_hint_bytes;
         println!(
-            "proof size ({}) core={} ({} bytes) plan={} ({} bytes) full={} ({} bytes)",
+            "proof size ({}) core={} ({} bytes) opt-hints={} ({} bytes) full={} ({} bytes)",
             case_name,
             format_bytes(proof.snark_proof_bytes),
             proof.snark_proof_bytes,
-            format_bytes(proof.optimized_ir_bytes),
-            proof.optimized_ir_bytes,
+            format_bytes(proof.optimization_hint_bytes),
+            proof.optimization_hint_bytes,
             format_bytes(full_bytes),
             full_bytes,
         );
@@ -368,8 +394,12 @@ pub fn build_verifier_full_state_from_proof(
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
     let prover_iteration = prepare_prover_iteration(assets);
-    let output_memtable = block_on(prover_iteration.prover.output_memtable(&prover_iteration.query))
-        .expect("extract output memtable from prover for bench");
+    let output_memtable = block_on(
+        prover_iteration
+            .prover
+            .output_memtable(&prover_iteration.query),
+    )
+    .expect("extract output memtable from prover for bench");
     build_verifier_full_state_from_proof_impl(
         verifier,
         assets.case.query,
@@ -401,15 +431,11 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
         .expect("preprocessed ir lock poisoned")
         .clone();
     if let Some(gadget_planned_ir) = cached_ir {
-        block_on_verifier(
-            state
-                .verifier
-                .verify_with_preprocessed_and_output(
-                    &state.proof,
-                    gadget_planned_ir.as_ref(),
-                    Arc::clone(&state.output_memtable),
-                ),
-        )
+        block_on_verifier(state.verifier.verify_with_preprocessed_and_output(
+            &state.proof,
+            gadget_planned_ir.as_ref(),
+            Arc::clone(&state.output_memtable),
+        ))
         .expect("verify for bench");
     } else {
         block_on_verifier(state.verifier.verify(
@@ -417,16 +443,15 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
             &state.proof,
             Arc::clone(&state.output_memtable),
         ))
-            .expect("verify for bench");
+        .expect("verify for bench");
     }
 }
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    let gadget_planned_ir = block_on_verifier(
-        state.verifier.preprocess_query(&state.query, &state.proof),
-    )
-    .expect("preprocess verifier query for bench");
+    let gadget_planned_ir =
+        block_on_verifier(state.verifier.preprocess_query(&state.query, &state.proof))
+            .expect("preprocess verifier query for bench");
     *state
         .preprocessed_gadget_ir
         .lock()

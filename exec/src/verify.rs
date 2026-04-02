@@ -148,10 +148,7 @@ fn load_oracle(path: &Path) -> Result<ArithTableOracle<B>> {
 
 async fn load_result_memtable(path: &Path) -> Result<Arc<MemTable>> {
     if !path.exists() {
-        return Err(anyhow!(
-            "result parquet file not found: {}",
-            path.display()
-        ));
+        return Err(anyhow!("result parquet file not found: {}", path.display()));
     }
     if !path.is_file() {
         return Err(anyhow!(
@@ -220,10 +217,13 @@ fn infer_table_name_from_schema(schema: &datafusion::arrow::datatypes::Schema) -
         {
             return None;
         }
-        field
-            .metadata()
-            .get("tt.qualifier")
-            .map(|qualifier| qualifier.rsplit('.').next().unwrap_or(qualifier).to_string())
+        field.metadata().get("tt.qualifier").map(|qualifier| {
+            qualifier
+                .rsplit('.')
+                .next()
+                .unwrap_or(qualifier)
+                .to_string()
+        })
     })
 }
 

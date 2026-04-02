@@ -238,7 +238,7 @@ fn build_expansions(schema: &Schema) -> (Vec<Expansion>, Vec<Field>) {
                     index: idx,
                     name: name.clone(),
                     nullable,
-                    unit: unit.clone(),
+                    unit: *unit,
                 });
                 fields.push((**field).clone().with_nullable(true));
                 fields.push(Field::new(format!("{name}_year"), DataType::Int32, true));

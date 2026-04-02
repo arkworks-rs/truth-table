@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arithmetic::{ACTIVATOR_FIELD, ROW_ID_COL_NAME, is_system_column};
 use ark_piop::SnarkBackend;
-use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::DataFrame;
 use datafusion_common::{Result as DataFusionResult, ScalarValue, Statistics};
@@ -125,8 +124,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }
@@ -345,8 +344,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for ExprNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> ark_piop::errors::SnarkResult<()> {
         Ok(())
     }

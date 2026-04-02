@@ -82,8 +82,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         Ok(())
     }
@@ -108,8 +108,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         Ok(())
     }
@@ -132,8 +132,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected fxs and gxs inputs for Keyed-Sumcheck gadget");
         };
 
-        let fxs = Self::tracked_cols_from_table(&fxs_table);
-        let gxs = Self::tracked_cols_from_table(&gxs_table);
+        let fxs = Self::tracked_cols_from_table(fxs_table);
+        let gxs = Self::tracked_cols_from_table(gxs_table);
 
         let mfxs = Self::multiplicities_from_table(payload.get(MFXS_LABEL), fxs.len());
         let mgxs = Self::multiplicities_from_table(payload.get(MGXS_LABEL), gxs.len());
@@ -177,8 +177,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
             panic!("Expected fxs and gxs inputs for Keyed-Sumcheck gadget");
         };
 
-        let fxs = Self::tracked_cols_from_table_oracle(&fxs_table);
-        let gxs = Self::tracked_cols_from_table_oracle(&gxs_table);
+        let fxs = Self::tracked_cols_from_table_oracle(fxs_table);
+        let gxs = Self::tracked_cols_from_table_oracle(gxs_table);
 
         let mfxs = Self::multiplicities_from_table_oracle(payload.get(MFXS_LABEL), fxs.len());
         let mgxs = Self::multiplicities_from_table_oracle(payload.get(MGXS_LABEL), gxs.len());
@@ -246,8 +246,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
                 g_ids = %format_tracked_col_oracle_ids(&gxs),
                 mf_ids = %format_tracked_oracle_opt_ids(&mfxs),
                 mg_ids = %format_tracked_oracle_opt_ids(&mgxs),
-                f_fields = ?format_table_oracle_fields(&fxs_table),
-                g_fields = ?format_table_oracle_fields(&gxs_table),
+                f_fields = ?format_table_oracle_fields(fxs_table),
+                g_fields = ?format_table_oracle_fields(gxs_table),
                 lhs = %lhs_v,
                 rhs = %rhs_v,
                 "keyed sumcheck mismatch"

@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 use datafusion_common::{
-    Result,
     tree_node::{Transformed, TreeNode, TreeNodeRecursion},
+    Result,
 };
 use datafusion_expr::{
-    Expr,
     expr::{Exists, InSubquery},
     logical_plan::{LogicalPlan, Subquery},
+    Expr,
 };
 use tt_core::irs::nodes::plan::result_check::{self, ResultCheckLogicalNode};
 
@@ -58,15 +58,13 @@ fn rewrite_subqueries_with_result_check(expr: Expr) -> Result<Transformed<Expr>>
             subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery))?),
             outer_ref_columns,
         }))),
-        Expr::Exists(Exists { subquery, negated }) => {
-            Ok(Transformed::yes(Expr::Exists(Exists {
-                subquery: Subquery {
-                    subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery.subquery))?),
-                    outer_ref_columns: subquery.outer_ref_columns,
-                },
-                negated,
-            })))
-        }
+        Expr::Exists(Exists { subquery, negated }) => Ok(Transformed::yes(Expr::Exists(Exists {
+            subquery: Subquery {
+                subquery: Arc::new(add_result_check(Arc::unwrap_or_clone(subquery.subquery))?),
+                outer_ref_columns: subquery.outer_ref_columns,
+            },
+            negated,
+        }))),
         Expr::InSubquery(InSubquery {
             expr: input_expr,
             subquery,
@@ -112,10 +110,7 @@ mod tests {
         prelude::SessionContext,
     };
     use datafusion_common::Result;
-    use datafusion_expr::{
-        Expr, LogicalPlan,
-        logical_plan::builder::table_scan,
-    };
+    use datafusion_expr::{logical_plan::builder::table_scan, Expr, LogicalPlan};
     use tt_core::irs::nodes::plan::result_check;
 
     use super::*;

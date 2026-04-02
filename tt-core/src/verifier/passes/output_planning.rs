@@ -5,7 +5,7 @@ use crate::irs::{
         end_verifier_output_cache_scope,
         hints::{begin_schema_only_ctx_scope, end_schema_only_ctx_scope},
     },
-    payloads::{EmptyPayload, HintDFDFPayload, HintDFPayload, PayloadStructure},
+    payloads::{EmptyPayload, HintDFDFPayload, PayloadStructure},
 };
 use ark_piop::SnarkBackend;
 

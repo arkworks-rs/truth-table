@@ -175,7 +175,10 @@ where
                 nonzerocheck_degree_distribution,
             );
             row.merge_field("zerocheck_claims", zerocheck_claims);
-            row.merge_field("zerocheck_degree_distribution", zerocheck_degree_distribution);
+            row.merge_field(
+                "zerocheck_degree_distribution",
+                zerocheck_degree_distribution,
+            );
             row.merge_field("sumcheck_claims", sumcheck_claims);
             row.merge_field("sumcheck_degree_distribution", sumcheck_degree_distribution);
             row.merge_field("lookup_claims", lookup_claims);
@@ -350,9 +353,7 @@ impl CsvRow {
             "proof_mv_commitments" => self.proof_mv_commitments = value,
             "proof_uv_commitments" => self.proof_uv_commitments = value,
             "cryptographic_proof_size_bytes" => self.cryptographic_proof_size_bytes = value,
-            "non_cryptographic_proof_size_bytes" => {
-                self.non_cryptographic_proof_size_bytes = value
-            }
+            "non_cryptographic_proof_size_bytes" => self.non_cryptographic_proof_size_bytes = value,
             "full_proof_size_bytes" => self.full_proof_size_bytes = value,
             _ => {}
         }

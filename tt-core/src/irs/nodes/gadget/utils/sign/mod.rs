@@ -157,8 +157,8 @@ impl<B: SnarkBackend> ProverNodeOps<B> for SignNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         Ok(())
     }
@@ -241,8 +241,8 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for SignNode<B> {
 
     fn initialize_gadget_plans(
         &self,
-        id: crate::irs::nodes::NodeId,
-        planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
+        _id: crate::irs::nodes::NodeId,
+        _planned_ir: &mut crate::irs::shared_ir::OutputPlannedIr<B>,
     ) -> SnarkResult<()> {
         Ok(())
     }

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 use datafusion_common::tree_node::Transformed;
 use datafusion_expr::logical_plan::{Filter, LogicalPlan};
-use datafusion_expr::Expr;
 
 #[derive(Debug, Default)]
 pub(crate) struct MergeConsecutiveFilters;

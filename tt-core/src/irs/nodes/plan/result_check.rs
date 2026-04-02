@@ -1,6 +1,8 @@
-use crate::irs::nodes::{IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps};
+use crate::irs::nodes::{
+    IsLpNode, IsNode, IsPlanNode, Node, PlanNode, ProverNodeOps, VerifierNodeOps,
+};
 use crate::irs::payloads::PayloadStructure;
-use arithmetic::{table::TrackedTable, table_oracle::TrackedTableOracle, ACTIVATOR_COL_NAME};
+use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedTableOracle};
 use ark_piop::SnarkBackend;
 use datafusion_common::{DFSchemaRef, DataFusionError};
 use datafusion_expr::{
@@ -64,9 +66,9 @@ impl<B: SnarkBackend> ProverNodeOps<B> for LpNode<B> {
         else {
             return Ok(());
         };
-        let Some(r_table) = existing_payload.get(
-            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL,
-        ) else {
+        let Some(r_table) =
+            existing_payload.get(crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL)
+        else {
             return Ok(());
         };
         let Some(PayloadStructure::PlanPayload(t_table)) =
@@ -178,9 +180,9 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for LpNode<B> {
         else {
             return Ok(());
         };
-        let Some(r_table) = existing_payload.get(
-            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL,
-        ) else {
+        let Some(r_table) =
+            existing_payload.get(crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL)
+        else {
             return Ok(());
         };
         let Some(PayloadStructure::PlanPayload(t_table)) =
@@ -236,7 +238,9 @@ fn project_prover_table_for_result_check<B: SnarkBackend>(
         } else {
             input_t
                 .tracked_polys_iter()
-                .find_map(|(candidate, poly)| (candidate.name() == field.name()).then_some(poly.clone()))
+                .find_map(|(candidate, poly)| {
+                    (candidate.name() == field.name()).then_some(poly.clone())
+                })
                 .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
         };
         projected.insert(field.clone(), poly);
@@ -264,7 +268,9 @@ fn project_verifier_table_for_result_check<B: SnarkBackend>(
         } else {
             input_t
                 .tracked_oracles_iter()
-                .find_map(|(candidate, oracle)| (candidate.name() == field.name()).then_some(oracle.clone()))
+                .find_map(|(candidate, oracle)| {
+                    (candidate.name() == field.name()).then_some(oracle.clone())
+                })
                 .unwrap_or_else(|| panic!("ResultCheck input column {} not found", field.name()))
         };
         projected.insert(field.clone(), oracle);

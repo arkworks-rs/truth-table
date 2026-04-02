@@ -97,10 +97,10 @@ where
                         let arg_prover = self.arg_prover.borrow();
                         arg_prover.commitment_counts()
                     };
-                    let mv_commitments_added = mv_commitments_after
-                        .saturating_sub(mv_commitments_before);
-                    let uv_commitments_added = uv_commitments_after
-                        .saturating_sub(uv_commitments_before);
+                    let mv_commitments_added =
+                        mv_commitments_after.saturating_sub(mv_commitments_before);
+                    let uv_commitments_added =
+                        uv_commitments_after.saturating_sub(uv_commitments_before);
                     tracing::info!(
                         gadget = %gadget_node.name(),
 

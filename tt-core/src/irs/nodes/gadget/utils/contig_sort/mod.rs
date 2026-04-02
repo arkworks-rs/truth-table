@@ -390,7 +390,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
             rotated_table,
         ) {
             // Prefer precomputed diffs so sign gadgets operate on bounded values.
-            let sort_specs = sort_specs_for_table_prover(&self.sort_config, &input_table);
+            let sort_specs = sort_specs_for_table_prover(&self.sort_config, input_table);
             populate_sign_payloads_prover(
                 &self.sign_gadget,
                 &self.sort_config,
@@ -463,20 +463,14 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         }
         let mut updated_tie_table_owned: Option<TrackedTableOracle<B>> = None;
         let bool_table = if let Some(tie_table) = tie_table {
-            let tie_table = prepend_first_tie_indicator_verifier(&tie_table);
+            let tie_table = prepend_first_tie_indicator_verifier(tie_table);
             updated_tie_table_owned = Some(tie_table.clone());
             Some(tie_table)
-        } else if let Some(input_table) = input_table {
-            // For single-key sorts the tie table can be dropped during materialization; keep
-            // a no-op Bool payload so the Bool gadget doesn't panic.
-            Some(TrackedTableOracle::new(
+        } else { input_table.map(|input_table| TrackedTableOracle::new(
                 None,
                 IndexMap::new(),
                 input_table.log_size(),
-            ))
-        } else {
-            None
-        };
+            )) };
 
         if let Some(bool_table) = bool_table.as_ref() {
             // The tie-indicator columns must be boolean, so wire them into the Bool gadget.
@@ -498,7 +492,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
         if let (Some(tie_table), Some(input_table), Some(rotated_table)) =
             (updated_tie_table, input_table, rotated_table)
         {
-            let sort_specs = sort_specs_for_table_verifier(&self.sort_config, &input_table);
+            let sort_specs = sort_specs_for_table_verifier(&self.sort_config, input_table);
             populate_sign_payloads_verifier(
                 &self.sign_gadget,
                 &self.sort_config,
@@ -541,8 +535,8 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
     fn honest_prover_check(
         &self,
         _prover: &mut ark_piop::prover::ArgProver<B>,
-        gadget_ready_ir: &mut GadgetReadyIr<B>,
-        id: crate::irs::nodes::NodeId,
+        _gadget_ready_ir: &mut GadgetReadyIr<B>,
+        _id: crate::irs::nodes::NodeId,
     ) -> ark_piop::errors::SnarkResult<()> {
         // use ark_piop::errors::SnarkError::ProverError;
         // use ark_piop::prover::errors::HonestProverError::FalseClaim;
@@ -943,7 +937,7 @@ fn ordered_data_fields_for_hint(
     hint: &crate::irs::nodes::hints::HintDF,
     sort_specs: &[(String, bool, bool)],
 ) -> Vec<Field> {
-    let mut data_fields: Vec<Field> = hint
+    let data_fields: Vec<Field> = hint
         .data_frame()
         .schema()
         .fields()

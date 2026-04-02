@@ -160,7 +160,7 @@ fn build_indexed_join_frames_impl(
         .select(with_helper_col(
             left_indexed_aliases
                 .iter()
-                .map(|alias| col(alias))
+                .map(col)
                 .collect::<Vec<_>>(),
             "__row_number__",
         ))?
@@ -168,7 +168,7 @@ fn build_indexed_join_frames_impl(
         .select(with_activator_only(
             left_indexed_aliases
                 .iter()
-                .map(|alias| col(alias))
+                .map(col)
                 .collect::<Vec<_>>(),
         ))?;
     let output_right = indexed
@@ -176,7 +176,7 @@ fn build_indexed_join_frames_impl(
         .select(with_helper_col(
             right_indexed_aliases
                 .iter()
-                .map(|alias| col(alias))
+                .map(col)
                 .collect::<Vec<_>>(),
             "__row_number__",
         ))?
@@ -184,7 +184,7 @@ fn build_indexed_join_frames_impl(
         .select(with_activator_only(
             right_indexed_aliases
                 .iter()
-                .map(|alias| col(alias))
+                .map(col)
                 .collect::<Vec<_>>(),
         ))?;
 

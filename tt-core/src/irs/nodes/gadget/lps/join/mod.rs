@@ -136,10 +136,10 @@ fn parent_child_id<B: SnarkBackend>(
     parent.children().get(child_idx).map(|child| child.id())
 }
 
-fn parent_plan_output_table<'a, B: SnarkBackend>(
+fn parent_plan_output_table<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::prover::irs::VirtualizedIr<B>,
-) -> Option<&'a TrackedTable<B>> {
+    ir: &crate::prover::irs::VirtualizedIr<B>,
+) -> Option<&TrackedTable<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -147,11 +147,11 @@ fn parent_plan_output_table<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_side_table<'a, B: SnarkBackend>(
+fn parent_plan_side_table<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::prover::irs::VirtualizedIr<B>,
+    ir: &crate::prover::irs::VirtualizedIr<B>,
     child_idx: usize,
-) -> Option<&'a TrackedTable<B>> {
+) -> Option<&TrackedTable<B>> {
     let child_id = parent_child_id(id, ir.tree(), child_idx)?;
     match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -159,10 +159,10 @@ fn parent_plan_side_table<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_output_table_gadget_ready<'a, B: SnarkBackend>(
+fn parent_plan_output_table_gadget_ready<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a GadgetReadyIr<B>,
-) -> Option<&'a TrackedTable<B>> {
+    ir: &GadgetReadyIr<B>,
+) -> Option<&TrackedTable<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -170,11 +170,11 @@ fn parent_plan_output_table_gadget_ready<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_side_table_gadget_ready<'a, B: SnarkBackend>(
+fn parent_plan_side_table_gadget_ready<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a GadgetReadyIr<B>,
+    ir: &GadgetReadyIr<B>,
     child_idx: usize,
-) -> Option<&'a TrackedTable<B>> {
+) -> Option<&TrackedTable<B>> {
     let child_id = parent_child_id(id, ir.tree(), child_idx)?;
     match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -182,10 +182,10 @@ fn parent_plan_side_table_gadget_ready<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_output_oracle<'a, B: SnarkBackend>(
+fn parent_plan_output_oracle<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::verifier::irs::VirtualizedIr<B>,
-) -> Option<&'a TrackedTableOracle<B>> {
+    ir: &crate::verifier::irs::VirtualizedIr<B>,
+) -> Option<&TrackedTableOracle<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -193,11 +193,11 @@ fn parent_plan_output_oracle<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_side_oracle<'a, B: SnarkBackend>(
+fn parent_plan_side_oracle<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::verifier::irs::VirtualizedIr<B>,
+    ir: &crate::verifier::irs::VirtualizedIr<B>,
     child_idx: usize,
-) -> Option<&'a TrackedTableOracle<B>> {
+) -> Option<&TrackedTableOracle<B>> {
     let child_id = parent_child_id(id, ir.tree(), child_idx)?;
     match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -205,10 +205,10 @@ fn parent_plan_side_oracle<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_output_oracle_gadget_ready<'a, B: SnarkBackend>(
+fn parent_plan_output_oracle_gadget_ready<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::verifier::irs::GadgetReadyIr<B>,
-) -> Option<&'a TrackedTableOracle<B>> {
+    ir: &crate::verifier::irs::GadgetReadyIr<B>,
+) -> Option<&TrackedTableOracle<B>> {
     let parent_id = find_parent_id(id, ir.tree())?;
     match ir.payload_for_node(&parent_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -216,11 +216,11 @@ fn parent_plan_output_oracle_gadget_ready<'a, B: SnarkBackend>(
     }
 }
 
-fn parent_plan_side_oracle_gadget_ready<'a, B: SnarkBackend>(
+fn parent_plan_side_oracle_gadget_ready<B: SnarkBackend>(
     id: crate::irs::nodes::NodeId,
-    ir: &'a crate::verifier::irs::GadgetReadyIr<B>,
+    ir: &crate::verifier::irs::GadgetReadyIr<B>,
     child_idx: usize,
-) -> Option<&'a TrackedTableOracle<B>> {
+) -> Option<&TrackedTableOracle<B>> {
     let child_id = parent_child_id(id, ir.tree(), child_idx)?;
     match ir.payload_for_node(&child_id) {
         Some(PayloadStructure::PlanPayload(table)) => Some(table),
@@ -389,7 +389,7 @@ impl<B: SnarkBackend> ProverNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
             );
 
-            let mut match_pair_payload =
+            let match_pair_payload =
                 match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
                     Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                     _ => IndexMap::new(),
@@ -523,7 +523,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
                 Some(PayloadStructure::GadgetPayload(nodup_payload)),
             );
 
-            let mut match_pair_payload =
+            let match_pair_payload =
                 match planned_ir.payload_for_node(&gadgets.match_pair_gadget.id()) {
                     Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
                     _ => IndexMap::new(),
@@ -610,7 +610,7 @@ impl<B: SnarkBackend> VerifierNodeOps<B> for GadgetNode<B> {
 }
 
 fn derive_many_to_many_hints_verifier(
-    join: &Join,
+    _join: &Join,
     left_hint: &crate::irs::nodes::hints::HintDF,
     right_hint: &crate::irs::nodes::hints::HintDF,
     output_hint: &crate::irs::nodes::hints::HintDF,

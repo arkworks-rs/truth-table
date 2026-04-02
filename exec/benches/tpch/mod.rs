@@ -38,11 +38,11 @@ fn tpch_cases() -> &'static [BenchCase] {
         let q20 = query_spec(20, false);
 
         let cases = vec![
-            // BenchCase {
-            //     name: "tpch_q1_tt",
-            //     query: q1.sql,
-            //     tables: q1.tables,
-            // },
+            BenchCase {
+                name: "tpch_q1_tt",
+                query: q1.sql,
+                tables: q1.tables,
+            },
             // BenchCase {
             //     name: "tpch_q1_poneglyph",
             //     query: q1_poneglyph.sql,
@@ -133,26 +133,26 @@ fn tpch_cases() -> &'static [BenchCase] {
             //     query: q17.sql,
             //     tables: q17.tables,
             // },
-            BenchCase {
-                name: "tpch_q18_poneglyph",
-                query: q18_poneglyph.sql,
-                tables: q18_poneglyph.tables,
-            },
-            BenchCase {
-                name: "tpch_q18_tt",
-                query: q18.sql,
-                tables: q18.tables,
-            },
-            BenchCase {
-                name: "tpch_q19_tt",
-                query: q19.sql,
-                tables: q19.tables,
-            },
-            BenchCase {
-                name: "tpch_q20_tt",
-                query: q20.sql,
-                tables: q20.tables,
-            },
+            // BenchCase {
+            //     name: "tpch_q18_poneglyph",
+            //     query: q18_poneglyph.sql,
+            //     tables: q18_poneglyph.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q18_tt",
+            //     query: q18.sql,
+            //     tables: q18.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q19_tt",
+            //     query: q19.sql,
+            //     tables: q19.tables,
+            // },
+            // BenchCase {
+            //     name: "tpch_q20_tt",
+            //     query: q20.sql,
+            //     tables: q20.tables,
+            // },
         ];
         let selected_names = selected_tpch_case_names(&cases);
         let filtered = if selected_names.is_empty() {

@@ -422,7 +422,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
 
 fn fetch_limit_literal(limit: &Limit) -> Option<usize> {
     match limit.get_fetch_type() {
-        Ok(datafusion_expr::FetchType::Literal(Some(val))) => Some(val as usize),
+        Ok(datafusion_expr::FetchType::Literal(Some(val))) => Some(val),
         _ => None,
     }
 }

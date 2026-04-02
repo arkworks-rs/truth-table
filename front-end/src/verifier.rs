@@ -1,7 +1,7 @@
 use arithmetic::table::ArithTable;
 use arithmetic::table_oracle::TrackedTableOracle;
 use ark_ff::Field;
-use ark_piop::{verifier::ArgVerifier, verifier::structs::oracle::Oracle, SnarkBackend};
+use ark_piop::{verifier::structs::oracle::Oracle, verifier::ArgVerifier, SnarkBackend};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray},
@@ -17,10 +17,11 @@ use datafusion_common::ScalarValue;
 use indexmap::IndexMap;
 use proof_planner::{
     logical_plan_optimizer::apply_optimization_hints,
-    proof_plan_optimizer::{ProofPlanOptimizer, rules as proof_plan_rules},
+    proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer},
 };
 use std::sync::Arc;
 use tracing::debug;
+use tt_core::prover::passes::arithmetization::arithmetize_materialized_table;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::{TTError, TTResult},
@@ -40,12 +41,12 @@ use tt_core::{
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
             gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
-            tracking::TrackingPass as VerifierTrackingPass, verify::VerifyPass,
+            tracking::TrackingPass as VerifierTrackingPass,
+            verify::VerifyPass,
             virtualization::VirtualizationPass as VerifierVirtualizationPass,
         },
     },
 };
-use tt_core::prover::passes::arithmetization::arithmetize_materialized_table;
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
@@ -137,9 +138,8 @@ impl<B: SnarkBackend> TTVerifier<B> {
         gadget_planned_ir: &GadgetPlannedIr<B>,
         output_memtable: Option<Arc<MemTable>>,
     ) -> TTResult<()> {
-
         // Step 1: Parse and prepare the initial IR from the proof
-        let snark_proof = proof.as_inner();
+        let snark_proof = proof.as_snark_proof();
         let mut arg_verifier = self.arg_verifier().fork();
         arg_verifier.set_proof_ref(snark_proof);
 
@@ -199,8 +199,9 @@ impl<B: SnarkBackend> TTVerifier<B> {
         proof: &TTProof<B>,
         result: Arc<MemTable>,
     ) -> TTResult<()> {
-        let (gadget_planned_ir, output_memtable) =
-            self.preprocess_query_with_output(query, proof, result).await?;
+        let (gadget_planned_ir, output_memtable) = self
+            .preprocess_query_with_output(query, proof, result)
+            .await?;
         self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
             .await
     }
@@ -226,23 +227,27 @@ impl<B: SnarkBackend> TTVerifier<B> {
         proof: &TTProof<B>,
     ) -> TTResult<GadgetPlannedIr<B>> {
         let initial_lp = self.shared_config().query_to_lp(query).await;
-        debug!("verifier initial logical plan:\n{}", initial_lp.display_graphviz());
+        debug!(
+            "verifier initial logical plan:\n{}",
+            initial_lp.display_graphviz()
+        );
         let analyzed_and_optimized_lp = self
             .shared_config()
             .analyze_and_optimize_lp(initial_lp)
             .await;
-        let analyzed_and_optimized_lp = apply_optimization_hints(
-            analyzed_and_optimized_lp,
-            proof.optimization_hints(),
-        )
-        .map_err(tt_core::errors::TTError::from)?;
+        let analyzed_and_optimized_lp =
+            apply_optimization_hints(analyzed_and_optimized_lp, proof.optimization_hints())
+                .map_err(tt_core::errors::TTError::from)?;
         debug!(
             "verifier optimized and analyzed logical plan:\n{}",
             analyzed_and_optimized_lp.display_graphviz()
         );
         let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
-        debug!("verifier initial ir:\n{}", initial_ir.display_graphviz(true));
+        debug!(
+            "verifier initial ir:\n{}",
+            initial_ir.display_graphviz(true)
+        );
         let proof_plan_optimizer = ProofPlanOptimizer::new(proof_plan_rules());
         let optimized_initial_ir = proof_plan_optimizer.optimize(initial_ir);
         debug!(
@@ -306,9 +311,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
             .find(|child| child.name() == "ResultCheck")
             .map(|child| child.id())
             .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "ResultCheck root missing gadget child".to_string(),
-                )
+                DataFusionError::Internal("ResultCheck root missing gadget child".to_string())
             })?;
         let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
             Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
@@ -347,11 +350,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let df = ctx.read_table(mem_table.clone())?;
         let mut batches = df.collect().await?;
         let schema = mem_table.schema();
-        batches = Self::pad_memtable_batches_to_num_rows(schema.as_ref(), batches, target_num_rows)?;
+        batches =
+            Self::pad_memtable_batches_to_num_rows(schema.as_ref(), batches, target_num_rows)?;
         let row_count = batches.iter().map(|batch| batch.num_rows()).sum();
         let rebuilt = MemTable::try_new(mem_table.schema(), vec![batches.clone()])
             .expect("memtable rebuild from collected batches should succeed");
-        Ok(MaterializedTable::new_with_batches(rebuilt, row_count, batches))
+        Ok(MaterializedTable::new_with_batches(
+            rebuilt, row_count, batches,
+        ))
     }
 
     fn pad_memtable_batches_to_num_rows(
@@ -419,9 +425,10 @@ impl<B: SnarkBackend> TTVerifier<B> {
             Err(_) => match data_type {
                 DataType::Utf8View => Ok(ScalarValue::Utf8View(Some(String::new()))),
                 DataType::BinaryView => Ok(ScalarValue::BinaryView(Some(Vec::new()))),
-                DataType::FixedSizeBinary(size) => {
-                    Ok(ScalarValue::FixedSizeBinary(*size, Some(vec![0; *size as usize])))
-                }
+                DataType::FixedSizeBinary(size) => Ok(ScalarValue::FixedSizeBinary(
+                    *size,
+                    Some(vec![0; *size as usize]),
+                )),
                 _ => Err(DataFusionError::NotImplemented(format!(
                     "Can't create an inactive padding scalar from data_type \"{data_type}\""
                 ))
@@ -533,7 +540,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
             arith_table.log_size(),
         )
     }
-
 }
 
 fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {

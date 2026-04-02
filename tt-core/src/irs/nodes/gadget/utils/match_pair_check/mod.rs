@@ -596,7 +596,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(union_table) = payload.get(UNION_LABEL).cloned() else {
             panic!("Expected union table for Match-Pair gadget");
         };
-        let Some(output_table) = payload.get(OUT_LABEL).cloned() else {
+        let Some(_output_table) = payload.get(OUT_LABEL).cloned() else {
             panic!("Expected output activator table for Match-Pair gadget");
         };
 

@@ -188,7 +188,7 @@ fn qualify_field(field: &Field, alias: &str) -> Field {
     if field.name() == ACTIVATOR_COL_NAME || field.name() == ROW_ID_COL_NAME {
         return field.clone();
     }
-    let mut updated = field.clone();
+    let updated = field.clone();
     // Record alias in metadata so self-joins can distinguish identical column names.
     let mut metadata = updated.metadata().clone();
     metadata.insert(QUALIFIER_METADATA_KEY.to_string(), alias.to_string());
