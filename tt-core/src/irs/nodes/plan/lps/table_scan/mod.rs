@@ -99,6 +99,7 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
     fn output(&self) -> crate::irs::nodes::hints::HintDF {
         use datafusion::dataframe::DataFrame;
         use datafusion_expr::{LogicalPlan, logical_plan::EmptyRelation};
+        use datafusion_expr::lit;
         use indexmap::IndexMap;
         use std::sync::OnceLock;
 
@@ -106,13 +107,45 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode {
         static VERIFIER_SCHEMA_CTX: OnceLock<SessionContext> = OnceLock::new();
         let ctx = crate::irs::nodes::hints::scoped_schema_only_ctx()
             .unwrap_or_else(|| VERIFIER_SCHEMA_CTX.get_or_init(SessionContext::new).clone());
-        let df = DataFrame::new(
+        let mut df = DataFrame::new(
             ctx.state(),
             LogicalPlan::EmptyRelation(EmptyRelation {
                 produce_one_row: false,
                 schema: self.table_scan.projected_schema.clone(),
             }),
         );
+        let source_schema = self.table_scan.source.schema();
+        // DataFusion may prune our system columns out of `projected_schema`,
+        // but verifier-side planning still needs to see them in schema-only
+        // mode so downstream gadgets stay shape-aligned.
+        let source_has_row_id = source_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ROW_ID_COL_NAME);
+        let output_has_row_id = df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ROW_ID_COL_NAME);
+        if source_has_row_id && !output_has_row_id {
+            df = df
+                .with_column(arithmetic::ROW_ID_COL_NAME, lit(0_i64))
+                .expect("table scan verifier row-id restoration should succeed");
+        }
+        let source_has_activator = source_schema
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
+        let output_has_activator = df
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
+        if source_has_activator && !output_has_activator {
+            df = df
+                .with_column(arithmetic::ACTIVATOR_COL_NAME, lit(true))
+                .expect("table scan verifier activator restoration should succeed");
+        }
         let should_materialize: IndexMap<_, _> = df
             .schema()
             .fields()

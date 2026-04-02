@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
     fs::File,
-    io::{BufWriter, Write},
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
@@ -30,7 +29,6 @@ use front_end::{
     verifier::{TTVerifier, TTVerifierConfig},
 };
 use indexmap::IndexMap;
-use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tt_core::ctx_oracles::CtxOracles;
 use tt_core::irs::shared_ir::GadgetPlannedIr;
@@ -62,13 +60,11 @@ pub struct BenchAssets {
 }
 
 pub struct BenchProof {
-    pub proof_path: Option<PathBuf>,
     pub proof: TTProof<B>,
     // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
     // Serialized optimized IR component of TTProof.
     pub optimized_ir_bytes: usize,
-    _temp_dir: Option<TempDir>,
 }
 
 pub struct VerifierFullBenchState {
@@ -87,7 +83,6 @@ pub struct ProverBenchIteration {
 static PROOF_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<BenchProof>>>> = OnceLock::new();
 static PROOF_SIZE_LOGGED: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
 static ASSETS_CACHE: OnceLock<Mutex<HashMap<&'static str, BenchAssets>>> = OnceLock::new();
-static PROOF_BYTES_CACHE: OnceLock<Mutex<HashMap<&'static str, Arc<Vec<u8>>>>> = OnceLock::new();
 
 pub fn init_bench_tracing() {
     // Install a bench-focused subscriber that honors RUST_LOG for stdout.
@@ -324,68 +319,27 @@ pub fn cache_proof_in_memory_if_absent(
     }
 
     let bench_proof = Arc::new(BenchProof {
-        proof_path: None,
         proof: proof.clone(),
         snark_proof_bytes: proof.snark_proof_serialized_size_bytes(),
         optimized_ir_bytes: proof
             .optimized_ir_serialized_size_bytes()
             .expect("serialize optimized ir for bench size accounting"),
-        _temp_dir: None,
     });
     guard.insert(case_name, Arc::clone(&bench_proof));
     bench_proof
 }
 
-pub fn save_proof(case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
-    // Persist the proof bytes in a temp file for reuse in verifier benches.
-    let temp_dir = TempDir::new().expect("create temp dir for bench proof");
-    let proof_path = temp_dir.path().join(format!("{case_name}.proof.pi"));
-
-    let proof_bytes = proof.to_bytes().expect("serialize proof for bench");
-    let file = File::create(&proof_path).expect("create proof file for bench");
-    let mut writer = BufWriter::new(file);
-    writer
-        .write_all(&proof_bytes)
-        .expect("write proof bytes for bench");
-    writer.flush().expect("flush proof bytes for bench");
-
+pub fn save_proof(_case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
     let snark_proof_bytes = proof.snark_proof_serialized_size_bytes();
     let optimized_ir_bytes = proof
         .optimized_ir_serialized_size_bytes()
         .expect("serialize optimized ir for bench size accounting");
 
     Arc::new(BenchProof {
-        proof_path: Some(proof_path),
         proof: proof.clone(),
         snark_proof_bytes,
         optimized_ir_bytes,
-        _temp_dir: Some(temp_dir),
     })
-}
-
-pub fn load_proof_bytes(bench_proof: &BenchProof) -> Vec<u8> {
-    // Load proof bytes on demand instead of keeping all proofs resident in memory.
-    if let Some(path) = &bench_proof.proof_path {
-        std::fs::read(path).expect("read proof bytes for bench")
-    } else {
-        bench_proof
-            .proof
-            .to_bytes()
-            .expect("serialize in-memory proof bytes for bench")
-    }
-}
-
-pub fn load_proof_bytes_cached(case_name: &'static str, bench_proof: &BenchProof) -> Arc<Vec<u8>> {
-    let cache = PROOF_BYTES_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().expect("bench proof-bytes cache poisoned");
-
-    if let Some(existing) = guard.get(case_name).cloned() {
-        return existing;
-    }
-
-    let bytes = Arc::new(load_proof_bytes(bench_proof));
-    guard.insert(case_name, Arc::clone(&bytes));
-    bytes
 }
 
 pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof: &BenchProof) {
@@ -405,19 +359,6 @@ pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof:
             full_bytes,
         );
     }
-}
-
-pub fn build_verifier_full_state(
-    assets: &BenchAssets,
-    proof_bytes: impl AsRef<[u8]>,
-) -> VerifierFullBenchState {
-    // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
-    let verifier = build_verifier(assets);
-    let prover_iteration = prepare_prover_iteration(assets);
-    let output_memtable = block_on(prover_iteration.prover.output_memtable(&prover_iteration.query))
-        .expect("extract output memtable from prover for bench");
-    let proof = proof_from_bytes(proof_bytes.as_ref());
-    build_verifier_full_state_from_proof_impl(verifier, assets.case.query, proof, output_memtable)
 }
 
 pub fn build_verifier_full_state_from_proof(
@@ -521,10 +462,6 @@ fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {
 
     let shared_config = build_shared_config(ctx, ctx_oracles);
     TTVerifier::new(TTVerifierConfig::default(), shared_config, arg_verifier)
-}
-
-fn proof_from_bytes(bytes: &[u8]) -> TTProof<B> {
-    TTProof::from_bytes(bytes).expect("deserialize proof bytes")
 }
 
 fn load_oracle(path: &PathBuf) -> Result<arithmetic::table_oracle::ArithTableOracle<B>> {

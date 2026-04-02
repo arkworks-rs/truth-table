@@ -5,6 +5,7 @@ use datafusion_common::Column;
 use datafusion_expr::{
     Aggregate, Expr, ExprFunctionExt, JoinType, col, expr::Sort as SortExpr, expr_fn::when, lit,
 };
+use datafusion_functions_aggregate::expr_fn::count;
 /// Expand an aggregate so that:
 /// - only active rows contribute to the aggregate
 /// - all rows keep their row-level detail, with aggregate values duplicated
@@ -44,6 +45,7 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
         })
         .collect();
     let agg_df = active_df
+        .clone()
         .aggregate(aggregate.group_expr.clone(), aggregate.aggr_expr.clone())
         .unwrap();
     let agg_group_cols: Vec<String> = group_cols
@@ -92,12 +94,18 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     // 4. Define the new activator:
     // new __activator__ = __activator_orig__ && __row_number__ == 1
 
-    let new_activator_expr = when(
-        col("__activator_orig__").and(col("__row_number__").eq(lit(1_i64))),
-        lit(true),
-    )
-    .otherwise(lit(false))
-    .expect("case expression creation should succeed");
+    let new_activator_expr = if aggregate.group_expr.is_empty() {
+        when(col("__row_number__").eq(lit(1_i64)), lit(true))
+            .otherwise(lit(false))
+            .expect("case expression creation should succeed")
+    } else {
+        when(
+            col("__activator_orig__").and(col("__row_number__").eq(lit(1_i64))),
+            lit(true),
+        )
+        .otherwise(lit(false))
+        .expect("case expression creation should succeed")
+    };
 
     let with_new_activator = with_rownum
         .with_column("__activator__", new_activator_expr)
@@ -117,7 +125,55 @@ pub(super) fn build_output_dataframe(input: &DataFrame, aggregate: &Aggregate) -
     let mut drop_columns: Vec<&str> = agg_group_cols.iter().map(|s| s.as_str()).collect();
     drop_columns.push("__row_number__");
     drop_columns.push("__activator_orig__");
-    sorted.drop_columns(&drop_columns).unwrap()
+    let sorted = sorted.drop_columns(&drop_columns).unwrap();
+
+    if aggregate.group_expr.is_empty() {
+        let input_count_df = input
+            .clone()
+            .aggregate(vec![], vec![count(lit(1_i32)).alias("__input_count__")])
+            .unwrap();
+        // Scalar aggregates can feed later joins, so keep the representative
+        // row-id column alongside the aggregate value and activator.
+        let projected_columns = aggregate
+            .schema
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .chain(std::iter::once(ACTIVATOR_COL_NAME))
+            .chain(std::iter::once(ROW_ID_COL_NAME))
+            .collect::<Vec<_>>();
+
+        let non_empty_branch = sorted
+            .clone()
+            .join_on(input_count_df.clone(), JoinType::Inner, [lit(true)])
+            .unwrap()
+            .filter(col("__input_count__").gt(lit(0_i64)))
+            .unwrap()
+            .drop_columns(&["__input_count__"])
+            .unwrap()
+            .select_columns(&projected_columns)
+            .unwrap();
+
+        let empty_branch = active_df
+            .aggregate(aggregate.group_expr.clone(), aggregate.aggr_expr.clone())
+            .unwrap()
+            .with_column(ACTIVATOR_COL_NAME, lit(true))
+            .unwrap()
+            .with_column(ROW_ID_COL_NAME, lit(0_i64))
+            .unwrap()
+            .join_on(input_count_df, JoinType::Inner, [lit(true)])
+            .unwrap()
+            .filter(col("__input_count__").eq(lit(0_i64)))
+            .unwrap()
+            .drop_columns(&["__input_count__"])
+            .unwrap()
+            .select_columns(&projected_columns)
+            .unwrap();
+
+        return non_empty_branch.union(empty_branch).unwrap();
+    }
+
+    sorted
 }
 
 #[cfg(test)]
@@ -376,6 +432,46 @@ mod tests {
             &input_columns,
             &[col("group_id"), col("sub_group"), col("region")],
             &[max(col("event_date")).alias("active_max")],
+            &expected_columns,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_over_inactive_input_keeps_one_active_row() {
+        let ctx = SessionContext::new();
+
+        let input_columns = vec![
+            (
+                Field::new("value", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![5, 15, 25])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![false, false, false])) as ArrayRef,
+            ),
+        ];
+
+        let expected_columns = vec![
+            (
+                Field::new("active_sum", DataType::Int64, true),
+                Arc::new(Int64Array::from(vec![None, None, None])) as ArrayRef,
+            ),
+            (
+                Field::new(ACTIVATOR_COL_NAME, DataType::Boolean, false),
+                Arc::new(BooleanArray::from(vec![true, false, false])) as ArrayRef,
+            ),
+            (
+                Field::new(ROW_ID_COL_NAME, DataType::Int64, false),
+                Arc::new(Int64Array::from(vec![0, 1, 2])) as ArrayRef,
+            ),
+        ];
+
+        run_aggregate_test(
+            &ctx,
+            &input_columns,
+            &[],
+            &[sum(col("value")).alias("active_sum")],
             &expected_columns,
         )
         .await;

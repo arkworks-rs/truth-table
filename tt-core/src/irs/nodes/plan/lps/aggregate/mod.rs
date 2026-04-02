@@ -492,15 +492,6 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
 
         // The verifier only needs the output shape here, but it has to match the
         // prover's projected aggregate schema exactly to keep tracking aligned.
-        let mut output_fields: Vec<Field> = input_hint_df
-            .data_frame()
-            .schema()
-            .fields()
-            .iter()
-            .filter(|field| field.name() != ACTIVATOR_COL_NAME)
-            .map(|field| field.as_ref().clone())
-            .collect();
-
         let schema_fields = self.aggregate.schema.fields();
         let aggr_count = self.aggregate.aggr_expr.len();
         let aggr_start = schema_fields.len().saturating_sub(aggr_count);
@@ -508,7 +499,26 @@ impl<B: SnarkBackend> crate::irs::nodes::IsVerifierPlanNode<B> for LpNode<B> {
             .iter()
             .map(|field| field.as_ref().clone())
             .collect();
-        output_fields.extend(aggregate_fields.iter().cloned());
+
+        let mut output_fields: Vec<Field> = if self.aggregate.group_expr.is_empty() {
+            let mut fields = aggregate_fields.clone();
+            // Scalar aggregates can feed later joins/subqueries, so the
+            // verifier must preserve the same row-id-bearing shape as the
+            // prover-side hint builder.
+            fields.push(arithmetic::ROW_ID_FIELD.as_ref().clone());
+            fields
+        } else {
+            let mut fields: Vec<Field> = input_hint_df
+                .data_frame()
+                .schema()
+                .fields()
+                .iter()
+                .filter(|field| field.name() != ACTIVATOR_COL_NAME)
+                .map(|field| field.as_ref().clone())
+                .collect();
+            fields.extend(aggregate_fields.iter().cloned());
+            fields
+        };
         output_fields.push(ACTIVATOR_FIELD.as_ref().clone());
         let output = crate::irs::nodes::hints::schema_only_df(output_fields);
 
