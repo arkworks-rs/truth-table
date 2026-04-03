@@ -43,116 +43,116 @@ fn tpch_cases() -> &'static [BenchCase] {
                 query: q1.sql,
                 tables: q1.tables,
             },
-            // BenchCase {
-            //     name: "tpch_q1_poneglyph",
-            //     query: q1_poneglyph.sql,
-            //     tables: q1_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q2_tt",
-            //     query: q2.sql,
-            //     tables: q2.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q3_poneglyph",
-            //     query: q3_poneglyph.sql,
-            //     tables: q3_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q3_tt",
-            //     query: q3.sql,
-            //     tables: q3.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q4_tt",
-            //     query: q4.sql,
-            //     tables: q4.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q5_tt",
-            //     query: q5.sql,
-            //     tables: q5.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q5_poneglyph",
-            //     query: q5_poneglyph.sql,
-            //     tables: q5_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q6_tt",
-            //     query: q6.sql,
-            //     tables: q6.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q7_tt",
-            //     query: q7.sql,
-            //     tables: q7.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q8_tt",
-            //     query: q8.sql,
-            //     tables: q8.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q8_poneglyph",
-            //     query: q8_poneglyph.sql,
-            //     tables: q8_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q9_tt",
-            //     query: q9.sql,
-            //     tables: q9.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q9_poneglyph",
-            //     query: q9_poneglyph.sql,
-            //     tables: q9_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q10_tt",
-            //     query: q10.sql,
-            //     tables: q10.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q12_tt",
-            //     query: q12.sql,
-            //     tables: q12.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q14_tt",
-            //     query: q14.sql,
-            //     tables: q14.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q15_tt",
-            //     query: q15.sql,
-            //     tables: q15.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q17_tt",
-            //     query: q17.sql,
-            //     tables: q17.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q18_poneglyph",
-            //     query: q18_poneglyph.sql,
-            //     tables: q18_poneglyph.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q18_tt",
-            //     query: q18.sql,
-            //     tables: q18.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q19_tt",
-            //     query: q19.sql,
-            //     tables: q19.tables,
-            // },
-            // BenchCase {
-            //     name: "tpch_q20_tt",
-            //     query: q20.sql,
-            //     tables: q20.tables,
-            // },
+            BenchCase {
+                name: "tpch_q1_poneglyph",
+                query: q1_poneglyph.sql,
+                tables: q1_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q2_tt",
+                query: q2.sql,
+                tables: q2.tables,
+            },
+            BenchCase {
+                name: "tpch_q3_poneglyph",
+                query: q3_poneglyph.sql,
+                tables: q3_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q3_tt",
+                query: q3.sql,
+                tables: q3.tables,
+            },
+            BenchCase {
+                name: "tpch_q4_tt",
+                query: q4.sql,
+                tables: q4.tables,
+            },
+            BenchCase {
+                name: "tpch_q5_tt",
+                query: q5.sql,
+                tables: q5.tables,
+            },
+            BenchCase {
+                name: "tpch_q5_poneglyph",
+                query: q5_poneglyph.sql,
+                tables: q5_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q6_tt",
+                query: q6.sql,
+                tables: q6.tables,
+            },
+            BenchCase {
+                name: "tpch_q7_tt",
+                query: q7.sql,
+                tables: q7.tables,
+            },
+            BenchCase {
+                name: "tpch_q8_tt",
+                query: q8.sql,
+                tables: q8.tables,
+            },
+            BenchCase {
+                name: "tpch_q8_poneglyph",
+                query: q8_poneglyph.sql,
+                tables: q8_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q9_tt",
+                query: q9.sql,
+                tables: q9.tables,
+            },
+            BenchCase {
+                name: "tpch_q9_poneglyph",
+                query: q9_poneglyph.sql,
+                tables: q9_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q10_tt",
+                query: q10.sql,
+                tables: q10.tables,
+            },
+            BenchCase {
+                name: "tpch_q12_tt",
+                query: q12.sql,
+                tables: q12.tables,
+            },
+            BenchCase {
+                name: "tpch_q14_tt",
+                query: q14.sql,
+                tables: q14.tables,
+            },
+            BenchCase {
+                name: "tpch_q15_tt",
+                query: q15.sql,
+                tables: q15.tables,
+            },
+            BenchCase {
+                name: "tpch_q17_tt",
+                query: q17.sql,
+                tables: q17.tables,
+            },
+            BenchCase {
+                name: "tpch_q18_poneglyph",
+                query: q18_poneglyph.sql,
+                tables: q18_poneglyph.tables,
+            },
+            BenchCase {
+                name: "tpch_q18_tt",
+                query: q18.sql,
+                tables: q18.tables,
+            },
+            BenchCase {
+                name: "tpch_q19_tt",
+                query: q19.sql,
+                tables: q19.tables,
+            },
+            BenchCase {
+                name: "tpch_q20_tt",
+                query: q20.sql,
+                tables: q20.tables,
+            },
         ];
         let selected_names = selected_tpch_case_names(&cases);
         let filtered = if selected_names.is_empty() {
@@ -179,22 +179,11 @@ fn selected_tpch_case_names(cases: &[BenchCase]) -> Vec<&'static str> {
         .collect()
 }
 
-fn warm_selected_tpch_proofs_once() {
-    static WARMED: OnceLock<()> = OnceLock::new();
-    WARMED.get_or_init(|| {
-        for case in tpch_cases() {
-            let assets = prepare_assets_cached(*case);
-            let _ = warmup_proof(&assets);
-        }
-    });
-}
-
 fn prepare_verifier_state(case: BenchCase) -> crate::support::VerifierFullBenchState {
-    warm_selected_tpch_proofs_once();
     let assets = prepare_assets_cached(case);
     let bench_proof = warmup_proof(&assets);
     log_proof_size_once(case.name, case.query, &bench_proof);
-    build_verifier_full_state_from_proof(&assets, &bench_proof.proof)
+    build_verifier_full_state_from_proof(&assets, &bench_proof)
 }
 
 #[divan::bench(args = tpch_cases(), max_time = 1)]
@@ -204,8 +193,8 @@ fn bench_tpch_prover(bencher: Bencher, case: BenchCase) {
     bencher
         .with_inputs(|| prepare_prover_iteration(&assets))
         .bench_local_values(|iteration| {
-            let proof = run_prover_iteration(iteration);
-            let bench_proof = cache_proof_in_memory_if_absent(case.name, &proof);
+            let (output_memtable, proof) = run_prover_iteration(iteration);
+            let bench_proof = cache_proof_in_memory_if_absent(case.name, output_memtable, &proof);
             log_proof_size_once(case.name, case.query, &bench_proof);
         });
     emit_benchmark_stats_row("bench_tpch_prover", case.name);

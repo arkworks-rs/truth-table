@@ -30,7 +30,7 @@ mod binary_check;
 mod defragg;
 mod hints;
 mod keyed_sumcheck;
-mod perm_check;
+pub(crate) mod perm_check;
 mod rematerialize_check;
 
 pub enum Mode {

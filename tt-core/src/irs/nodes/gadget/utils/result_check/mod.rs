@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::Arc,
 };
 
@@ -7,26 +7,23 @@ use arithmetic::{ACTIVATOR_COL_NAME, table::TrackedTable, table_oracle::TrackedT
 use ark_ff::{PrimeField, Zero};
 use ark_piop::{
     SnarkBackend,
-    arithmetic::mat_poly::mle::MLE,
     errors::SnarkError,
-    verifier::structs::oracle::{Oracle, TrackedOracle},
+    piop::PIOP,
 };
-use either::Either;
 use indexmap::IndexMap;
 
 use crate::{
     irs::{
-        nodes::{IsGadgetNode, IsNode, Node, NodeId, ProverNodeOps, VerifierNodeOps},
+        nodes::{IsGadgetNode, IsNode, Node, ProverNodeOps, VerifierNodeOps},
         payloads::PayloadStructure,
-        tree::Tree,
     },
+    irs::nodes::gadget::utils::nodup::perm_check::{PermPIOP, PermPIOPProverInput, PermPIOPVerifierInput},
     prover::irs::GadgetReadyIr,
     verifier::irs::GadgetReadyIr as VerifierGadgetReadyIr,
 };
 
 pub const INPUT_LABEL: &str = "__input__";
 pub const OUTPUT_LABEL: &str = "__output__";
-const RESULT_CHECK_SRC_POLY_ID_PREFIX: &str = "result_check_src_poly_id";
 
 pub struct GadgetNode<B: SnarkBackend>(std::marker::PhantomData<B>);
 
@@ -135,15 +132,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let res_table = payload
             .get(OUTPUT_LABEL)
             .unwrap_or_else(|| panic!("ResultCheck gadget missing {}", OUTPUT_LABEL));
-        let src = match_r_rows_to_t_positions(t_table, res_table)?;
-        let src_poly = build_result_check_src_poly::<B::F>(1usize << res_table.log_size(), &src);
-        prover.send_auxiliary_mv_poly(
-            result_check_src_poly_key(gadget_ready_ir.tree(), id),
-            src_poly,
-        )?;
-        let r_table = build_r_table_from_res_table(res_table, t_table, &src)?;
-
-        prove_result_check(prover, t_table, &r_table)
+        prove_result_check(prover, t_table, res_table)
     }
 
     fn honest_prover_check(
@@ -187,22 +176,7 @@ impl<B: SnarkBackend> IsGadgetNode<B> for GadgetNode<B> {
         let Some(r_table) = payload.get(OUTPUT_LABEL) else {
             return Ok(());
         };
-        let src_mle = sent_src_mle(verifier, gadget_ready_ir.tree(), id).map_err(|err| {
-            SnarkError::VerifierError(
-                ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
-                    "ResultCheck failed while loading src polynomial: {err:?}"
-                )),
-            )
-        })?;
-        let r_on_t_support = scatter_r_verifier_table_to_t_support(r_table, t_table, &src_mle)
-            .map_err(|err| {
-                SnarkError::VerifierError(
-                    ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
-                        "ResultCheck failed while scattering verifier table onto T support: {err:?}"
-                    )),
-                )
-            })?;
-        verify_result_check(verifier, t_table, &r_on_t_support).map_err(|err| {
+        verify_result_check(verifier, t_table, r_table).map_err(|err| {
             SnarkError::VerifierError(
                 ark_piop::verifier::errors::VerifierError::VerifierCheckFailed(format!(
                     "ResultCheck failed during final verifier checks: {err:?}"
@@ -225,80 +199,20 @@ fn prove_result_check<B: SnarkBackend>(
     t_table: &TrackedTable<B>,
     r_table: &TrackedTable<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let t_activator = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects T to have an activator");
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects R to have an activator");
-
-    #[cfg(feature = "honest-prover")]
-    {
-        let t_act = t_activator.evaluations();
-        let r_act = r_activator.evaluations();
-        if t_act != r_act {
-            let mismatches = t_act
-                .iter()
-                .zip(r_act.iter())
-                .enumerate()
-                .filter_map(|(idx, (t, r))| (t != r).then_some(idx))
-                .take(8)
-                .collect::<Vec<_>>();
-            tracing::error!(
-                t_rows = t_act.len(),
-                r_rows = r_act.len(),
-                ?mismatches,
-                "ResultCheck activator mismatch"
-            );
-        }
-    }
-
-    prover.add_mv_zerocheck_claim((&t_activator - &r_activator).id())?;
-
-    let num_data_cols = t_table.num_data_tracked_cols();
-    debug_assert_eq!(
-        num_data_cols,
-        r_table.num_data_tracked_cols(),
-        "ResultCheck expects T and R to have the same number of data columns",
-    );
-
-    if num_data_cols == 0 {
-        return Ok(());
-    }
-
-    let mut challenges = Vec::with_capacity(num_data_cols);
-    for _ in 0..num_data_cols {
+    let num_challenges = std::cmp::max(t_table.num_data_tracked_cols(), 1);
+    let mut challenges = Vec::with_capacity(num_challenges);
+    for _ in 0..num_challenges {
         challenges.push(prover.get_and_append_challenge(b"result_check_fold")?);
     }
-    let t_fold = t_table.fold_all_data_columns(&challenges);
-    let r_fold = r_table.fold_all_data_columns(&challenges);
-
-    #[cfg(feature = "honest-prover")]
-    {
-        let t_fold_evals = t_fold.data_tracked_poly().evaluations();
-        let r_fold_evals = r_fold.data_tracked_poly().evaluations();
-        let t_act = t_activator.evaluations();
-        let mismatches = t_fold_evals
-            .iter()
-            .zip(r_fold_evals.iter())
-            .zip(t_act.iter())
-            .enumerate()
-            .filter_map(|(idx, ((t, r), a))| ((*a != B::F::zero()) && (t != r)).then_some(idx))
-            .take(8)
-            .collect::<Vec<_>>();
-        if !mismatches.is_empty() {
-            tracing::error!(
-                ?mismatches,
-                t_schema = ?t_table.schema(),
-                r_schema = ?r_table.schema(),
-                "ResultCheck folded-data mismatch on active rows"
-            );
-        }
-    }
-
-    let zero_poly = &(&t_fold.data_tracked_poly() - &r_fold.data_tracked_poly()) * &t_activator;
-    prover.add_mv_zerocheck_claim(zero_poly.id())?;
-    Ok(())
+    let t_fold = fold_table_for_result_check(t_table, &challenges);
+    let r_fold = fold_table_for_result_check(r_table, &challenges);
+    PermPIOP::<B>::prove(
+        prover,
+        PermPIOPProverInput {
+            left_col: t_fold,
+            right_col: r_fold,
+        },
+    )
 }
 
 fn verify_result_check<B: SnarkBackend>(
@@ -306,44 +220,20 @@ fn verify_result_check<B: SnarkBackend>(
     t_table: &TrackedTableOracle<B>,
     r_table: &TrackedTableOracle<B>,
 ) -> ark_piop::errors::SnarkResult<()> {
-    let t_activator = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects T to have an activator");
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck expects R to have an activator");
-
-    verifier.add_zerocheck_claim((&t_activator - &r_activator).id());
-
-    let num_data_cols = t_table.num_data_tracked_col_oracles();
-    debug_assert_eq!(
-        num_data_cols,
-        r_table.num_data_tracked_col_oracles(),
-        "ResultCheck expects T and R to have the same number of data columns",
-    );
-
-    if num_data_cols == 0 {
-        return Ok(());
-    }
-
-    let mut challenges = Vec::with_capacity(num_data_cols);
-    for _ in 0..num_data_cols {
+    let num_challenges = std::cmp::max(t_table.num_data_tracked_col_oracles(), 1);
+    let mut challenges = Vec::with_capacity(num_challenges);
+    for _ in 0..num_challenges {
         challenges.push(verifier.get_and_append_challenge(b"result_check_fold")?);
     }
-    let t_fold = t_table.fold_all_data_oracles(&challenges);
-    let r_fold = r_table.fold_all_data_oracles(&challenges);
-    let zero_oracle =
-        &(&t_fold.data_tracked_oracle() - &r_fold.data_tracked_oracle()) * &t_activator;
-    verifier.add_zerocheck_claim(zero_oracle.id());
-    Ok(())
-}
-
-fn build_result_check_src_poly<F: PrimeField>(target_num_rows: usize, src: &[usize]) -> MLE<F> {
-    let mut evals = vec![F::zero(); target_num_rows];
-    for (rank, &position) in src.iter().enumerate() {
-        evals[rank] = F::from(position as u64);
-    }
-    MLE::from_evaluations_vec(target_num_rows.trailing_zeros() as usize, evals)
+    let t_fold = fold_table_oracle_for_result_check(t_table, &challenges);
+    let r_fold = fold_table_oracle_for_result_check(r_table, &challenges);
+    PermPIOP::<B>::verify(
+        verifier,
+        PermPIOPVerifierInput {
+            left_tracked_col_oracle: t_fold,
+            right_tracked_col_oracle: r_fold,
+        },
+    )
 }
 
 fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {
@@ -352,37 +242,6 @@ fn active_positions<F: PrimeField>(evals: &[F]) -> Vec<usize> {
         .enumerate()
         .filter_map(|(idx, value)| (!value.is_zero()).then_some(idx))
         .collect()
-}
-
-fn match_r_rows_to_t_positions<B: SnarkBackend>(
-    t_table: &TrackedTable<B>,
-    r_table: &TrackedTable<B>,
-) -> ark_piop::errors::SnarkResult<Vec<usize>> {
-    let t_activator = t_table
-        .activator_tracked_poly()
-        .expect("ResultCheck T activator missing")
-        .evaluations();
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck R activator missing")
-        .evaluations();
-
-    let mut positions_by_key: HashMap<String, VecDeque<usize>> = HashMap::new();
-    for row_idx in active_positions(&t_activator) {
-        let key = tracked_row_key(t_table, row_idx)?;
-        positions_by_key.entry(key).or_default().push_back(row_idx);
-    }
-
-    let mut positions = Vec::new();
-    for row_idx in active_positions(&r_activator) {
-        let key = tracked_row_key(r_table, row_idx)?;
-        let position = positions_by_key
-            .get_mut(&key)
-            .and_then(VecDeque::pop_front)
-            .unwrap_or_else(|| panic!("ResultCheck could not map R row {} back to T", row_idx));
-        positions.push(position);
-    }
-    Ok(positions)
 }
 
 fn tracked_row_key<B: SnarkBackend>(
@@ -423,239 +282,40 @@ fn active_row_multiset<B: SnarkBackend>(
     Ok(counts)
 }
 
-fn build_r_table_from_res_table<B: SnarkBackend>(
-    res_table: &TrackedTable<B>,
-    t_table: &TrackedTable<B>,
-    src: &[usize],
-) -> ark_piop::errors::SnarkResult<TrackedTable<B>> {
-    let tracker_rc = res_table
-        .activator_tracked_poly()
-        .map(|poly| poly.tracker())
-        .or_else(|| {
-            res_table
-                .tracked_polys_iter()
-                .next()
-                .map(|(_, poly)| poly.tracker())
-        })
-        .expect("ResultCheck result tracker missing");
-    let res_active_positions = active_positions(
-        &res_table
-            .activator_tracked_poly()
-            .expect("ResultCheck result activator missing")
-            .evaluations(),
-    );
-    if res_active_positions.len() != src.len() {
-        panic!("ResultCheck result/T src size mismatch");
-    }
-
-    let schema = t_table
-        .schema_ref()
-        .expect("ResultCheck T schema missing")
-        .clone();
-    let target_size = 1usize << t_table.log_size();
-    let mut tracked_polys = IndexMap::new();
-    for field in schema.fields() {
-        let evals = if field.name() == ACTIVATOR_COL_NAME {
-            let mut evals = vec![B::F::zero(); target_size];
-            for &position in src {
-                evals[position] = B::F::from(1u64);
-            }
-            evals
-        } else {
-            let res_evals = res_table
-                .tracked_polys_iter()
-                .find_map(|(candidate, poly)| {
-                    (candidate.name() == field.name()).then_some(poly.evaluations())
-                })
-                .unwrap_or_else(|| panic!("ResultCheck result column {} missing", field.name()));
-            let mut evals = vec![B::F::zero(); target_size];
-            for (rank, &position) in src.iter().enumerate() {
-                evals[position] = res_evals[res_active_positions[rank]];
-            }
-            evals
-        };
-        let mle = MLE::from_evaluations_vec(t_table.log_size(), evals);
-        let poly_id = tracker_rc.borrow_mut().track_mat_mv_poly(mle);
-        tracked_polys.insert(
-            field.clone(),
-            ark_piop::prover::structs::polynomial::TrackedPoly::new(
-                Either::Left(poly_id),
-                t_table.log_size(),
-                tracker_rc.clone(),
-            ),
-        );
-    }
-    Ok(TrackedTable::new(
-        Some(schema),
-        tracked_polys,
-        t_table.log_size(),
-    ))
-}
-
-fn sent_src_mle<B: SnarkBackend>(
-    verifier: &mut ark_piop::verifier::ArgVerifier<B>,
-    tree: &Tree<B>,
-    id: crate::irs::nodes::NodeId,
-) -> ark_piop::errors::SnarkResult<MLE<B::F>> {
-    verifier.auxiliary_mv_poly(&result_check_src_poly_key(tree, id))
-}
-
-fn scatter_r_verifier_table_to_t_support<B: SnarkBackend>(
-    r_table: &TrackedTableOracle<B>,
-    t_table: &TrackedTableOracle<B>,
-    src_mle: &MLE<B::F>,
-) -> ark_piop::errors::SnarkResult<TrackedTableOracle<B>> {
-    let tracker_rc = r_table
-        .activator_tracked_poly()
-        .map(|oracle| oracle.tracker())
-        .or_else(|| {
-            r_table
-                .tracked_oracles_iter()
-                .next()
-                .map(|(_, oracle)| oracle.tracker())
-        })
-        .expect("ResultCheck R tracker missing");
-    let schema = t_table
-        .schema_ref()
-        .expect("ResultCheck T schema missing")
-        .clone();
-    let target_log_size = t_table.log_size();
-    let r_log_size = r_table.log_size();
-    let src_evals = src_mle.evaluations().to_vec();
-    let r_activator = r_table
-        .activator_tracked_poly()
-        .expect("ResultCheck result activator missing")
-        .clone();
-    let r_activator_evals = (0..(1usize << r_log_size))
-        .map(|idx| {
-            let point = boolean_point_from_index::<B::F>(r_log_size, idx);
-            tracker_rc
-                .borrow()
-                .query_mv(r_activator.id(), point)
-                .expect("ResultCheck result activator oracle evaluation should exist")
-        })
-        .collect::<Vec<_>>();
-    let r_active_positions = active_positions(&r_activator_evals);
-
-    let mut tracked_oracles = IndexMap::new();
-    for field in schema.fields() {
-        let scattered_evals = if field.name() == ACTIVATOR_COL_NAME {
-            let mut evals = vec![B::F::zero(); 1usize << target_log_size];
-            for &rank in &r_active_positions {
-                let target_idx = field_to_usize::<B::F>(src_evals[rank])?;
-                evals[target_idx] = B::F::from(1u64);
-            }
-            evals
-        } else {
-            let r_oracle = r_table
-                .tracked_oracles_iter()
-                .find_map(|(candidate, oracle)| {
-                    (candidate.name() == field.name()).then_some(oracle.clone())
-                })
-                .unwrap_or_else(|| panic!("ResultCheck R column {} missing", field.name()));
-            let r_evals = (0..(1usize << r_log_size))
-                .map(|idx| {
-                    let source_point = boolean_point_from_index::<B::F>(r_log_size, idx);
-                    tracker_rc
-                        .borrow()
-                        .query_mv(r_oracle.id(), source_point)
-                        .expect("ResultCheck R oracle evaluation should exist")
-                })
-                .collect::<Vec<_>>();
-            let mut evals = vec![B::F::zero(); 1usize << target_log_size];
-            for &rank in &r_active_positions {
-                let target_idx = field_to_usize::<B::F>(src_evals[rank])?;
-                evals[target_idx] = r_evals[rank];
-            }
-            evals
-        };
-        let oracle_evals = scattered_evals.clone();
-        let oracle = Oracle::new_multivariate(target_log_size, move |point| {
-            Ok(eval_mle_at_point(&oracle_evals, target_log_size, &point))
-        });
-        let oracle_id = tracker_rc.borrow_mut().track_oracle(oracle);
-        tracked_oracles.insert(
-            field.clone(),
-            TrackedOracle::new(Either::Left(oracle_id), tracker_rc.clone(), target_log_size),
-        );
-    }
-    Ok(TrackedTableOracle::new(
-        Some(schema),
-        tracked_oracles,
-        target_log_size,
-    ))
-}
-
-fn result_check_src_poly_key<B: SnarkBackend>(tree: &Tree<B>, id: NodeId) -> String {
-    let path = structural_path_to_node(tree, id)
-        .unwrap_or_else(|| panic!("ResultCheck could not derive structural path for node {id}"));
-    let path = path
-        .iter()
-        .map(|index| index.to_string())
-        .collect::<Vec<_>>()
-        .join(".");
-    format!("{RESULT_CHECK_SRC_POLY_ID_PREFIX}_{path}")
-}
-
-fn structural_path_to_node<B: SnarkBackend>(tree: &Tree<B>, target: NodeId) -> Option<Vec<usize>> {
-    fn visit<B: SnarkBackend>(node: &Arc<Node<B>>, target: NodeId, path: &mut Vec<usize>) -> bool {
-        if node.id() == target {
-            return true;
-        }
-        for (index, child) in node.children().iter().enumerate() {
-            path.push(index);
-            if visit(child, target, path) {
-                return true;
-            }
-            path.pop();
-        }
-        false
-    }
-
-    let mut path = Vec::new();
-    if visit(tree.root(), target, &mut path) {
-        Some(path)
+fn fold_table_for_result_check<B: SnarkBackend>(
+    table: &TrackedTable<B>,
+    challenges: &[B::F],
+) -> arithmetic::col::TrackedCol<B> {
+    if table.num_data_tracked_cols() == 0 {
+        arithmetic::col::TrackedCol::new(
+            table
+                .activator_tracked_poly()
+                .expect("ResultCheck expects table activator")
+                .clone(),
+            None,
+            None,
+        )
     } else {
-        None
+        table.fold_all_data_columns(challenges)
     }
 }
 
-fn field_to_usize<F: PrimeField>(value: F) -> ark_piop::errors::SnarkResult<usize> {
-    let repr = value.into_bigint();
-    let limbs = repr.as_ref();
-    let Some(first) = limbs.first() else {
-        panic!("ResultCheck field conversion failed");
-    };
-    Ok(*first as usize)
-}
-
-fn boolean_point_from_index<F: PrimeField>(log_size: usize, idx: usize) -> Vec<F> {
-    (0..log_size)
-        .map(|bit| {
-            if ((idx >> bit) & 1) == 1 {
-                F::from(1u64)
-            } else {
-                F::zero()
-            }
-        })
-        .collect()
-}
-
-fn eval_mle_at_point<F: PrimeField>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {
-    if num_vars == 0 {
-        return evaluations.first().copied().unwrap_or_else(F::zero);
+fn fold_table_oracle_for_result_check<B: SnarkBackend>(
+    table: &TrackedTableOracle<B>,
+    challenges: &[B::F],
+) -> arithmetic::col_oracle::TrackedColOracle<B> {
+    if table.num_data_tracked_col_oracles() == 0 {
+        arithmetic::col_oracle::TrackedColOracle::new(
+            table
+                .activator_tracked_poly()
+                .expect("ResultCheck expects table activator")
+                .clone(),
+            None,
+            None,
+        )
+    } else {
+        table.fold_all_data_oracles(challenges)
     }
-    let mut layer = evaluations.to_vec();
-    let one = F::from(1u64);
-    for i in 0..num_vars {
-        let x = point.get(i).copied().unwrap_or_else(F::zero);
-        let mut next = Vec::with_capacity(layer.len() / 2);
-        for chunk in layer.chunks_exact(2) {
-            next.push(chunk[0] * (one - x) + chunk[1] * x);
-        }
-        layer = next;
-    }
-    layer[0]
 }
 
 fn false_claim() -> ark_piop::errors::SnarkError {

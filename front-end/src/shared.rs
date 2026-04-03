@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use arithmetic::{
+    table::TrackedTable,
+};
 use ark_piop::SnarkBackend;
 use async_trait::async_trait;
 use datafusion::{
@@ -13,8 +16,15 @@ use datafusion::{
 use datafusion_common::{DataFusionError, Result as DataFusionResult};
 use datafusion_expr::{logical_plan::UserDefinedLogicalNode, LogicalPlan};
 use tt_core::ctx_oracles::CtxOracles;
+use tt_core::errors::TTResult;
 use tt_core::irs::nodes::plan::{
     rematerialize::RematerializeLogicalNode, result_check::ResultCheckLogicalNode,
+};
+use tt_core::{
+    irs::{
+        nodes::IsNode,
+        payloads::PayloadStructure,
+    },
 };
 
 pub struct TTSharedConfig<B: SnarkBackend> {
@@ -88,16 +98,44 @@ impl<B: SnarkBackend> TTSharedConfig<B> {
         df.into_unoptimized_plan()
     }
 
-    pub async fn analyze_and_optimize_lp(&self, lp: LogicalPlan) -> LogicalPlan {
-        let analyzed_lp = self
+    pub async fn analyze_lp(&self, lp: LogicalPlan) -> LogicalPlan {
+        self
             .analyzer()
             .execute_and_check(lp, self.config_options(), |_plan_after_rule, _rule| {})
-            .unwrap();
-
-        self.optimizer()
-            .optimize(analyzed_lp.clone(), self.optimizer_ctx(), self.observer())
             .unwrap()
     }
+
+    pub async fn optimize_lp(&self, analyzed_lp: LogicalPlan) -> LogicalPlan {
+        self.optimizer()
+            .optimize(analyzed_lp, self.optimizer_ctx(), self.observer())
+            .unwrap()
+    }
+
+}
+
+pub(crate) fn table_scan_payload<B: SnarkBackend>(
+    tracked_ir: &tt_core::prover::irs::TrackedIr<B>,
+) -> TTResult<TrackedTable<B>> {
+    for (node_id, node) in tracked_ir.tree().arena() {
+        if node.name() != "TableScan" {
+            continue;
+        }
+
+        let payload = tracked_ir
+            .payloads()
+            .get(node_id)
+            .and_then(|payload| payload.clone())
+            .and_then(|payload| match payload {
+                PayloadStructure::PlanPayload(table) => Some(table),
+                _ => None,
+            });
+
+        if let Some(table) = payload {
+            return Ok(table);
+        }
+    }
+
+    Err(DataFusionError::Internal("table scan payload not found".to_string()).into())
 }
 
 fn with_noop_extension_support(session_ctx: SessionContext) -> SessionContext {

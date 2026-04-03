@@ -69,6 +69,7 @@ tpchgen = "2.0.1"
 tpchgen-arrow = "2.0.1"
 tracing = { version = "0.1.37" }
 tracing-subscriber = { version = "0.3" }
+zstd = "0.13"
 
 [workspace.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "../docs-header.html"]

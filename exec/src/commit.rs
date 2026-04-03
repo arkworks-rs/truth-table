@@ -7,15 +7,15 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use arithmetic::{
     ROW_ID_COL_NAME,
-    table_oracle::{ArithTableOracle, TrackedTableOracle},
+    table_oracle::ArithTableOracle,
 };
 use ark_piop::{
-    DefaultSnarkBackend, prover::ArgProver, setup::structs::SNARKVk, verifier::ArgVerifier,
+    DefaultSnarkBackend,
 };
 use ark_serialize::CanonicalSerialize;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use front_end::{
-    prover::{TTProver, TTProverConfig},
+    data_owner::{TTDataOwner, TTDataOwnerConfig},
     shared::TTSharedConfig,
 };
 use tt_core::prover::passes::materialization::configure_constraint_metadata_from_parquet_paths;
@@ -156,33 +156,25 @@ async fn commit_parquet_with_pk(
 
     let query = format!("SELECT * EXCEPT ({}) FROM {table_name}", ROW_ID_COL_NAME);
 
-    let (arg_prover, mut verifier) = load_prover_verifier(pk_path)
+    let snark_pk = load_snark_pk(pk_path)
         .with_context(|| format!("failed to load proving key from {}", pk_path.display()))?;
 
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
-    // Oracle generation bootstraps the public table commitment, so this prover
-    // is allowed to commit a TableScan directly when no ctx_oracle exists yet.
-    let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, arg_prover);
-    let (table_scan_table, tt_proof) = prover.prove_with_table_scan(&query).await?;
-    verifier.set_proof(tt_proof.snark_proof());
-
-    let tracked_table_oracle =
-        TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)?;
-    let serializable = ArithTableOracle::from_tracked_table_oracle(&tracked_table_oracle);
+    let data_owner = TTDataOwner::new(
+        TTDataOwnerConfig::default(),
+        shared_config,
+        snark_pk,
+    );
+    let serializable = data_owner.commit(&query).await?;
 
     write_oracle(&serializable, output_path)?;
 
     Ok(output_path.to_path_buf())
 }
 
-#[allow(clippy::type_complexity)]
-fn load_prover_verifier(pk_path: &Path) -> Result<(ArgProver<B>, ArgVerifier<B>)> {
+fn load_snark_pk(pk_path: &Path) -> Result<ark_piop::setup::structs::SNARKPk<B>> {
     let tt_pk = TTPk::<B>::load(pk_path).with_context(|| format!("load {}", pk_path.display()))?;
-    let snark_pk = tt_pk.into_inner();
-    let vk: SNARKVk<B> = snark_pk.vk.clone();
-    let prover = ArgProver::new_from_pk(snark_pk);
-    let verifier = ArgVerifier::new_from_vk(vk);
-    Ok((prover, verifier))
+    Ok(tt_pk.into_inner())
 }
 
 fn write_oracle(serializable: &ArithTableOracle<B>, output_path: &Path) -> Result<()> {

@@ -201,6 +201,117 @@ fn materialize_hint_df(hint_df: &crate::irs::nodes::hints::HintDF) -> Option<Mat
     ))
 }
 
+pub fn append_activator_and_pad_batches(
+    base_schema: &Schema,
+    batches: Vec<RecordBatch>,
+) -> datafusion_common::Result<(Schema, Vec<RecordBatch>)> {
+    let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+    let target_num_rows = row_count.max(1).next_power_of_two();
+    let has_activator = base_schema
+        .fields()
+        .iter()
+        .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
+    let padded_batches =
+        pad_batches_to_num_rows_with_inactive_padding(base_schema, batches, Some(target_num_rows))?;
+    if has_activator {
+        return Ok((base_schema.clone(), padded_batches));
+    }
+    let batch_refs: Vec<&RecordBatch> = padded_batches.iter().collect();
+    let combined = concat_batches(&Arc::new(base_schema.clone()), batch_refs)?;
+
+    let mut output_fields = base_schema.fields().to_vec();
+    output_fields.push(Arc::new(Field::new(
+        arithmetic::ACTIVATOR_COL_NAME,
+        datafusion::arrow::datatypes::DataType::Boolean,
+        false,
+    )));
+    let output_schema = Schema::new(output_fields);
+
+    let activator_values = std::iter::repeat_n(true, row_count)
+        .chain(std::iter::repeat_n(false, target_num_rows - row_count))
+        .collect::<Vec<_>>();
+    let mut arrays = combined.columns().to_vec();
+    arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
+    let combined_batch = RecordBatch::try_new(Arc::new(output_schema.clone()), arrays)?;
+    Ok((output_schema, vec![combined_batch]))
+}
+
+pub fn pad_batches_to_num_rows_with_inactive_padding(
+    schema: &Schema,
+    batches: Vec<RecordBatch>,
+    target_num_rows: Option<usize>,
+) -> datafusion_common::Result<Vec<RecordBatch>> {
+    let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+    let Some(target_num_rows) = target_num_rows else {
+        return Ok(batches);
+    };
+    if row_count > target_num_rows {
+        return Err(DataFusionError::Internal(format!(
+            "cannot pad output memtable from {} rows down to {} rows",
+            row_count, target_num_rows
+        )));
+    }
+    if row_count == target_num_rows {
+        return Ok(batches);
+    }
+
+    let schema_ref = Arc::new(schema.clone());
+    let combined = if row_count == 0 || schema.fields().is_empty() {
+        None
+    } else {
+        let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
+        Some(concat_batches(&schema_ref, batch_refs)?)
+    };
+
+    let pad = target_num_rows - row_count;
+    let mut output_arrays = Vec::with_capacity(schema.fields().len());
+    for (idx, field) in schema.fields().iter().enumerate() {
+        let base = combined
+            .as_ref()
+            .map(|batch| batch.column(idx).clone())
+            .unwrap_or_else(|| {
+                inactive_padding_scalar(field.data_type())
+                    .expect("padding scalar for schema field")
+                    .to_array_of_size(0)
+                    .expect("empty array for schema field")
+            });
+        let pad_arr = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
+            Arc::new(BooleanArray::from(vec![false; pad])) as ArrayRef
+        } else {
+            inactive_padding_scalar(field.data_type())?.to_array_of_size(pad)?
+        };
+        output_arrays.push(concat(&[base.as_ref(), pad_arr.as_ref()])?);
+    }
+
+    let padded_batch = RecordBatch::try_new(schema_ref, output_arrays)?;
+    Ok(vec![padded_batch])
+}
+
+pub fn inactive_padding_scalar(
+    data_type: &datafusion::arrow::datatypes::DataType,
+) -> datafusion_common::Result<ScalarValue> {
+    match ScalarValue::new_zero(data_type) {
+        Ok(value) => Ok(value),
+        Err(_) => match data_type {
+            datafusion::arrow::datatypes::DataType::Utf8View => {
+                Ok(ScalarValue::Utf8View(Some(String::new())))
+            }
+            datafusion::arrow::datatypes::DataType::BinaryView => {
+                Ok(ScalarValue::BinaryView(Some(Vec::new())))
+            }
+            datafusion::arrow::datatypes::DataType::FixedSizeBinary(size) => {
+                Ok(ScalarValue::FixedSizeBinary(
+                    *size,
+                    Some(vec![0; *size as usize]),
+                ))
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "unsupported inactive padding type: {data_type:?}"
+            ))),
+        },
+    }
+}
+
 fn arrow_schema_with_qualifiers(df_schema: &DFSchema) -> Schema {
     let arrow_schema: Schema = <DFSchema as AsRef<Schema>>::as_ref(df_schema).clone();
     let fields: Vec<Field> = df_schema

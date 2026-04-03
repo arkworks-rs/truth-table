@@ -1,16 +1,29 @@
 use arithmetic::table_oracle::{ArithTableOracle, TrackedTableOracle};
+use ark_ff::Field;
 use ark_piop::{SnarkBackend, verifier::ArgVerifier};
-use datafusion::arrow::datatypes::{FieldRef, Schema};
-use datafusion_common::DFSchema;
+use datafusion::{
+    arrow::datatypes::{FieldRef, Schema},
+    datasource::{MemTable, TableProvider},
+    prelude::SessionContext,
+};
+use datafusion_common::{DFSchema, DataFusionError};
 use indexmap::IndexMap;
 
 use crate::irs::nodes::IsNode;
 use crate::{
     ctx_oracles::CtxOracles,
+    errors::TTResult,
     irs::{
         ir::LocalPass,
         nodes::{Node, NodeId},
-        payloads::HintDFPayload,
+        payloads::{HintDFPayload, PayloadStructure},
+    },
+    prover::{
+        passes::{
+            arithmetization::arithmetize_materialized_table,
+            materialization::pad_batches_to_num_rows_with_inactive_padding,
+        },
+        payloads::MaterializedTable,
     },
     verifier::payloads::TrackedPayload,
 };
@@ -24,14 +37,55 @@ const QUALIFIER_METADATA_KEY: &str = "tt.qualifier";
 pub struct TrackingPass<B: SnarkBackend> {
     verifier: RefCell<ArgVerifier<B>>,
     ctx_oracles: CtxOracles<B>,
+    output_memtable: Option<Arc<MemTable>>,
 }
 
 impl<B: SnarkBackend> TrackingPass<B> {
-    pub fn new(verifier: ArgVerifier<B>, ctx_oracles: CtxOracles<B>) -> Self {
+    pub fn new(
+        verifier: ArgVerifier<B>,
+        ctx_oracles: CtxOracles<B>,
+        output_memtable: Option<Arc<MemTable>>,
+    ) -> Self {
         Self {
             verifier: RefCell::new(verifier),
             ctx_oracles,
+            output_memtable,
         }
+    }
+
+    pub async fn finish(&self, tracked_ir: &mut crate::verifier::irs::TrackedIr<B>) -> TTResult<()> {
+        let Some(output_memtable) = self.output_memtable.clone() else {
+            return Ok(());
+        };
+        let root = tracked_ir.tree().root();
+        if root.name() != "ResultCheck" {
+            return Ok(());
+        }
+
+        let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
+        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
+        let tracked_table = Self::track_output_table_oracle(&arith_table, &self.verifier);
+        let gadget_id = root
+            .children()
+            .into_iter()
+            .find(|child| child.name() == "ResultCheck")
+            .map(|child| child.id())
+            .ok_or_else(|| {
+                DataFusionError::Internal("ResultCheck root missing gadget child".to_string())
+            })?;
+        let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
+            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
+            _ => IndexMap::new(),
+        };
+        gadget_payload.insert(
+            crate::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
+            tracked_table,
+        );
+        tracked_ir.set_payload_for_node(
+            gadget_id,
+            Some(PayloadStructure::GadgetPayload(gadget_payload)),
+        );
+        Ok(())
     }
 }
 
@@ -248,4 +302,73 @@ fn infer_table_name_from_df_schema(schema: &DFSchema) -> Option<String> {
                 .to_string()
         })
     })
+}
+
+impl<B: SnarkBackend> TrackingPass<B> {
+    async fn materialized_table_from_memtable(
+        mem_table: Arc<MemTable>,
+        target_num_rows: Option<usize>,
+    ) -> TTResult<MaterializedTable> {
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(mem_table.clone())?;
+        let mut batches = df.collect().await?;
+        let schema = mem_table.schema();
+        batches = pad_batches_to_num_rows_with_inactive_padding(
+            schema.as_ref(),
+            batches,
+            target_num_rows,
+        )?;
+        let row_count = batches.iter().map(|batch| batch.num_rows()).sum();
+        let rebuilt = MemTable::try_new(mem_table.schema(), vec![batches.clone()])
+            .expect("memtable rebuild from collected batches should succeed");
+        Ok(MaterializedTable::new_with_batches(
+            rebuilt, row_count, batches,
+        ))
+    }
+
+    fn track_output_table_oracle(
+        arith_table: &arithmetic::table::ArithTable<B::F>,
+        verifier: &RefCell<ArgVerifier<B>>,
+    ) -> TrackedTableOracle<B> {
+        let tracked_oracles = arith_table
+            .polynomials()
+            .iter()
+            .map(|(field_ref, mle)| {
+                let poly_evals = mle.evaluations();
+                let num_vars = mle.num_vars();
+                let oracle =
+                    ark_piop::verifier::structs::oracle::Oracle::new_multivariate(
+                        arith_table.log_size(),
+                        move |point| Ok(eval_mle_at_point(&poly_evals, num_vars, &point)),
+                    );
+                let tracked_oracle = verifier.borrow().track_oracle(oracle);
+                (field_ref.clone(), tracked_oracle)
+            })
+            .collect();
+        TrackedTableOracle::new(
+            arith_table.schema(),
+            tracked_oracles,
+            arith_table.log_size(),
+        )
+    }
+}
+
+fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {
+    if num_vars == 0 {
+        return evaluations.first().copied().unwrap_or_else(F::zero);
+    }
+
+    let mut layer = evaluations.to_vec();
+    let one = F::one();
+    for i in 0..num_vars {
+        let x = point.get(i).copied().unwrap_or_else(F::zero);
+        let mut next = Vec::with_capacity(layer.len() / 2);
+        for chunk in layer.chunks_exact(2) {
+            let low = chunk[0];
+            let high = chunk[1];
+            next.push(low * (one - x) + high * x);
+        }
+        layer = next;
+    }
+    layer[0]
 }

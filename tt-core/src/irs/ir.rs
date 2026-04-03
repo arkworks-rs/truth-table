@@ -1,9 +1,11 @@
 use ark_piop::SnarkBackend;
+use datafusion_expr::LogicalPlan;
 use indexmap::IndexMap;
 use tracing::{debug, debug_span};
 
 use crate::irs::{
     nodes::{IsNode, Node, NodeId, PlanNode},
+    payloads::EmptyPayload,
     tree::{Payload, Tree},
 };
 use std::sync::Arc;
@@ -126,6 +128,12 @@ impl<Pd: Payload, B: SnarkBackend> Ir<B, Pd> {
 
         dot.push('}');
         dot
+    }
+}
+
+impl<B: SnarkBackend> Ir<B, EmptyPayload> {
+    pub fn from_logical_plan(lp: &LogicalPlan) -> Self {
+        Self::new_empty(Tree::from_logical_plan(lp))
     }
 }
 impl<B, PIn> Ir<B, PIn>

@@ -1,3 +1,4 @@
+pub mod data_owner;
 pub mod logical_plan_codec;
 pub mod prover;
 pub mod shared;

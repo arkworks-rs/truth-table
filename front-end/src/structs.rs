@@ -12,10 +12,12 @@ use derivative::Derivative;
 use proof_planner::logical_plan_optimizer::OptimizationHints;
 use tracing::{debug, instrument};
 use tt_core::errors::TTResult;
+use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
 
 // Keep the length-prefixed proof framing stable while distinguishing the hint
 // payload from older proofs that stored a serialized optimized IR here.
 const OPTIMIZATION_HINTS_MAGIC: &[u8; 4] = b"TTH1";
+const TTPROOF_ZSTD_LEVEL: i32 = 1;
 
 /// An artifact is any piece of data that can be serialized and deserialized, and can be saved to and loaded from disk.
 pub trait Artifact: Sized {
@@ -220,10 +222,19 @@ where
     SNARKProof<B>: CanonicalSerialize + CanonicalDeserialize,
 {
     fn to_bytes(&self) -> TTResult<Vec<u8>> {
-        canonical_to_vec_compressed(self)
+        let raw_bytes = canonical_to_vec_compressed(self)?;
+        zstd_encode_all(Cursor::new(raw_bytes), TTPROOF_ZSTD_LEVEL)
+            .map_err(Into::into)
     }
 
     fn from_bytes(bytes: &[u8]) -> TTResult<Self> {
+        if let Ok(decoded) = zstd_decode_all(Cursor::new(bytes)) {
+            return match canonical_from_slice_compressed(&decoded) {
+                Ok(proof) => Ok(proof),
+                Err(_) => canonical_from_slice_uncompressed(&decoded),
+            };
+        }
+
         match canonical_from_slice_compressed(bytes) {
             Ok(proof) => Ok(proof),
             Err(_) => canonical_from_slice_uncompressed(bytes),

@@ -1,43 +1,25 @@
-use arithmetic::table::ArithTable;
-use arithmetic::table_oracle::TrackedTableOracle;
-use ark_ff::Field;
-use ark_piop::{verifier::structs::oracle::Oracle, verifier::ArgVerifier, SnarkBackend};
+use ark_piop::{verifier::ArgVerifier, SnarkBackend};
 use datafusion::{
-    arrow::{
-        array::{ArrayRef, BooleanArray},
-        compute::{concat, concat_batches},
-        datatypes::{DataType, Schema},
-        record_batch::RecordBatch,
-    },
     datasource::{MemTable, TableProvider},
     prelude::SessionContext,
 };
 use datafusion_common::DataFusionError;
-use datafusion_common::ScalarValue;
-use indexmap::IndexMap;
 use proof_planner::{
     logical_plan_optimizer::apply_optimization_hints,
     proof_plan_optimizer::{rules as proof_plan_rules, ProofPlanOptimizer},
 };
 use std::sync::Arc;
 use tracing::debug;
-use tt_core::prover::passes::arithmetization::arithmetize_materialized_table;
 use tt_core::{
     ctx_oracles::CtxOracles,
     errors::{TTError, TTResult},
-    irs::nodes::IsNode,
-    irs::payloads::PayloadStructure,
     irs::shared_ir::{EmptyIr, GadgetPlannedIr, OutputPlannedIr},
     irs::tree::Tree,
-    prover::payloads::MaterializedTable,
     verifier::{
         irs::{
-            GadgetReadyIr as VerifierGadgetReadyIr, TrackedIr as VerifierTrackedIr,
-            VirtualizedIr as VerifierVirtualizedIr,
+            GadgetReadyIr as VerifierGadgetReadyIr, VirtualizedIr as VerifierVirtualizedIr,
         },
         passes::{
-            // reuse prover-side arithmetization logic so prover/verifier agree exactly
-            // on the result-check output table encoding
             gadget_initialization::GadgetInitializationPass as VerifierGadgetInitializationPass,
             gadget_planning::GadgetPlanningPass as VerifierGadgetPlanningPass,
             output_planning::OutputPlanningPass as VerifierOutputPlanningPass,
@@ -50,26 +32,11 @@ use tt_core::{
 
 use crate::{shared::TTSharedConfig, structs::TTProof};
 
-fn maybe_dump_ir_stage(label: &str, graphviz: &str) {
-    if let Ok(dir) = std::env::var("TT_DUMP_IR_DIR") {
-        let _ = std::fs::create_dir_all(&dir);
-        let path = format!("{dir}/verifier_{label}.dot");
-        let _ = std::fs::write(path, graphviz);
-    }
-}
-
-pub struct VerifierIrStages<B: SnarkBackend> {
-    pub initial: EmptyIr<B>,
-    pub output_planned: OutputPlannedIr<B>,
-    pub gadget_planned: GadgetPlannedIr<B>,
-    pub tracked: VerifierTrackedIr<B>,
-    pub virtualized: VerifierVirtualizedIr<B>,
-    pub gadget_ready: VerifierGadgetReadyIr<B>,
-}
-
+// Truth Table verifier configuration
 pub struct TTVerifierConfig<B: SnarkBackend> {
     phantom: std::marker::PhantomData<B>,
 }
+
 impl<B: SnarkBackend> TTVerifierConfig<B> {
     pub fn new() -> Self {
         Self {
@@ -91,8 +58,9 @@ impl<B: SnarkBackend> TTVerifierConfig<B> {
         &self,
         arg_verifier: ArgVerifier<B>,
         ctx_oracles: CtxOracles<B>,
+        output_memtable: Option<Arc<MemTable>>,
     ) -> VerifierTrackingPass<B> {
-        VerifierTrackingPass::new(arg_verifier, ctx_oracles)
+        VerifierTrackingPass::new(arg_verifier, ctx_oracles, output_memtable)
     }
 }
 
@@ -102,10 +70,13 @@ impl<B: SnarkBackend> Default for TTVerifierConfig<B> {
     }
 }
 
-/// Verifier configuration that bundles planner rules and context oracles.
+/// Truth Table Verifier
 pub struct TTVerifier<B: SnarkBackend> {
+    /// The configuration specific to the verifier
     verifier_config: TTVerifierConfig<B>,
+    /// The configuration shared between prover and verifier
     shared_config: TTSharedConfig<B>,
+    /// The inner argument verifier
     arg_verifier: ArgVerifier<B>,
 }
 
@@ -132,7 +103,7 @@ impl<B: SnarkBackend> TTVerifier<B> {
         &self.arg_verifier
     }
 
-    async fn verify_with_gadget_planned_ir(
+    pub async fn verify_with_gadget_planned_ir(
         &self,
         proof: &TTProof<B>,
         gadget_planned_ir: &GadgetPlannedIr<B>,
@@ -147,16 +118,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
         let verifier_tracking_pass = self.verifier_config().tracking_pass(
             arg_verifier.clone(),
             self.shared_config().ctx_oracles().clone(),
+            output_memtable,
         );
         let mut tracked_ir = gadget_planned_ir.apply_local_pass_sequential(&verifier_tracking_pass);
-        self.track_query_output(&mut tracked_ir, output_memtable, arg_verifier.clone())
-            .await?;
-        maybe_dump_ir_stage("tracked", &tracked_ir.display_graphviz(true));
+        verifier_tracking_pass.finish(&mut tracked_ir).await?;
 
         // Step 3: Apply the virtualization pass
         let verifier_virtualization_pass = VerifierVirtualizationPass::<B>::new(&tracked_ir);
         let virtualized_ir = tracked_ir.apply_local_pass_sequential(&verifier_virtualization_pass);
-        maybe_dump_ir_stage("virtualized", &virtualized_ir.display_graphviz(true));
 
         let gadget_ir_view = VerifierVirtualizedIr::new(
             virtualized_ir.tree().clone(),
@@ -168,7 +137,6 @@ impl<B: SnarkBackend> TTVerifier<B> {
             VerifierGadgetInitializationPass::<B>::new(gadget_ir_view, arg_verifier.clone());
         let gadget_ready_ir =
             virtualized_ir.apply_local_pass_sequential(&gadget_initialization_pass);
-        maybe_dump_ir_stage("gadget_ready", &gadget_ready_ir.display_graphviz(true));
 
         let verify_ir_view = VerifierGadgetReadyIr::new(
             gadget_ready_ir.tree().clone(),
@@ -199,42 +167,40 @@ impl<B: SnarkBackend> TTVerifier<B> {
         proof: &TTProof<B>,
         result: Arc<MemTable>,
     ) -> TTResult<()> {
-        let (gadget_planned_ir, output_memtable) = self
-            .preprocess_query_with_output(query, proof, result)
-            .await?;
+        let lp = self.lp_passes(query, proof).await?;
+        let gadget_planned_ir = self.ir_passes(lp).await?;
+        let ctx = SessionContext::new();
+        let df = ctx.read_table(result.clone())?;
+        let batches = df.collect().await?;
+        let base_schema = batches
+            .first()
+            .map(|batch| batch.schema().as_ref().clone())
+            .unwrap_or_else(|| result.schema().as_ref().clone());
+        let (output_schema, output_batches) =
+            tt_core::prover::passes::materialization::append_activator_and_pad_batches(
+                &base_schema,
+                batches,
+            )?;
+        let output_memtable = Arc::new(MemTable::try_new(
+            Arc::new(output_schema),
+            vec![output_batches],
+        )?);
         self.verify_with_gadget_planned_ir(proof, &gadget_planned_ir, Some(output_memtable))
             .await
     }
 
-    pub async fn verify_with_preprocessed_and_output(
-        &self,
-        proof: &TTProof<B>,
-        gadget_planned_ir: &GadgetPlannedIr<B>,
-        output_memtable: Arc<MemTable>,
-    ) -> TTResult<()> {
-        let output_memtable = self.preprocess_output_memtable(output_memtable).await?;
-        self.verify_with_gadget_planned_ir(proof, gadget_planned_ir, Some(output_memtable))
-            .await
-    }
-
-    /// Run verifier planning for a query/proof pair (output + gadget planning only).
-    ///
-    /// This intentionally excludes tracking/virtualization/gadget-init/verify passes
-    /// and excludes cryptographic verification.
-    pub async fn preprocess_query(
+    pub async fn lp_passes(
         &self,
         query: &str,
         proof: &TTProof<B>,
-    ) -> TTResult<GadgetPlannedIr<B>> {
+    ) -> TTResult<datafusion_expr::LogicalPlan> {
         let initial_lp = self.shared_config().query_to_lp(query).await;
         debug!(
             "verifier initial logical plan:\n{}",
             initial_lp.display_graphviz()
         );
-        let analyzed_and_optimized_lp = self
-            .shared_config()
-            .analyze_and_optimize_lp(initial_lp)
-            .await;
+        let analyzed_lp = self.shared_config().analyze_lp(initial_lp).await;
+        let analyzed_and_optimized_lp = self.shared_config().optimize_lp(analyzed_lp).await;
         let analyzed_and_optimized_lp =
             apply_optimization_hints(analyzed_and_optimized_lp, proof.optimization_hints())
                 .map_err(tt_core::errors::TTError::from)?;
@@ -242,7 +208,14 @@ impl<B: SnarkBackend> TTVerifier<B> {
             "verifier optimized and analyzed logical plan:\n{}",
             analyzed_and_optimized_lp.display_graphviz()
         );
-        let tree: Tree<B> = Tree::from_logical_plan(&analyzed_and_optimized_lp);
+        Ok(analyzed_and_optimized_lp)
+    }
+
+    pub async fn ir_passes(
+        &self,
+        lp: datafusion_expr::LogicalPlan,
+    ) -> TTResult<GadgetPlannedIr<B>> {
+        let tree: Tree<B> = Tree::from_logical_plan(&lp);
         let initial_ir = EmptyIr::<B>::new_empty(tree);
         debug!(
             "verifier initial ir:\n{}",
@@ -267,297 +240,4 @@ impl<B: SnarkBackend> TTVerifier<B> {
         );
         Ok(gadget_planned_ir)
     }
-
-    async fn preprocess_query_with_output(
-        &self,
-        query: &str,
-        proof: &TTProof<B>,
-        output_memtable: Arc<MemTable>,
-    ) -> TTResult<(GadgetPlannedIr<B>, Arc<MemTable>)> {
-        let gadget_planned_ir = self.preprocess_query(query, proof).await?;
-        let output_memtable = self.preprocess_output_memtable(output_memtable).await?;
-        Ok((gadget_planned_ir, output_memtable))
-    }
-
-    async fn preprocess_output_memtable(
-        &self,
-        output_memtable: Arc<MemTable>,
-    ) -> TTResult<Arc<MemTable>> {
-        self.normalize_output_memtable(output_memtable).await
-    }
-
-    async fn track_query_output(
-        &self,
-        tracked_ir: &mut VerifierTrackedIr<B>,
-        output_memtable: Option<Arc<MemTable>>,
-        arg_verifier: ArgVerifier<B>,
-    ) -> TTResult<()> {
-        let root = tracked_ir.tree().root();
-        if root.name() != "ResultCheck" {
-            return Ok(());
-        }
-
-        let output_memtable = output_memtable.ok_or_else(|| {
-            DataFusionError::Internal(
-                "ResultCheck verification requires the compact query output".to_string(),
-            )
-        })?;
-        let materialized = Self::materialized_table_from_memtable(output_memtable, None).await?;
-        let arith_table = arithmetize_materialized_table::<B::F>(&materialized);
-        let tracked_table = Self::track_output_table_oracle(&arith_table, &arg_verifier);
-        let gadget_id = root
-            .children()
-            .into_iter()
-            .find(|child| child.name() == "ResultCheck")
-            .map(|child| child.id())
-            .ok_or_else(|| {
-                DataFusionError::Internal("ResultCheck root missing gadget child".to_string())
-            })?;
-        let mut gadget_payload = match tracked_ir.payload_for_node(&gadget_id) {
-            Some(PayloadStructure::GadgetPayload(map)) => map.clone(),
-            _ => IndexMap::new(),
-        };
-        gadget_payload.insert(
-            tt_core::irs::nodes::gadget::utils::result_check::OUTPUT_LABEL.to_string(),
-            tracked_table,
-        );
-        tracked_ir.set_payload_for_node(
-            gadget_id,
-            Some(PayloadStructure::GadgetPayload(gadget_payload)),
-        );
-        Ok(())
-    }
-
-    async fn normalize_output_memtable(&self, result: Arc<MemTable>) -> TTResult<Arc<MemTable>> {
-        let ctx = SessionContext::new();
-        let df = ctx.read_table(result.clone())?;
-        let batches = df.collect().await?;
-        let base_schema = batches
-            .first()
-            .map(|batch| batch.schema().as_ref().clone())
-            .unwrap_or_else(|| result.schema().as_ref().clone());
-        let (output_schema, output_batches) =
-            Self::append_activator_and_pad_batches(&base_schema, batches)?;
-        let mem_table = MemTable::try_new(Arc::new(output_schema), vec![output_batches])?;
-        Ok(Arc::new(mem_table))
-    }
-
-    async fn materialized_table_from_memtable(
-        mem_table: Arc<MemTable>,
-        target_num_rows: Option<usize>,
-    ) -> TTResult<MaterializedTable> {
-        let ctx = SessionContext::new();
-        let df = ctx.read_table(mem_table.clone())?;
-        let mut batches = df.collect().await?;
-        let schema = mem_table.schema();
-        batches =
-            Self::pad_memtable_batches_to_num_rows(schema.as_ref(), batches, target_num_rows)?;
-        let row_count = batches.iter().map(|batch| batch.num_rows()).sum();
-        let rebuilt = MemTable::try_new(mem_table.schema(), vec![batches.clone()])
-            .expect("memtable rebuild from collected batches should succeed");
-        Ok(MaterializedTable::new_with_batches(
-            rebuilt, row_count, batches,
-        ))
-    }
-
-    fn pad_memtable_batches_to_num_rows(
-        schema: &Schema,
-        batches: Vec<RecordBatch>,
-        target_num_rows: Option<usize>,
-    ) -> TTResult<Vec<RecordBatch>> {
-        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
-        let Some(target_num_rows) = target_num_rows else {
-            return Ok(batches);
-        };
-        if row_count > target_num_rows {
-            return Err(DataFusionError::Internal(format!(
-                "cannot pad output memtable from {} rows down to {} rows",
-                row_count, target_num_rows
-            ))
-            .into());
-        }
-        if row_count == target_num_rows {
-            return Ok(batches);
-        }
-
-        let schema_ref = Arc::new(schema.clone());
-        let combined = if row_count == 0 || schema.fields().is_empty() {
-            None
-        } else {
-            let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
-            Some(
-                concat_batches(&schema_ref, batch_refs)
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?,
-            )
-        };
-
-        let pad = target_num_rows - row_count;
-        let mut output_arrays = Vec::with_capacity(schema.fields().len());
-        for (idx, field) in schema.fields().iter().enumerate() {
-            let base = combined
-                .as_ref()
-                .map(|batch| batch.column(idx).clone())
-                .unwrap_or_else(|| {
-                    Self::inactive_padding_scalar(field.data_type())
-                        .expect("padding scalar for schema field")
-                        .to_array_of_size(0)
-                        .expect("empty array for schema field")
-                });
-            let pad_arr = if field.name() == arithmetic::ACTIVATOR_COL_NAME {
-                Arc::new(BooleanArray::from(vec![false; pad])) as ArrayRef
-            } else {
-                Self::inactive_padding_scalar(field.data_type())?.to_array_of_size(pad)?
-            };
-            output_arrays.push(
-                concat(&[base.as_ref(), pad_arr.as_ref()])
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?,
-            );
-        }
-
-        let padded_batch = RecordBatch::try_new(schema_ref, output_arrays)
-            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-        Ok(vec![padded_batch])
-    }
-
-    fn inactive_padding_scalar(data_type: &DataType) -> TTResult<ScalarValue> {
-        match ScalarValue::new_zero(data_type) {
-            Ok(value) => Ok(value),
-            Err(_) => match data_type {
-                DataType::Utf8View => Ok(ScalarValue::Utf8View(Some(String::new()))),
-                DataType::BinaryView => Ok(ScalarValue::BinaryView(Some(Vec::new()))),
-                DataType::FixedSizeBinary(size) => Ok(ScalarValue::FixedSizeBinary(
-                    *size,
-                    Some(vec![0; *size as usize]),
-                )),
-                _ => Err(DataFusionError::NotImplemented(format!(
-                    "Can't create an inactive padding scalar from data_type \"{data_type}\""
-                ))
-                .into()),
-            },
-        }
-    }
-
-    fn append_activator_and_pad_batches(
-        base_schema: &Schema,
-        batches: Vec<RecordBatch>,
-    ) -> TTResult<(Schema, Vec<RecordBatch>)> {
-        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
-        let target = if row_count == 0 {
-            2
-        } else {
-            row_count.next_power_of_two()
-        };
-        let has_activator = base_schema
-            .fields()
-            .iter()
-            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME);
-        let output_schema = Self::schema_with_activator(base_schema);
-        let output_schema_ref = Arc::new(output_schema.clone());
-        let base_schema_ref = Arc::new(base_schema.clone());
-
-        let combined = if row_count == 0 || base_schema.fields().is_empty() {
-            None
-        } else {
-            let batch_refs: Vec<&RecordBatch> = batches.iter().collect();
-            Some(
-                concat_batches(&base_schema_ref, batch_refs)
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?,
-            )
-        };
-
-        let mut output_arrays = Vec::with_capacity(output_schema_ref.fields().len());
-        for (idx, field) in base_schema.fields().iter().enumerate() {
-            let array = if let Some(batch) = combined.as_ref() {
-                let base = batch.column(idx).clone();
-                let pad = target - row_count;
-                if pad == 0 {
-                    base
-                } else {
-                    let pad_arr =
-                        Self::inactive_padding_scalar(field.data_type())?.to_array_of_size(pad)?;
-                    concat(&[base.as_ref(), pad_arr.as_ref()])
-                        .map_err(|e| DataFusionError::Execution(e.to_string()))?
-                }
-            } else {
-                Self::inactive_padding_scalar(field.data_type())?.to_array_of_size(target)?
-            };
-            output_arrays.push(array);
-        }
-
-        if !has_activator {
-            let activator_values = std::iter::repeat_n(true, row_count)
-                .chain(std::iter::repeat_n(false, target - row_count))
-                .collect::<Vec<_>>();
-            output_arrays.push(Arc::new(BooleanArray::from(activator_values)) as ArrayRef);
-        }
-
-        let output_batch = RecordBatch::try_new(output_schema_ref, output_arrays)
-            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
-        Ok((output_schema, vec![output_batch]))
-    }
-
-    fn schema_with_activator(base_schema: &Schema) -> Schema {
-        if base_schema
-            .fields()
-            .iter()
-            .any(|field| field.name() == arithmetic::ACTIVATOR_COL_NAME)
-        {
-            return base_schema.clone();
-        }
-        let mut fields = base_schema
-            .fields()
-            .iter()
-            .map(|field| field.as_ref().clone())
-            .collect::<Vec<_>>();
-        fields.push(datafusion::arrow::datatypes::Field::new(
-            arithmetic::ACTIVATOR_COL_NAME,
-            DataType::Boolean,
-            false,
-        ));
-        Schema::new_with_metadata(fields, base_schema.metadata().clone())
-    }
-
-    fn track_output_table_oracle(
-        arith_table: &ArithTable<B::F>,
-        arg_verifier: &ArgVerifier<B>,
-    ) -> TrackedTableOracle<B> {
-        let tracked_oracles = arith_table
-            .polynomials()
-            .iter()
-            .map(|(field_ref, mle)| {
-                let poly_evals = mle.evaluations();
-                let num_vars = mle.num_vars();
-                let oracle = Oracle::new_multivariate(arith_table.log_size(), move |point| {
-                    Ok(eval_mle_at_point(&poly_evals, num_vars, &point))
-                });
-                let tracked_oracle = arg_verifier.track_oracle(oracle);
-                (field_ref.clone(), tracked_oracle)
-            })
-            .collect();
-        TrackedTableOracle::new(
-            arith_table.schema(),
-            tracked_oracles,
-            arith_table.log_size(),
-        )
-    }
-}
-
-fn eval_mle_at_point<F: Field + Copy>(evaluations: &[F], num_vars: usize, point: &[F]) -> F {
-    if num_vars == 0 {
-        return evaluations.first().copied().unwrap_or_else(F::zero);
-    }
-
-    let mut layer = evaluations.to_vec();
-    let one = F::one();
-    for i in 0..num_vars {
-        let x = point.get(i).copied().unwrap_or_else(F::zero);
-        let mut next = Vec::with_capacity(layer.len() / 2);
-        for chunk in layer.chunks_exact(2) {
-            let low = chunk[0];
-            let high = chunk[1];
-            next.push(low * (one - x) + high * x);
-        }
-        layer = next;
-    }
-    layer[0]
 }

@@ -6,15 +6,13 @@ use std::{
 
 use arithmetic::{
     ROW_ID_COL_NAME,
-    table_oracle::{ArithTableOracle, TrackedTableOracle},
 };
-use ark_piop::{DefaultSnarkBackend, prover::ArgProver, verifier::ArgVerifier};
 use ark_serialize::CanonicalSerialize;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use divan::Bencher;
 use exec::{setup::DEFAULT_BENCH_LOG_SIZE, test_utils::resolve_key_paths};
 use front_end::{
-    prover::{TTProver, TTProverConfig},
+    data_owner::{TTDataOwner, TTDataOwnerConfig},
     shared::TTSharedConfig,
     structs::{Artifact, TTPk},
 };
@@ -109,17 +107,13 @@ fn commit_content_len(case: CommitCase) -> usize {
 
     let tt_pk = TTPk::<B>::load(commit_pk_path()).expect("load proving key for commit bench");
     let snark_pk = tt_pk.into_inner();
-    let mut verifier = ArgVerifier::<DefaultSnarkBackend>::new_from_vk(snark_pk.vk.clone());
-    let prover = ArgProver::<DefaultSnarkBackend>::new_from_pk(snark_pk);
     let shared_config: TTSharedConfig<B> = TTSharedConfig::with_defaults(ctx);
-    let prover = TTProver::new(TTProverConfig::for_commit(), shared_config, prover);
-    let (table_scan_table, proof) =
-        block_on(prover.prove_with_table_scan(&query)).expect("prove with table-scan");
-    verifier.set_proof(proof.snark_proof());
-
-    let tracked_oracle = TrackedTableOracle::from_tracked_table(table_scan_table, &mut verifier)
-        .expect("convert tracked table to oracle");
-    let serializable = ArithTableOracle::<B>::from_tracked_table_oracle(&tracked_oracle);
+    let data_owner = TTDataOwner::new(
+        TTDataOwnerConfig::default(),
+        shared_config,
+        snark_pk,
+    );
+    let serializable = block_on(data_owner.commit(&query)).expect("commit table to oracle");
     let mut oracle_bytes = Vec::new();
     serializable
         .serialize_compressed(&mut oracle_bytes)

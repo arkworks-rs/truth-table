@@ -13,7 +13,7 @@ use ark_piop::{DefaultSnarkBackend, verifier::ArgVerifier};
 use ark_serialize::CanonicalDeserialize;
 use datafusion::{
     config::ConfigOptions,
-    datasource::MemTable,
+    datasource::{MemTable, TableProvider},
     optimizer::{Analyzer, Optimizer, OptimizerContext},
     prelude::{ParquetReadOptions, SessionConfig, SessionContext},
 };
@@ -61,10 +61,13 @@ pub struct BenchAssets {
 
 pub struct BenchProof {
     pub proof: TTProof<B>,
+    pub output_memtable: Arc<MemTable>,
     // Serialized SNARK proof component of TTProof.
     pub snark_proof_bytes: usize,
     // Serialized optimization-hint component of TTProof.
     pub optimization_hint_bytes: usize,
+    // Serialized and compressed TTProof artifact size.
+    pub compressed_proof_bytes: usize,
 }
 
 pub struct VerifierFullBenchState {
@@ -73,6 +76,7 @@ pub struct VerifierFullBenchState {
     pub proof: TTProof<B>,
     pub output_memtable: Arc<MemTable>,
     pub preprocessed_gadget_ir: Mutex<Option<Arc<GadgetPlannedIr<B>>>>,
+    pub preprocessed_output_memtable: Mutex<Option<Arc<MemTable>>>,
 }
 
 pub struct ProverBenchIteration {
@@ -220,7 +224,7 @@ pub fn prepare_assets_cached(case: BenchCase) -> BenchAssets {
     assets
 }
 
-pub fn run_prover_once(assets: &BenchAssets) -> TTProof<B> {
+pub fn run_prover_once(assets: &BenchAssets) -> (Arc<MemTable>, TTProof<B>) {
     // Build the prover and run proof generation once (used for warmup/caching).
     let iteration = prepare_prover_iteration(assets);
     run_prover_iteration(iteration)
@@ -244,12 +248,12 @@ pub fn prepare_prover_iteration(assets: &BenchAssets) -> ProverBenchIteration {
     }
 }
 
-pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
+pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, TTProof<B>) {
     // Time only the proving call to avoid counting setup.
     let _query_span =
         tracing::info_span!(target: "bench_stats", "bench_query", query = %iteration.query)
             .entered();
-    let (_table, snark_proof) =
+    let (output_memtable, snark_proof) =
         block_on(iteration.prover.prove(&iteration.query)).expect("prove for bench");
     stats_layer::emit_proof_commitment_counts(
         snark_proof
@@ -279,7 +283,7 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> TTProof<B> {
         non_cryptographic_proof_size_bytes,
         cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes,
     );
-    snark_proof
+    (output_memtable, snark_proof)
 }
 
 pub fn ensure_proof(assets: &BenchAssets) -> Arc<BenchProof> {
@@ -310,8 +314,8 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
         return existing;
     }
 
-    let proof = run_prover_once(assets);
-    let bench_proof = save_proof(assets.case.name, &proof);
+    let (output_memtable, proof) = run_prover_once(assets);
+    let bench_proof = save_proof(assets.case.name, &proof, output_memtable);
 
     cache
         .lock()
@@ -323,6 +327,7 @@ pub fn warmup_proof(assets: &BenchAssets) -> Arc<BenchProof> {
 
 pub fn cache_proof_in_memory_if_absent(
     case_name: &'static str,
+    output_memtable: Arc<MemTable>,
     proof: &TTProof<B>,
 ) -> Arc<BenchProof> {
     let cache = PROOF_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -334,6 +339,7 @@ pub fn cache_proof_in_memory_if_absent(
 
     let bench_proof = Arc::new(BenchProof {
         proof: proof.clone(),
+        output_memtable,
         snark_proof_bytes: proof
             .as_snark_proof()
             .to_bytes()
@@ -344,12 +350,16 @@ pub fn cache_proof_in_memory_if_absent(
             .to_bytes()
             .expect("serialize optimization hints for bench size accounting")
             .len(),
+        compressed_proof_bytes: proof
+            .to_bytes()
+            .expect("serialize compressed proof for bench size accounting")
+            .len(),
     });
     guard.insert(case_name, Arc::clone(&bench_proof));
     bench_proof
 }
 
-pub fn save_proof(_case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
+pub fn save_proof(_case_name: &str, proof: &TTProof<B>, output_memtable: Arc<MemTable>) -> Arc<BenchProof> {
     let snark_proof_bytes = proof
         .as_snark_proof()
         .to_bytes()
@@ -360,11 +370,17 @@ pub fn save_proof(_case_name: &str, proof: &TTProof<B>) -> Arc<BenchProof> {
         .to_bytes()
         .expect("serialize optimization hints for bench size accounting")
         .len();
+    let compressed_proof_bytes = proof
+        .to_bytes()
+        .expect("serialize compressed proof for bench size accounting")
+        .len();
 
     Arc::new(BenchProof {
         proof: proof.clone(),
+        output_memtable,
         snark_proof_bytes,
         optimization_hint_bytes,
+        compressed_proof_bytes,
     })
 }
 
@@ -375,7 +391,7 @@ pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof:
     if guard.insert(case_name) {
         let full_bytes = proof.snark_proof_bytes + proof.optimization_hint_bytes;
         println!(
-            "proof size ({}) core={} ({} bytes) opt-hints={} ({} bytes) full={} ({} bytes)",
+            "proof size ({}) core={} ({} bytes) opt-hints={} ({} bytes) full={} ({} bytes) full-compressed={} ({} bytes)",
             case_name,
             format_bytes(proof.snark_proof_bytes),
             proof.snark_proof_bytes,
@@ -383,28 +399,23 @@ pub fn log_proof_size_once(case_name: &'static str, _query: &'static str, proof:
             proof.optimization_hint_bytes,
             format_bytes(full_bytes),
             full_bytes,
+            format_bytes(proof.compressed_proof_bytes),
+            proof.compressed_proof_bytes,
         );
     }
 }
 
 pub fn build_verifier_full_state_from_proof(
     assets: &BenchAssets,
-    proof: &TTProof<B>,
+    bench_proof: &BenchProof,
 ) -> VerifierFullBenchState {
     // Build verifier/proof once so timed iterations include only IR passes + crypto verification.
     let verifier = build_verifier(assets);
-    let prover_iteration = prepare_prover_iteration(assets);
-    let output_memtable = block_on(
-        prover_iteration
-            .prover
-            .output_memtable(&prover_iteration.query),
-    )
-    .expect("extract output memtable from prover for bench");
     build_verifier_full_state_from_proof_impl(
         verifier,
         assets.case.query,
-        proof.clone(),
-        output_memtable,
+        bench_proof.proof.clone(),
+        Arc::clone(&bench_proof.output_memtable),
     )
 }
 
@@ -420,6 +431,7 @@ fn build_verifier_full_state_from_proof_impl(
         proof,
         output_memtable,
         preprocessed_gadget_ir: Mutex::new(None),
+        preprocessed_output_memtable: Mutex::new(None),
     }
 }
 
@@ -430,11 +442,16 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
         .lock()
         .expect("preprocessed ir lock poisoned")
         .clone();
-    if let Some(gadget_planned_ir) = cached_ir {
-        block_on_verifier(state.verifier.verify_with_preprocessed_and_output(
+    let cached_output = state
+        .preprocessed_output_memtable
+        .lock()
+        .expect("preprocessed output lock poisoned")
+        .clone();
+    if let (Some(gadget_planned_ir), Some(output_memtable)) = (cached_ir, cached_output) {
+        block_on_verifier(state.verifier.verify_with_gadget_planned_ir(
             &state.proof,
             gadget_planned_ir.as_ref(),
-            Arc::clone(&state.output_memtable),
+            Some(output_memtable),
         ))
         .expect("verify for bench");
     } else {
@@ -449,13 +466,38 @@ pub fn run_full_verifier_once(state: &VerifierFullBenchState) {
 
 pub fn run_preprocess_once(state: &VerifierFullBenchState) {
     // Time only one-time verifier preprocessing (planning/gadget planning cache fill).
-    let gadget_planned_ir =
-        block_on_verifier(state.verifier.preprocess_query(&state.query, &state.proof))
-            .expect("preprocess verifier query for bench");
+    let lp = block_on_verifier(state.verifier.lp_passes(&state.query, &state.proof))
+        .expect("verifier logical-plan preprocessing for bench");
+    let gadget_planned_ir = block_on_verifier(state.verifier.ir_passes(lp))
+        .expect("verifier ir preprocessing for bench");
+    let ctx = SessionContext::new();
+    let output_memtable = block_on_verifier(async {
+        let table: Arc<dyn TableProvider> = state.output_memtable.clone();
+        let df = ctx.read_table(table)?;
+        let batches = df.collect().await?;
+        let base_schema = batches
+            .first()
+            .map(|batch| batch.schema().as_ref().clone())
+            .unwrap_or_else(|| state.output_memtable.schema().as_ref().clone());
+        let (output_schema, output_batches) =
+            tt_core::prover::passes::materialization::append_activator_and_pad_batches(
+                &base_schema,
+                batches,
+            )?;
+        Ok::<Arc<MemTable>, tt_core::errors::TTError>(Arc::new(MemTable::try_new(
+            Arc::new(output_schema),
+            vec![output_batches],
+        )?))
+    })
+    .expect("verifier output preprocessing for bench");
     *state
         .preprocessed_gadget_ir
         .lock()
         .expect("preprocessed ir lock poisoned") = Some(Arc::new(gadget_planned_ir));
+    *state
+        .preprocessed_output_memtable
+        .lock()
+        .expect("preprocessed output lock poisoned") = Some(output_memtable);
 }
 
 fn build_verifier(assets: &BenchAssets) -> TTVerifier<B> {

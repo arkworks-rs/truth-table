@@ -164,7 +164,7 @@ fn bench_join_verifier(bencher: Bencher, case: BenchCase) {
     let _ = warmup_proof(&assets);
     let bench_proof = ensure_proof(&assets);
     log_proof_size_once(case.name, case.query, &bench_proof);
-    let state = build_verifier_full_state_from_proof(&assets, &bench_proof.proof);
+    let state = build_verifier_full_state_from_proof(&assets, &bench_proof);
     run_preprocess_once(&state);
     bencher.bench_local(|| {
         run_full_verifier_once(&state);
