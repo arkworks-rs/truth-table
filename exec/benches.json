@@ -386,10 +386,10 @@
                "sample_count": 1,
                "iter_count": 1,
                "time": {
-                  "fastest": "50.8 s",
-                  "slowest": "50.8 s",
-                  "median": "50.8 s",
-                  "mean": "50.8 s"
+                  "fastest": "51.17 s",
+                  "slowest": "51.17 s",
+                  "median": "51.17 s",
+                  "mean": "51.17 s"
                }
             },
             "verifier_core": {
@@ -406,10 +406,10 @@
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "47.88 ms",
-                  "slowest": "51.66 ms",
-                  "median": "49.43 ms",
-                  "mean": "49.54 ms"
+                  "fastest": "45.72 ms",
+                  "slowest": "53.21 ms",
+                  "median": "49.14 ms",
+                  "mean": "49.23 ms"
                }
             },
             "verifier_preprocess": {
@@ -426,10 +426,10 @@
                "sample_count": 100,
                "iter_count": 100,
                "time": {
-                  "fastest": "18.41 ms",
-                  "slowest": "20.83 ms",
-                  "median": "19.73 ms",
-                  "mean": "19.72 ms"
+                  "fastest": "18.85 ms",
+                  "slowest": "21.72 ms",
+                  "median": "19.5 ms",
+                  "mean": "19.61 ms"
                }
             },
             "verifier_non_crypto": {

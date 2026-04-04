@@ -2,12 +2,13 @@ use std::{
     collections::BTreeMap,
     fmt,
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 use chrono::Utc;
+use serde_json::{Map, Value, json};
 use tracing::{
     Event, Subscriber,
     field::{Field, Visit},
@@ -16,20 +17,19 @@ use tracing::{
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 const BENCH_STATS_TARGET: &str = "bench_stats";
-const CSV_HEADER: &str = "timestamp_utc,query,nonzerocheck_claims,nonzerocheck_degree_distribution,zerocheck_claims,zerocheck_degree_distribution,sumcheck_claims,sumcheck_degree_distribution,lookup_claims,reduce_degree::max degree,reduce_degree::num commited,sumcheck::degree,sumcheck::number of terms,sumcheck::prove time s,proof_mv_commitments,proof_uv_commitments,cryptographic_proof_size_bytes,non_cryptographic_proof_size_bytes,full_proof_size_bytes\n";
-pub const BENCH_STATS_CSV_PATH: &str = "target/bench_stats.csv";
+pub const BENCH_STATS_JSONL_PATH: &str = "target/bench_stats.jsonl";
 
-pub struct BenchStatsCsvLayer {
-    sink: Arc<Mutex<CsvSink>>,
-    pending_rows: Arc<Mutex<BTreeMap<String, CsvRow>>>,
+pub struct BenchStatsJsonlLayer {
+    sink: Arc<Mutex<JsonlSink>>,
+    pending_records: Arc<Mutex<BTreeMap<String, PendingBenchRecord>>>,
 }
 
 #[derive(Clone)]
 struct QueryLabel(String);
 
-impl BenchStatsCsvLayer {
+impl BenchStatsJsonlLayer {
     pub fn new_default() -> std::io::Result<Self> {
-        Self::new(PathBuf::from(BENCH_STATS_CSV_PATH))
+        Self::new(PathBuf::from(BENCH_STATS_JSONL_PATH))
     }
 
     pub fn new(path: PathBuf) -> std::io::Result<Self> {
@@ -39,52 +39,19 @@ impl BenchStatsCsvLayer {
             std::fs::create_dir_all(parent)?;
         }
 
-        if path.exists() && !has_current_header(&path)? {
-            let backup = backup_path_for(&path);
-            if backup.exists() {
-                std::fs::remove_file(&backup)?;
-            }
-            std::fs::rename(&path, &backup)?;
-        }
-
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .read(true)
-            .open(&path)?;
-        let is_empty = file.metadata()?.len() == 0;
-
-        let mut writer = BufWriter::new(file);
-        if is_empty {
-            writer.write_all(CSV_HEADER.as_bytes())?;
-            writer.flush()?;
-        }
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         Ok(Self {
-            sink: Arc::new(Mutex::new(CsvSink { writer, path })),
-            pending_rows: Arc::new(Mutex::new(BTreeMap::new())),
+            sink: Arc::new(Mutex::new(JsonlSink {
+                writer: BufWriter::new(file),
+                path,
+            })),
+            pending_records: Arc::new(Mutex::new(BTreeMap::new())),
         })
     }
 }
 
-fn has_current_header(path: &Path) -> std::io::Result<bool> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut first_line = String::new();
-    let _ = reader.read_line(&mut first_line)?;
-    Ok(first_line.trim_end() == CSV_HEADER.trim_end())
-}
-
-fn backup_path_for(path: &Path) -> PathBuf {
-    let mut backup = path.to_path_buf();
-    match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) if !ext.is_empty() => backup.set_extension(format!("{ext}.bak")),
-        _ => backup.set_extension("bak"),
-    };
-    backup
-}
-
-impl<S> Layer<S> for BenchStatsCsvLayer
+impl<S> Layer<S> for BenchStatsJsonlLayer
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
@@ -108,96 +75,53 @@ where
         event.record(&mut visitor);
         let mut fields = visitor.fields;
 
-        let nonzerocheck_claims = fields.remove("nonzerocheck_claims").unwrap_or_default();
-        let nonzerocheck_degree_distribution = fields
-            .remove("nonzerocheck_degree_distribution")
-            .unwrap_or_default();
-        let zerocheck_claims = fields.remove("zerocheck_claims").unwrap_or_default();
-        let zerocheck_degree_distribution = fields
-            .remove("zerocheck_degree_distribution")
-            .unwrap_or_default();
-        let sumcheck_claims = fields.remove("sumcheck_claims").unwrap_or_default();
-        let sumcheck_degree_distribution = fields
-            .remove("sumcheck_degree_distribution")
-            .unwrap_or_default();
-        let lookup_claims = fields.remove("lookup_claims").unwrap_or_default();
-        let reduce_degree_max_degree = fields
-            .remove("reduce_degree_max_degree")
-            .unwrap_or_default();
-        let reduce_degree_num_commited = fields
-            .remove("reduce_degree_num_commited")
-            .unwrap_or_default();
-        let sumcheck_degree = fields.remove("sumcheck_degree").unwrap_or_default();
-        let sumcheck_num_terms = fields.remove("sumcheck_num_terms").unwrap_or_default();
-        let sumcheck_prove_time_s = fields.remove("sumcheck_prove_time_s").unwrap_or_default();
-        let proof_mv_commitments = fields.remove("proof_mv_commitments").unwrap_or_default();
-        let proof_uv_commitments = fields.remove("proof_uv_commitments").unwrap_or_default();
-        let cryptographic_proof_size_bytes = fields
-            .remove("cryptographic_proof_size_bytes")
-            .unwrap_or_default();
-        let non_cryptographic_proof_size_bytes = fields
-            .remove("non_cryptographic_proof_size_bytes")
-            .unwrap_or_default();
-        let full_proof_size_bytes = fields.remove("full_proof_size_bytes").unwrap_or_default();
-
-        // Persist rows for either claim-count events or proof commitment summaries.
-        if nonzerocheck_claims.is_empty()
-            && zerocheck_claims.is_empty()
-            && sumcheck_claims.is_empty()
-            && lookup_claims.is_empty()
-            && proof_mv_commitments.is_empty()
-            && proof_uv_commitments.is_empty()
-            && cryptographic_proof_size_bytes.is_empty()
-            && non_cryptographic_proof_size_bytes.is_empty()
-            && full_proof_size_bytes.is_empty()
-        {
+        if let Some(benchmark) = fields.remove("benchmark") {
+            let case = fields.remove("case").unwrap_or_default();
+            let timestamp = now_utc_rfc3339_ms();
+            let entry = json!({
+                "timestamp": timestamp,
+                "timestamp_utc": timestamp,
+                "kind": "benchmark_summary",
+                "benchmark": benchmark,
+                "case": case,
+            });
+            if let Ok(mut sink) = self.sink.lock()
+                && let Err(err) = sink.write_entry(&entry)
+            {
+                eprintln!(
+                    "failed to append bench stats entry to {}: {}",
+                    sink.path.display(),
+                    err
+                );
+            }
             return;
         }
 
         let query = fields
             .remove("query")
             .filter(|q| !q.is_empty())
-            .or_else(|| query_from_scope(&ctx, event))
-            .unwrap_or_default();
+            .or_else(|| query_from_scope(&ctx, event));
 
-        if query.is_empty() {
+        let Some(query) = query else {
+            return;
+        };
+
+        let mut payload = Map::new();
+        for (key, value) in fields {
+            if !value.is_empty() {
+                payload.insert(key, Value::String(value));
+            }
+        }
+
+        if payload.is_empty() {
             return;
         }
 
-        if let Ok(mut pending_rows) = self.pending_rows.lock() {
-            let row = pending_rows
+        if let Ok(mut pending_records) = self.pending_records.lock() {
+            let record = pending_records
                 .entry(query.clone())
-                .or_insert_with(|| CsvRow::new(query));
-
-            row.merge_field("nonzerocheck_claims", nonzerocheck_claims);
-            row.merge_field(
-                "nonzerocheck_degree_distribution",
-                nonzerocheck_degree_distribution,
-            );
-            row.merge_field("zerocheck_claims", zerocheck_claims);
-            row.merge_field(
-                "zerocheck_degree_distribution",
-                zerocheck_degree_distribution,
-            );
-            row.merge_field("sumcheck_claims", sumcheck_claims);
-            row.merge_field("sumcheck_degree_distribution", sumcheck_degree_distribution);
-            row.merge_field("lookup_claims", lookup_claims);
-            row.merge_field("reduce_degree_max_degree", reduce_degree_max_degree);
-            row.merge_field("reduce_degree_num_commited", reduce_degree_num_commited);
-            row.merge_field("sumcheck_degree", sumcheck_degree);
-            row.merge_field("sumcheck_num_terms", sumcheck_num_terms);
-            row.merge_field("sumcheck_prove_time_s", sumcheck_prove_time_s);
-            row.merge_field("proof_mv_commitments", proof_mv_commitments);
-            row.merge_field("proof_uv_commitments", proof_uv_commitments);
-            row.merge_field(
-                "cryptographic_proof_size_bytes",
-                cryptographic_proof_size_bytes,
-            );
-            row.merge_field(
-                "non_cryptographic_proof_size_bytes",
-                non_cryptographic_proof_size_bytes,
-            );
-            row.merge_field("full_proof_size_bytes", full_proof_size_bytes);
+                .or_insert_with(|| PendingBenchRecord::new(query));
+            record.merge(payload);
         }
     }
 
@@ -211,21 +135,23 @@ where
         };
 
         let query = label.0.clone();
-        let row = self
-            .pending_rows
+        let record = self
+            .pending_records
             .lock()
             .ok()
-            .and_then(|mut pending_rows| pending_rows.remove(&query));
+            .and_then(|mut pending_records| pending_records.remove(&query));
 
-        if let Some(row) = row
-            && let Ok(mut sink) = self.sink.lock()
-            && let Err(err) = sink.write_row(&row)
-        {
-            eprintln!(
-                "failed to append bench stats row to {}: {}",
-                sink.path.display(),
-                err
-            );
+        if let Some(record) = record {
+            let entry = record.into_json();
+            if let Ok(mut sink) = self.sink.lock()
+                && let Err(err) = sink.write_entry(&entry)
+            {
+                eprintln!(
+                    "failed to append bench stats entry to {}: {}",
+                    sink.path.display(),
+                    err
+                );
+            }
         }
     }
 }
@@ -244,144 +170,173 @@ where
     query
 }
 
-struct CsvSink {
+struct JsonlSink {
     writer: BufWriter<File>,
     path: PathBuf,
 }
 
-impl CsvSink {
-    fn write_row(&mut self, row: &CsvRow) -> std::io::Result<()> {
-        let values = [
-            &row.timestamp_utc,
-            &row.query,
-            &row.nonzerocheck_claims,
-            &row.nonzerocheck_degree_distribution,
-            &row.zerocheck_claims,
-            &row.zerocheck_degree_distribution,
-            &row.sumcheck_claims,
-            &row.sumcheck_degree_distribution,
-            &row.lookup_claims,
-            &row.reduce_degree_max_degree,
-            &row.reduce_degree_num_commited,
-            &row.sumcheck_degree,
-            &row.sumcheck_num_terms,
-            &row.sumcheck_prove_time_s,
-            &row.proof_mv_commitments,
-            &row.proof_uv_commitments,
-            &row.cryptographic_proof_size_bytes,
-            &row.non_cryptographic_proof_size_bytes,
-            &row.full_proof_size_bytes,
-        ];
-
-        for (idx, value) in values.iter().enumerate() {
-            if idx > 0 {
-                self.writer.write_all(b",")?;
-            }
-            write_csv_value(&mut self.writer, value)?;
-        }
+impl JsonlSink {
+    fn write_entry(&mut self, entry: &Value) -> std::io::Result<()> {
+        serde_json::to_writer(&mut self.writer, entry)?;
         self.writer.write_all(b"\n")?;
         self.writer.flush()?;
         Ok(())
     }
 }
 
-struct CsvRow {
+struct PendingBenchRecord {
     timestamp_utc: String,
     query: String,
-    nonzerocheck_claims: String,
-    nonzerocheck_degree_distribution: String,
-    zerocheck_claims: String,
-    zerocheck_degree_distribution: String,
-    sumcheck_claims: String,
-    sumcheck_degree_distribution: String,
-    lookup_claims: String,
-    reduce_degree_max_degree: String,
-    reduce_degree_num_commited: String,
-    sumcheck_degree: String,
-    sumcheck_num_terms: String,
-    sumcheck_prove_time_s: String,
-    proof_mv_commitments: String,
-    proof_uv_commitments: String,
-    cryptographic_proof_size_bytes: String,
-    non_cryptographic_proof_size_bytes: String,
-    full_proof_size_bytes: String,
+    claims: Map<String, Value>,
+    prover: Map<String, Value>,
+    proof_size_fields: Map<String, Value>,
+    proof_size_crypto_breakdown: Map<String, Value>,
+    proof_size_non_crypto_breakdown: Map<String, Value>,
+    extra: Map<String, Value>,
 }
 
-impl CsvRow {
+impl PendingBenchRecord {
     fn new(query: String) -> Self {
         Self {
             timestamp_utc: now_utc_rfc3339_ms(),
             query,
-            nonzerocheck_claims: String::new(),
-            nonzerocheck_degree_distribution: String::new(),
-            zerocheck_claims: String::new(),
-            zerocheck_degree_distribution: String::new(),
-            sumcheck_claims: String::new(),
-            sumcheck_degree_distribution: String::new(),
-            lookup_claims: String::new(),
-            reduce_degree_max_degree: String::new(),
-            reduce_degree_num_commited: String::new(),
-            sumcheck_degree: String::new(),
-            sumcheck_num_terms: String::new(),
-            sumcheck_prove_time_s: String::new(),
-            proof_mv_commitments: String::new(),
-            proof_uv_commitments: String::new(),
-            cryptographic_proof_size_bytes: String::new(),
-            non_cryptographic_proof_size_bytes: String::new(),
-            full_proof_size_bytes: String::new(),
+            claims: Map::new(),
+            prover: Map::new(),
+            proof_size_fields: Map::new(),
+            proof_size_crypto_breakdown: Map::new(),
+            proof_size_non_crypto_breakdown: Map::new(),
+            extra: Map::new(),
         }
     }
 
-    fn merge_field(&mut self, field: &str, value: String) {
-        if value.is_empty() {
-            return;
-        }
-
-        match field {
-            "nonzerocheck_claims" => self.nonzerocheck_claims = value,
-            "nonzerocheck_degree_distribution" => self.nonzerocheck_degree_distribution = value,
-            "zerocheck_claims" => self.zerocheck_claims = value,
-            "zerocheck_degree_distribution" => self.zerocheck_degree_distribution = value,
-            "sumcheck_claims" => self.sumcheck_claims = value,
-            "sumcheck_degree_distribution" => self.sumcheck_degree_distribution = value,
-            "lookup_claims" => self.lookup_claims = value,
-            "reduce_degree_max_degree" => self.reduce_degree_max_degree = value,
-            "reduce_degree_num_commited" => self.reduce_degree_num_commited = value,
-            "sumcheck_degree" => self.sumcheck_degree = value,
-            "sumcheck_num_terms" => self.sumcheck_num_terms = value,
-            "sumcheck_prove_time_s" => self.sumcheck_prove_time_s = value,
-            "proof_mv_commitments" => self.proof_mv_commitments = value,
-            "proof_uv_commitments" => self.proof_uv_commitments = value,
-            "cryptographic_proof_size_bytes" => self.cryptographic_proof_size_bytes = value,
-            "non_cryptographic_proof_size_bytes" => self.non_cryptographic_proof_size_bytes = value,
-            "full_proof_size_bytes" => self.full_proof_size_bytes = value,
-            _ => {}
+    fn merge(&mut self, fields: Map<String, Value>) {
+        for (key, value) in fields {
+            match key.as_str() {
+                _ if key.starts_with("claims_") => {
+                    self.claims.insert(key, value);
+                }
+                "proof_mv_commitments" | "proof_uv_commitments" => {
+                    self.prover.insert(key, value);
+                }
+                "cryptographic_proof_size_bytes"
+                | "non_cryptographic_proof_size_bytes"
+                | "full_proof_size_bytes"
+                | "full_compressed_proof_size_bytes" => {
+                    self.proof_size_fields.insert(key, value);
+                }
+                "crypto_breakdown_sc_subproof"
+                | "crypto_breakdown_mv_pcs_subproof"
+                | "crypto_breakdown_uv_pcs_subproof"
+                | "crypto_breakdown_miscellaneous_field_elements" => {
+                    let normalized = key
+                        .strip_prefix("crypto_breakdown_")
+                        .unwrap_or(&key)
+                        .to_string();
+                    self.proof_size_crypto_breakdown.insert(normalized, value);
+                }
+                _ => {
+                    self.extra.insert(key, value);
+                }
+            }
         }
     }
+
+    fn into_json(self) -> Value {
+        let mut root = Map::new();
+        root.insert("timestamp".to_string(), Value::String(self.timestamp_utc.clone()));
+        root.insert("timestamp_utc".to_string(), Value::String(self.timestamp_utc));
+        root.insert("kind".to_string(), Value::String("bench_query".to_string()));
+        root.insert("query".to_string(), Value::String(self.query));
+        if !self.claims.is_empty() {
+            root.insert("claims".to_string(), build_nested_claims(self.claims));
+        }
+        if !self.prover.is_empty() {
+            root.insert("prover".to_string(), Value::Object(self.prover));
+        }
+        if !self.proof_size_fields.is_empty() {
+            let full_size = self
+                .proof_size_fields
+                .get("full_proof_size_bytes")
+                .cloned()
+                .unwrap_or(Value::Null);
+            let full_compressed_size = self
+                .proof_size_fields
+                .get("full_compressed_proof_size_bytes")
+                .cloned()
+                .unwrap_or(Value::Null);
+            let crypto_size = self
+                .proof_size_fields
+                .get("cryptographic_proof_size_bytes")
+                .cloned()
+                .unwrap_or(Value::Null);
+            let non_crypto_size = self
+                .proof_size_fields
+                .get("non_cryptographic_proof_size_bytes")
+                .cloned()
+                .unwrap_or(Value::Null);
+
+            root.insert(
+                "proof_size".to_string(),
+                json!({
+                    "full": {
+                        "size": full_size,
+                        "compressed size": full_compressed_size
+                    },
+                    "crypto": {
+                        "size": crypto_size,
+                        "breakdown": self.proof_size_crypto_breakdown
+                    },
+                    "non_crypto": {
+                        "size": non_crypto_size,
+                        "breakdown": self.proof_size_non_crypto_breakdown
+                    }
+                }),
+            );
+        }
+        if !self.extra.is_empty() {
+            root.insert("extra".to_string(), Value::Object(self.extra));
+        }
+        Value::Object(root)
+    }
+}
+
+fn build_nested_claims(claims: Map<String, Value>) -> Value {
+    json!({
+        "before-degree-reduction": {
+            "initial": build_claim_stage(&claims, "claims_before_degree_reduction_initial"),
+            "after-nozero-batching": build_claim_stage(&claims, "claims_before_degree_reduction_after_nozero_batching"),
+            "after-zero-batching": build_claim_stage(&claims, "claims_before_degree_reduction_after_zero_batching"),
+            "after-sum-batching": build_claim_stage(&claims, "claims_before_degree_reduction_after_sum_batching")
+        },
+        "after-degree-reduction": {
+            "after-zero-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_zero_batching"),
+            "after-sum-batching": build_claim_stage(&claims, "claims_after_degree_reduction_after_sum_batching")
+        }
+    })
+}
+
+fn build_claim_stage(claims: &Map<String, Value>, prefix: &str) -> Value {
+    json!({
+        "non-zero-checks": build_claim_metric(claims, prefix, "non_zero_checks"),
+        "zero-checks": build_claim_metric(claims, prefix, "zero_checks"),
+        "sum-checks": build_claim_metric(claims, prefix, "sum_checks")
+    })
+}
+
+fn build_claim_metric(claims: &Map<String, Value>, prefix: &str, metric: &str) -> Value {
+    let count_key = format!("{prefix}_{metric}_count");
+    let degree_distribution_key = format!("{prefix}_{metric}_degree_distribution");
+    json!({
+        "count": claims.get(&count_key).cloned().unwrap_or(Value::Null),
+        "degree_distribution": claims
+            .get(&degree_distribution_key)
+            .cloned()
+            .unwrap_or(Value::Null)
+    })
 }
 
 fn now_utc_rfc3339_ms() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
-fn write_csv_value(writer: &mut BufWriter<File>, value: &str) -> std::io::Result<()> {
-    let needs_quotes = value.contains(',') || value.contains('"') || value.contains('\n');
-    if !needs_quotes {
-        writer.write_all(value.as_bytes())?;
-        return Ok(());
-    }
-
-    writer.write_all(b"\"")?;
-    for ch in value.chars() {
-        if ch == '"' {
-            writer.write_all(b"\"\"")?;
-        } else {
-            let mut buf = [0u8; 4];
-            writer.write_all(ch.encode_utf8(&mut buf).as_bytes())?;
-        }
-    }
-    writer.write_all(b"\"")?;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -433,11 +388,12 @@ impl Visit for FieldValueVisitor {
     }
 }
 
-// Kept for compatibility with existing callsites; rows are emitted by claim-count events.
-pub fn emit_benchmark_stats_row(_benchmark: &'static str, _case: &str) {}
+pub fn emit_benchmark_stats_row(benchmark: &'static str, case: &str) {
+    let _ = (benchmark, case);
+}
 
-pub fn default_csv_path() -> &'static Path {
-    Path::new(BENCH_STATS_CSV_PATH)
+pub fn default_jsonl_path() -> &'static Path {
+    Path::new(BENCH_STATS_JSONL_PATH)
 }
 
 pub fn emit_proof_commitment_counts(mv_commitments: usize, uv_commitments: usize) {
@@ -454,6 +410,11 @@ pub fn emit_proof_size_bytes(
     cryptographic_proof_size_bytes: usize,
     non_cryptographic_proof_size_bytes: usize,
     full_proof_size_bytes: usize,
+    full_compressed_proof_size_bytes: usize,
+    crypto_breakdown_sc_subproof: usize,
+    crypto_breakdown_mv_pcs_subproof: usize,
+    crypto_breakdown_uv_pcs_subproof: usize,
+    crypto_breakdown_miscellaneous_field_elements: usize,
 ) {
     tracing::info!(
         target: BENCH_STATS_TARGET,
@@ -461,6 +422,11 @@ pub fn emit_proof_size_bytes(
         cryptographic_proof_size_bytes,
         non_cryptographic_proof_size_bytes,
         full_proof_size_bytes,
+        full_compressed_proof_size_bytes,
+        crypto_breakdown_sc_subproof,
+        crypto_breakdown_mv_pcs_subproof,
+        crypto_breakdown_uv_pcs_subproof,
+        crypto_breakdown_miscellaneous_field_elements,
         "proof_sizes"
     );
 }

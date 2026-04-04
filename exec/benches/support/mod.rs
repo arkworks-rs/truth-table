@@ -152,12 +152,12 @@ pub fn init_bench_tracing() {
                 metadata.is_event() && metadata.target() != "bench_stats"
             }));
 
-        let stats_layer = match stats_layer::BenchStatsCsvLayer::new_default() {
+        let stats_layer = match stats_layer::BenchStatsJsonlLayer::new_default() {
             Ok(layer) => Some(layer),
             Err(err) => {
                 eprintln!(
-                    "failed to initialize bench stats csv layer at {}: {}",
-                    stats_layer::default_csv_path().display(),
+                    "failed to initialize bench stats jsonl layer at {}: {}",
+                    stats_layer::default_jsonl_path().display(),
                     err
                 );
                 None
@@ -277,11 +277,21 @@ pub fn run_prover_iteration(iteration: ProverBenchIteration) -> (Arc<MemTable>, 
         .to_bytes()
         .expect("serialize optimization hints for bench size accounting")
         .len();
+    let full_compressed_proof_size_bytes = snark_proof
+        .to_bytes()
+        .expect("serialize compressed proof for bench size accounting")
+        .len();
+    let crypto_breakdown = snark_proof.snark_proof_size_breakdown_bytes();
     stats_layer::emit_proof_size_bytes(
         &iteration.query,
         cryptographic_proof_size_bytes,
         non_cryptographic_proof_size_bytes,
         cryptographic_proof_size_bytes + non_cryptographic_proof_size_bytes,
+        full_compressed_proof_size_bytes,
+        crypto_breakdown.sc_subproof,
+        crypto_breakdown.mv_pcs_subproof,
+        crypto_breakdown.uv_pcs_subproof,
+        crypto_breakdown.miscellaneous_field_elements,
     );
     (output_memtable, snark_proof)
 }
